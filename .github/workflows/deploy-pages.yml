@@ -1,0 +1,65 @@
+name: Deploy app Segreteria (Pages)
+
+# Pubblica l'app della segreteria su GitHub Pages solo se tutti i moduli
+# JavaScript sono sintatticamente validi: un file rotto non va mai online,
+# resta l'ultima versione buona.
+#
+# ATTIVAZIONE (una tantum): Settings -> Pages -> Build and deployment ->
+#   Source = "GitHub Actions".
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Controllo sintassi dei moduli (gate)
+        run: |
+          set -e
+          for f in js/*.js; do
+            cp "$f" "/tmp/$(basename "$f").mjs"
+            node --check "/tmp/$(basename "$f").mjs"
+            echo "ok $f"
+          done
+
+      - name: Prepara i file pubblici
+        run: |
+          set -e
+          mkdir -p _site
+          cp index.html _site/
+          cp -r css js img _site/
+          touch _site/.nojekyll
+
+      - name: Carica artifact Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy su GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

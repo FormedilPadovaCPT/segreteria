@@ -1,0 +1,5 @@
+desktop.ini
+**/desktop.ini
+.DS_Store
+node_modules/
+*.bak

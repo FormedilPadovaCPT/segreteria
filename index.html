@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Segreteria — Formedil Padova</title>
+<link rel="stylesheet" href="css/app.css">
+<link rel="icon" href="img/logo.png">
+</head>
+<body>
+
+<!-- ══════════ LOGIN ══════════ -->
+<div id="login" class="login-wrap hidden">
+  <div class="login-card">
+    <img src="img/logo.png" alt="Formedil Padova" class="login-logo" onerror="this.style.display='none'">
+    <h1>Gestionale Segreteria</h1>
+    <p class="sub">Area Sicurezza e Salute</p>
+    <label for="login-email">Indirizzo email di servizio</label>
+    <input id="login-email" type="email" placeholder="nome.cognome@did.formedilpadova.it" autocomplete="email">
+    <button id="login-btn" class="btn btn-primary btn-block">Ricevi il link di accesso</button>
+    <p id="login-msg" class="login-msg"></p>
+  </div>
+</div>
+
+<!-- ══════════ APP ══════════ -->
+<div id="app" class="hidden">
+
+  <header class="topbar">
+    <button id="menu-toggle" class="menu-toggle" aria-label="Menu">☰</button>
+    <img src="img/logo.png" alt="" class="topbar-logo" onerror="this.style.display='none'">
+    <div class="topbar-title">
+      <strong>Gestionale Segreteria</strong>
+      <span id="topbar-sub">Area Sicurezza e Salute</span>
+    </div>
+    <div class="topbar-right">
+      <span id="user-email" class="user-email"></span>
+      <button id="logout-btn" class="btn btn-ghost btn-sm">Esci</button>
+    </div>
+  </header>
+
+  <div class="shell">
+    <nav id="sidebar" class="sidebar">
+      <button class="nav-item is-active" data-view="registro">📚 Registro protocollo</button>
+      <button class="nav-item" data-view="nuovo-in">📥 Nuovo protocollo IN</button>
+      <button class="nav-item" data-view="nuovo-out">📤 Nuovo protocollo OUT</button>
+      <button class="nav-item" data-view="lettere">✉️ Lettere di incarico</button>
+      <div class="nav-sep"></div>
+      <button class="nav-item" data-view="statistiche">📊 Statistiche</button>
+      <div class="nav-foot">
+        <span id="nav-counts"></span>
+      </div>
+    </nav>
+
+    <main id="main" class="main">
+
+      <!-- ── REGISTRO ── -->
+      <section id="view-registro" class="view">
+        <div class="view-head">
+          <h2>Registro protocollo</h2>
+          <div class="head-actions">
+            <button class="btn btn-out btn-sm" data-goto="nuovo-out">+ Nuovo OUT</button>
+            <button class="btn btn-in btn-sm" data-goto="nuovo-in">+ Nuovo IN</button>
+          </div>
+        </div>
+
+        <div class="filters">
+          <div class="seg" id="f-direzione">
+            <button class="seg-btn is-active" data-val="">Tutti</button>
+            <button class="seg-btn seg-in" data-val="IN">Entrata</button>
+            <button class="seg-btn seg-out" data-val="OUT">Uscita</button>
+          </div>
+          <input id="f-testo" class="inp" type="search" placeholder="Cerca in oggetto, impresa, persona, note, n° protocollo…">
+          <select id="f-anno" class="inp inp-sm"><option value="">Tutti gli anni</option></select>
+          <select id="f-tipo" class="inp inp-sm"><option value="">Tutti i tipi doc.</option></select>
+          <select id="f-ufficio" class="inp inp-sm"><option value="">Tutti gli uffici</option></select>
+          <button id="f-reset" class="btn btn-ghost btn-sm">Azzera</button>
+        </div>
+
+        <div class="table-wrap">
+          <table class="tbl" id="tbl-registro">
+            <thead>
+              <tr>
+                <th class="col-num">N°</th>
+                <th class="col-dir"></th>
+                <th class="col-data">Data</th>
+                <th>Mittente / Destinatario</th>
+                <th>Oggetto</th>
+                <th class="col-tipo">Tipo doc.</th>
+                <th class="col-mezzo">Mezzo</th>
+                <th class="col-icon"></th>
+              </tr>
+            </thead>
+            <tbody id="tb-registro"></tbody>
+          </table>
+          <div id="registro-empty" class="empty hidden">Nessun protocollo con questi filtri.</div>
+        </div>
+
+        <div class="pager">
+          <button id="pg-prev" class="btn btn-ghost btn-sm">‹ Precedenti</button>
+          <span id="pg-info" class="pg-info"></span>
+          <button id="pg-next" class="btn btn-ghost btn-sm">Successivi ›</button>
+        </div>
+      </section>
+
+      <!-- ── NUOVO / MODIFICA ── -->
+      <section id="view-form" class="view hidden">
+        <div class="view-head">
+          <h2 id="form-title">Nuovo protocollo</h2>
+          <div class="head-actions">
+            <button id="form-close" class="btn btn-ghost btn-sm">Torna al registro</button>
+          </div>
+        </div>
+        <div id="form-host" class="form-host"></div>
+      </section>
+
+      <!-- ── LETTERE ── -->
+      <section id="view-lettere" class="view hidden">
+        <div class="view-head"><h2>Lettere di incarico</h2></div>
+        <div id="lettere-host"></div>
+      </section>
+
+      <!-- ── STATISTICHE ── -->
+      <section id="view-statistiche" class="view hidden">
+        <div class="view-head"><h2>Statistiche del registro</h2></div>
+        <div id="stat-host" class="stat-host"></div>
+      </section>
+
+    </main>
+  </div>
+</div>
+
+<!-- ══════════ DRAWER DETTAGLIO ══════════ -->
+<div id="drawer-bg" class="drawer-bg hidden"></div>
+<aside id="drawer" class="drawer hidden">
+  <div id="drawer-head" class="drawer-head">
+    <div>
+      <span id="drawer-badge" class="badge"></span>
+      <h3 id="drawer-title">Protocollo</h3>
+    </div>
+    <button id="drawer-close" class="icon-btn" aria-label="Chiudi">✕</button>
+  </div>
+  <div id="drawer-body" class="drawer-body"></div>
+</aside>
+
+<!-- ══════════ TOAST ══════════ -->
+<div id="toast" class="toast hidden"></div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
