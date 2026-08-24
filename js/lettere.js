@@ -11,10 +11,12 @@
    modelli Word dell'ufficio prima di andare in produzione.
    ============================================================ */
 
-import { PDFDocument, rgb, StandardFonts } from 'https://esm.sh/pdf-lib@1.17.1';
-import { sb, state, $, $$, esc, dataIt, oggiIso, toast, attendi, mostraVista } from './app.js';
+import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, mostraVista } from './app.js';
 import { BUCKET, ENTE } from './config.js';
 import { MODELLI_LETTERA, ETICHETTE_CAMPI } from './lookups.js';
+import { pdfLib } from './cdn.js';
+
+const { PDFDocument, rgb, StandardFonts } = await pdfLib();
 
 const ARANCIO = rgb(0.906, 0.314, 0.059);
 const GRIGIO = rgb(0.337, 0.361, 0.400);

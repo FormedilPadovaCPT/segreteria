@@ -5,10 +5,28 @@
    eventi si agganciano tutti da qui.
    ============================================================ */
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 import { SB_URL, SB_KEY } from './config.js';
+import { supabaseJs } from './cdn.js';
 
 /* ── client e stato condiviso ─────────────────────────────── */
+let createClient;
+try {
+  ({ createClient } = await supabaseJs());
+} catch (e) {
+  document.body.innerHTML = `
+    <div style="max-width:520px;margin:16vh auto;padding:28px;background:#fff;border-radius:10px;
+                border-top:5px solid #e7500f;font-family:Arial,sans-serif;box-shadow:0 4px 20px rgba(0,0,0,.1)">
+      <h2 style="color:#e7500f;margin:0 0 10px">Avvio non riuscito</h2>
+      <p style="line-height:1.6;color:#444">${e.message}</p>
+      <p style="line-height:1.6;color:#444">Chiedi all'assistenza informatica di autorizzare
+      <code>cdn.jsdelivr.net</code>, <code>esm.sh</code> e <code>cdn.skypack.dev</code>,
+      oppure prova da un'altra connessione.</p>
+      <button onclick="location.reload()" style="background:#e7500f;color:#fff;border:0;border-radius:6px;
+              padding:10px 18px;font-size:14px;cursor:pointer">Riprova</button>
+    </div>`;
+  throw e;
+}
+
 export const sb = createClient(SB_URL, SB_KEY, {
   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
 });
@@ -147,13 +165,31 @@ document.addEventListener('click', (e) => {
   if (g) vaiA(g.dataset.goto);
 });
 
-/* smistamento verso i moduli */
-let mod = {};
-function vaiA(vista) {
+/* smistamento verso i moduli: le librerie pesanti (PDF) si caricano
+   solo quando servono davvero, non all'avvio */
+const mod = {};
+async function vaiA(vista) {
   if (vista === 'nuovo-in') return mod.protocollo?.apriForm('IN');
   if (vista === 'nuovo-out') return mod.protocollo?.apriForm('OUT');
-  if (vista === 'lettere') { mostraVista('lettere'); return mod.lettere?.render(); }
-  if (vista === 'statistiche') { mostraVista('statistiche'); return mod.statistiche?.render(); }
+
+  if (vista === 'lettere') {
+    mostraVista('lettere');
+    $('#lettere-host').innerHTML = '<p class="empty">Preparazione dei modelli…</p>';
+    try {
+      mod.lettere = mod.lettere || await import('./lettere.js');
+      return mod.lettere.render();
+    } catch (e) {
+      $('#lettere-host').innerHTML = `<p class="empty">${esc(e.message)}</p>`;
+      return;
+    }
+  }
+
+  if (vista === 'statistiche') {
+    mostraVista('statistiche');
+    mod.statistiche = mod.statistiche || await import('./statistiche.js');
+    return mod.statistiche.render();
+  }
+
   mostraVista('registro');
   mod.protocollo?.ricarica();
 }
@@ -181,8 +217,6 @@ if (!session) {
     state.tipiDoc = tipi || [];
 
     mod.protocollo = await import('./protocollo.js');
-    mod.lettere = await import('./lettere.js');
-    mod.statistiche = await import('./statistiche.js');
     await mod.protocollo.init();
   }
 }

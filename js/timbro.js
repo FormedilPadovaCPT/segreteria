@@ -8,10 +8,12 @@
    in stampa e non serve incorporare immagini.
    ============================================================ */
 
-import { PDFDocument, rgb, StandardFonts, degrees } from 'https://esm.sh/pdf-lib@1.17.1';
-import qrcode from 'https://esm.sh/qrcode-generator@1.4.4';
-import { sb, state, esc, dataIt } from './app.js';
+import { sb, state, dataIt } from './app.js';
 import { BUCKET, ENTE } from './config.js';
+import { pdfLib, qrGen } from './cdn.js';
+
+const { PDFDocument, rgb, StandardFonts, degrees } = await pdfLib();
+const qrcode = await qrGen();
 
 const ARANCIO = rgb(0.906, 0.314, 0.059);
 const GRIGIO = rgb(0.337, 0.361, 0.400);
@@ -50,25 +52,59 @@ function disegnaQr(page, testo, x, y, lato) {
   }
 }
 
-/* ── impaginazione a blocco (prima pagina) ────────────────── */
+/* ── impaginazione a blocco (prima pagina) ──────────────────
+   Riprende la griglia del timbro Access: numero e data in
+   evidenza, poi mezzo, oggetto, ufficio, cartella e referente.  */
 function timbroBlocco(page, p, font, bold) {
   const { height } = page.getSize();
-  const L = 26, W = 208, H = 92;
+  const L = 26, W = 268, H = 172;
   const y = height - H - 26;
-
-  page.drawRectangle({ x: L, y, width: W, height: H, color: rgb(1, 1, 1), opacity: 0.92 });
-  page.drawRectangle({ x: L, y, width: W, height: H, borderColor: ARANCIO, borderWidth: 1.4 });
-  page.drawRectangle({ x: L, y: y + H - 17, width: W, height: 17, color: ARANCIO });
-
-  page.drawText(ENTE.nome, { x: L + 7, y: y + H - 13, size: 8.5, font: bold, color: rgb(1, 1, 1) });
-
   const dir = p.direzione === 'IN' ? 'ENTRATA' : 'USCITA';
-  page.drawText(`PROTOCOLLO IN ${dir}`, { x: L + 7, y: y + H - 31, size: 7, font: bold, color: GRIGIO });
-  page.drawText(`n° ${p.numero}`, { x: L + 7, y: y + H - 52, size: 17, font: bold, color: ARANCIO });
-  page.drawText(`del ${dataIt(p.data_prot)}`, { x: L + 7, y: y + H - 66, size: 8.5, font, color: NERO });
-  page.drawText(ENTE.area, { x: L + 7, y: y + 8, size: 6.5, font, color: GRIGIO });
 
-  disegnaQr(page, testoQr(p), L + W - 66, y + 12, 58);
+  page.drawRectangle({ x: L, y, width: W, height: H, color: rgb(1, 1, 1), opacity: 0.93 });
+  page.drawRectangle({ x: L, y, width: W, height: H, borderColor: ARANCIO, borderWidth: 1.4 });
+  page.drawRectangle({ x: L, y: y + H - 16, width: W, height: 16, color: ARANCIO });
+
+  page.drawText(`${ENTE.nome} · ${ENTE.area}`.toUpperCase().slice(0, 46),
+    { x: L + 6, y: y + H - 12, size: 7, font: bold, color: rgb(1, 1, 1) });
+
+  /* numero e data in evidenza */
+  page.drawText(`PROTOCOLLO IN ${dir}`, { x: L + 7, y: y + H - 30, size: 6.5, font: bold, color: GRIGIO });
+  page.drawText(`n° ${p.numero}`, { x: L + 7, y: y + H - 51, size: 17, font: bold, color: ARANCIO });
+  page.drawText(`del ${dataIt(p.data_prot)}`, { x: L + 7, y: y + H - 65, size: 8.5, font, color: NERO });
+
+  /* QR a destra */
+  disegnaQr(page, testoQr(p), L + W - 62, y + H - 74, 54);
+
+  /* griglia dei riferimenti */
+  page.drawLine({
+    start: { x: L + 6, y: y + H - 74 }, end: { x: L + W - 6, y: y + H - 74 },
+    thickness: 0.6, color: ARANCIO,
+  });
+
+  const taglia = (t, size, larg) => {
+    const orig = String(t || '');
+    if (font.widthOfTextAtSize(orig, size) <= larg) return orig;
+    let s = orig;
+    while (s && font.widthOfTextAtSize(s + '…', size) > larg) s = s.slice(0, -1);
+    return s.trimEnd() + '…';
+  };
+
+  let ry = y + H - 86;
+  const voce = (etichetta, valore) => {
+    if (!valore) return;
+    page.drawText(etichetta, { x: L + 7, y: ry, size: 6, font: bold, color: GRIGIO });
+    page.drawText(taglia(valore, 7.5, W - 66), { x: L + 52, y: ry, size: 7.5, font, color: NERO });
+    ry -= 11.5;
+  };
+
+  voce('OGGETTO', p.oggetto);
+  voce('MITT./DEST.', p.impresa_nome || p.persona);
+  voce('MEZZO', p.mezzo);
+  voce('DATA DOC.', dataIt(p.data_doc));
+  voce('UFFICIO', p.ufficio);
+  voce('CARTELLA', p.cartella);
+  voce('REFERENTE', p.referente);
 }
 
 /* ── impaginazione a striscia (tutte le pagine) ───────────── */
