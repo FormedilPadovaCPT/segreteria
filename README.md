@@ -22,6 +22,7 @@ del gestionale visite e della webapp asseverazione, sulle tabelle `s_*`.
 | `js/timbro.js` | Timbro sul PDF con QR, nelle due impaginazioni |
 | `js/mail.js` | Avviso di protocollazione |
 | `js/lettere.js` | Lettere di incarico su carta intestata |
+| `js/imprese.js` | Ricerca e scheda impresa con le sue sottoschede |
 | `js/statistiche.js` | Numeri e distribuzioni del registro |
 
 Nessun passaggio di compilazione: sono moduli ES caricati dal browser.
@@ -87,10 +88,36 @@ con numero e data già stampati → lo allega al protocollo.
 > ⚠️ I testi delle lettere in `js/lettere.js` sono una **prima stesura**. Vanno
 > confrontati con i modelli Word dell'ufficio prima dell'uso in produzione.
 
+## Scheda impresa
+
+Sostituisce la maschera "Imprese" di Access. Si arriva dalla voce di menu
+(ricerca per ragione sociale, codice fiscale, partita IVA o codice CEIV) oppure
+dal dettaglio di un protocollo agganciato a un'impresa.
+
+Quattro sottoschede: **Anagrafica** (modificabile, con certificazioni),
+**Cantieri**, **Persone** (dipendenti e nomine), **Attività** (visite, richieste,
+protocolli).
+
+### Come sono legati impresa e cantiere
+
+Nel database non c'è un legame diretto: si ricostruisce da due parti, e la
+scheda le tiene distinte con tre colori.
+
+| Colore | Significato | Da dove arriva |
+|---|---|---|
+| verde | l'impresa è la **prima impresa** del cantiere | `visite_imprese_presenti.is_principale = true` |
+| ambra | compare tra le **imprese successive** | `visite_imprese_presenti.is_principale = false` |
+| azzurro | risulta **operante secondo CEIV** | `cantiere_imprese_previste` (con il tipo lavoro: Appalto, Subappalto, In proprio…) |
+
+Tutta la scheda si legge con una sola chiamata (`s_scheda_impresa`, ~90 ms).
+Le modifiche passano da `s_aggiorna_impresa`, che accetta solo i campi in elenco
+e scrive ogni variazione in `s_impresa_audit` (campo, valore prima e dopo, autore,
+data). Il codice fiscale non è modificabile: è la chiave con cui l'impresa è
+collegata a visite, cantieri e protocolli.
+
 ## Da fare
 
 - [ ] Modelli Word ufficiali delle lettere di incarico
-- [ ] Scheda impresa d'ufficio (dati Access: PEC, ANCE, CCNL, INPS/INAIL, Socrate)
 - [ ] Scheda persona con storico nomine (`s_nomine`, 7.496 righe)
 - [ ] Aggancio dei vecchi documenti su Drive (`drive_file_id` / `drive_url`)
 - [ ] Rubriche (Enti, Fornitori, Sindacati, Stampa, ANCE)

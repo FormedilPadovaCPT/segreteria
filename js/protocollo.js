@@ -224,6 +224,7 @@ export async function apriDettaglio(id) {
       <button class="btn btn-primary btn-sm" data-az="modifica">Modifica</button>
       <button class="btn btn-ghost btn-sm" data-az="mail">✉️ Avviso di protocollazione</button>
       <button class="btn btn-ghost btn-sm" data-az="copia">Duplica come nuovo</button>
+      ${p.impresa_id ? '<button class="btn btn-ghost btn-sm" data-az="impresa">🏢 Scheda impresa</button>' : ''}
       ${p.annullato
         ? '<button class="btn btn-ghost btn-sm" data-az="ripristina">Togli annullamento</button>'
         : '<button class="btn btn-ghost btn-sm" data-az="annulla">Annulla protocollo</button>'}
@@ -252,6 +253,13 @@ async function gestisciAzioneDrawer(e) {
     delete copia.id; delete copia.numero; delete copia.created_at;
     copia.data_prot = oggiIso();
     apriForm(p.direzione, copia, true);
+    return;
+  }
+
+  if (az === 'impresa') {
+    chiudiDrawer();
+    const { apriScheda } = await import('./imprese.js');
+    apriScheda(p.impresa_id);
     return;
   }
 

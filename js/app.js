@@ -64,6 +64,13 @@ async function vaiA(vista) {
     }
   }
 
+  if (vista === 'imprese') {
+    mostraVista('imprese');
+    $('#imprese-host').innerHTML = '<p class="empty">Un istante…</p>';
+    mod.imprese = mod.imprese || await import('./imprese.js');
+    return mod.imprese.render();
+  }
+
   if (vista === 'statistiche') {
     mostraVista('statistiche');
     mod.statistiche = mod.statistiche || await import('./statistiche.js');
