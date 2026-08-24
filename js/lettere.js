@@ -11,7 +11,7 @@
    modelli Word dell'ufficio prima di andare in produzione.
    ============================================================ */
 
-import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, mostraVista } from './app.js';
+import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, mostraVista } from './core.js';
 import { BUCKET, ENTE } from './config.js';
 import { MODELLI_LETTERA, ETICHETTE_CAMPI } from './lookups.js';
 import { pdfLib } from './cdn.js';

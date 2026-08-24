@@ -4,7 +4,7 @@
    andamento per anno, tipo documento, mezzo, cartella d'archivio.
    ============================================================ */
 
-import { sb, $, esc, toast } from './app.js';
+import { sb, $, esc, toast } from './core.js';
 
 export async function render(anno = null) {
   const host = $('#stat-host');

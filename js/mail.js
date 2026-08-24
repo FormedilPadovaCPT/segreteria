@@ -6,7 +6,7 @@
    L'invio passa dalla edge function "send-protocollo".
    ============================================================ */
 
-import { sb, $, $$, esc, dataIt, toast, attendi } from './app.js';
+import { sb, $, $$, esc, dataIt, toast, attendi } from './core.js';
 
 export async function apriDialogoMail(p) {
   /* indirizzi suggeriti */

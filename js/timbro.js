@@ -8,7 +8,7 @@
    in stampa e non serve incorporare immagini.
    ============================================================ */
 
-import { sb, state, dataIt } from './app.js';
+import { sb, state, dataIt } from './core.js';
 import { BUCKET, ENTE } from './config.js';
 import { pdfLib, qrGen } from './cdn.js';
 

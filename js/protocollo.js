@@ -8,7 +8,7 @@
 import {
   sb, state, $, $$, esc, dataIt, oggiIso, toast, attendi,
   mostraVista, apriDrawer, chiudiDrawer,
-} from './app.js';
+} from './core.js';
 import { PAGE_SIZE, BUCKET } from './config.js';
 import { UFFICI, MEZZI, normalizzaMezzo } from './lookups.js';
 
