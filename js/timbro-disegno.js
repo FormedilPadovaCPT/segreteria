@@ -60,77 +60,114 @@ function disegnaQr(page, testo, x, y, lato, deps, col) {
   }
 }
 
-const TESTA = 62;    // fascia dell'ente, codice, data
-const PASSO = 10;    // interlinea di una voce
-const CODA = 8;      // aria in fondo
+/* ── le due forme del timbro ───────────────────────────────
+   «blocco»  (predefinito) intestazione con numero, data e QR, e
+             sotto i riferimenti su due colonne, in corpo minuscolo
+             e interlinea strettissima — solo numero e data restano
+             leggibili a distanza. 200 x 66 punti, cioe' poco piu'
+             del timbro che l'ufficio usa in Access (circa 184 x 52).
+   «minimo»  solo ente, numero, data e QR: 140 x 46. Per quando sul
+             foglio lo spazio e' poco; il resto si legge nel registro
+             o inquadrando il QR.
 
-/* ── quanto spazio occupa il blocco ────────────────────────
-   L'altezza si calcola dal contenuto, non e' fissa: un timbro con
-   due righe non deve essere alto come uno con sei. E' la prima
-   difesa contro la sovrapposizione al documento sotto.          */
-export function misuraBlocco(p) {
-  const righe = [
-    p.oggetto, p.impresa_nome || p.persona, p.mezzo, p.ufficio, p.cartella, p.referente,
-  ].filter(Boolean).length;
-  return { larghezza: 232, altezza: TESTA + righe * PASSO + CODA };
+   In tutti e due i casi **l'ingombro non dipende dal contenuto**:
+   il testo che non ci sta viene mandato a capo e poi tagliato con i
+   puntini. Era il difetto della versione precedente, che cresceva
+   con quello che ci si scriveva dentro.                          */
+
+const MISURE = {
+  blocco: { larghezza: 200, altezza: 66 },
+  minimo: { larghezza: 140, altezza: 46 },
+};
+
+export function misuraTimbro(p, stile = 'blocco') {
+  return { ...(MISURE[stile] || MISURE.blocco) };
 }
 
-/* ── impaginazione a blocco ────────────────────────────────
-   Posizione predefinita: in alto a sinistra. Si puo' spostare
-   passando `posizione` = {x, y} in punti PDF, misurati dal
-   basso-sinistra come vuole il formato.                        */
+/* qualche chiamante cerca ancora il nome vecchio */
+export const misuraBlocco = (p) => misuraTimbro(p, 'blocco');
+
+function taglia(testo, font, size, larghezza) {
+  let t = String(testo || '');
+  if (font.widthOfTextAtSize(t, size) <= larghezza) return t;
+  while (t && font.widthOfTextAtSize(t + '…', size) > larghezza) t = t.slice(0, -1);
+  return t.trimEnd() + '…';
+}
+
+function ancora(page, W, H, posizione, margine = 26) {
+  const { width: LARG, height } = page.getSize();
+  const L = posizione ? Math.max(2, Math.min(posizione.x, LARG - W - 2)) : margine;
+  const y = posizione ? Math.max(2, Math.min(posizione.y, height - H - 2)) : height - H - margine;
+  return { L, y };
+}
+
+function cornice(page, col, L, y, W, H) {
+  page.drawRectangle({ x: L, y, width: W, height: H, color: col.BIANCO, opacity: 0.94 });
+  page.drawRectangle({ x: L, y, width: W, height: H, borderColor: col.ARANCIO, borderWidth: 0.9 });
+}
+
+function fascia(page, col, bold, L, y, W, H, alta) {
+  page.drawRectangle({ x: L, y: y + H - alta, width: W, height: alta, color: col.ARANCIO });
+  page.drawText(`${ENTE.nome} · ${ENTE.area}`.toUpperCase(),
+    { x: L + 4, y: y + H - alta + 2.6, size: 4.6, font: bold, color: col.BIANCO });
+}
+
+/* numero e data: le due sole cose che restano leggibili a distanza */
+function capo(page, col, font, bold, p, L, y, H, barra) {
+  page.drawText(p.esercizio ? codiceProtocollo(p) : `n° ${p.numero}`,
+    { x: L + 5, y: y + H - barra - 13, size: 10.5, font: bold, color: col.ARANCIO });
+  page.drawText(`del ${dataIt(p.data_prot)}`,
+    { x: L + 5, y: y + H - barra - 23, size: 7, font, color: col.NERO });
+}
+
+/* ── blocco (predefinito) ─────────────────────────────────── */
 export function timbroBlocco(page, p, font, bold, deps, posizione) {
   const col = tavolozza(deps.rgb);
-  const { width: LARG, height } = page.getSize();
-  const { larghezza: W, altezza: H } = misuraBlocco(p);
-  const L = posizione ? Math.max(4, Math.min(posizione.x, LARG - W - 4)) : 26;
-  const y = posizione ? Math.max(4, Math.min(posizione.y, height - H - 4)) : height - H - 26;
+  const { larghezza: W, altezza: H } = MISURE.blocco;
+  const { L, y } = ancora(page, W, H, posizione);
+  const BARRA = 9, QR = 28, PASSO = 6;
 
-  page.drawRectangle({ x: L, y, width: W, height: H, color: col.BIANCO, opacity: 0.93 });
-  page.drawRectangle({ x: L, y, width: W, height: H, borderColor: col.ARANCIO, borderWidth: 1.2 });
-  page.drawRectangle({ x: L, y: y + H - 13, width: W, height: 13, color: col.ARANCIO });
+  cornice(page, col, L, y, W, H);
+  fascia(page, col, bold, L, y, W, H, BARRA);
+  capo(page, col, font, bold, p, L, y, H, BARRA);
+  disegnaQr(page, testoQr(p), L + W - 5 - QR, y + H - BARRA - QR - 3, QR, deps, col);
 
-  page.drawText(`${ENTE.nome} · ${ENTE.area}`.toUpperCase().slice(0, 46),
-    { x: L + 5, y: y + H - 9.5, size: 6.5, font: bold, color: col.BIANCO });
-
-  /* Il codice e la data DI PROTOCOLLO: sono le due cose che il
-     timbro aggiunge al foglio. La data del documento no: quella
-     il documento ce l'ha gia' stampata sua.                     */
-  const codice = codiceProtocollo(p);
-  page.drawText(p.esercizio ? codice : `n° ${p.numero}`,
-    { x: L + 6, y: y + H - 32, size: p.esercizio ? 12.5 : 16, font: bold, color: col.ARANCIO });
-  page.drawText(`del ${dataIt(p.data_prot)}`,
-    { x: L + 6, y: y + H - 45, size: 8, font, color: col.NERO });
-
-  disegnaQr(page, testoQr(p), L + W - 46, y + H - 54, 40, deps, col);
-
+  const ySep = y + H - BARRA - QR - 7;
   page.drawLine({
-    start: { x: L + 5, y: y + H - 54 }, end: { x: L + W - 5, y: y + H - 54 },
-    thickness: 0.5, color: col.ARANCIO,
+    start: { x: L + 4, y: ySep }, end: { x: L + W - 4, y: ySep },
+    thickness: 0.4, color: col.ARANCIO,
   });
 
-  const taglia = (t, size, larg) => {
-    const orig = String(t || '');
-    if (font.widthOfTextAtSize(orig, size) <= larg) return orig;
-    let s = orig;
-    while (s && font.widthOfTextAtSize(s + '…', size) > larg) s = s.slice(0, -1);
-    return s.trimEnd() + '…';
-  };
-
-  let ry = y + H - TESTA + 2;
-  const voce = (etichetta, valore) => {
+  /* Riferimenti su due colonne, corpo 5 e interlinea 6: si leggono
+     col foglio in mano, non servono a leggersi da lontano. */
+  const COL = 97;
+  const voce = (dx, largh, i, etichetta, valore) => {
     if (!valore) return;
-    page.drawText(etichetta, { x: L + 6, y: ry, size: 5.5, font: bold, color: col.GRIGIO });
-    page.drawText(taglia(valore, 7, W - 58), { x: L + 46, y: ry, size: 7, font, color: col.NERO });
-    ry -= PASSO;
+    const yy = ySep - 6 - i * PASSO;
+    page.drawText(etichetta, { x: L + 5 + dx, y: yy, size: 4.2, font: bold, color: col.GRIGIO });
+    page.drawText(taglia(valore, font, 5, largh - 27),
+      { x: L + 5 + dx + 27, y: yy, size: 5, font, color: col.NERO });
   };
 
-  voce('OGGETTO', p.oggetto);
-  voce('MITT./DEST.', p.impresa_nome || p.persona);
-  voce('MEZZO', p.mezzo);
-  voce('UFFICIO', p.ufficio);
-  voce('CARTELLA', p.cartella);
-  voce('REFERENTE', p.referente);
+  voce(0, COL, 0, 'OGGETTO', p.oggetto);
+  voce(0, COL, 1, 'DA/A', p.impresa_nome || p.persona);
+  voce(0, COL, 2, 'MEZZO', p.mezzo);
+  voce(COL, W - COL - 8, 0, 'UFFICIO', p.ufficio);
+  voce(COL, W - COL - 8, 1, 'CARTELLA', p.cartella);
+  voce(COL, W - COL - 8, 2, 'RIF.', p.referente);
+}
+
+/* ── minimo: per quando lo spazio e' poco ─────────────────── */
+export function timbroMinimo(page, p, font, bold, deps, posizione) {
+  const col = tavolozza(deps.rgb);
+  const { larghezza: W, altezza: H } = MISURE.minimo;
+  const { L, y } = ancora(page, W, H, posizione);
+  const BARRA = 10, QR = 32, PAD = 5;
+
+  cornice(page, col, L, y, W, H);
+  fascia(page, col, bold, L, y, W, H, BARRA);
+  capo(page, col, font, bold, p, L, y, H, BARRA);
+  disegnaQr(page, testoQr(p), L + W - PAD - QR, y + (H - BARRA - QR) / 2 + 1, QR, deps, col);
 }
 
 /* ── impaginazione a striscia (tutte le pagine) ────────────
@@ -162,6 +199,7 @@ export async function applicaTimbro(pdf, protocollo, stile, deps, posizione) {
   const bold = await pdf.embedFont(deps.StandardFonts.HelveticaBold);
 
   if (stile === 'striscia') pdf.getPages().forEach((pg) => timbroStriscia(pg, protocollo, font, bold, deps));
+  else if (stile === 'minimo') timbroMinimo(pdf.getPages()[0], protocollo, font, bold, deps, posizione);
   else timbroBlocco(pdf.getPages()[0], protocollo, font, bold, deps, posizione);
 
   pdf.setSubject(`Protocollo ${siglaProtocollo(protocollo)} del ${dataIt(protocollo.data_prot)}`);

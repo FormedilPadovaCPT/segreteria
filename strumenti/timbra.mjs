@@ -23,9 +23,12 @@
      node timbra.mjs --pdf <file.pdf> --dati '{"numero":2554,...}'
 
    Opzioni
-     --stile blocco|striscia   blocco (predefinito) = riquadro sulla
-                               prima pagina; striscia = fascia
-                               verticale sul bordo di tutte
+     --stile blocco            (predefinito) riquadro 200x66 sulla
+                               prima pagina: numero, data, QR e i
+                               riferimenti in corpo minuscolo
+     --stile minimo            riquadro 140x46: solo ente, numero,
+                               data e QR, per quando lo spazio e' poco
+     --stile striscia          fascia verticale sul bordo di ogni pagina
      --dove auto               cerca da solo un punto bianco della
                                pagina e ci mette il timbro
      --dove alto-sinistra      oppure alto-destra, basso-sinistra,
@@ -48,7 +51,7 @@ import { fileURLToPath } from 'node:url';
 import { PDFDocument, rgb, degrees, StandardFonts } from 'pdf-lib';
 import qrcode from 'qrcode-generator';
 
-import { applicaTimbro, misuraBlocco } from '../js/timbro-disegno.js';
+import { applicaTimbro, misuraTimbro } from '../js/timbro-disegno.js';
 import { trovaSpazio, angolo, ANGOLI } from './trova-spazio.mjs';
 import { codiceProtocollo, siglaProtocollo, dataIt } from '../js/comune.js';
 import { vuoleTimbro, PERCHE_NIENTE_TIMBRO } from '../js/lookups.js';
@@ -124,7 +127,7 @@ async function main() {
        + 'Se in questo caso lo vuoi lo stesso, aggiungi --forza.');
   }
 
-  const stile = a.stile === 'striscia' ? 'striscia' : 'blocco';
+  const stile = ['striscia', 'minimo', 'blocco'].includes(a.stile) ? a.stile : 'blocco';
   const codice = codiceProtocollo(p);
 
   const pdf = await PDFDocument.load(fs.readFileSync(a.pdf), { ignoreEncryption: true });
@@ -135,7 +138,7 @@ async function main() {
   let posizione = null;
   let comeDetto = 'in alto a sinistra (predefinito)';
   if (a.dove && stile === 'blocco') {
-    const { larghezza: bw, altezza: bh } = misuraBlocco(p);
+    const { larghezza: bw, altezza: bh } = misuraTimbro(p, stile);
     const prima = pdf.getPage(0);
     const { width: pw, height: ph } = prima.getSize();
 
@@ -143,14 +146,15 @@ async function main() {
       const esito = await trovaSpazio(a.pdf, bw, bh);
       if (!esito.trovato) esci('Non riesco a posizionare il timbro: ' + esito.motivo);
       posizione = { x: esito.x, y: esito.y };
-      const testi = esito.pagina.riquadri.length;
+      const inchiostro = esito.mappa.percentualeSporca;
       comeDetto = esito.libero
-        ? `trovato da solo: x=${esito.x} y=${esito.y}, su spazio del tutto bianco`
-        : `trovato da solo: x=${esito.x} y=${esito.y}, ma NON e' del tutto bianco `
-          + `(copre ~${Math.round(esito.coperta)} punti quadrati di testo)`;
-      if (testi < 5) {
-        comeDetto += `\n           ⚠️  sulla pagina ho trovato solo ${testi} elementi di testo: `
-          + 'se e\' una scansione o e\' fatta di immagini, il "bianco" che vedo non e\' bianco. Guarda il foglio.';
+        ? `trovato da solo: x=${esito.x} y=${esito.y}, su spazio bianco davvero`
+        : `trovato da solo: x=${esito.x} y=${esito.y}, ma NON e' pulito: `
+          + `copre ${esito.sporche} celle su cui c'e' qualcosa`;
+      comeDetto += `
+           pagina occupata al ${inchiostro}%`;
+      if (inchiostro > 60) {
+        comeDetto += ' — molto piena, guarda il foglio prima di fidarti';
       }
     } else if (/^\d+\s*,\s*\d+$/.test(String(a.dove))) {
       const [x, y] = String(a.dove).split(',').map((n) => Number(n.trim()));
@@ -163,7 +167,7 @@ async function main() {
       esci(`Non capisco --dove ${a.dove}.\nUsa: auto, ${ANGOLI.join(', ')}, oppure due numeri come 120,600.`);
     }
   } else if (a.dove && stile === 'striscia') {
-    esci('--dove vale solo per lo stile «blocco»: la striscia sta sul bordo per definizione.');
+    esci('--dove non vale per la striscia: sta sul bordo per definizione.');
   }
 
   await applicaTimbro(pdf, p, stile, DEPS, posizione);
