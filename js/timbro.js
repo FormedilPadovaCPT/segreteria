@@ -7,7 +7,7 @@
    ============================================================ */
 
 import { sb, state, siglaProtocollo } from './core.js';
-import { leggiByte, caricaByte } from './drive.js';
+import { leggiByte, caricaByte, cestina, dove } from './drive.js';
 import { pdfLib, qrGen } from './cdn.js';
 import { applicaTimbro, testoQr } from './timbro-disegno.js';
 
@@ -41,10 +41,14 @@ export async function timbraAllegato(attId, protocollo, scelta) {
   await applicaTimbro(pdf, protocollo, scelta.stile, DEPS, scelta.posizione);
   const bytes = await pdf.save();
 
-  /* Il timbrato si affianca all'originale su Drive: l'originale non
-     si tocca mai (regola d'oro 6 del vault). */
+  /* ⚠️ Il timbrato nasce NELLA STESSA CARTELLA dell'originale: il
+     documento sta dove le regole di smistamento hanno deciso, e il
+     timbro non e' una ragione per spostarlo. */
+  let dovEra = null;
+  try { dovEra = await dove(att.drive_file_id); } catch { /* si ripiega sulla zona d'attesa */ }
+
   const nome = att.nome.replace(/\.pdf$/i, '') + `_${siglaProtocollo(protocollo)}.pdf`;
-  const su = await caricaByte(protocollo, nome, bytes, 'application/pdf');
+  const su = await caricaByte(protocollo, nome, bytes, 'application/pdf', dovEra?.parent_id || null);
 
   await sb.from('s_prot_allegati').insert({
     protocollo_id: protocollo.id,
@@ -53,5 +57,18 @@ export async function timbraAllegato(attId, protocollo, scelta) {
     drive_file_id: su.drive_file_id, drive_url: su.drive_url,
   });
 
-  return { nome, drive_url: su.drive_url };
+  /* Che fare dell'originale: lo decide chi timbra, ogni volta. Di una
+     circolare si tiene la sola copia protocollata; di un contratto
+     firmato o di una scansione unica si conserva l'originale. */
+  if (scelta.originale === 'cestina') {
+    await cestina(att.drive_file_id);
+    await sb.from('s_prot_allegati').delete().eq('id', att.id);
+  }
+
+  return {
+    nome: su.file_name || nome,
+    drive_url: su.drive_url,
+    cartella: dovEra?.cartella || su.cartella || null,
+    originale: scelta.originale === 'cestina' ? 'cestinato' : 'conservato',
+  };
 }

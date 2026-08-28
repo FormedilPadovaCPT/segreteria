@@ -113,7 +113,8 @@ export async function scegliTimbro(protocollo, byte) {
         <div>
           <h3>Dove metto il timbro?</h3>
           <p>Protocollo <strong>${esc(codiceProtocollo(protocollo))}</strong> del ${dataIt(protocollo.data_prot)}
-             — trascina il timbro dove vuoi, o lascia che trovi lui uno spazio bianco.</p>
+             — trascina il timbro dove vuoi, o lascia che trovi lui uno spazio bianco.
+             Il timbrato nascera' <strong>nella stessa cartella dell'originale</strong>.</p>
         </div>
         <div class="seg" id="ant-stili">
           ${STILI.map((s, i) => `<button class="seg-btn ${i === 0 ? 'is-active' : ''}" data-s="${s.id}" title="${esc(s.nota)}">${s.nome}</button>`).join('')}
@@ -125,6 +126,14 @@ export async function scegliTimbro(protocollo, byte) {
       <div class="ant-piede">
         <span class="hint" id="ant-nota"></span>
         <span style="flex:1"></span>
+        <label class="hint" style="display:flex;align-items:center;gap:6px;white-space:nowrap"
+               title="Di una circolare si tiene la sola copia protocollata; di un contratto firmato o di una scansione unica si conserva l'originale.">
+          L'originale
+          <select id="ant-originale" class="inp inp-sm" style="min-width:0">
+            <option value="conserva">lo conservo</option>
+            <option value="cestina">nel cestino di Drive</option>
+          </select>
+        </label>
         <button class="btn btn-ghost btn-sm" id="ant-auto">Trova il bianco</button>
         <button class="btn btn-ghost" id="ant-annulla">Annulla</button>
         <button class="btn btn-primary" id="ant-ok">Applica il timbro</button>
@@ -229,6 +238,7 @@ export async function scegliTimbro(protocollo, byte) {
     $('#ant-ok', bg).addEventListener('click', () => chiudi({
       stile,
       posizione: stile === 'striscia' ? null : { x: Math.round(pos.x), y: Math.round(pos.y) },
+      originale: $('#ant-originale', bg).value,
     }));
   });
 }

@@ -144,9 +144,22 @@ dietro con `ES_aaaa` dei bilanci.
   dettaglio del protocollo ogni documento mostra **in che cartella si trova
   adesso**. Funziona perché spostando un file dentro Drive **l'id non cambia**:
   lo smistamento non rompe nessun link.
-- Il caricamento mette il file in **`00_INBOX/_protocollo`**, che è una zona
-  d'attesa e non un archivio, col codice del protocollo nel nome così resta
-  riconoscibile ovunque venga smistato.
+- ⚠️ **Il file timbrato nasce nella stessa cartella dell'originale.** Se si
+  timbra un documento già archiviato — una circolare del 2013, una scansione
+  già collocata — il timbrato gli si affianca lì, e **non si sposta niente**: il
+  documento sta dove le regole di smistamento hanno deciso, e il timbro non è
+  una ragione per spostarlo.
+- ⚠️ **Un documento nuovo si processa prima di protocollarlo**: si guarda che
+  cos'è, lo si colloca dove prevedono le regole, *poi* lo si protocolla e
+  timbra, così nasce già a casa propria. La cartella **`00_INBOX/_protocollo`**
+  è solo per ciò che non è ancora stato processato — zona d'attesa da svuotare,
+  non destinazione. Il codice del protocollo entra nel **nome** del file, così
+  resta riconoscibile ovunque venga smistato.
+- ⚠️ **Dopo il timbro si sceglie che fare dell'originale**, ogni volta, dal
+  menu in fondo all'anteprima: di una **circolare** si tiene la sola copia
+  protocollata, di un **contratto firmato o di una scansione unica** si conserva
+  l'originale. Il valore predefinito è *conservo*: per buttare bisogna dirlo. E
+  «cestina» significa **cestino di Drive**, da cui si recupera.
 - Nel database resta l'**indice**: `s_prot_allegati` dice quali file
   appartengono al protocollo, quale è l'originale e quale il timbrato, con il
   `drive_file_id` di ciascuno.

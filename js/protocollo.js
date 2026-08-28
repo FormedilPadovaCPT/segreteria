@@ -388,8 +388,8 @@ async function timbra(attId) {
   const p = recordCorrente;
   try {
     const { timbraAllegato } = await import('./timbro.js');
-    await timbraAllegato(attId, p);
-    toast('Documento timbrato.', 'ok');
+    const esito = await timbraAllegato(attId, p);
+    toast(`Timbrato in ${esito.cartella || 'Drive'}. Originale ${esito.originale}.`, 'ok');
     apriDettaglio(p.id);
   } catch (err) {
     if (err.message !== 'Timbro annullato') toast('Timbro non riuscito: ' + err.message, 'err');

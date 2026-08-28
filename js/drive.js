@@ -47,9 +47,13 @@ async function chiama(corpo) {
   return data;
 }
 
-/* Carica dei byte e restituisce id e link. `nome` e' il nome che
-   il file avra' su Drive. */
-export async function caricaByte(protocollo, nome, byte, mime = 'application/pdf') {
+/* Carica dei byte e restituisce id e link.
+   `parentId` = in quale cartella di Drive far nascere il file. Si passa
+   quando la risposta e' gia' nota — il timbrato nasce **accanto al suo
+   originale**, dove le regole di smistamento hanno deciso che stia.
+   Senza `parentId` il file finisce nella zona d'attesa 00_INBOX/_protocollo,
+   che e' solo per cio' che non e' ancora stato processato. */
+export async function caricaByte(protocollo, nome, byte, mime = 'application/pdf', parentId = null) {
   if (byte.length > LIMITE_MB * 1024 * 1024) {
     throw new Error(`Il file supera i ${LIMITE_MB} MB e non passa da qui. `
       + 'Mettilo a mano nella cartella su Drive e incolla il link nel protocollo.');
@@ -58,6 +62,7 @@ export async function caricaByte(protocollo, nome, byte, mime = 'application/pdf
     action: 'upload',
     codice: codiceProtocollo(protocollo),   /* entra nel NOME del file, non nella cartella */
     filename: nome, mime_type: mime, base64: b64(byte),
+    ...(parentId ? { parent_id: parentId } : {}),
   });
 }
 
