@@ -52,3 +52,45 @@ export const qrGen = async () => {
   ], (m) => typeof (m.default || m) === 'function');
   return m.default || m;
 };
+
+/* pdf.js serve solo all'anteprima del timbro: disegna la pagina
+   per farla vedere e per cercarci sopra lo spazio bianco. Si
+   carica quando si apre l'anteprima, non all'avvio.
+
+   ⚠️ Il worker non si puo' caricare direttamente dal CDN: un
+   worker deve stare sulla STESSA origine della pagina, e i
+   permessi CORS non bastano a scavalcare la regola. Senza questo
+   accorgimento pdf.js resta appeso senza dire niente. Si scarica
+   quindi il file del worker come testo e lo si trasforma in un
+   blob locale, che e' della nostra origine. */
+const VERSIONE_PDFJS = '4.7.76';
+
+const WORKER = [
+  `https://cdn.jsdelivr.net/npm/pdfjs-dist@${VERSIONE_PDFJS}/build/pdf.worker.min.mjs`,
+  `https://esm.sh/pdfjs-dist@${VERSIONE_PDFJS}/build/pdf.worker.min.mjs`,
+];
+
+async function workerLocale() {
+  let ultimo = null;
+  for (const url of WORKER) {
+    try {
+      const r = await fetch(url);
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const testo = await r.text();
+      return URL.createObjectURL(new Blob([testo], { type: 'text/javascript' }));
+    } catch (e) { ultimo = e; console.warn('[cdn] worker non preso da', url, e?.message || e); }
+  }
+  throw new Error('Worker di pdf.js non scaricabile: ' + (ultimo?.message || ultimo));
+}
+
+export const pdfJs = async () => {
+  const m = await caricaModulo('pdfjs', [
+    `https://cdn.jsdelivr.net/npm/pdfjs-dist@${VERSIONE_PDFJS}/+esm`,
+    `https://esm.sh/pdfjs-dist@${VERSIONE_PDFJS}`,
+  ], (x) => typeof x.getDocument === 'function');
+  if (m.GlobalWorkerOptions && !m.GlobalWorkerOptions.__nostro) {
+    m.GlobalWorkerOptions.workerSrc = await workerLocale();
+    m.GlobalWorkerOptions.__nostro = true;
+  }
+  return m;
+};

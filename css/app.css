@@ -315,3 +315,31 @@ tr.riga-ceiv{border-left:4px solid var(--ceiv);background:var(--ceiv-bg)}
   .user-email{display:none}
   .bar-row .lb{width:120px;flex:0 0 120px}
 }
+
+
+/* ── anteprima del timbro ───────────────────────────────
+   Il foglio a sinistra e il timbro sopra, trascinabile. Il
+   timbro e' un'immagine del timbro VERO, non un riquadro
+   finto: quello che si vede e' quello che esce.          */
+.ant-bg{display:flex;align-items:center;justify-content:center;z-index:60;padding:16px}
+.ant-box{background:#fff;border-radius:10px;box-shadow:var(--ombra);width:min(880px,96vw);
+  max-height:94vh;display:flex;flex-direction:column;overflow:hidden}
+.ant-testa{display:flex;gap:16px;align-items:flex-start;justify-content:space-between;
+  padding:16px 18px 12px;border-bottom:1px solid var(--bordo);flex-wrap:wrap}
+.ant-testa h3{margin:0 0 4px;font-size:17px}
+.ant-testa p{margin:0;font-size:12.5px;color:var(--testo-soft);max-width:520px;line-height:1.5}
+.ant-foglio{position:relative;flex:1;overflow:auto;padding:16px;background:var(--grigio-chiaro);
+  display:flex;justify-content:center;align-items:flex-start}
+.ant-pagina{box-shadow:0 2px 12px rgba(0,0,0,.18);background:#fff;display:block}
+.ant-timbro{position:absolute;cursor:grab;touch-action:none;user-select:none;
+  outline:1px dashed rgba(231,80,15,.55);outline-offset:1px}
+.ant-timbro.is-preso{cursor:grabbing;outline-style:solid}
+.ant-striscia .ant-pagina{outline:3px solid var(--arancio);outline-offset:-3px}
+.ant-piede{display:flex;gap:8px;align-items:center;padding:12px 18px;border-top:1px solid var(--bordo);
+  flex-wrap:wrap}
+.ant-piede .hint{font-size:11.5px;max-width:340px;line-height:1.45}
+@media(max-width:700px){
+  .ant-testa{flex-direction:column}
+  .ant-piede{justify-content:flex-end}
+  .ant-piede .hint{max-width:100%;order:3;flex-basis:100%}
+}

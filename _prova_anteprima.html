@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>Prova anteprima timbro</title>
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body style="padding:24px;font-family:system-ui">
+<h2>Prova dell'anteprima del timbro</h2>
+<p>Pagina di collaudo dell'anteprima del timbro. <strong>Non fa parte dell'app</strong> e non
+viene pubblicata: il workflow copia solo <code>index.html</code>, <code>css</code>,
+<code>js</code> e <code>img</code>.</p>
+<p>Serve perche' l'anteprima si prova solo in un browser <em>visibile</em>: pdf.js disegna il
+testo su tela usando i font caricati, e in una pagina mai dipinta il testo non compare.
+Per provarla: <code>python -m http.server 8080</code> nella cartella dell'app, poi aprire
+<code>http://localhost:8080/_prova_anteprima.html</code>. Sostituire <code>_prova.pdf</code>
+con un documento vero per una prova seria.</p>
+<pre id="esito" style="background:#f4f5f7;padding:12px;border-radius:6px;font-size:13px"></pre>
+
+<script type="module">
+import { scegliTimbro } from './js/anteprima-timbro.js';
+
+const log = (t) => { document.getElementById('esito').textContent += t + '\n'; };
+window.__log = log;
+
+const PROT = {
+  numero: 1, esercizio: '26-27', direzione: 'IN', data_prot: '2026-10-01',
+  oggetto: 'Convocazione riunione di coordinamento - Mercoledi 15 luglio ore 17:00',
+  impresa_nome: 'CAVINATO SRL', mezzo: 'e-mail',
+  ufficio: 'Segreteria Area Sicurezza e Salute',
+  cartella: 'CARTELLA - Comunicazioni Tecnici CPT',
+  referente: 'Squizzato Sig. Renato',
+};
+
+try {
+  log('scarico il PDF di prova…');
+  const r = await fetch('./_prova.pdf');
+  if (!r.ok) throw new Error('PDF di prova non trovato: ' + r.status);
+  const byte = new Uint8Array(await r.arrayBuffer());
+  log('PDF letto, ' + byte.length + ' byte. Apro l\'anteprima…');
+  const scelta = await scegliTimbro(PROT, byte);
+  log('ESITO: ' + JSON.stringify(scelta));
+} catch (e) {
+  log('ERRORE: ' + (e.stack || e.message));
+}
+</script>
+</body>
+</html>

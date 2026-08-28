@@ -20,6 +20,8 @@ del gestionale visite e della webapp asseverazione, sulle tabelle `s_*`.
 | `js/lookups.js` | Tendine (uffici, mezzi) e modelli di lettera |
 | `js/protocollo.js` | Registro, ricerca, dettaglio, inserimento e modifica |
 | `js/timbro-disegno.js` | Disegno del timbro: geometria e testo, senza dipendenze |
+| `js/anteprima-timbro.js` | Anteprima: vedi il foglio e trascini il timbro dove è bianco |
+| `js/spazio.js` | Ricerca dello spazio bianco sui pixel, condivisa con gli strumenti |
 | `js/timbro.js` | Lato browser del timbro: librerie, storage, scelta impaginazione |
 | `js/comune.js` | Funzioni pure condivise: codice del protocollo, date, escape |
 | `js/mail.js` | Avviso di protocollazione |
@@ -140,6 +142,23 @@ Due impaginazioni, come in Access:
 
 - **blocco** — riquadro in alto a sinistra della prima pagina;
 - **striscia** — fascia verticale sul bordo sinistro di tutte le pagine.
+
+### L'anteprima
+
+Premendo «Timbra» su un allegato PDF si apre l'anteprima: si vede la pagina
+vera, il timbro ci sta sopra come un riquadro che si **trascina col mouse o col
+dito**, e «Trova il bianco» lo mette da solo dove la pagina è libera. Solo
+premendo «Applica» il file viene scritto.
+
+Il timbro che si vede e si trascina **è il timbro vero**: viene disegnato da
+pdf-lib su una paginetta grande quanto lui e reso con pdf.js. Non è un riquadro
+finto in HTML che gli somiglia — quello divergerebbe dal risultato al primo
+ritocco.
+
+Per provare l'anteprima fuori dall'app c'è `_prova_anteprima.html` (non viene
+pubblicata: il workflow copia solo `index.html`, `css`, `js`, `img`). Va aperta
+in un browser **visibile**: pdf.js disegna il testo con i font caricati, e in
+una pagina mai dipinta il testo non compare.
 
 **Sugli attestati il timbro non si mette.** L'attestato di asseverazione esce
 già completo di protocollo proprio, validità e firma: la spunta «timbra» si
