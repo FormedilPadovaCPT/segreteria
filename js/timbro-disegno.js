@@ -60,33 +60,53 @@ function disegnaQr(page, testo, x, y, lato, deps, col) {
   }
 }
 
-/* ── impaginazione a blocco (prima pagina) ────────────────── */
-export function timbroBlocco(page, p, font, bold, deps) {
+const TESTA = 62;    // fascia dell'ente, codice, data
+const PASSO = 10;    // interlinea di una voce
+const CODA = 8;      // aria in fondo
+
+/* ── quanto spazio occupa il blocco ────────────────────────
+   L'altezza si calcola dal contenuto, non e' fissa: un timbro con
+   due righe non deve essere alto come uno con sei. E' la prima
+   difesa contro la sovrapposizione al documento sotto.          */
+export function misuraBlocco(p) {
+  const righe = [
+    p.oggetto, p.impresa_nome || p.persona, p.mezzo, p.ufficio, p.cartella, p.referente,
+  ].filter(Boolean).length;
+  return { larghezza: 232, altezza: TESTA + righe * PASSO + CODA };
+}
+
+/* ── impaginazione a blocco ────────────────────────────────
+   Posizione predefinita: in alto a sinistra. Si puo' spostare
+   passando `posizione` = {x, y} in punti PDF, misurati dal
+   basso-sinistra come vuole il formato.                        */
+export function timbroBlocco(page, p, font, bold, deps, posizione) {
   const col = tavolozza(deps.rgb);
-  const { height } = page.getSize();
-  const L = 26, W = 268, H = 172;
-  const y = height - H - 26;
-  const dir = p.direzione === 'IN' ? 'ENTRATA' : 'USCITA';
+  const { width: LARG, height } = page.getSize();
+  const { larghezza: W, altezza: H } = misuraBlocco(p);
+  const L = posizione ? Math.max(4, Math.min(posizione.x, LARG - W - 4)) : 26;
+  const y = posizione ? Math.max(4, Math.min(posizione.y, height - H - 4)) : height - H - 26;
 
   page.drawRectangle({ x: L, y, width: W, height: H, color: col.BIANCO, opacity: 0.93 });
-  page.drawRectangle({ x: L, y, width: W, height: H, borderColor: col.ARANCIO, borderWidth: 1.4 });
-  page.drawRectangle({ x: L, y: y + H - 16, width: W, height: 16, color: col.ARANCIO });
+  page.drawRectangle({ x: L, y, width: W, height: H, borderColor: col.ARANCIO, borderWidth: 1.2 });
+  page.drawRectangle({ x: L, y: y + H - 13, width: W, height: 13, color: col.ARANCIO });
 
   page.drawText(`${ENTE.nome} · ${ENTE.area}`.toUpperCase().slice(0, 46),
-    { x: L + 6, y: y + H - 12, size: 7, font: bold, color: col.BIANCO });
+    { x: L + 5, y: y + H - 9.5, size: 6.5, font: bold, color: col.BIANCO });
 
-  /* numero e data in evidenza */
+  /* Il codice e la data DI PROTOCOLLO: sono le due cose che il
+     timbro aggiunge al foglio. La data del documento no: quella
+     il documento ce l'ha gia' stampata sua.                     */
   const codice = codiceProtocollo(p);
-  page.drawText(`PROTOCOLLO IN ${dir}`, { x: L + 7, y: y + H - 30, size: 6.5, font: bold, color: col.GRIGIO });
   page.drawText(p.esercizio ? codice : `n° ${p.numero}`,
-    { x: L + 7, y: y + H - 51, size: p.esercizio ? 13 : 17, font: bold, color: col.ARANCIO });
-  page.drawText(`del ${dataIt(p.data_prot)}`, { x: L + 7, y: y + H - 65, size: 8.5, font, color: col.NERO });
+    { x: L + 6, y: y + H - 32, size: p.esercizio ? 12.5 : 16, font: bold, color: col.ARANCIO });
+  page.drawText(`del ${dataIt(p.data_prot)}`,
+    { x: L + 6, y: y + H - 45, size: 8, font, color: col.NERO });
 
-  disegnaQr(page, testoQr(p), L + W - 62, y + H - 74, 54, deps, col);
+  disegnaQr(page, testoQr(p), L + W - 46, y + H - 54, 40, deps, col);
 
   page.drawLine({
-    start: { x: L + 6, y: y + H - 74 }, end: { x: L + W - 6, y: y + H - 74 },
-    thickness: 0.6, color: col.ARANCIO,
+    start: { x: L + 5, y: y + H - 54 }, end: { x: L + W - 5, y: y + H - 54 },
+    thickness: 0.5, color: col.ARANCIO,
   });
 
   const taglia = (t, size, larg) => {
@@ -97,50 +117,52 @@ export function timbroBlocco(page, p, font, bold, deps) {
     return s.trimEnd() + '…';
   };
 
-  let ry = y + H - 86;
+  let ry = y + H - TESTA + 2;
   const voce = (etichetta, valore) => {
     if (!valore) return;
-    page.drawText(etichetta, { x: L + 7, y: ry, size: 6, font: bold, color: col.GRIGIO });
-    page.drawText(taglia(valore, 7.5, W - 66), { x: L + 52, y: ry, size: 7.5, font, color: col.NERO });
-    ry -= 11.5;
+    page.drawText(etichetta, { x: L + 6, y: ry, size: 5.5, font: bold, color: col.GRIGIO });
+    page.drawText(taglia(valore, 7, W - 58), { x: L + 46, y: ry, size: 7, font, color: col.NERO });
+    ry -= PASSO;
   };
 
   voce('OGGETTO', p.oggetto);
   voce('MITT./DEST.', p.impresa_nome || p.persona);
   voce('MEZZO', p.mezzo);
-  voce('DATA DOC.', dataIt(p.data_doc));
   voce('UFFICIO', p.ufficio);
   voce('CARTELLA', p.cartella);
   voce('REFERENTE', p.referente);
 }
 
-/* ── impaginazione a striscia (tutte le pagine) ───────────── */
+/* ── impaginazione a striscia (tutte le pagine) ────────────
+   Niente QR qui: in 24 punti di lato verrebbe illeggibile, e un
+   QR che non si legge e' peggio di nessun QR. Chi vuole il codice
+   a lettura ottica usa il blocco. Senza QR la striscia si
+   restringe e disturba ancora meno il documento sotto.          */
 export function timbroStriscia(page, p, font, bold, deps) {
   const col = tavolozza(deps.rgb);
   const { height } = page.getSize();
-  const larg = 30;
+  const larg = 20;
 
   page.drawRectangle({ x: 0, y: 0, width: larg, height, color: col.BIANCO, opacity: 0.9 });
-  page.drawRectangle({ x: larg - 2.2, y: 0, width: 2.2, height, color: col.ARANCIO });
+  page.drawRectangle({ x: larg - 2, y: 0, width: 2, height, color: col.ARANCIO });
 
-  const dir = p.direzione === 'IN' ? 'ENTRATA' : 'USCITA';
-  const rif = p.esercizio ? codiceProtocollo(p) : `n° ${p.numero}`;
-  const testo = `${ENTE.nome} · PROTOCOLLO IN ${dir} ${rif} del ${dataIt(p.data_prot)}`;
+  const testo = `${ENTE.nome} - ${ENTE.area} - ${siglaProtocollo(p)} del ${dataIt(p.data_prot)}`;
+  const misura = bold.widthOfTextAtSize(testo, 8.5);
 
   page.drawText(testo, {
-    x: 19, y: 96, size: 8.5, font: bold, color: col.GRIGIO, rotate: deps.degrees(90),
+    /* centrata sull'altezza della pagina, cosi' regge anche l'A3 */
+    x: 13.5, y: Math.max(24, (height - misura) / 2),
+    size: 8.5, font: bold, color: col.GRIGIO, rotate: deps.degrees(90),
   });
-
-  disegnaQr(page, testoQr(p), 3, 24, 24, deps, col);
 }
 
 /* ── applica il timbro a un PDF già aperto ────────────────── */
-export async function applicaTimbro(pdf, protocollo, stile, deps) {
+export async function applicaTimbro(pdf, protocollo, stile, deps, posizione) {
   const font = await pdf.embedFont(deps.StandardFonts.Helvetica);
   const bold = await pdf.embedFont(deps.StandardFonts.HelveticaBold);
 
   if (stile === 'striscia') pdf.getPages().forEach((pg) => timbroStriscia(pg, protocollo, font, bold, deps));
-  else timbroBlocco(pdf.getPages()[0], protocollo, font, bold, deps);
+  else timbroBlocco(pdf.getPages()[0], protocollo, font, bold, deps, posizione);
 
   pdf.setSubject(`Protocollo ${siglaProtocollo(protocollo)} del ${dataIt(protocollo.data_prot)}`);
   return pdf;

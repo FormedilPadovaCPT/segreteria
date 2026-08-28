@@ -23,9 +23,15 @@
      node timbra.mjs --pdf <file.pdf> --dati '{"numero":2554,...}'
 
    Opzioni
-     --stile blocco|striscia   blocco (predefinito) = riquadro in
-                               alto a sinistra della prima pagina;
-                               striscia = fascia verticale su tutte
+     --stile blocco|striscia   blocco (predefinito) = riquadro sulla
+                               prima pagina; striscia = fascia
+                               verticale sul bordo di tutte
+     --dove auto               cerca da solo un punto bianco della
+                               pagina e ci mette il timbro
+     --dove alto-sinistra      oppure alto-destra, basso-sinistra,
+                               basso-destra, centro
+     --dove 120,600            oppure le coordinate in punti PDF,
+                               misurate dall'angolo in basso a sinistra
      --out <file.pdf>          dove scrivere; se manca, accanto
                                all'originale con il codice in coda
      --forza                   timbra anche i tipi che non lo
@@ -42,7 +48,8 @@ import { fileURLToPath } from 'node:url';
 import { PDFDocument, rgb, degrees, StandardFonts } from 'pdf-lib';
 import qrcode from 'qrcode-generator';
 
-import { applicaTimbro } from '../js/timbro-disegno.js';
+import { applicaTimbro, misuraBlocco } from '../js/timbro-disegno.js';
+import { trovaSpazio, angolo, ANGOLI } from './trova-spazio.mjs';
 import { codiceProtocollo, siglaProtocollo, dataIt } from '../js/comune.js';
 import { vuoleTimbro, PERCHE_NIENTE_TIMBRO } from '../js/lookups.js';
 
@@ -122,7 +129,44 @@ async function main() {
 
   const pdf = await PDFDocument.load(fs.readFileSync(a.pdf), { ignoreEncryption: true });
   const pagine = pdf.getPageCount();
-  await applicaTimbro(pdf, p, stile, DEPS);
+
+  /* Dove va il blocco. La striscia sta sul bordo per definizione:
+     li' non c'e' niente da scegliere. */
+  let posizione = null;
+  let comeDetto = 'in alto a sinistra (predefinito)';
+  if (a.dove && stile === 'blocco') {
+    const { larghezza: bw, altezza: bh } = misuraBlocco(p);
+    const prima = pdf.getPage(0);
+    const { width: pw, height: ph } = prima.getSize();
+
+    if (a.dove === 'auto') {
+      const esito = await trovaSpazio(a.pdf, bw, bh);
+      if (!esito.trovato) esci('Non riesco a posizionare il timbro: ' + esito.motivo);
+      posizione = { x: esito.x, y: esito.y };
+      const testi = esito.pagina.riquadri.length;
+      comeDetto = esito.libero
+        ? `trovato da solo: x=${esito.x} y=${esito.y}, su spazio del tutto bianco`
+        : `trovato da solo: x=${esito.x} y=${esito.y}, ma NON e' del tutto bianco `
+          + `(copre ~${Math.round(esito.coperta)} punti quadrati di testo)`;
+      if (testi < 5) {
+        comeDetto += `\n           ⚠️  sulla pagina ho trovato solo ${testi} elementi di testo: `
+          + 'se e\' una scansione o e\' fatta di immagini, il "bianco" che vedo non e\' bianco. Guarda il foglio.';
+      }
+    } else if (/^\d+\s*,\s*\d+$/.test(String(a.dove))) {
+      const [x, y] = String(a.dove).split(',').map((n) => Number(n.trim()));
+      posizione = { x, y };
+      comeDetto = `alle coordinate che hai dato: x=${x} y=${y}`;
+    } else if (ANGOLI.includes(a.dove)) {
+      posizione = angolo(a.dove, pw, ph, bw, bh);
+      comeDetto = a.dove.replace('-', ' a ');
+    } else {
+      esci(`Non capisco --dove ${a.dove}.\nUsa: auto, ${ANGOLI.join(', ')}, oppure due numeri come 120,600.`);
+    }
+  } else if (a.dove && stile === 'striscia') {
+    esci('--dove vale solo per lo stile «blocco»: la striscia sta sul bordo per definizione.');
+  }
+
+  await applicaTimbro(pdf, p, stile, DEPS, posizione);
 
   const uscita = a.out || path.join(
     path.dirname(a.pdf),
@@ -139,6 +183,7 @@ async function main() {
     ? (pagine === 1 ? ' — sulla sola pagina' : ` — su tutte le ${pagine} pagine`)
     : ' — solo sulla prima pagina';
   console.log(`Stile      ${stile}${dove}`);
+  if (stile === 'blocco') console.log(`Posizione  ${comeDetto}`);
   console.log(`Originale  ${a.pdf}   (non toccato)`);
   console.log(`Timbrato   ${uscita}`);
 }
