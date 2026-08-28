@@ -11,7 +11,7 @@ import {
   codiceProtocollo, protocolloEsteso,
 } from './core.js';
 import { PAGE_SIZE } from './config.js';
-import { caricaFile, cestina, LIMITE_MB } from './drive.js';
+import { caricaFile, cestina, dove, LIMITE_MB } from './drive.js';
 import { UFFICI, MEZZI, normalizzaMezzo, vuoleTimbro, PERCHE_NIENTE_TIMBRO } from './lookups.js';
 
 /* ── stato del modulo ─────────────────────────────────────── */
@@ -220,11 +220,18 @@ export async function apriDettaglio(id) {
 
     ${p.note ? `<div class="sect-title">Note</div><p style="margin:0 0 14px;white-space:pre-line">${esc(p.note)}</p>` : ''}
 
-    <div class="sect-title">Documenti allegati</div>
+    <div class="sect-title">Documenti protocollati</div>
+    <p class="hint" style="margin:-6px 0 8px">
+      I documenti vengono smistati nel vault come tutto il resto: qui il protocollo
+      dice <strong>dove sono finiti</strong>. Il link punta sempre al singolo file, e
+      regge anche dopo lo spostamento.
+    </p>
     <ul class="att-list" id="att-list">
       ${(allegati || []).map((a) => `
         <li class="att-item">
-          <span class="nm">${esc(a.nome)}</span>
+          <span class="nm">${esc(a.nome)}
+            ${a.drive_file_id ? `<span class="cell-sub" data-dove="${esc(a.drive_file_id)}">cerco dov'è…</span>` : ''}
+          </span>
           ${a.timbrato ? '<span class="tag">timbrato</span>' : ''}
           <button class="btn btn-ghost btn-sm" data-az="scarica" data-url="${esc(a.drive_url || '')}" data-nome="${esc(a.nome)}">Apri su Drive ↗</button>
           ${/\.pdf$/i.test(a.nome) ? `<button class="btn btn-ghost btn-sm" data-az="timbra" data-att="${a.id}">${a.timbrato ? 'Timbra di nuovo' : 'Timbra'}</button>` : ''}
@@ -253,6 +260,20 @@ export async function apriDettaglio(id) {
     </p>`;
 
   apriDrawer(`Protocollo ${protocolloEsteso(p)} del ${dataIt(p.data_prot)}`, p.direzione, html);
+
+  /* Dove sta adesso ogni documento. Si chiede a Drive dopo aver
+     mostrato il pannello: e' la parte lenta, e non deve far
+     aspettare tutto il resto. */
+  $$('[data-dove]').forEach(async (el) => {
+    try {
+      const d = await dove(el.dataset.dove);
+      el.textContent = d.cestinato ? '⚠️ nel cestino di Drive' : '📁 ' + (d.cartella || 'Drive');
+      el.title = d.cartella || '';
+    } catch (err) {
+      el.textContent = 'posizione non leggibile';
+      el.title = err.message;
+    }
+  });
 }
 
 /* ── azioni del drawer ────────────────────────────────────── */

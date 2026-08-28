@@ -134,15 +134,22 @@ dietro con `ES_aaaa` dei bilanci.
 - Un protocollo non si cancella: si **annulla** con motivazione, e resta nel
   registro barrato.
 - Ogni inserimento, modifica e annullamento finisce in `s_protocollo_audit`.
-- ⚠️ **I documenti stanno su Google Drive, non in Supabase** (decisione
-  dell'utente, 28/08/2026). Cartella
-  `9_APPLICATIVI/Gestionale_Visite/11_Documenti_protocollo/<anno>/<codice>/`.
-  Nel database resta solo l'**indice**: `s_prot_allegati` dice quali file
-  appartengono al protocollo, quale è l'originale e quale il timbrato, con
-  l'`drive_file_id` di ciascuno.
-- Perché un indice e non un semplice link alla cartella: un link a una cartella
-  non sa dire *quale* file è il timbrato, quale il principale, quale è stato
-  spedito. Quella è informazione, e in una cartella si perde.
+- ⚠️ **Il protocollo non è un contenitore: è una mappa.** I documenti
+  protocollati non restano in una cartella del protocollo — vengono **smistati
+  dove devono stare**, come tutto il resto del second brain: il preventivo
+  firmato nell'asseverazione di quell'impresa, la circolare in `3_RISORSE`, gli
+  allegati ciascuno a casa propria. Il protocollo serve a sapere **dove sono
+  andati a finire**.
+- Perciò **il link è sempre al singolo file, mai a una cartella**, e nel
+  dettaglio del protocollo ogni documento mostra **in che cartella si trova
+  adesso**. Funziona perché spostando un file dentro Drive **l'id non cambia**:
+  lo smistamento non rompe nessun link.
+- Il caricamento mette il file in **`00_INBOX/_protocollo`**, che è una zona
+  d'attesa e non un archivio, col codice del protocollo nel nome così resta
+  riconoscibile ovunque venga smistato.
+- Nel database resta l'**indice**: `s_prot_allegati` dice quali file
+  appartengono al protocollo, quale è l'originale e quale il timbrato, con il
+  `drive_file_id` di ciascuno.
 - Tutto passa dalla edge function `allegati-protocollo`, che scrive con il
   service account dell'ente — le credenziali non arrivano mai al browser e i
   file non sono pubblici. È lo stesso meccanismo di `allegati-ass`, che fa la

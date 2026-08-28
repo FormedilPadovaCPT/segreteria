@@ -11,9 +11,18 @@
    arrivano mai al browser, e i file non sono pubblici (chi non
    ha l'accesso non ci arriva nemmeno col link).
 
-   Nota buona: spostando un file dentro Drive **l'id non cambia**.
-   Quando il documento verra' smistato nella cartella giusta del
-   vault, il link registrato qui continuera' a funzionare.
+   ⚠️ Il protocollo non e' un contenitore, e' una MAPPA. I documenti
+   protocollati non restano in una cartella del protocollo: vengono
+   smistati dove devono stare, come tutto il resto del second brain
+   — il preventivo firmato nell'asseverazione di quell'impresa, la
+   circolare in 3_RISORSE. Il protocollo serve a sapere DOVE sono
+   andati a finire.
+
+   Per questo il caricamento mette il file in `00_INBOX/_protocollo`,
+   che e' una zona d'attesa e non un archivio, e il link e' sempre al
+   SINGOLO FILE, mai a una cartella. Funziona perche' spostando un
+   file dentro Drive **l'id non cambia**: lo smistamento non rompe
+   nessun link.
    ============================================================ */
 
 import { sb, codiceProtocollo } from './core.js';
@@ -38,12 +47,6 @@ async function chiama(corpo) {
   return data;
 }
 
-/* Dove finisce il file: cartella `anno / codice del protocollo`. */
-const dove = (p) => ({
-  anno: String(p.data_prot || '').slice(0, 4) || 'senza_anno',
-  codice: codiceProtocollo(p),
-});
-
 /* Carica dei byte e restituisce id e link. `nome` e' il nome che
    il file avra' su Drive. */
 export async function caricaByte(protocollo, nome, byte, mime = 'application/pdf') {
@@ -51,7 +54,11 @@ export async function caricaByte(protocollo, nome, byte, mime = 'application/pdf
     throw new Error(`Il file supera i ${LIMITE_MB} MB e non passa da qui. `
       + 'Mettilo a mano nella cartella su Drive e incolla il link nel protocollo.');
   }
-  return chiama({ action: 'upload', ...dove(protocollo), filename: nome, mime_type: mime, base64: b64(byte) });
+  return chiama({
+    action: 'upload',
+    codice: codiceProtocollo(protocollo),   /* entra nel NOME del file, non nella cartella */
+    filename: nome, mime_type: mime, base64: b64(byte),
+  });
 }
 
 export async function caricaFile(protocollo, file) {
@@ -63,6 +70,12 @@ export async function caricaFile(protocollo, file) {
 export async function leggiByte(driveFileId) {
   const d = await chiama({ action: 'download', drive_file_id: driveFileId });
   return daB64(d.base64);
+}
+
+/* In che cartella si trova ADESSO il documento. E' quello che rende
+   il protocollo una mappa: dopo lo smistamento dice dov'e' finito. */
+export async function dove(driveFileId) {
+  return chiama({ action: 'dove', drive_file_id: driveFileId });
 }
 
 /* Non cancella: mette nel cestino di Drive, da cui si recupera.
