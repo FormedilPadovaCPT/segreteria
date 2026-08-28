@@ -343,3 +343,17 @@ tr.riga-ceiv{border-left:4px solid var(--ceiv);background:var(--ceiv-bg)}
   .ant-piede{justify-content:flex-end}
   .ant-piede .hint{max-width:100%;order:3;flex-basis:100%}
 }
+
+
+/* ── sfogliare Drive ────────────────────────────────────── */
+.sf-briciole{display:flex;flex-wrap:wrap;align-items:center;gap:4px;padding:8px 16px 6px;
+  font-size:12px;color:var(--testo-soft);border-bottom:1px solid var(--bordo)}
+.sf-briciole span[data-liv]{cursor:pointer;color:var(--arancio)}
+.sf-briciole span[data-liv]:hover{text-decoration:underline}
+.sf-briciole i{opacity:.5;font-style:normal}
+.sf-riga{display:flex;align-items:center;gap:10px;padding:7px 6px;border-bottom:1px solid #f2f3f5;
+  cursor:pointer;font-size:13px}
+.sf-riga:hover{background:var(--arancio-chiaro)}
+.sf-ico{flex:0 0 18px}
+.sf-nome{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sf-dim{flex:0 0 auto;color:var(--testo-soft);font-size:11px}

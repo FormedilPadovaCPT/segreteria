@@ -151,8 +151,10 @@ dietro con `ES_aaaa` dei bilanci.
   documento sta dove le regole di smistamento hanno deciso, e il timbro non è
   una ragione per spostarlo.
 - ⚠️ **Due modi di allegare, e la differenza conta.** *«Collega un documento già
-  su Drive»* registra un documento che sta già nel vault: **resta dov'è**, si
-  incolla il suo link e il protocollo prende nota. *«Carica un documento nuovo»*
+  su Drive»* registra un documento che sta già nel vault: **resta dov'è** e il
+  protocollo prende nota. Si sfogliano le cartelle del vault dall'app — o si
+  cerca per nome — senza dover aprire Drive in un'altra scheda per copiare un
+  link a mano; chi il link ce l'ha già usa il pulsante «Ho il link». *«Carica un documento nuovo»*
   serve solo per ciò che non è ancora stato processato, e finisce nella zona
   d'attesa. Senza il primo, l'unico modo di allegare era ricaricare dal PC — e
   la copia caricata finiva in `00_INBOX/_protocollo` insieme al suo timbrato,

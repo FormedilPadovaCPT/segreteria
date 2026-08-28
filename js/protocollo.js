@@ -11,7 +11,7 @@ import {
   codiceProtocollo, protocolloEsteso,
 } from './core.js';
 import { PAGE_SIZE } from './config.js';
-import { caricaFile, cestina, dove, idDaLink, LIMITE_MB } from './drive.js';
+import { caricaFile, cestina, dove, idDaLink, sfoglia, LIMITE_MB } from './drive.js';
 import { UFFICI, MEZZI, normalizzaMezzo, vuoleTimbro, PERCHE_NIENTE_TIMBRO } from './lookups.js';
 import { CARTELLE_VAULT } from './cartelle-vault.js';
 
@@ -396,29 +396,24 @@ async function caricaAllegato(file, poiTimbra = false) {
    l'unico modo di allegare era caricare dal PC, e la copia caricata
    finiva nella zona d'attesa insieme al suo timbrato.            */
 async function collegaDaDrive() {
+  const scelto = await sfogliaDrive();
+  if (!scelto) return;
+  await registraAllegato(scelto.id, scelto.nome, scelto.cartella);
+}
+
+/* Registra un documento di Drive come allegato di questo protocollo.
+   Non copia e non sposta niente: scrive solo che quel file appartiene
+   a questo protocollo, e dove sta. */
+async function registraAllegato(id, nome, cartella) {
   const p = recordCorrente;
-  const incollato = prompt(
-    'Incolla il link del documento su Drive (o il suo id).\n\n'
-    + 'Il documento resta dov\'è: qui si registra soltanto che appartiene a questo '
-    + 'protocollo. Se poi lo timbri, il timbrato gli nascerà accanto.', '');
-  if (incollato === null) return;
-
-  const id = idDaLink(incollato);
-  if (!id) return toast('Non riconosco un documento di Drive in quello che hai incollato.', 'err');
-  if (/\/folders\//.test(incollato)) {
-    return toast('Quello è il link di una cartella. Serve il link del singolo file: '
-      + 'il protocollo deve poter dire quale documento è.', 'err');
-  }
-
-  toast('Cerco il documento su Drive…');
-  let d;
-  try { d = await dove(id); }
-  catch (err) { return toast('Non riesco a leggere quel documento: ' + err.message, 'err'); }
-  if (d.cestinato) return toast('Quel documento sta nel cestino di Drive.', 'err');
-
   const { data: gia } = await sb.from('s_prot_allegati')
     .select('id').eq('protocollo_id', p.id).eq('drive_file_id', id).maybeSingle();
   if (gia) return toast('Quel documento è già collegato a questo protocollo.', 'err');
+
+  let d = { nome, cartella, drive_url: `https://drive.google.com/file/d/${id}/view` };
+  try { d = { ...d, ...(await dove(id)) }; }
+  catch (err) { toast('Collegato, ma non riesco a leggerne la posizione: ' + err.message, 'err'); }
+  if (d.cestinato) return toast('Quel documento sta nel cestino di Drive.', 'err');
 
   await sb.from('s_prot_allegati').insert({
     protocollo_id: p.id, nome: d.nome,
@@ -426,6 +421,112 @@ async function collegaDaDrive() {
   });
   toast(`Collegato: ${d.nome} — ${d.cartella || 'Drive'}`, 'ok');
   apriDettaglio(p.id);
+}
+
+/* ── sfogliare Drive dall'app ───────────────────────────────
+   Si naviga fra le cartelle del vault come in un gestore file,
+   oppure si cerca per nome. Serve a non dover aprire Drive in
+   un'altra scheda per andare a copiare un link a mano.        */
+function sfogliaDrive() {
+  return new Promise((risolvi) => {
+    const bg = document.createElement('div');
+    bg.className = 'drawer-bg ant-bg';
+    bg.style.zIndex = 63;
+    bg.innerHTML = `
+      <div class="ant-box" style="width:min(660px,96vw);max-height:88vh">
+        <div class="ant-testa">
+          <div>
+            <h3>Quale documento?</h3>
+            <p>Si sfogliano le cartelle del vault. Il documento <strong>resta dov'è</strong>:
+               il protocollo prende solo nota di dove sta.</p>
+          </div>
+        </div>
+        <div style="padding:10px 16px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <button class="btn btn-ghost btn-sm" id="sf-su">↑ Su</button>
+          <input type="text" id="sf-cerca" class="inp inp-sm" placeholder="Cerca per nome in tutto il Drive…" style="flex:1;min-width:180px">
+        </div>
+        <div class="sf-briciole" id="sf-briciole"></div>
+        <div class="ant-foglio" id="sf-elenco" style="display:block;padding:0 16px 8px;background:#fff"></div>
+        <div class="ant-piede">
+          <span class="hint" id="sf-nota">Le cartelle si aprono con un clic; i documenti si scelgono.</span>
+          <span style="flex:1"></span>
+          <button class="btn btn-ghost btn-sm" id="sf-link">Ho il link</button>
+          <button class="btn btn-ghost" id="sf-annulla">Annulla</button>
+        </div>
+      </div>`;
+    document.body.appendChild(bg);
+
+    const pila = [];                       // dove siamo scesi
+    const elenco = $('#sf-elenco', bg);
+    const briciole = $('#sf-briciole', bg);
+    const nota = (t) => { $('#sf-nota', bg).textContent = t; };
+    const chiudi = (esito) => { bg.remove(); risolvi(esito); };
+
+    const misura = (n) => (n == null ? '' : n > 1048576
+      ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB');
+
+    async function mostra(cerca = null) {
+      elenco.innerHTML = '<p class="empty">Un istante…</p>';
+      briciole.innerHTML = cerca
+        ? `<span>Risultati per «${esc(cerca)}»</span>`
+        : ['Vault', ...pila.map((x) => x.nome)]
+          .map((n, i) => `<span data-liv="${i}">${esc(n)}</span>`).join('<i>›</i>');
+      let voci;
+      try { voci = (await sfoglia({ parentId: pila.at(-1)?.id || null, cerca })).voci; }
+      catch (err) { elenco.innerHTML = `<p class="empty">${esc(err.message)}</p>`; return; }
+      if (!voci.length) { elenco.innerHTML = '<p class="empty">Qui non c\'è niente.</p>'; return; }
+      elenco.innerHTML = voci.map((v) => `
+        <div class="sf-riga" data-id="${esc(v.id)}" data-cart="${v.cartella ? 1 : 0}" data-nome="${esc(v.nome)}">
+          <span class="sf-ico">${v.cartella ? '📁' : '📄'}</span>
+          <span class="sf-nome">${esc(v.nome)}</span>
+          <span class="sf-dim">${misura(v.dimensione)}</span>
+        </div>`).join('');
+    }
+
+    elenco.addEventListener('click', (ev) => {
+      const r = ev.target.closest('.sf-riga');
+      if (!r) return;
+      if (r.dataset.cart === '1') {
+        pila.push({ id: r.dataset.id, nome: r.dataset.nome });
+        $('#sf-cerca', bg).value = '';
+        mostra();
+        return;
+      }
+      chiudi({ id: r.dataset.id, nome: r.dataset.nome, cartella: pila.map((x) => x.nome).join(' / ') });
+    });
+
+    briciole.addEventListener('click', (ev) => {
+      const b = ev.target.closest('[data-liv]');
+      if (!b) return;
+      pila.length = Number(b.dataset.liv);
+      mostra();
+    });
+
+    $('#sf-su', bg).addEventListener('click', () => { pila.pop(); mostra(); });
+
+    let attesa;
+    $('#sf-cerca', bg).addEventListener('input', (ev) => {
+      clearTimeout(attesa);
+      const t = ev.target.value.trim();
+      attesa = setTimeout(() => mostra(t.length >= 3 ? t : null), 350);
+    });
+
+    /* la vecchia strada resta, per chi il link ce l'ha gia' in mano */
+    $('#sf-link', bg).addEventListener('click', () => {
+      const incollato = prompt('Incolla il link del documento su Drive (o il suo id):', '');
+      if (incollato === null) return;
+      if (/\/folders\//.test(incollato)) {
+        return nota('Quello è il link di una cartella: serve il singolo file.');
+      }
+      const id = idDaLink(incollato);
+      if (!id) return nota('Non riconosco un documento di Drive in quello che hai incollato.');
+      chiudi({ id, nome: null, cartella: null });
+    });
+
+    $('#sf-annulla', bg).addEventListener('click', () => chiudi(null));
+    bg.addEventListener('click', (ev) => { if (ev.target === bg) chiudi(null); });
+    mostra();
+  });
 }
 
 /* ── timbrare un documento di questo protocollo ─────────────

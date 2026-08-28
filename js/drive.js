@@ -83,6 +83,17 @@ export async function dove(driveFileId) {
   return chiama({ action: 'dove', drive_file_id: driveFileId });
 }
 
+/* Sfoglia una cartella di Drive: senza `parentId` parte dalla radice
+   del vault. Con `cerca` cerca per nome dappertutto, che su un archivio
+   grande e' spesso piu' rapido che scendere di cartella in cartella. */
+export async function sfoglia({ parentId = null, cerca = null } = {}) {
+  return chiama({
+    action: 'sfoglia',
+    ...(parentId ? { parent_id: parentId } : {}),
+    ...(cerca ? { cerca } : {}),
+  });
+}
+
 /* L'id di un file dentro a un link di Drive, in tutte le forme in
    cui capita di incollarlo. Se gli si da' gia' un id nudo, lo
    riconosce e lo restituisce. */

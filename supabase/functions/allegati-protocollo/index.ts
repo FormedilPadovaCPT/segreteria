@@ -22,6 +22,7 @@
 //   { action:'upload',   codice, filename, mime_type, base64, parent_id? }
 //   { action:'download', drive_file_id }
 //   { action:'dove',     drive_file_id }
+//   { action:'sfoglia',  parent_id? , cerca? }   → naviga le cartelle
 //   { action:'delete',   drive_file_id }          → cestino, non cancella
 //
 // Secret: GOOGLE_SERVICE_ACCOUNT_JSON (lo stesso di allegati-ass)
@@ -214,6 +215,34 @@ serve(async (req) => {
         cartella: inAttesa ? '00_INBOX / _protocollo' : undefined,
         dimensione: fileBytes.length,
       }), { headers: { 'Content-Type': 'application/json', ...CORS } })
+    }
+
+    /* Sfogliare le cartelle del vault, per scegliere un documento
+       senza dover andare a cercarne il link su Drive a mano.
+       Senza parent_id parte dalla radice; con `cerca` cerca per nome
+       dappertutto, che su un archivio grande e' spesso piu' rapido. */
+    if (action === 'sfoglia') {
+      const { parent_id, cerca } = body
+      const q = cerca
+        ? `name contains '${esc(String(cerca))}' and trashed = false`
+        : `'${parent_id || 'root'}' in parents and trashed = false`
+      const u = 'https://www.googleapis.com/drive/v3/files?' + new URLSearchParams({
+        q, pageSize: '200', orderBy: 'folder,name',
+        fields: 'files(id,name,mimeType,size,modifiedTime)',
+      })
+      const r = await fetch(u, { headers: { Authorization: `Bearer ${token}` } })
+      const d = await r.json()
+      if (d.error) throw new Error('Non riesco a leggere la cartella: ' + JSON.stringify(d.error))
+      const voci = (d.files || []).map((f: Record<string, string>) => ({
+        id: f.id,
+        nome: f.name,
+        cartella: f.mimeType === 'application/vnd.google-apps.folder',
+        mime: f.mimeType,
+        dimensione: f.size ? Number(f.size) : null,
+        modificato: f.modifiedTime,
+      }))
+      return new Response(JSON.stringify({ ok: true, voci }),
+        { headers: { 'Content-Type': 'application/json', ...CORS } })
     }
 
     if (action === 'dove') {
