@@ -226,7 +226,7 @@ export async function apriDettaglio(id) {
           <span class="nm">${esc(a.nome)}</span>
           ${a.timbrato ? '<span class="tag">timbrato</span>' : ''}
           <button class="btn btn-ghost btn-sm" data-az="scarica" data-path="${esc(a.path)}" data-nome="${esc(a.nome)}">Apri</button>
-          ${!a.timbrato && /\.pdf$/i.test(a.nome) ? `<button class="btn btn-ghost btn-sm" data-az="timbra" data-att="${a.id}">Timbra</button>` : ''}
+          ${/\.pdf$/i.test(a.nome) ? `<button class="btn btn-ghost btn-sm" data-az="timbra" data-att="${a.id}">${a.timbrato ? 'Timbra di nuovo' : 'Timbra'}</button>` : ''}
           <button class="icon-btn" data-az="elimina-all" data-att="${a.id}" data-path="${esc(a.path)}" title="Elimina">🗑</button>
         </li>`).join('') || '<li class="empty" style="padding:12px">Nessun documento allegato.</li>'}
     </ul>
@@ -237,6 +237,7 @@ export async function apriDettaglio(id) {
     <div class="sect-title">Azioni</div>
     <div class="drawer-actions">
       <button class="btn btn-primary btn-sm" data-az="modifica">Modifica</button>
+      <button class="btn btn-ghost btn-sm" data-az="timbra-doc">🖃 Timbra un documento</button>
       <button class="btn btn-ghost btn-sm" data-az="mail">✉️ Avviso di protocollazione</button>
       <button class="btn btn-ghost btn-sm" data-az="copia">Duplica come nuovo</button>
       ${p.impresa_id ? '<button class="btn btn-ghost btn-sm" data-az="impresa">🏢 Scheda impresa</button>' : ''}
@@ -296,19 +297,9 @@ async function gestisciAzioneDrawer(e) {
     return;
   }
 
-  if (az === 'timbra') {
-    attendi(btn, true, 'Timbro…');
-    try {
-      const { timbraAllegato } = await import('./timbro.js');
-      await timbraAllegato(Number(btn.dataset.att), p);
-      toast('Documento timbrato.', 'ok');
-      apriDettaglio(p.id);
-    } catch (err) {
-      toast('Timbro non riuscito: ' + err.message, 'err');
-      attendi(btn, false);
-    }
-    return;
-  }
+  if (az === 'timbra') { timbra(Number(btn.dataset.att)); return; }
+
+  if (az === 'timbra-doc') { chiediQualeDocumento(); return; }
 
   if (az === 'mail') {
     const { apriDialogoMail } = await import('./mail.js');
@@ -336,7 +327,7 @@ async function gestisciAzioneDrawer(e) {
   }
 }
 
-async function caricaAllegato(file) {
+async function caricaAllegato(file, poiTimbra = false) {
   if (!file || !recordCorrente) return;
   const p = recordCorrente;
   if (file.size > 50 * 1024 * 1024) return toast('Il file supera i 50 MB.', 'err');
@@ -349,12 +340,84 @@ async function caricaAllegato(file) {
   const { error } = await sb.storage.from(BUCKET).upload(path, file, { upsert: false });
   if (error) return toast('Caricamento non riuscito: ' + error.message, 'err');
 
-  await sb.from('s_prot_allegati').insert({
+  const { data: att } = await sb.from('s_prot_allegati').insert({
     protocollo_id: p.id, nome: file.name, path, mime: file.type,
     dimensione: file.size, created_by: state.email,
-  });
+  }).select().single();
   toast('Documento allegato.', 'ok');
+
+  /* Se il documento e' stato caricato apposta per timbrarlo, si va
+     dritti all'anteprima invece di far ricominciare da capo. */
+  if (poiTimbra && att && /\.pdf$/i.test(file.name)) return timbra(att.id);
   apriDettaglio(p.id);
+}
+
+/* ── timbrare un documento di questo protocollo ─────────────
+   Vale per i protocolli di oggi e per quelli del 2013: il timbro
+   porta il numero e la data DEL PROTOCOLLO, non di oggi. E' la
+   ristampa del timbro su un documento ritrovato o appena
+   scansionato.                                                */
+async function timbra(attId) {
+  const p = recordCorrente;
+  try {
+    const { timbraAllegato } = await import('./timbro.js');
+    await timbraAllegato(attId, p);
+    toast('Documento timbrato.', 'ok');
+    apriDettaglio(p.id);
+  } catch (err) {
+    if (err.message !== 'Timbro annullato') toast('Timbro non riuscito: ' + err.message, 'err');
+  }
+}
+
+/* Quale documento timbrare: uno di quelli gia' allegati, oppure
+   uno nuovo da caricare. Se non ce n'e' nessuno — ed e' il caso di
+   tutto l'archivio ereditato da Access — si va dritti al file. */
+async function chiediQualeDocumento() {
+  const p = recordCorrente;
+  const { data: allegati } = await sb.from('s_prot_allegati')
+    .select('id, nome, timbrato').eq('protocollo_id', p.id).order('id');
+  const pdf = (allegati || []).filter((a) => /\.pdf$/i.test(a.nome));
+
+  if (!pdf.length) {
+    const inp = $('#att-file');
+    inp.click();
+    inp.onchange = (ev) => caricaAllegato(ev.target.files[0], true);
+    return;
+  }
+
+  const bg = document.createElement('div');
+  bg.className = 'drawer-bg';
+  bg.style.zIndex = 62;
+  bg.innerHTML = `
+    <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff;
+                border-radius:10px;padding:22px;width:min(460px,94vw);box-shadow:var(--ombra)">
+      <h3 style="margin:0 0 6px;font-size:17px">Quale documento timbro?</h3>
+      <p style="margin:0 0 14px;color:var(--testo-soft);font-size:13px">
+        Il timbro portera' <strong>${esc(codiceProtocollo(p))} del ${dataIt(p.data_prot)}</strong>,
+        cioe' il numero e la data di questo protocollo — non quelli di oggi.
+      </p>
+      ${pdf.map((a) => `
+        <button class="btn btn-ghost btn-block" data-att="${a.id}" style="text-align:left">
+          ${esc(a.nome)}${a.timbrato ? ' <span class="tag">gia\' timbrato</span>' : ''}
+        </button>`).join('')}
+      <button class="btn btn-ghost btn-block" data-nuovo="1">＋ Carica un altro documento</button>
+      <button class="btn btn-ghost btn-block" data-chiudi="1">Annulla</button>
+    </div>`;
+  document.body.appendChild(bg);
+
+  bg.addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-att],[data-nuovo],[data-chiudi]');
+    if (!b && ev.target !== bg) return;
+    bg.remove();
+    if (!b || b.dataset.chiudi) return;
+    if (b.dataset.nuovo) {
+      const inp = $('#att-file');
+      inp.click();
+      inp.onchange = (e2) => caricaAllegato(e2.target.files[0], true);
+      return;
+    }
+    timbra(Number(b.dataset.att));
+  });
 }
 
 /* ══════════════ FORM ══════════════ */

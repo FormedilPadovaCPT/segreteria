@@ -143,6 +143,25 @@ Due impaginazioni, come in Access:
 - **blocco** — riquadro in alto a sinistra della prima pagina;
 - **striscia** — fascia verticale sul bordo sinistro di tutte le pagine.
 
+### Ristampare il timbro su un protocollo vecchio
+
+Nel dettaglio di **qualunque** protocollo — anche del 2013 — c'è l'azione
+**«Timbra un documento»**. Chiede quale documento timbrare fra quelli allegati,
+oppure permette di caricarne uno nuovo (la scansione appena fatta), e poi apre
+l'anteprima.
+
+**Il timbro porta il numero e la data del protocollo, non quelli di oggi**: è
+esattamente ciò che serve quando il documento cartaceo salta fuori dopo, o lo si
+digitalizza adesso.
+
+Serve perché l'archivio ereditato da Access ha **4.563 protocolli e zero
+allegati**: senza un'azione dichiarata, l'unica strada era allegare un file e poi
+accorgersi di un pulsante piccolo in fondo all'elenco.
+
+Un documento già timbrato si può timbrare di nuovo — utile per spostare il
+timbro — ma il secondo timbro si aggiunge al primo: meglio ripartire
+dall'originale, che nell'elenco resta accanto.
+
 ### L'anteprima
 
 Premendo «Timbra» su un allegato PDF si apre l'anteprima: si vede la pagina
