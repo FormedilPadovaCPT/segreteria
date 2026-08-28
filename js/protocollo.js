@@ -214,6 +214,8 @@ export async function apriDettaglio(id) {
       ${voce('Ufficio', p.ufficio)}
       ${voce('Referente', p.referente)}
       ${voce('Cartella archivio', p.cartella)}
+      ${p.cartella_access && p.cartella_access !== p.cartella
+        ? `<dt>Diceva in Access</dt><dd style="color:var(--testo-soft)">${esc(p.cartella_access)}</dd>` : ''}
     </dl>
 
     <div class="sect-title">Oggetto</div>
