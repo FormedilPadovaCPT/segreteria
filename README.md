@@ -26,6 +26,8 @@ del gestionale visite e della webapp asseverazione, sulle tabelle `s_*`.
 | `js/imprese.js` | Ricerca e scheda impresa con le sue sottoschede |
 | `js/statistiche.js` | Numeri e distribuzioni del registro |
 
+| `strumenti/timbra.mjs` | Timbra un PDF da riga di comando, con lo stesso timbro |
+
 Nessun passaggio di compilazione: sono moduli ES caricati dal browser.
 Per provare in locale serve un server (i moduli non partono da `file://`):
 
@@ -34,6 +36,39 @@ cd "C:\Google Drive Gsuite\9_APPLICATIVI\Gestionale_Visite_APP\segreteria-app"
 python -m http.server 8080
 # poi apri http://localhost:8080
 ```
+
+## Timbrare da riga di comando
+
+`strumenti/timbra.mjs` applica **lo stesso identico timbro della webapp** a un
+PDF che sta su disco. Serve a due cose: timbrare in automatico un documento
+appena protocollato, e **ritimbrare oggi un documento vecchio con il numero e
+la data di allora** — l'unica forma di ristampa che l'ufficio ha chiesto.
+
+I dati del protocollo si passano da fuori, non li legge dal database: così lo
+strumento fa una cosa sola, non ha bisogno di credenziali e si può provare
+senza rete.
+
+```powershell
+cd "C:\Google Drive Gsuite\9_APPLICATIVI\Gestionale_Visite_APP\segreteria-app"
+npm --prefix strumenti install          # una volta sola
+node strumenti/timbra.mjs --pdf "C:\...\documento.pdf" --json protocollo.json
+```
+
+Opzioni: `--stile blocco|striscia`, `--out <file>`, `--sovrascrivi`, `--forza`.
+Senza argomenti stampa le istruzioni.
+
+**L'originale non viene mai toccato**: il file timbrato si affianca, con il
+codice del protocollo in coda al nome.
+
+Si rifiuta di procedere, invece di fare un danno silenzioso, quando: mancano
+`numero`, `direzione` o `data_prot` (il timbro direbbe una cosa falsa); il tipo
+documento è un `Attestato` (che esce già completo — serve `--forza`); il file di
+destinazione esiste già.
+
+> Il disegno del timbro **non è duplicato**: `js/timbro-disegno.js` è lo stesso
+> file che usa il browser, e riceve pdf-lib e il generatore di QR dall'esterno —
+> dal CDN nella webapp, da npm qui. Due copie sarebbero diventate due timbri
+> diversi al primo ritocco.
 
 ## Chi può entrare
 
@@ -167,6 +202,15 @@ collegata a visite, cantieri e protocolli.
 - [ ] Numero di protocollo chiesto dalla pratica: la `t_ASS` e le altre tabelle
       devono poter chiedere un numero al registro e conservarlo, meglio se con
       l'id della riga e non col solo numero
+- [ ] La catena completa: documento in `00_INBOX` → protocollo → timbro →
+      collocazione nel vault secondo le regole → link a Drive scritto in
+      `drive_file_id` / `drive_url`. Il timbro da riga di comando è il primo
+      pezzo, fatto; manca il resto
+- [ ] Mail da protocollare: leggere una mail e i suoi allegati e portarli
+      dentro la catena
+- [ ] Protocollo in uscita che prepara la bozza di mail su carta intestata,
+      come faceva il doppio clic della vecchia maschera Access — che usava
+      `.Display`, non `.Send`: la mail la mandava una persona
 - [ ] Scheda persona con storico nomine (`s_nomine`, 7.496 righe)
 - [ ] Aggancio dei vecchi documenti su Drive (`drive_file_id` / `drive_url`)
 - [ ] Rubriche (Enti, Fornitori, Sindacati, Stampa, ANCE)

@@ -39,6 +39,14 @@ jobs:
             node --check "/tmp/$(basename "$f").mjs"
             echo "ok $f"
           done
+          # Gli strumenti da riga di comando non vengono pubblicati, ma
+          # condividono i moduli con la webapp: se si rompono qui, si e'
+          # rotto qualcosa anche di la'.
+          for f in strumenti/*.mjs; do
+            [ -e "$f" ] || continue
+            node --check "$f"
+            echo "ok $f"
+          done
 
       - name: Prepara i file pubblici
         run: |

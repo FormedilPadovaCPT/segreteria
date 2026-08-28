@@ -1,0 +1,10 @@
+{
+  "name": "segreteria-strumenti",
+  "private": true,
+  "type": "module",
+  "description": "Strumenti da riga di comando dell'app Segreteria. Usano lo stesso disegno del timbro della webapp (js/timbro-disegno.js), con le librerie prese da npm invece che dal CDN.",
+  "dependencies": {
+    "pdf-lib": "^1.17.1",
+    "qrcode-generator": "^1.4.4"
+  }
+}
