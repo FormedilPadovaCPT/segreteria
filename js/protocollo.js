@@ -11,7 +11,7 @@ import {
   codiceProtocollo, protocolloEsteso,
 } from './core.js';
 import { PAGE_SIZE, BUCKET } from './config.js';
-import { UFFICI, MEZZI, normalizzaMezzo } from './lookups.js';
+import { UFFICI, MEZZI, normalizzaMezzo, vuoleTimbro, PERCHE_NIENTE_TIMBRO } from './lookups.js';
 
 /* ── stato del modulo ─────────────────────────────────────── */
 const f = { direzione: '', testo: '', anno: '', tipo: '', ufficio: '' };
@@ -490,6 +490,7 @@ export async function apriForm(direzione, record = null, duplica = false) {
           </div>
           <div class="field" style="margin-top:6px">
             <label style="font-weight:400"><input type="checkbox" id="c-timbra" style="width:auto" checked> Timbra subito il PDF con numero, data e QR</label>
+            <span class="hint" id="hint-timbro"></span>
           </div>
         </fieldset>`}
       </div>
@@ -518,6 +519,11 @@ export async function apriForm(direzione, record = null, duplica = false) {
     });
   }
 
+  /* Certi documenti il timbro non lo vogliono: l'attestato esce già
+     completo. La spunta si toglie da sola, ma resta cliccabile. */
+  aggiornaTimbro();
+  $('#c-tipo').addEventListener('change', aggiornaTimbro);
+
   /* aggancio anagrafica imprese */
   autocompleta($('#c-impresa'), cercaImprese, (scelta) => {
     $('#c-impresa').value = scelta.impresa_nome;
@@ -531,6 +537,17 @@ export async function apriForm(direzione, record = null, duplica = false) {
 
   $('#btn-annulla-form').addEventListener('click', () => { mostraVista('registro'); caricaElenco(); });
   $('#btn-salva').addEventListener('click', salva);
+}
+
+/* La spunta del timbro segue il tipo di documento scelto. */
+function aggiornaTimbro() {
+  const sel = $('#c-tipo');
+  const box = $('#c-timbra');
+  if (!sel || !box) return;
+  const tipo = sel.value ? sel.options[sel.selectedIndex].text : '';
+  const serve = vuoleTimbro(tipo);
+  box.checked = serve;
+  $('#hint-timbro').textContent = serve ? '' : PERCHE_NIENTE_TIMBRO;
 }
 
 /* Chiede al database quale numero toccherebbe, senza assegnarlo. */

@@ -92,6 +92,17 @@ Due impaginazioni, come in Access:
 - **blocco** — riquadro in alto a sinistra della prima pagina;
 - **striscia** — fascia verticale sul bordo sinistro di tutte le pagine.
 
+**Sugli attestati il timbro non si mette.** L'attestato di asseverazione esce
+già completo di protocollo proprio, validità e firma: la spunta «timbra» si
+toglie da sola quando il tipo di documento è `Attestato`, e la maschera dice
+perché. Resta cliccabile — la regola sta nel codice per non doversene
+ricordare, non per impedire un'eccezione. L'attestato **si protocolla lo
+stesso**: è il timbro sul foglio che non ci va.
+
+Il disegno del timbro sta in `js/timbro-disegno.js` e non carica niente:
+riceve pdf-lib e il generatore di QR dall'esterno, così lo stesso identico
+timbro può girare anche fuori dal browser.
+
 Il QR contiene `Prot_<codice> <data> <oggetto> <nominativo>` ed è disegnato come
 vettore, quindi resta nitido in stampa. Il file timbrato si affianca
 all'originale, che non viene toccato.

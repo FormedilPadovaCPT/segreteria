@@ -48,6 +48,26 @@ export function normalizzaUfficio(v) {
   return s;
 }
 
+/* ── Documenti che il timbro non lo vogliono ───────────────
+   L'attestato di asseverazione esce già completo: porta il proprio
+   protocollo, la validità e la firma, e va all'impresa così com'è.
+   Il timbro del registro non aggiungerebbe niente e sporcherebbe un
+   documento che ha già tutto (regola dell'utente, 28/08/2026).
+   Attenzione: il protocollo lo prende lo stesso — è il timbro sul
+   foglio che non ci va, non la registrazione.
+   ────────────────────────────────────────────────────────── */
+export const TIPI_SENZA_TIMBRO = [/attestato/i];
+
+export function vuoleTimbro(descrizioneTipo) {
+  const t = (descrizioneTipo || '').trim();
+  if (!t) return true;
+  return !TIPI_SENZA_TIMBRO.some((r) => r.test(t));
+}
+
+export const PERCHE_NIENTE_TIMBRO =
+  'L\'attestato esce già completo di protocollo, validità e firma: il timbro non ci va. '
+  + 'Il protocollo lo prende lo stesso.';
+
 /* ── Le lettere di incarico non stanno più qui ─────────────
    Non vivono nel protocollo: vivono nella tabella della pratica
    che le genera — per l'asseverazione la t_ASS, che tiene i suoi
