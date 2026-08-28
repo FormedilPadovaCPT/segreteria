@@ -84,8 +84,18 @@ async function workerLocale() {
 }
 
 export const pdfJs = async () => {
+  /* ⚠️ Il build UFFICIALE per browser, non il pacchetto «+esm».
+     Il «+esm» di jsDelivr rimaneggia il controllo con cui pdf.js
+     capisce se sta girando in Node: finisce per crederlo, sceglie
+     la fabbrica di tele di Node e muore con
+       «Cannot read properties of undefined (reading 'createCanvas')»
+     — ma solo sui documenti che hanno bisogno di una tela
+     d'appoggio (immagini, trasparenze, maschere), quindi su un PDF
+     di prova semplice non si vede. Visto in produzione il
+     2026-08-28, su un documento vero. */
   const m = await caricaModulo('pdfjs', [
-    `https://cdn.jsdelivr.net/npm/pdfjs-dist@${VERSIONE_PDFJS}/+esm`,
+    `https://cdn.jsdelivr.net/npm/pdfjs-dist@${VERSIONE_PDFJS}/build/pdf.min.mjs`,
+    `https://unpkg.com/pdfjs-dist@${VERSIONE_PDFJS}/build/pdf.min.mjs`,
     `https://esm.sh/pdfjs-dist@${VERSIONE_PDFJS}`,
   ], (x) => typeof x.getDocument === 'function');
   if (m.GlobalWorkerOptions && !m.GlobalWorkerOptions.__nostro) {

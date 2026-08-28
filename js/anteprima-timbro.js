@@ -43,6 +43,11 @@ const RESA = 'print';
    «occupata allo 0,1%». */
 const FONT_STANDARD = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.76/standard_fonts/';
 
+/* La fabbrica di tele la sceglie pdf.js, e col build ufficiale
+   sceglie quella del browser. Non la si impone a mano: la classe
+   DOMCanvasFactory non e' esportata dal build minificato, e il
+   controllo che avevo messo non faceva nulla. Quello che conta e'
+   caricare il build giusto — vedi il commento in cdn.js. */
 const apri = (pdfjs, dati) => pdfjs.getDocument({
   data: dati, verbosity: 0, standardFontDataUrl: FONT_STANDARD,
 }).promise;
