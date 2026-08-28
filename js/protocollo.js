@@ -465,6 +465,16 @@ function sfogliaDrive() {
     const misura = (n) => (n == null ? '' : n > 1048576
       ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB');
 
+    /* Cartelle prima e in ordine di nome — altrimenti la radice del
+       vault (00_INBOX, 1_PROGETTI, 2_AREE…) si scombina e non si
+       trova più niente. I file invece dal più recente: quando si
+       cerca un documento appena arrivato è quasi sempre in cima. */
+    const ordina = (voci) => voci.sort((a, b) => {
+      if (a.cartella !== b.cartella) return a.cartella ? -1 : 1;
+      if (a.cartella) return a.nome.localeCompare(b.nome, 'it');
+      return String(b.modificato || '').localeCompare(String(a.modificato || ''));
+    });
+
     async function mostra(cerca = null) {
       elenco.innerHTML = '<p class="empty">Un istante…</p>';
       briciole.innerHTML = cerca
@@ -472,13 +482,14 @@ function sfogliaDrive() {
         : ['Vault', ...pila.map((x) => x.nome)]
           .map((n, i) => `<span data-liv="${i}">${esc(n)}</span>`).join('<i>›</i>');
       let voci;
-      try { voci = (await sfoglia({ parentId: pila.at(-1)?.id || null, cerca })).voci; }
+      try { voci = ordina((await sfoglia({ parentId: pila.at(-1)?.id || null, cerca })).voci); }
       catch (err) { elenco.innerHTML = `<p class="empty">${esc(err.message)}</p>`; return; }
       if (!voci.length) { elenco.innerHTML = '<p class="empty">Qui non c\'è niente.</p>'; return; }
       elenco.innerHTML = voci.map((v) => `
         <div class="sf-riga" data-id="${esc(v.id)}" data-cart="${v.cartella ? 1 : 0}" data-nome="${esc(v.nome)}">
           <span class="sf-ico">${v.cartella ? '📁' : '📄'}</span>
           <span class="sf-nome">${esc(v.nome)}</span>
+          <span class="sf-data">${v.cartella ? '' : dataIt(v.modificato)}</span>
           <span class="sf-dim">${misura(v.dimensione)}</span>
         </div>`).join('');
     }

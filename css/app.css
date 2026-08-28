@@ -356,4 +356,5 @@ tr.riga-ceiv{border-left:4px solid var(--ceiv);background:var(--ceiv-bg)}
 .sf-riga:hover{background:var(--arancio-chiaro)}
 .sf-ico{flex:0 0 18px}
 .sf-nome{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.sf-dim{flex:0 0 auto;color:var(--testo-soft);font-size:11px}
+.sf-data{flex:0 0 62px;text-align:right;color:var(--testo-soft);font-size:11px;font-variant-numeric:tabular-nums}
+.sf-dim{flex:0 0 52px;text-align:right;color:var(--testo-soft);font-size:11px}
