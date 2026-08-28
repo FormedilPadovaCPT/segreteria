@@ -92,18 +92,6 @@ async function vaiA(vista) {
   if (vista === 'nuovo-in') return mod.protocollo?.apriForm('IN');
   if (vista === 'nuovo-out') return mod.protocollo?.apriForm('OUT');
 
-  if (vista === 'lettere') {
-    mostraVista('lettere');
-    $('#lettere-host').innerHTML = '<p class="empty">Preparazione dei modelli…</p>';
-    try {
-      mod.lettere = mod.lettere || await import('./lettere.js');
-      return mod.lettere.render();
-    } catch (e) {
-      $('#lettere-host').innerHTML = `<p class="empty">${esc(e.message)}</p>`;
-      return;
-    }
-  }
-
   if (vista === 'imprese') {
     mostraVista('imprese');
     $('#imprese-host').innerHTML = '<p class="empty">Un istante…</p>';

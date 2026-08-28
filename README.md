@@ -19,9 +19,10 @@ del gestionale visite e della webapp asseverazione, sulle tabelle `s_*`.
 | `js/config.js` | Chiavi Supabase, bucket, dati dell'ente |
 | `js/lookups.js` | Tendine (uffici, mezzi) e modelli di lettera |
 | `js/protocollo.js` | Registro, ricerca, dettaglio, inserimento e modifica |
-| `js/timbro.js` | Timbro sul PDF con QR, nelle due impaginazioni |
+| `js/timbro-disegno.js` | Disegno del timbro: geometria e testo, senza dipendenze |
+| `js/timbro.js` | Lato browser del timbro: librerie, storage, scelta impaginazione |
+| `js/comune.js` | Funzioni pure condivise: codice del protocollo, date, escape |
 | `js/mail.js` | Avviso di protocollazione |
-| `js/lettere.js` | Lettere di incarico su carta intestata |
 | `js/imprese.js` | Ricerca e scheda impresa con le sue sottoschede |
 | `js/statistiche.js` | Numeri e distribuzioni del registro |
 
@@ -101,14 +102,20 @@ Edge function `send-protocollo`: manda una mail di riepilogo (con l'allegato
 scelto) tramite Gmail API con il service account già usato per i verbali.
 Richiede il secret `GOOGLE_SERVICE_ACCOUNT_JSON`.
 
-### Lettere di incarico
+### Le lettere di incarico non stanno qui
 
-Sono i pulsanti colorati della vecchia maschera USCITA. Il flusso è unico:
-compili i campi → l'app protocolla in uscita → genera il PDF su carta intestata
-con numero e data già stampati → lo allega al protocollo.
+C'era una sezione «Lettere di incarico» che generava la lettera da un modulo a
+sé. È stata tolta il 28/08/2026 perché **la lettera non vive nel protocollo**:
+vive nella tabella della pratica che la genera. Per l'asseverazione è la `t_ASS`,
+che tiene i suoi campi — impresa, tecnico asseveratore, compenso, giorni/uomo,
+periodo, firmatari — e conserva in `Prot_assInc` il numero del protocollo in
+uscita con cui la lettera è stata registrata.
 
-> ⚠️ I testi delle lettere in `js/lettere.js` sono una **prima stesura**. Vanno
-> confrontati con i modelli Word dell'ufficio prima dell'uso in produzione.
+Il verso giusto è quindi l'opposto di quello che avevamo fatto: **la lettera si
+genera dalla pratica, e dalla pratica si chiede un numero al registro**. Il
+disegno della carta intestata resta nella storia del repository, in
+`js/lettere.js` fino al commit `d27b428`, per quando lo si rimetterà al posto
+giusto.
 
 ## Scheda impresa
 
@@ -146,7 +153,9 @@ collegata a visite, cantieri e protocolli.
       intestata all'impresa (o al dipendente, con l'impresa in copia)
 - [ ] Riferimento alla pratica sul protocollo, per ritrovare «la DNL 12/2016»
       ora che le serie parallele si chiudono
-- [ ] Modelli Word ufficiali delle lettere di incarico
+- [ ] Numero di protocollo chiesto dalla pratica: la `t_ASS` e le altre tabelle
+      devono poter chiedere un numero al registro e conservarlo, meglio se con
+      l'id della riga e non col solo numero
 - [ ] Scheda persona con storico nomine (`s_nomine`, 7.496 righe)
 - [ ] Aggancio dei vecchi documenti su Drive (`drive_file_id` / `drive_url`)
 - [ ] Rubriche (Enti, Fornitori, Sindacati, Stampa, ANCE)

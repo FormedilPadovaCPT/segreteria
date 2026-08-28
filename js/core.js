@@ -78,7 +78,6 @@ export function mostraVista(nome) {
     'nuovo-in': '#view-form',
     'nuovo-out': '#view-form',
     form: '#view-form',
-    lettere: '#view-lettere',
     imprese: '#view-imprese',
     statistiche: '#view-statistiche',
   };

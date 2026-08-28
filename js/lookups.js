@@ -48,71 +48,14 @@ export function normalizzaUfficio(v) {
   return s;
 }
 
-/* ── Lettere di incarico: i pulsanti della vecchia maschera OUT ── */
-export const MODELLI_LETTERA = [
-  {
-    id: 'incarico_assev_cantieri',
-    nome: 'Incarico asseverazione (firma Presidente, con cantieri)',
-    tipo_doc: 'Lettera di Incarico',
-    cartella: 'CARTELLA - ASSEVERAZIONE - Lettere Di Incarico',
-    note: 'Ricordare il n° di protocollo sul foglio t_ASS.',
-    campi: ['destinatario', 'impresa', 'cantieri', 'compenso', 'periodo'],
-  },
-  {
-    id: 'incarico_assev_secondo',
-    nome: 'Incarico asseverazione, 2° asseveratore',
-    tipo_doc: 'Lettera di Incarico',
-    cartella: 'CARTELLA - ASSEVERAZIONE - Lettere Di Incarico',
-    campi: ['destinatario', 'impresa', 'cantieri', 'compenso', 'periodo'],
-  },
-  {
-    id: 'incarico_assev_lup',
-    nome: 'Incarico asseverazione LUP',
-    tipo_doc: 'Lettera di Incarico',
-    cartella: 'CARTELLA - ASSEVERAZIONE - Lettere Di Incarico',
-    campi: ['destinatario', 'impresa', 'compenso', 'periodo'],
-  },
-  {
-    id: 'fine_assev_marchio',
-    nome: 'Fine asseverazione — utilizzo del marchio',
-    tipo_doc: 'Asseverazione varie',
-    cartella: 'CARTELLA - ASSEVERAZIONE - Documenti',
-    campi: ['destinatario', 'impresa', 'scadenza'],
-  },
-  {
-    id: 'incarico_docenza',
-    nome: 'Incarico di docenza',
-    tipo_doc: 'Lettera di Incarico',
-    cartella: 'CARTELLA - Lettere Di Incarico DOCENZE',
-    campi: ['destinatario', 'corso', 'date', 'ore', 'compenso'],
-  },
-  {
-    id: 'incarico_progetti',
-    nome: 'Incarico progetti (firma Presidente)',
-    tipo_doc: 'Lettera di Incarico',
-    cartella: 'CARTELLA - Contratti Tecnici CPT',
-    note: 'Ricordare il n° di protocollo sul foglio t_Soft.',
-    campi: ['destinatario', 'progetto', 'compenso', 'periodo'],
-  },
-  {
-    id: 'incarico_generica',
-    nome: 'Lettera di incarico generica',
-    tipo_doc: 'Lettera di Incarico',
-    cartella: '',
-    campi: ['destinatario', 'oggetto_incarico', 'compenso', 'periodo'],
-  },
-];
-
-export const ETICHETTE_CAMPI = {
-  destinatario: 'Destinatario (nome e qualifica)',
-  impresa: 'Impresa',
-  cantieri: 'Cantieri interessati',
-  compenso: 'Compenso pattuito',
-  periodo: 'Periodo di svolgimento',
-  scadenza: 'Scadenza',
-  corso: 'Corso',
-  date: 'Date delle lezioni',
-  ore: 'Ore di docenza',
-  progetto: 'Progetto',
-  oggetto_incarico: "Oggetto dell'incarico",
-};
+/* ── Le lettere di incarico non stanno più qui ─────────────
+   Non vivono nel protocollo: vivono nella tabella della pratica
+   che le genera — per l'asseverazione la t_ASS, che tiene i suoi
+   campi (impresa, tecnico asseveratore, compenso, giorni/uomo,
+   periodo, firmatari) e conserva in `Prot_assInc` il numero di
+   protocollo in uscita della lettera.
+   La lettera quindi si genera di là, e di qua chiede solo il
+   numero. Il modello e il disegno della carta intestata restano
+   nella storia del repository (fino al commit d27b428, file
+   js/lettere.js) per quando si ricostruiranno al posto giusto.
+   ────────────────────────────────────────────────────────── */

@@ -13,7 +13,7 @@ export const BUCKET = 'protocollo';
 /* Righe per pagina nel registro */
 export const PAGE_SIZE = 50;
 
-/* Dati dell'ente usati nei timbri e nelle lettere */
+/* Dati dell'ente usati nel timbro di protocollo */
 export const ENTE = {
   nome: 'FORMEDIL PADOVA',
   sotto: 'Scuola Costruzioni Giuseppe Jappelli',
