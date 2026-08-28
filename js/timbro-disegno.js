@@ -77,8 +77,28 @@ function disegnaQr(page, testo, x, y, lato, deps, col) {
    puntini. Era il difetto della versione precedente, che cresceva
    con quello che ci si scriveva dentro.                          */
 
+/* ── geometria del blocco ──────────────────────────────────
+   Le fasce sono dichiarate una per una e l'altezza totale e' la
+   loro somma: cosi' non puo' succedere quello che e' successo,
+   cioe' che l'ultima riga finisse fuori dal riquadro perche'
+   avevo lasciato 25 punti per tre righe che ne chiedono 37.
+   Chi cambia una misura cambia il totale, non lo scavalca.     */
+const B = {
+  larghezza: 200,
+  barra: 8,    // fascia arancione col nome dell'ente
+  testa: 28,   // numero, data, QR
+  r1: 14,      // oggetto | ufficio        (due righe, corpo 5)
+  r2: 9,       // mittente/destinatario | mezzo
+  r3: 9,       // cartella | referente
+  colonna: 116, // dove cade la divisoria (a sinistra piu' spazio:
+                // i nomi delle cartelle sono lunghi)
+  qr: 24,
+  pad: 3,
+};
+B.altezza = B.barra + B.testa + B.r1 + B.r2 + B.r3;
+
 const MISURE = {
-  blocco: { larghezza: 200, altezza: 68 },
+  blocco: { larghezza: B.larghezza, altezza: B.altezza },
   minimo: { larghezza: 140, altezza: 46 },
 };
 
@@ -138,69 +158,64 @@ function fascia(page, col, bold, L, y, W, H, alta) {
 }
 
 /* numero e data: le due sole cose che restano leggibili a distanza */
-function capo(page, col, font, bold, p, L, y, H, barra) {
-  page.drawText(p.esercizio ? codiceProtocollo(p) : `n° ${p.numero}`,
-    { x: L + 5, y: y + H - barra - 13, size: 10.5, font: bold, color: col.ARANCIO });
+function capo(page, col, font, bold, p, L, alto, largh) {
+  page.drawText(taglia(p.esercizio ? codiceProtocollo(p) : `n° ${p.numero}`, bold, 10.5, largh),
+    { x: L + 5, y: alto - 12, size: 10.5, font: bold, color: col.ARANCIO });
   page.drawText(`del ${dataIt(p.data_prot)}`,
-    { x: L + 5, y: y + H - barra - 23, size: 7, font, color: col.NERO });
+    { x: L + 5, y: alto - 22, size: 7, font, color: col.NERO });
 }
 
 /* ── blocco (predefinito) ─────────────────────────────────── */
 export function timbroBlocco(page, p, font, bold, deps, posizione) {
   const col = tavolozza(deps.rgb);
-  const { larghezza: W, altezza: H } = MISURE.blocco;
+  const W = B.larghezza, H = B.altezza;
   const { L, y } = ancora(page, W, H, posizione);
-  const BARRA = 9, QR = 28;
+  const T = y + H;                       // bordo alto del riquadro
+
+  /* le tre linee orizzontali che dividono le fasce */
+  const sep1 = T - B.barra - B.testa;    // sotto numero, data e QR
+  const sep2 = sep1 - B.r1;              // sotto oggetto e ufficio
+  const sep3 = sep2 - B.r2;              // sotto mittente e mezzo
+  /* sep3 - B.r3 === y : e' la somma che tiene tutto dentro */
 
   cornice(page, col, L, y, W, H);
-  fascia(page, col, bold, L, y, W, H, BARRA);
-  capo(page, col, font, bold, p, L, y, H, BARRA);
-  disegnaQr(page, testoQr(p), L + W - 5 - QR, y + H - BARRA - QR - 3, QR, deps, col);
+  fascia(page, col, bold, L, y, W, H, B.barra);
+  capo(page, col, font, bold, p, L, T - B.barra, W - B.qr - 14);
+  disegnaQr(page, testoQr(p), L + W - 4 - B.qr, sep1 + 2, B.qr, deps, col);
 
-  /* ── la griglia sotto ─────────────────────────────────────
-     Niente etichette: la posizione dice gia' cos'e' il valore, e
-     lo spazio che l'etichetta si mangiava va al testo. Le caselle
-     si separano con un filo sottilissimo, come in Access.        */
-  const ySep = y + H - BARRA - QR - 6;
-  const R1 = 16, R2 = 11;                    // oggetto | ufficio, poi due righe singole
-  const COL = L + 116;                       // la colonna che divide
-                                             // (a sinistra piu' spazio: i nomi
-                                             //  delle cartelle sono lunghi)
-  const filo = (a, b, c, d) => page.drawLine({
-    start: { x: a, y: b }, end: { x: c, y: d }, thickness: 0.3, color: col.ARANCIO,
+  const filo = (yy) => page.drawLine({
+    start: { x: L, y: yy }, end: { x: L + W, y: yy }, thickness: 0.3, color: col.ARANCIO,
+  });
+  filo(sep1); filo(sep2); filo(sep3);
+  page.drawLine({
+    start: { x: L + B.colonna, y }, end: { x: L + B.colonna, y: sep1 },
+    thickness: 0.3, color: col.ARANCIO,
   });
 
-  filo(L, ySep, L + W, ySep);
-  filo(L, ySep - R1, L + W, ySep - R1);
-  filo(L, ySep - R1 - R2, L + W, ySep - R1 - R2);
-  filo(COL, y, COL, ySep);
-
-  const P = 2.5;
-  const largaSx = COL - L - P * 2;
-  const largaDx = L + W - COL - P * 2;
+  const sx = L + B.pad;
+  const dx = L + B.colonna + B.pad;
+  const largaSx = B.colonna - B.pad * 2;
+  const largaDx = W - B.colonna - B.pad * 2;
 
   /* casella alta: due righe, per l'oggetto e per l'ufficio */
   const doppia = (x, largh, testo) => {
     if (!testo) return;
-    aCapo(testo, font, 5.6, largh, 2).forEach((t, i) => page.drawText(t, {
-      x, y: ySep - 7 - i * 6.6, size: 5.6, font, color: col.NERO,
+    aCapo(testo, font, 5, largh, 2).forEach((t, i) => page.drawText(t, {
+      x, y: sep1 - 6 - i * 6, size: 5, font, color: col.NERO,
     }));
   };
-  doppia(L + P, largaSx, p.oggetto);
-  doppia(COL + P, largaDx, p.ufficio);
+  doppia(sx, largaSx, p.oggetto);
+  doppia(dx, largaDx, p.ufficio);
 
   /* caselle a una riga */
-  const singola = (x, largh, dy, testo) => {
+  const singola = (x, largh, base, testo) => {
     if (!testo) return;
-    page.drawText(taglia(testo, font, 5.8, largh),
-      { x, y: dy, size: 5.8, font, color: col.NERO });
+    page.drawText(taglia(testo, font, 5, largh), { x, y: base, size: 5, font, color: col.NERO });
   };
-  const y2 = ySep - R1 - 7.5;
-  const y3 = ySep - R1 - R2 - 7.5;
-  singola(L + P, largaSx, y2, p.impresa_nome || p.persona);
-  singola(COL + P, largaDx, y2, p.mezzo);
-  singola(L + P, largaSx, y3, p.cartella);
-  singola(COL + P, largaDx, y3, p.referente);
+  singola(sx, largaSx, sep2 - 6, p.impresa_nome || p.persona);
+  singola(dx, largaDx, sep2 - 6, p.mezzo);
+  singola(sx, largaSx, sep3 - 6, p.cartella);
+  singola(dx, largaDx, sep3 - 6, p.referente);
 }
 
 /* ── minimo: per quando lo spazio e' poco ─────────────────── */
@@ -212,7 +227,7 @@ export function timbroMinimo(page, p, font, bold, deps, posizione) {
 
   cornice(page, col, L, y, W, H);
   fascia(page, col, bold, L, y, W, H, BARRA);
-  capo(page, col, font, bold, p, L, y, H, BARRA);
+  capo(page, col, font, bold, p, L, y + H - BARRA, W - PAD * 2 - QR);
   disegnaQr(page, testoQr(p), L + W - PAD - QR, y + (H - BARRA - QR) / 2 + 1, QR, deps, col);
 }
 

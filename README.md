@@ -54,8 +54,22 @@ npm --prefix strumenti install          # una volta sola
 node strumenti/timbra.mjs --pdf "C:\...\documento.pdf" --json protocollo.json
 ```
 
-Opzioni: `--stile blocco|striscia`, `--out <file>`, `--sovrascrivi`, `--forza`.
-Senza argomenti stampa le istruzioni.
+Opzioni: `--stile blocco|minimo|striscia`, `--dove auto|<angolo>|<x,y>`,
+`--out <file>`, `--sovrascrivi`, `--forza`. Senza argomenti stampa le istruzioni.
+
+### Dopo aver toccato il disegno del timbro
+
+```powershell
+node strumenti/verifica-timbro.mjs
+```
+
+Disegna il timbro su un foglio bianco, rende la pagina e **misura il rettangolo
+dell'inchiostro**: se un solo segno esce dalla cornice dichiarata, fallisce.
+Non guarda il testo ma i pixel, quindi vede anche le linee.
+
+Esiste perché il 28/08/2026 l'ultima riga del blocco è finita fuori dal
+riquadro, sopra il testo del documento — 25 punti di spazio per tre righe che
+ne chiedono 37. Su un timbro alto 68 punti, a occhio, non si vede.
 
 **L'originale non viene mai toccato**: il file timbrato si affianca, con il
 codice del protocollo in coda al nome.
