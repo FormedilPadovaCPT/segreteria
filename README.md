@@ -16,7 +16,8 @@ del gestionale visite e della webapp asseverazione, sulle tabelle `s_*`.
 | `index.html` | Struttura della pagina: accesso, barra, menu, viste, drawer |
 | `css/app.css` | Aspetto, palette istituzionale, layout mobile |
 | `js/app.js` | Client Supabase, accesso con magic link, controllo ruolo, navigazione |
-| `js/config.js` | Chiavi Supabase, bucket, dati dell'ente |
+| `js/config.js` | Chiavi Supabase e dati dell'ente |
+| `js/drive.js` | I documenti su Google Drive: carica, rilegge, cestina |
 | `js/lookups.js` | Tendine (uffici, mezzi) e modelli di lettera |
 | `js/protocollo.js` | Registro, ricerca, dettaglio, inserimento e modifica |
 | `js/timbro-disegno.js` | Disegno del timbro: geometria e testo, senza dipendenze |
@@ -133,8 +134,25 @@ dietro con `ES_aaaa` dei bilanci.
 - Un protocollo non si cancella: si **annulla** con motivazione, e resta nel
   registro barrato.
 - Ogni inserimento, modifica e annullamento finisce in `s_protocollo_audit`.
-- I documenti stanno nel bucket privato `protocollo`, in cartelle
-  `anno/direzione/numero/`.
+- ⚠️ **I documenti stanno su Google Drive, non in Supabase** (decisione
+  dell'utente, 28/08/2026). Cartella
+  `9_APPLICATIVI/Gestionale_Visite/11_Documenti_protocollo/<anno>/<codice>/`.
+  Nel database resta solo l'**indice**: `s_prot_allegati` dice quali file
+  appartengono al protocollo, quale è l'originale e quale il timbrato, con
+  l'`drive_file_id` di ciascuno.
+- Perché un indice e non un semplice link alla cartella: un link a una cartella
+  non sa dire *quale* file è il timbrato, quale il principale, quale è stato
+  spedito. Quella è informazione, e in una cartella si perde.
+- Tutto passa dalla edge function `allegati-protocollo`, che scrive con il
+  service account dell'ente — le credenziali non arrivano mai al browser e i
+  file non sono pubblici. È lo stesso meccanismo di `allegati-ass`, che fa la
+  stessa cosa per le pratiche di asseverazione.
+- **Spostando un file dentro Drive l'id non cambia**: quando il documento verrà
+  smistato nella cartella giusta del vault, il link registrato qui continuerà a
+  funzionare.
+- Eliminare un allegato lo mette **nel cestino di Drive**, non lo cancella.
+- Limite pratico di 12 MB per file: il passaggio via edge function tiene tutto
+  in memoria. Sopra, si mette il file a mano nella cartella e si incolla il link.
 
 ### Timbro
 

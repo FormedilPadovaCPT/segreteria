@@ -10,7 +10,8 @@ import {
   mostraVista, apriDrawer, chiudiDrawer,
   codiceProtocollo, protocolloEsteso,
 } from './core.js';
-import { PAGE_SIZE, BUCKET } from './config.js';
+import { PAGE_SIZE } from './config.js';
+import { caricaFile, cestina, LIMITE_MB } from './drive.js';
 import { UFFICI, MEZZI, normalizzaMezzo, vuoleTimbro, PERCHE_NIENTE_TIMBRO } from './lookups.js';
 
 /* ── stato del modulo ─────────────────────────────────────── */
@@ -225,9 +226,9 @@ export async function apriDettaglio(id) {
         <li class="att-item">
           <span class="nm">${esc(a.nome)}</span>
           ${a.timbrato ? '<span class="tag">timbrato</span>' : ''}
-          <button class="btn btn-ghost btn-sm" data-az="scarica" data-path="${esc(a.path)}" data-nome="${esc(a.nome)}">Apri</button>
+          <button class="btn btn-ghost btn-sm" data-az="scarica" data-url="${esc(a.drive_url || '')}" data-nome="${esc(a.nome)}">Apri su Drive ↗</button>
           ${/\.pdf$/i.test(a.nome) ? `<button class="btn btn-ghost btn-sm" data-az="timbra" data-att="${a.id}">${a.timbrato ? 'Timbra di nuovo' : 'Timbra'}</button>` : ''}
-          <button class="icon-btn" data-az="elimina-all" data-att="${a.id}" data-path="${esc(a.path)}" title="Elimina">🗑</button>
+          <button class="icon-btn" data-az="elimina-all" data-att="${a.id}" data-drive="${esc(a.drive_file_id || '')}" title="Metti nel cestino di Drive">🗑</button>
         </li>`).join('') || '<li class="empty" style="padding:12px">Nessun documento allegato.</li>'}
     </ul>
     <input type="file" id="att-file" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.eml,.msg" style="display:none">
@@ -282,17 +283,21 @@ async function gestisciAzioneDrawer(e) {
   if (az === 'carica') { $('#att-file').click(); $('#att-file').onchange = (ev) => caricaAllegato(ev.target.files[0]); return; }
 
   if (az === 'scarica') {
-    const { data, error } = await sb.storage.from(BUCKET).createSignedUrl(btn.dataset.path, 300);
-    if (error) return toast('Non riesco ad aprire il documento: ' + error.message, 'err');
-    window.open(data.signedUrl, '_blank', 'noopener');
+    /* Il documento sta su Drive: si apre di la'. Non e' pubblico —
+       lo vede chi ha accesso alla cartella dell'ente. */
+    const url = btn.dataset.url;
+    if (!url) return toast('Questo allegato non ha un link su Drive.', 'err');
+    window.open(url, '_blank', 'noopener');
     return;
   }
 
   if (az === 'elimina-all') {
-    if (!confirm('Elimino questo allegato dal protocollo?')) return;
-    await sb.storage.from(BUCKET).remove([btn.dataset.path]);
+    if (!confirm('Tolgo questo documento dal protocollo?\n\nIl file va nel cestino di Drive, da cui si recupera.')) return;
+    try {
+      if (btn.dataset.drive) await cestina(btn.dataset.drive);
+    } catch (err) { toast('Non riesco a spostarlo nel cestino: ' + err.message, 'err'); return; }
     await sb.from('s_prot_allegati').delete().eq('id', Number(btn.dataset.att));
-    toast('Allegato eliminato.', 'ok');
+    toast('Documento tolto dal protocollo e messo nel cestino di Drive.', 'ok');
     apriDettaglio(p.id);
     return;
   }
@@ -330,21 +335,22 @@ async function gestisciAzioneDrawer(e) {
 async function caricaAllegato(file, poiTimbra = false) {
   if (!file || !recordCorrente) return;
   const p = recordCorrente;
-  if (file.size > 50 * 1024 * 1024) return toast('Il file supera i 50 MB.', 'err');
+  if (file.size > LIMITE_MB * 1024 * 1024) {
+    return toast(`Il file supera i ${LIMITE_MB} MB: mettilo a mano nella cartella su Drive `
+      + 'e incolla il link nel campo «Link al documento».', 'err');
+  }
 
-  const anno = String(p.data_prot || oggiIso()).slice(0, 4);
-  const pulito = file.name.replace(/[^\w.\-]+/g, '_');
-  const path = `${anno}/${p.direzione}/${codiceProtocollo(p)}/${Date.now()}_${pulito}`;
-
-  toast('Caricamento in corso…');
-  const { error } = await sb.storage.from(BUCKET).upload(path, file, { upsert: false });
-  if (error) return toast('Caricamento non riuscito: ' + error.message, 'err');
+  toast('Caricamento su Drive in corso…');
+  let su;
+  try { su = await caricaFile(p, file); }
+  catch (err) { return toast('Caricamento non riuscito: ' + err.message, 'err'); }
 
   const { data: att } = await sb.from('s_prot_allegati').insert({
-    protocollo_id: p.id, nome: file.name, path, mime: file.type,
+    protocollo_id: p.id, nome: su.file_name || file.name, mime: file.type,
     dimensione: file.size, created_by: state.email,
+    drive_file_id: su.drive_file_id, drive_url: su.drive_url,
   }).select().single();
-  toast('Documento allegato.', 'ok');
+  toast('Documento caricato su Drive e allegato al protocollo.', 'ok');
 
   /* Se il documento e' stato caricato apposta per timbrarlo, si va
      dritti all'anteprima invece di far ricominciare da capo. */
@@ -683,23 +689,28 @@ async function salva(ev) {
   /* allegato + timbro */
   const file = $('#c-file')?.files?.[0];
   if (file) {
-    const anno = String(nuovo.data_prot).slice(0, 4);
-    const pulito = file.name.replace(/[^\w.\-]+/g, '_');
-    const path = `${anno}/${nuovo.direzione}/${codiceProtocollo(nuovo)}/${Date.now()}_${pulito}`;
-    const { error: errUp } = await sb.storage.from(BUCKET).upload(path, file);
-    if (errUp) toast('Protocollo salvato, ma il file non è stato caricato: ' + errUp.message, 'err');
-    else {
+    try {
+      const su = await caricaFile(nuovo, file);
       const { data: att } = await sb.from('s_prot_allegati').insert({
-        protocollo_id: nuovo.id, nome: file.name, path, mime: file.type,
+        protocollo_id: nuovo.id, nome: su.file_name || file.name, mime: file.type,
         dimensione: file.size, principale: true, created_by: state.email,
+        drive_file_id: su.drive_file_id, drive_url: su.drive_url,
       }).select().single();
 
+      /* il link del documento principale sta anche sulla riga del
+         protocollo, cosi' si vede dall'elenco senza aprire nulla */
+      await sb.from('s_protocollo').update({
+        drive_file_id: su.drive_file_id, drive_url: su.drive_url,
+      }).eq('id', nuovo.id);
+
       if (att && $('#c-timbra')?.checked && /pdf$/i.test(file.name)) {
-        try {
-          const { timbraAllegato } = await import('./timbro.js');
-          await timbraAllegato(att.id, nuovo);
-        } catch (err) { toast('Timbro non riuscito: ' + err.message, 'err'); }
+        const { timbraAllegato } = await import('./timbro.js');
+        await timbraAllegato(att.id, nuovo).catch((err) => {
+          if (err.message !== 'Timbro annullato') toast('Timbro non riuscito: ' + err.message, 'err');
+        });
       }
+    } catch (err) {
+      toast('Protocollo salvato, ma il documento non è stato caricato: ' + err.message, 'err');
     }
   }
 
