@@ -48,6 +48,29 @@ export function normalizzaUfficio(v) {
   return s;
 }
 
+/* ── Rubrica interna, per l'inoltro dei protocollati ───────
+   Chi in ufficio riceve normalmente un documento protocollato.
+   Gli indirizzi vengono da app_ruoli e dall'anagrafica del
+   personale; non e' un organigramma, e' una scorciatoia per non
+   riscrivere gli indirizzi a mano ogni volta. */
+export const RUBRICA_INTERNA = [
+  { nome: 'Pagnacco Dr. Andrea — Direttore', email: 'direzione@formedilpadova.it' },
+  { nome: 'De Marco Arch. Nicola — Coordinatore', email: 'nicola.demarco@did.formedilpadova.it' },
+  { nome: 'Presidenza', email: 'presidente@formedilpadova.it' },
+  { nome: 'Vicepresidenza', email: 'vicepresidente@formedilpadova.it' },
+  { nome: 'Amministrazione', email: 'amministrazione@formedilpadova.it' },
+  { nome: 'Squizzato Sig. Renato — Segreteria', email: 'cptpd@did.formedilpadova.it' },
+];
+
+/* L'indirizzo di chi in ufficio ha in carico il documento: si cerca
+   per cognome dentro al campo «Assegnato a» del protocollo. */
+export function emailAssegnatario(allaCa) {
+  const t = (allaCa || '').toLowerCase();
+  if (!t) return null;
+  const v = RUBRICA_INTERNA.find((x) => t.includes(x.nome.split(' ')[0].toLowerCase()));
+  return v ? v.email : null;
+}
+
 /* ── Documenti che il timbro non lo vogliono ───────────────
    L'attestato di asseverazione esce già completo: porta il proprio
    protocollo, la validità e la firma, e va all'impresa così com'è.

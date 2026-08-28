@@ -255,7 +255,8 @@ export async function apriDettaglio(id) {
     <div class="drawer-actions">
       <button class="btn btn-primary btn-sm" data-az="modifica">Modifica</button>
       <button class="btn btn-ghost btn-sm" data-az="timbra-doc">🖃 Timbra un documento</button>
-      <button class="btn btn-ghost btn-sm" data-az="mail">✉️ Avviso di protocollazione</button>
+      ${p.direzione === 'IN' ? '<button class="btn btn-ghost btn-sm" data-az="avviso">✉️ Avviso al mittente</button>' : ''}
+      <button class="btn btn-ghost btn-sm" data-az="inoltra">📨 Inoltra</button>
       <button class="btn btn-ghost btn-sm" data-az="copia">Duplica come nuovo</button>
       ${p.impresa_id ? '<button class="btn btn-ghost btn-sm" data-az="impresa">🏢 Scheda impresa</button>' : ''}
       ${p.annullato
@@ -338,9 +339,9 @@ async function gestisciAzioneDrawer(e) {
 
   if (az === 'timbra-doc') { chiediQualeDocumento(); return; }
 
-  if (az === 'mail') {
+  if (az === 'avviso' || az === 'inoltra') {
     const { apriDialogoMail } = await import('./mail.js');
-    apriDialogoMail(p);
+    apriDialogoMail(p, az === 'avviso' ? 'avviso' : 'inoltra');
     return;
   }
 
