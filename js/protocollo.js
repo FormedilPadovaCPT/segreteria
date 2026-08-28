@@ -11,7 +11,7 @@ import {
   codiceProtocollo, protocolloEsteso,
 } from './core.js';
 import { PAGE_SIZE } from './config.js';
-import { caricaFile, cestina, dove, LIMITE_MB } from './drive.js';
+import { caricaFile, cestina, dove, idDaLink, LIMITE_MB } from './drive.js';
 import { UFFICI, MEZZI, normalizzaMezzo, vuoleTimbro, PERCHE_NIENTE_TIMBRO } from './lookups.js';
 import { CARTELLE_VAULT } from './cartelle-vault.js';
 
@@ -242,7 +242,13 @@ export async function apriDettaglio(id) {
         </li>`).join('') || '<li class="empty" style="padding:12px">Nessun documento allegato.</li>'}
     </ul>
     <input type="file" id="att-file" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.eml,.msg" style="display:none">
-    <button class="btn btn-ghost btn-sm" data-az="carica">＋ Allega un documento</button>
+    <button class="btn btn-ghost btn-sm" data-az="collega">🔗 Collega un documento già su Drive</button>
+    <button class="btn btn-ghost btn-sm" data-az="carica">＋ Carica un documento nuovo</button>
+    <p class="hint" style="margin:6px 0 0">
+      <strong>Collega</strong> se il documento sta già nel vault: resta dov'è, e il timbrato
+      gli nascerà accanto. <strong>Carica</strong> solo per un documento che non è ancora stato
+      processato: finisce in <code>00_INBOX/_protocollo</code>, da smistare.
+    </p>
     ${p.drive_url ? `<p style="margin-top:10px;font-size:12px"><a href="${esc(p.drive_url)}" target="_blank" rel="noopener">Documento su Drive ↗</a></p>` : ''}
 
     <div class="sect-title">Azioni</div>
@@ -305,6 +311,8 @@ async function gestisciAzioneDrawer(e) {
   }
 
   if (az === 'carica') { $('#att-file').click(); $('#att-file').onchange = (ev) => caricaAllegato(ev.target.files[0]); return; }
+
+  if (az === 'collega') { collegaDaDrive(); return; }
 
   if (az === 'scarica') {
     /* Il documento sta su Drive: si apre di la'. Non e' pubblico —
@@ -382,6 +390,44 @@ async function caricaAllegato(file, poiTimbra = false) {
   apriDettaglio(p.id);
 }
 
+/* ── collegare un documento che sta GIÀ su Drive ────────────
+   Serve per i documenti già archiviati nel vault: non si ricarica
+   niente, si registra dov'è. È la differenza che mancava — senza,
+   l'unico modo di allegare era caricare dal PC, e la copia caricata
+   finiva nella zona d'attesa insieme al suo timbrato.            */
+async function collegaDaDrive() {
+  const p = recordCorrente;
+  const incollato = prompt(
+    'Incolla il link del documento su Drive (o il suo id).\n\n'
+    + 'Il documento resta dov\'è: qui si registra soltanto che appartiene a questo '
+    + 'protocollo. Se poi lo timbri, il timbrato gli nascerà accanto.', '');
+  if (incollato === null) return;
+
+  const id = idDaLink(incollato);
+  if (!id) return toast('Non riconosco un documento di Drive in quello che hai incollato.', 'err');
+  if (/\/folders\//.test(incollato)) {
+    return toast('Quello è il link di una cartella. Serve il link del singolo file: '
+      + 'il protocollo deve poter dire quale documento è.', 'err');
+  }
+
+  toast('Cerco il documento su Drive…');
+  let d;
+  try { d = await dove(id); }
+  catch (err) { return toast('Non riesco a leggere quel documento: ' + err.message, 'err'); }
+  if (d.cestinato) return toast('Quel documento sta nel cestino di Drive.', 'err');
+
+  const { data: gia } = await sb.from('s_prot_allegati')
+    .select('id').eq('protocollo_id', p.id).eq('drive_file_id', id).maybeSingle();
+  if (gia) return toast('Quel documento è già collegato a questo protocollo.', 'err');
+
+  await sb.from('s_prot_allegati').insert({
+    protocollo_id: p.id, nome: d.nome,
+    drive_file_id: id, drive_url: d.drive_url, created_by: state.email,
+  });
+  toast(`Collegato: ${d.nome} — ${d.cartella || 'Drive'}`, 'ok');
+  apriDettaglio(p.id);
+}
+
 /* ── timbrare un documento di questo protocollo ─────────────
    Vale per i protocolli di oggi e per quelli del 2013: il timbro
    porta il numero e la data DEL PROTOCOLLO, non di oggi. E' la
@@ -409,6 +455,15 @@ async function chiediQualeDocumento() {
   const pdf = (allegati || []).filter((a) => /\.pdf$/i.test(a.nome));
 
   if (!pdf.length) {
+    /* Nessun documento ancora: si chiede COME, perche' collegarne uno
+       gia' archiviato e caricarne uno nuovo portano in due posti
+       diversi, e la differenza conta. */
+    const su = confirm(
+      'Questo protocollo non ha ancora documenti.\n\n'
+      + 'OK  → collego un documento che sta GIÀ su Drive (resta dov\'è)\n'
+      + 'Annulla → carico un documento nuovo dal computer '
+      + '(finisce in 00_INBOX/_protocollo, da smistare)');
+    if (su) { collegaDaDrive(); return; }
     const inp = $('#att-file');
     inp.click();
     inp.onchange = (ev) => caricaAllegato(ev.target.files[0], true);
@@ -430,16 +485,18 @@ async function chiediQualeDocumento() {
         <button class="btn btn-ghost btn-block" data-att="${a.id}" style="text-align:left">
           ${esc(a.nome)}${a.timbrato ? ' <span class="tag">gia\' timbrato</span>' : ''}
         </button>`).join('')}
-      <button class="btn btn-ghost btn-block" data-nuovo="1">＋ Carica un altro documento</button>
+      <button class="btn btn-ghost btn-block" data-collega="1">🔗 Collega un documento già su Drive</button>
+      <button class="btn btn-ghost btn-block" data-nuovo="1">＋ Carica un documento nuovo</button>
       <button class="btn btn-ghost btn-block" data-chiudi="1">Annulla</button>
     </div>`;
   document.body.appendChild(bg);
 
   bg.addEventListener('click', (ev) => {
-    const b = ev.target.closest('[data-att],[data-nuovo],[data-chiudi]');
+    const b = ev.target.closest('[data-att],[data-nuovo],[data-collega],[data-chiudi]');
     if (!b && ev.target !== bg) return;
     bg.remove();
     if (!b || b.dataset.chiudi) return;
+    if (b.dataset.collega) { collegaDaDrive(); return; }
     if (b.dataset.nuovo) {
       const inp = $('#att-file');
       inp.click();

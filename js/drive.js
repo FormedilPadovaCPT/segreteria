@@ -83,6 +83,21 @@ export async function dove(driveFileId) {
   return chiama({ action: 'dove', drive_file_id: driveFileId });
 }
 
+/* L'id di un file dentro a un link di Drive, in tutte le forme in
+   cui capita di incollarlo. Se gli si da' gia' un id nudo, lo
+   riconosce e lo restituisce. */
+export function idDaLink(testo) {
+  const t = String(testo || '').trim();
+  if (!t) return null;
+  const forme = [
+    /\/d\/([a-zA-Z0-9_-]{20,})/,        // .../file/d/<id>/view
+    /[?&]id=([a-zA-Z0-9_-]{20,})/,      // ...open?id=<id>
+    /\/folders\/([a-zA-Z0-9_-]{20,})/,  // cartella, per dire che non va bene
+  ];
+  for (const r of forme) { const m = t.match(r); if (m) return m[1]; }
+  return /^[a-zA-Z0-9_-]{20,}$/.test(t) ? t : null;
+}
+
 /* Non cancella: mette nel cestino di Drive, da cui si recupera.
    E' la regola d'oro 4 del vault applicata anche qui. */
 export async function cestina(driveFileId) {

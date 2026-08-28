@@ -150,6 +150,13 @@ dietro con `ES_aaaa` dei bilanci.
   già collocata — il timbrato gli si affianca lì, e **non si sposta niente**: il
   documento sta dove le regole di smistamento hanno deciso, e il timbro non è
   una ragione per spostarlo.
+- ⚠️ **Due modi di allegare, e la differenza conta.** *«Collega un documento già
+  su Drive»* registra un documento che sta già nel vault: **resta dov'è**, si
+  incolla il suo link e il protocollo prende nota. *«Carica un documento nuovo»*
+  serve solo per ciò che non è ancora stato processato, e finisce nella zona
+  d'attesa. Senza il primo, l'unico modo di allegare era ricaricare dal PC — e
+  la copia caricata finiva in `00_INBOX/_protocollo` insieme al suo timbrato,
+  che è esattamente il difetto segnalato dall'utente.
 - ⚠️ **Un documento nuovo si processa prima di protocollarlo**: si guarda che
   cos'è, lo si colloca dove prevedono le regole, *poi* lo si protocolla e
   timbra, così nasce già a casa propria. La cartella **`00_INBOX/_protocollo`**
