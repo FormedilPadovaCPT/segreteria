@@ -13,6 +13,7 @@ import {
 import { PAGE_SIZE } from './config.js';
 import { caricaFile, cestina, dove, LIMITE_MB } from './drive.js';
 import { UFFICI, MEZZI, normalizzaMezzo, vuoleTimbro, PERCHE_NIENTE_TIMBRO } from './lookups.js';
+import { CARTELLE_VAULT } from './cartelle-vault.js';
 
 /* ── stato del modulo ─────────────────────────────────────── */
 const f = { direzione: '', testo: '', anno: '', tipo: '', ufficio: '' };
@@ -561,9 +562,14 @@ export async function apriForm(direzione, record = null, duplica = false) {
               <datalist id="dl-referenti">${referentiNoti.map((x) => `<option value="${esc(x)}">`).join('')}</datalist>
             </div>
             <div class="field full">
-              <label for="c-cartella">Cartella di archivio</label>
-              <input type="text" id="c-cartella" list="dl-cartelle" value="${esc(r.cartella || '')}" placeholder="Es. CARTELLA - ASSEVERAZIONE - Documenti">
-              <datalist id="dl-cartelle">${cartelleNote.map((x) => `<option value="${esc(x)}">`).join('')}</datalist>
+              <label for="c-cartella">Cartella di archivio — dove deve andare</label>
+              <input type="text" id="c-cartella" list="dl-cartelle" value="${esc(r.cartella || '')}" placeholder="Es. 2_AREE/Asseverazione/imprese/01_CAVINATO_03347930285">
+              <datalist id="dl-cartelle">
+                ${CARTELLE_VAULT.map((x) => `<option value="${esc(x)}">`).join('')}
+                ${cartelleNote.filter((x) => !CARTELLE_VAULT.includes(x)).map((x) => `<option value="${esc(x)}">`).join('')}
+              </datalist>
+              <span class="hint">Percorso del vault. Dice dove il documento <em>deve</em> stare; dov'è
+                davvero lo legge da Drive il dettaglio del protocollo.</span>
             </div>
             <div class="field full">
               <label for="c-drive">Link al documento (Drive)</label>

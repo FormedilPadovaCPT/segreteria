@@ -18,7 +18,8 @@ del gestionale visite e della webapp asseverazione, sulle tabelle `s_*`.
 | `js/app.js` | Client Supabase, accesso con magic link, controllo ruolo, navigazione |
 | `js/config.js` | Chiavi Supabase e dati dell'ente |
 | `js/drive.js` | I documenti su Google Drive: carica, rilegge, cestina |
-| `js/lookups.js` | Tendine (uffici, mezzi) e modelli di lettera |
+| `js/lookups.js` | Tendine: uffici, mezzi, tipi che non vogliono il timbro |
+| `js/cartelle-vault.js` | Le cartelle vere del vault, per la tendina di destinazione |
 | `js/protocollo.js` | Registro, ricerca, dettaglio, inserimento e modifica |
 | `js/timbro-disegno.js` | Disegno del timbro: geometria e testo, senza dipendenze |
 | `js/anteprima-timbro.js` | Anteprima: vedi il foglio e trascini il timbro dove è bianco |
