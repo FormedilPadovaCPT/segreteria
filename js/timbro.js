@@ -47,7 +47,13 @@ export async function timbraAllegato(attId, protocollo, scelta) {
   let dovEra = null;
   try { dovEra = await dove(att.drive_file_id); } catch { /* si ripiega sulla zona d'attesa */ }
 
-  const nome = att.nome.replace(/\.pdf$/i, '') + `_${siglaProtocollo(protocollo)}.pdf`;
+  /* Se il nome porta gia' il protocollo — e con la nuova procedura lo
+     porta sempre, perche' e' cosi' che si ritrova il file sfogliando —
+     non si ripete: altrimenti esce
+     «..._Prot_2011-in_Prot_2011-in.pdf». Visto in produzione il 28/08. */
+  const nudo = att.nome.replace(/\.pdf$/i, '');
+  const sigla = siglaProtocollo(protocollo);
+  const nome = (nudo.includes(sigla) ? `${nudo}_timbrato` : `${nudo}_${sigla}`) + '.pdf';
   const su = await caricaByte(protocollo, nome, bytes, 'application/pdf', dovEra?.parent_id || null);
 
   await sb.from('s_prot_allegati').insert({
