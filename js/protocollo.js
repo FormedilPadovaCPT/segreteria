@@ -19,6 +19,7 @@ let pagina = 0;
 let totale = 0;
 let cartelleNote = [];
 let referentiNoti = [];
+let assegnatiNoti = [];
 let recordCorrente = null;
 let modificaId = null;
 
@@ -82,11 +83,21 @@ export function ricarica() { caricaElenco(); }
 /* valori già usati in archivio: cartelle e referenti, per le tendine */
 async function caricaValoriNoti() {
   const { data: righe } = await sb.from('s_protocollo')
-    .select('cartella, referente').order('id', { ascending: false }).limit(1500);
+    .select('cartella, referente, alla_ca').order('id', { ascending: false }).limit(1500);
   const c = new Set(), r = new Set();
-  (righe || []).forEach((x) => { if (x.cartella) c.add(x.cartella); if (x.referente) r.add(x.referente); });
+  /* Chi in ufficio prende in carico il documento in arrivo: l'elenco si
+     ricava dal registro, non da un organigramma scritto a mano — cosi'
+     si aggiorna da se' e non afferma ruoli non documentati. Ordinato per
+     quante volte il nome compare, non alfabeticamente. */
+  const quante = new Map();
+  (righe || []).forEach((x) => {
+    if (x.cartella) c.add(x.cartella);
+    if (x.referente) r.add(x.referente);
+    if (x.alla_ca) quante.set(x.alla_ca, (quante.get(x.alla_ca) || 0) + 1);
+  });
   cartelleNote = [...c].sort();
   referentiNoti = [...r].sort();
+  assegnatiNoti = [...quante.entries()].sort((a, b) => b[1] - a[1]).map(([v]) => v);
 }
 
 /* ══════════════ ELENCO ══════════════ */
@@ -369,10 +380,13 @@ export async function apriForm(direzione, record = null, duplica = false) {
   const optUff = UFFICI.map((u) => `<option ${r.ufficio === u ? 'selected' : ''}>${esc(u)}</option>`).join('');
   const optMezzi = MEZZI.map((m) => `<option ${normalizzaMezzo(r.mezzo) === m ? 'selected' : ''}>${esc(m)}</option>`).join('');
 
+  /* Maschera compatta: due colonne e misure verticali strette, per
+     vederla tutta senza scorrere. Il protocollo si compila molte volte
+     al giorno e ogni scroll e' tempo perso. */
   const host = $('#form-host');
-  host.className = `form-host dir-${direzione}`;
+  host.className = `form-host compatta dir-${direzione}`;
   host.innerHTML = `
-    <div class="grid" style="margin-bottom:18px">
+    <div class="f-testa">
       <div class="numero-box">
         <span class="lbl">${modificaId ? 'Protocollo' : 'Prossimo protocollo'}</span>
         <span class="n${codiceMostrato.length > 6 ? ' lungo' : ''}" id="c-numero">${esc(codiceMostrato)}</span>
@@ -382,93 +396,104 @@ export async function apriForm(direzione, record = null, duplica = false) {
         <label for="c-data_prot">Data di protocollo</label>
         <input type="date" id="c-data_prot" value="${r.data_prot || oggiIso()}">
       </div>
-    </div>
-
-    <fieldset class="fieldset">
-      <legend>${inn ? 'Mittente' : 'Destinatario'}</legend>
-      <div class="grid">
-        <div class="field full ac-wrap">
-          <label for="c-impresa">${inn ? 'Mittente impresa' : 'Destinatario impresa'}</label>
-          <input type="text" id="c-impresa" value="${esc(r.impresa_nome || '')}" placeholder="Digita almeno 3 lettere della ragione sociale…">
-          <input type="hidden" id="c-impresa_id" value="${esc(r.impresa_id || '')}">
-          <span class="hint" id="hint-impresa">${r.impresa_id ? 'Agganciata all\'anagrafica (CF ' + esc(r.impresa_id) + ')' : 'Se non è in anagrafica, scrivi comunque il nome.'}</span>
-        </div>
-        <div class="field ac-wrap">
-          <label for="c-persona">${inn ? 'Mittente persona' : 'Destinatario persona'}</label>
-          <input type="text" id="c-persona" value="${esc(r.persona || '')}" placeholder="Cognome Nome…">
-        </div>
-        <div class="field">
-          <label for="c-alla_ca">Alla cortese attenzione</label>
-          <input type="text" id="c-alla_ca" value="${esc(r.alla_ca || '')}">
-        </div>
-      </div>
-    </fieldset>
-
-    <fieldset class="fieldset">
-      <legend>Documento</legend>
-      <div class="grid-3">
-        <div class="field">
-          <label for="c-tipo">Tipo documento</label>
-          <select id="c-tipo"><option value="">—</option>${optTipi}</select>
-        </div>
-        <div class="field">
-          <label for="c-data_doc">Data del documento</label>
-          <input type="date" id="c-data_doc" value="${r.data_doc || ''}">
-        </div>
-        <div class="field">
-          <label for="c-vostro">${inn ? 'Vostro protocollo' : 'Riferimento'}</label>
-          <input type="text" id="c-vostro" value="${esc(r.vostro_protocollo || '')}">
-        </div>
-      </div>
-      <div class="field full" style="margin-top:14px">
+      <div class="field">
         <label for="c-oggetto">Oggetto</label>
         <input type="text" id="c-oggetto" value="${esc(r.oggetto || '')}" placeholder="Oggetto del documento" maxlength="300">
       </div>
-      <div class="field full" style="margin-top:14px">
-        <label for="c-note">Note</label>
-        <textarea id="c-note" placeholder="Testo o annotazioni…">${esc(r.note || '')}</textarea>
-      </div>
-    </fieldset>
+    </div>
 
-    <fieldset class="fieldset">
-      <legend>Gestione interna</legend>
-      <div class="grid-3">
-        <div class="field">
-          <label for="c-ufficio">Ufficio</label>
-          <select id="c-ufficio">${optUff}</select>
-        </div>
-        <div class="field">
-          <label for="c-referente">Referente</label>
-          <input type="text" id="c-referente" list="dl-referenti" value="${esc(r.referente || 'Squizzato Sig. Renato')}">
-          <datalist id="dl-referenti">${referentiNoti.map((x) => `<option value="${esc(x)}">`).join('')}</datalist>
-        </div>
-        <div class="field">
-          <label for="c-mezzo">Mezzo</label>
-          <select id="c-mezzo">${optMezzi}</select>
-        </div>
-        <div class="field full">
-          <label for="c-cartella">Cartella di archivio</label>
-          <input type="text" id="c-cartella" list="dl-cartelle" value="${esc(r.cartella || '')}" placeholder="Es. CARTELLA - ASSEVERAZIONE - Documenti">
-          <datalist id="dl-cartelle">${cartelleNote.map((x) => `<option value="${esc(x)}">`).join('')}</datalist>
-        </div>
-        <div class="field full">
-          <label for="c-drive">Link al documento (Drive)</label>
-          <input type="text" id="c-drive" value="${esc(r.drive_url || '')}" placeholder="https://drive.google.com/…">
-        </div>
-      </div>
-    </fieldset>
+    <div class="f-colonne">
+      <div class="f-col">
+        <fieldset class="fieldset">
+          <legend>${inn ? 'Mittente' : 'Destinatario'}</legend>
+          <div class="grid">
+            <div class="field full ac-wrap">
+              <label for="c-impresa">${inn ? 'Mittente impresa' : 'Destinatario impresa'}</label>
+              <input type="text" id="c-impresa" value="${esc(r.impresa_nome || '')}" placeholder="Almeno 3 lettere della ragione sociale...">
+              <input type="hidden" id="c-impresa_id" value="${esc(r.impresa_id || '')}">
+              <span class="hint" id="hint-impresa">${r.impresa_id ? 'Agganciata all\'anagrafica (CF ' + esc(r.impresa_id) + ')' : 'Se non e\' in anagrafica, scrivi comunque il nome.'}</span>
+            </div>
+            <div class="field ac-wrap">
+              <label for="c-persona">${inn ? 'Mittente persona' : 'Destinatario persona'}</label>
+              <input type="text" id="c-persona" value="${esc(r.persona || '')}" placeholder="Cognome Nome...">
+            </div>
+            ${inn ? `
+            <div class="field">
+              <label for="c-alla_ca">Assegnato a</label>
+              <input type="text" id="c-alla_ca" list="dl-assegnati" value="${esc(r.alla_ca || 'Squizzato Sig. Renato')}">
+              <datalist id="dl-assegnati">${assegnatiNoti.map((x) => `<option value="${esc(x)}">`).join('')}</datalist>
+            </div>` : `
+            <div class="field">
+              <label>Alla cortese attenzione</label>
+              <span class="hint" style="padding-top:7px">Si ricava dal destinatario: la persona se c\'e\', altrimenti la ragione sociale.</span>
+            </div>`}
+          </div>
+        </fieldset>
 
-    ${modificaId ? '' : `
-    <fieldset class="fieldset">
-      <legend>Documento da protocollare</legend>
-      <div class="field">
-        <input type="file" id="c-file" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.eml,.msg">
-        <span class="hint">Se è un PDF potrai timbrarlo subito con numero, data e QR.</span>
+        <fieldset class="fieldset">
+          <legend>Documento</legend>
+          <div class="grid-3">
+            <div class="field">
+              <label for="c-tipo">Tipo documento</label>
+              <select id="c-tipo"><option value="">&mdash;</option>${optTipi}</select>
+            </div>
+            <div class="field">
+              <label for="c-data_doc">Data del documento</label>
+              <input type="date" id="c-data_doc" value="${r.data_doc || ''}">
+            </div>
+            <div class="field">
+              <label for="c-vostro">${inn ? 'Vostro protocollo' : 'Riferimento'}</label>
+              <input type="text" id="c-vostro" value="${esc(r.vostro_protocollo || '')}">
+            </div>
+          </div>
+          <div class="field full" style="margin-top:8px">
+            <label for="c-note">${inn ? 'Note &mdash; corpo della mail' : 'Note &mdash; testo della comunicazione'}</label>
+            <textarea id="c-note" placeholder="Testo o annotazioni...">${esc(r.note || '')}</textarea>
+          </div>
+        </fieldset>
       </div>
-      <div class="field" style="margin-top:10px">
-        <label><input type="checkbox" id="c-timbra" style="width:auto" checked> Applica il timbro al PDF appena protocollato</label>
+
+      <div class="f-col">
+        <fieldset class="fieldset">
+          <legend>Gestione interna</legend>
+          <div class="grid">
+            <div class="field">
+              <label for="c-ufficio">Ufficio</label>
+              <select id="c-ufficio">${optUff}</select>
+            </div>
+            <div class="field">
+              <label for="c-mezzo">Mezzo</label>
+              <select id="c-mezzo">${optMezzi}</select>
+            </div>
+            <div class="field full">
+              <label for="c-referente">Referente</label>
+              <input type="text" id="c-referente" list="dl-referenti" value="${esc(r.referente || 'Squizzato Sig. Renato')}">
+              <datalist id="dl-referenti">${referentiNoti.map((x) => `<option value="${esc(x)}">`).join('')}</datalist>
+            </div>
+            <div class="field full">
+              <label for="c-cartella">Cartella di archivio</label>
+              <input type="text" id="c-cartella" list="dl-cartelle" value="${esc(r.cartella || '')}" placeholder="Es. CARTELLA - ASSEVERAZIONE - Documenti">
+              <datalist id="dl-cartelle">${cartelleNote.map((x) => `<option value="${esc(x)}">`).join('')}</datalist>
+            </div>
+            <div class="field full">
+              <label for="c-drive">Link al documento (Drive)</label>
+              <input type="text" id="c-drive" value="${esc(r.drive_url || '')}" placeholder="https://drive.google.com/...">
+            </div>
+          </div>
+        </fieldset>
+
+        ${modificaId ? '' : `
+        <fieldset class="fieldset">
+          <legend>Documento da protocollare</legend>
+          <div class="field">
+            <input type="file" id="c-file" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.eml,.msg">
+          </div>
+          <div class="field" style="margin-top:6px">
+            <label style="font-weight:400"><input type="checkbox" id="c-timbra" style="width:auto" checked> Timbra subito il PDF con numero, data e QR</label>
+          </div>
+        </fieldset>`}
       </div>
-    </fieldset>`}
+    </div>
 
     <div class="form-actions">
       <button class="btn btn-ghost" id="btn-annulla-form">Annulla</button>
@@ -539,7 +564,10 @@ async function salva(ev) {
     impresa_nome: $('#c-impresa').value.trim() || null,
     impresa_id: $('#c-impresa_id').value.trim() || null,
     persona: $('#c-persona').value.trim() || null,
-    alla_ca: $('#c-alla_ca').value.trim() || null,
+    /* In uscita non si scrive: si ricava dal destinatario al momento
+       dell'uso. In entrata invece porta l'informazione vera, cioe' a chi
+       in ufficio e' assegnato il documento in arrivo. */
+    alla_ca: $('#c-alla_ca')?.value.trim() || null,
     vostro_protocollo: $('#c-vostro').value.trim() || null,
     oggetto: $('#c-oggetto').value.trim() || null,
     note: $('#c-note').value.trim() || null,
