@@ -9,6 +9,46 @@
 import { sb, state, $, $$, esc, toast, attendi, mostraVista, chiudiDrawer } from './core.js';
 
 /* ── accesso ──────────────────────────────────────────────── */
+async function accedi() {
+  const email = $('#login-email').value.trim();
+  const pwd = $('#login-pwd').value;
+  const msg = $('#login-msg');
+  msg.className = 'login-msg';
+  msg.textContent = '';
+
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+    msg.className = 'login-msg err';
+    msg.textContent = 'Indirizzo email non valido.';
+    return;
+  }
+  if (!pwd) {
+    msg.className = 'login-msg err';
+    msg.textContent = 'Inserisci la password, oppure chiedi il link di accesso via email.';
+    return;
+  }
+
+  const btn = $('#login-btn');
+  attendi(btn, true, 'Accesso in corso…');
+  const { error } = await sb.auth.signInWithPassword({ email, password: pwd });
+  attendi(btn, false);
+
+  if (error) {
+    msg.className = 'login-msg err';
+    msg.textContent = /invalid login|invalid credentials/i.test(error.message)
+      ? 'Email o password non corretti.'
+      : error.message;
+    return;
+  }
+
+  /* l'avvio dell'app sta in un await di primo livello, ormai concluso:
+     si ricarica, cosi' la sessione appena creata viene letta da capo. */
+  location.reload();
+}
+
+/* Il link via posta resta per chi non ha ancora una password.
+   La password invece non passa dall'SMTP, quindi regge anche
+   quando l'invio delle mail e' fermo. */
+
 async function inviaLink() {
   const email = $('#login-email').value.trim();
   const msg = $('#login-msg');
@@ -17,7 +57,7 @@ async function inviaLink() {
     msg.textContent = 'Indirizzo email non valido.';
     return;
   }
-  const btn = $('#login-btn');
+  const btn = $('#login-link');
   attendi(btn, true, 'Invio in corso…');
   const { error } = await sb.auth.signInWithOtp({
     email,
@@ -82,8 +122,10 @@ async function vaiA(vista) {
 }
 
 /* ── eventi di base ───────────────────────────────────────── */
-$('#login-btn').addEventListener('click', inviaLink);
-$('#login-email').addEventListener('keydown', (e) => { if (e.key === 'Enter') inviaLink(); });
+$('#login-btn').addEventListener('click', accedi);
+$('#login-link').addEventListener('click', inviaLink);
+$('#login-email').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#login-pwd').focus(); });
+$('#login-pwd').addEventListener('keydown', (e) => { if (e.key === 'Enter') accedi(); });
 $('#logout-btn').addEventListener('click', async () => { await sb.auth.signOut(); location.reload(); });
 $('#menu-toggle').addEventListener('click', () => $('#sidebar').classList.toggle('is-open'));
 $('#drawer-close').addEventListener('click', chiudiDrawer);

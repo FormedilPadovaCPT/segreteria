@@ -60,6 +60,12 @@ h1,h2,h3{margin:0;font-weight:700}
 .login-msg{margin:14px 0 0;font-size:13px;text-align:center;min-height:18px}
 .login-msg.ok{color:var(--in)}
 .login-msg.err{color:var(--out)}
+.login-label-2{margin-top:14px}
+.login-alt{margin:14px 0 0;font-size:12px;text-align:center;color:var(--testo-soft)}
+.btn-link{background:none;border:0;padding:0;font:inherit;font-size:12px;color:var(--arancio);
+  text-decoration:underline;cursor:pointer}
+.btn-link:hover{color:#c44309}
+.btn-link[disabled]{opacity:.5;cursor:not-allowed;text-decoration:none}
 
 /* ── input ─────────────────────────────── */
 .inp,input[type=text],input[type=email],input[type=date],input[type=search],input[type=number],select,textarea{
