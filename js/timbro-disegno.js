@@ -62,10 +62,12 @@ function disegnaQr(page, testo, x, y, lato, deps, col) {
 
 /* ── le due forme del timbro ───────────────────────────────
    «blocco»  (predefinito) intestazione con numero, data e QR, e
-             sotto i riferimenti su due colonne, in corpo minuscolo
-             e interlinea strettissima — solo numero e data restano
-             leggibili a distanza. 200 x 66 punti, cioe' poco piu'
-             del timbro che l'ufficio usa in Access (circa 184 x 52).
+             sotto una griglia di caselle a filo sottile — come nel
+             timbro Access dell'ufficio. Le caselle **non hanno
+             etichette**: la posizione dice gia' cos'e' il valore, e
+             i 27 punti che l'etichetta si mangiava vanno al testo,
+             che cosi' si legge. 200 x 68 punti, poco piu' del
+             timbro Access (circa 184 x 52).
    «minimo»  solo ente, numero, data e QR: 140 x 46. Per quando sul
              foglio lo spazio e' poco; il resto si legge nel registro
              o inquadrando il QR.
@@ -76,7 +78,7 @@ function disegnaQr(page, testo, x, y, lato, deps, col) {
    con quello che ci si scriveva dentro.                          */
 
 const MISURE = {
-  blocco: { larghezza: 200, altezza: 66 },
+  blocco: { larghezza: 200, altezza: 68 },
   minimo: { larghezza: 140, altezza: 46 },
 };
 
@@ -86,6 +88,29 @@ export function misuraTimbro(p, stile = 'blocco') {
 
 /* qualche chiamante cerca ancora il nome vecchio */
 export const misuraBlocco = (p) => misuraTimbro(p, 'blocco');
+
+/* Manda a capo entro una larghezza, al massimo `maxRighe` righe;
+   quel che avanza si chiude con i puntini, invece di far credere
+   che il testo finisse li'. */
+function aCapo(testo, font, size, larghezza, maxRighe) {
+  const parole = String(testo || '').split(/\s+/).filter(Boolean);
+  const righe = [];
+  let riga = '';
+  for (const par of parole) {
+    const prova = riga ? riga + ' ' + par : par;
+    if (font.widthOfTextAtSize(prova, size) <= larghezza) { riga = prova; continue; }
+    if (riga) righe.push(riga);
+    riga = par;
+    if (righe.length === maxRighe) break;
+  }
+  if (riga && righe.length < maxRighe) righe.push(riga);
+  if (righe.length === maxRighe && righe.join(' ').split(/\s+/).length < parole.length) {
+    let ultima = righe[maxRighe - 1];
+    while (ultima && font.widthOfTextAtSize(ultima + '…', size) > larghezza) ultima = ultima.slice(0, -1);
+    righe[maxRighe - 1] = ultima.trimEnd() + '…';
+  }
+  return righe;
+}
 
 function taglia(testo, font, size, larghezza) {
   let t = String(testo || '');
@@ -125,36 +150,57 @@ export function timbroBlocco(page, p, font, bold, deps, posizione) {
   const col = tavolozza(deps.rgb);
   const { larghezza: W, altezza: H } = MISURE.blocco;
   const { L, y } = ancora(page, W, H, posizione);
-  const BARRA = 9, QR = 28, PASSO = 6;
+  const BARRA = 9, QR = 28;
 
   cornice(page, col, L, y, W, H);
   fascia(page, col, bold, L, y, W, H, BARRA);
   capo(page, col, font, bold, p, L, y, H, BARRA);
   disegnaQr(page, testoQr(p), L + W - 5 - QR, y + H - BARRA - QR - 3, QR, deps, col);
 
-  const ySep = y + H - BARRA - QR - 7;
-  page.drawLine({
-    start: { x: L + 4, y: ySep }, end: { x: L + W - 4, y: ySep },
-    thickness: 0.4, color: col.ARANCIO,
+  /* ── la griglia sotto ─────────────────────────────────────
+     Niente etichette: la posizione dice gia' cos'e' il valore, e
+     lo spazio che l'etichetta si mangiava va al testo. Le caselle
+     si separano con un filo sottilissimo, come in Access.        */
+  const ySep = y + H - BARRA - QR - 6;
+  const R1 = 16, R2 = 11;                    // oggetto | ufficio, poi due righe singole
+  const COL = L + 116;                       // la colonna che divide
+                                             // (a sinistra piu' spazio: i nomi
+                                             //  delle cartelle sono lunghi)
+  const filo = (a, b, c, d) => page.drawLine({
+    start: { x: a, y: b }, end: { x: c, y: d }, thickness: 0.3, color: col.ARANCIO,
   });
 
-  /* Riferimenti su due colonne, corpo 5 e interlinea 6: si leggono
-     col foglio in mano, non servono a leggersi da lontano. */
-  const COL = 97;
-  const voce = (dx, largh, i, etichetta, valore) => {
-    if (!valore) return;
-    const yy = ySep - 6 - i * PASSO;
-    page.drawText(etichetta, { x: L + 5 + dx, y: yy, size: 4.2, font: bold, color: col.GRIGIO });
-    page.drawText(taglia(valore, font, 5, largh - 27),
-      { x: L + 5 + dx + 27, y: yy, size: 5, font, color: col.NERO });
-  };
+  filo(L, ySep, L + W, ySep);
+  filo(L, ySep - R1, L + W, ySep - R1);
+  filo(L, ySep - R1 - R2, L + W, ySep - R1 - R2);
+  filo(COL, y, COL, ySep);
 
-  voce(0, COL, 0, 'OGGETTO', p.oggetto);
-  voce(0, COL, 1, 'DA/A', p.impresa_nome || p.persona);
-  voce(0, COL, 2, 'MEZZO', p.mezzo);
-  voce(COL, W - COL - 8, 0, 'UFFICIO', p.ufficio);
-  voce(COL, W - COL - 8, 1, 'CARTELLA', p.cartella);
-  voce(COL, W - COL - 8, 2, 'RIF.', p.referente);
+  const P = 2.5;
+  const largaSx = COL - L - P * 2;
+  const largaDx = L + W - COL - P * 2;
+
+  /* casella alta: due righe, per l'oggetto e per l'ufficio */
+  const doppia = (x, largh, testo) => {
+    if (!testo) return;
+    aCapo(testo, font, 5.6, largh, 2).forEach((t, i) => page.drawText(t, {
+      x, y: ySep - 7 - i * 6.6, size: 5.6, font, color: col.NERO,
+    }));
+  };
+  doppia(L + P, largaSx, p.oggetto);
+  doppia(COL + P, largaDx, p.ufficio);
+
+  /* caselle a una riga */
+  const singola = (x, largh, dy, testo) => {
+    if (!testo) return;
+    page.drawText(taglia(testo, font, 5.8, largh),
+      { x, y: dy, size: 5.8, font, color: col.NERO });
+  };
+  const y2 = ySep - R1 - 7.5;
+  const y3 = ySep - R1 - R2 - 7.5;
+  singola(L + P, largaSx, y2, p.impresa_nome || p.persona);
+  singola(COL + P, largaDx, y2, p.mezzo);
+  singola(L + P, largaSx, y3, p.cartella);
+  singola(COL + P, largaDx, y3, p.referente);
 }
 
 /* ── minimo: per quando lo spazio e' poco ─────────────────── */
