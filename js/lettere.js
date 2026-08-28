@@ -11,7 +11,10 @@
    modelli Word dell'ufficio prima di andare in produzione.
    ============================================================ */
 
-import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, mostraVista } from './core.js';
+import {
+  sb, state, $, esc, dataIt, oggiIso, toast, attendi, mostraVista,
+  codiceProtocollo, siglaProtocollo,
+} from './core.js';
 import { BUCKET, ENTE } from './config.js';
 import { MODELLI_LETTERA, ETICHETTE_CAMPI } from './lookups.js';
 import { pdfLib } from './cdn.js';
@@ -27,7 +30,7 @@ export function render() {
   const host = $('#lettere-host');
   host.innerHTML = `
     <p style="color:var(--testo-soft);max-width:760px;margin:0 0 18px">
-      Ogni lettera prende il primo numero libero del protocollo in uscita, viene generata su carta
+      Ogni lettera prende il primo numero libero del registro, viene generata su carta
       intestata con numero e data già stampati e resta allegata al protocollo.
       <br><em>I testi sono una prima stesura: da confrontare con i modelli Word dell'ufficio.</em>
     </p>
@@ -49,14 +52,15 @@ async function apriCompilazione(idModello) {
   const m = MODELLI_LETTERA.find((x) => x.id === idModello);
   if (!m) return;
 
-  const { data: prossimo } = await sb.rpc('s_prossimo_numero', { p_dir: 'OUT' });
+  let anteprima = await anteprimaOut(oggiIso());
 
   $('#lettere-host').innerHTML = `
     <div class="form-host dir-OUT">
       <div class="grid" style="margin-bottom:18px">
         <div class="numero-box">
-          <span class="lbl">Protocollo in uscita</span>
-          <span class="n">${prossimo}</span>
+          <span class="lbl">Prossimo protocollo</span>
+          <span class="n${(anteprima?.codice || '').length > 6 ? ' lungo' : ''}" id="l-numero">${esc(anteprima?.codice || '—')}</span>
+          <span class="serie" id="l-serie">${esc(anteprima ? notaSerieOut(anteprima) : '')}</span>
         </div>
         <div class="field">
           <label for="l-data">Data della lettera</label>
@@ -92,15 +96,38 @@ async function apriCompilazione(idModello) {
       </div>
     </div>`;
 
+  /* Cambiando la data può cambiare la serie, e quindi il numero. */
+  $('#l-data').addEventListener('change', async () => {
+    const a = await anteprimaOut($('#l-data').value || oggiIso());
+    if (!a) return;
+    anteprima = a;
+    const el = $('#l-numero');
+    el.textContent = a.codice;
+    el.classList.toggle('lungo', a.codice.length > 6);
+    $('#l-serie').textContent = notaSerieOut(a);
+  });
+
   $('#l-indietro').addEventListener('click', render);
   $('#l-anteprima').addEventListener('click', async (e) => {
     attendi(e.currentTarget, true, 'Preparo…');
-    const bytes = await costruisciPdf(m, raccogli(m), { numero: prossimo, data_prot: $('#l-data').value });
+    const bytes = await costruisciPdf(m, raccogli(m), { ...anteprima, data_prot: $('#l-data').value });
     attendi(e.currentTarget, false);
     const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
     window.open(url, '_blank', 'noopener');
   });
   $('#l-genera').addEventListener('click', (e) => generaEProtocolla(m, e.currentTarget));
+}
+
+async function anteprimaOut(data) {
+  const { data: a, error } = await sb.rpc('s_prossimo_protocollo', { p_dir: 'OUT', p_data: data });
+  if (error) { toast('Non riesco a leggere il prossimo numero: ' + error.message, 'err'); return null; }
+  return a;
+}
+
+function notaSerieOut(a) {
+  return a.serie === 'unica'
+    ? `serie unica · esercizio ${a.esercizio} · uscita`
+    : 'registro uscita · serie storica, il passaggio non è ancora avvenuto';
 }
 
 function raccogli(m) {
@@ -136,27 +163,27 @@ async function generaEProtocolla(m, btn) {
 
   try {
     const bytes = await costruisciPdf(m, v, prot);
-    const path = `${String(prot.data_prot).slice(0, 4)}/OUT/${prot.numero}/${Date.now()}_${m.id}.pdf`;
+    const path = `${String(prot.data_prot).slice(0, 4)}/OUT/${codiceProtocollo(prot)}/${Date.now()}_${m.id}.pdf`;
     const { error: errUp } = await sb.storage.from(BUCKET)
       .upload(path, new Blob([bytes], { type: 'application/pdf' }), { contentType: 'application/pdf' });
     if (errUp) throw new Error(errUp.message);
 
     await sb.from('s_prot_allegati').insert({
       protocollo_id: prot.id,
-      nome: `${m.id}_prot${prot.numero}.pdf`,
+      nome: `${m.id}_${siglaProtocollo(prot)}.pdf`,
       path, mime: 'application/pdf', dimensione: bytes.length,
       principale: true, timbrato: true, created_by: state.email,
     });
 
     attendi(btn, false);
-    toast(`Lettera protocollata al n° ${prot.numero}.`, 'ok');
+    toast(`Lettera protocollata: ${codiceProtocollo(prot)}.`, 'ok');
 
     const { apriDettaglio } = await import('./protocollo.js');
     mostraVista('registro');
     apriDettaglio(prot.id);
   } catch (err) {
     attendi(btn, false);
-    toast(`Protocollo n° ${prot.numero} creato, ma il PDF non è stato allegato: ${err.message}`, 'err');
+    toast(`Protocollo ${codiceProtocollo(prot)} creato, ma il PDF non è stato allegato: ${err.message}`, 'err');
   }
 }
 
@@ -190,7 +217,7 @@ async function costruisciPdf(m, v, prot) {
   y -= 34;
 
   /* riferimenti di protocollo */
-  page.drawText(`Prot. n° ${prot.numero}/OUT`, { x: ML, y, size: 10, font: bold, color: NERO });
+  page.drawText(`Prot. ${siglaProtocollo(prot)}`, { x: ML, y, size: 10, font: bold, color: NERO });
   page.drawText(`Padova, ${dataIt(prot.data_prot)}`, { x: width - MR - 150, y, size: 10, font, color: NERO });
   y -= 32;
 

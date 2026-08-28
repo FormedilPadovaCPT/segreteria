@@ -6,7 +6,7 @@
    L'invio passa dalla edge function "send-protocollo".
    ============================================================ */
 
-import { sb, $, $$, esc, dataIt, toast, attendi } from './core.js';
+import { sb, $, $$, esc, dataIt, toast, attendi, protocolloEsteso } from './core.js';
 
 export async function apriDialogoMail(p) {
   /* indirizzi suggeriti */
@@ -36,7 +36,7 @@ export async function apriDialogoMail(p) {
                 padding:22px;width:min(560px,94vw);max-height:90vh;overflow-y:auto;box-shadow:var(--ombra)">
       <h3 style="margin:0 0 4px;font-size:17px">Avviso di protocollazione</h3>
       <p style="margin:0 0 18px;color:var(--testo-soft);font-size:13px">
-        Protocollo in ${dir} n° <strong>${p.numero}</strong> del ${dataIt(p.data_prot)}
+        Protocollo in ${dir} <strong>${esc(protocolloEsteso(p))}</strong> del ${dataIt(p.data_prot)}
       </p>
 
       <div class="field" style="margin-bottom:12px">
@@ -53,7 +53,7 @@ export async function apriDialogoMail(p) {
 
       <div class="field" style="margin-bottom:12px">
         <label for="m-ogg">Oggetto della mail</label>
-        <input type="text" id="m-ogg" value="Protocollo in ${dir} n° ${p.numero} del ${dataIt(p.data_prot)}">
+        <input type="text" id="m-ogg" value="Protocollo in ${dir} ${esc(protocolloEsteso(p))} del ${dataIt(p.data_prot)}">
       </div>
 
       <div class="field" style="margin-bottom:12px">

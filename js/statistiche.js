@@ -4,7 +4,7 @@
    andamento per anno, tipo documento, mezzo, cartella d'archivio.
    ============================================================ */
 
-import { sb, $, esc, toast } from './core.js';
+import { sb, $, esc, dataIt, toast } from './core.js';
 
 export async function render(anno = null) {
   const host = $('#stat-host');
@@ -31,14 +31,40 @@ export async function render(anno = null) {
     <div class="kpi"><div class="v">${(s.tot_in || 0).toLocaleString('it-IT')}</div><div class="l">In entrata</div></div>
     <div class="kpi" style="border-left-color:var(--out)"><div class="v">${(s.tot_out || 0).toLocaleString('it-IT')}</div><div class="l">In uscita</div></div>
     <div class="kpi" style="border-left-color:var(--grigio)"><div class="v">${(s.anno_corr || 0).toLocaleString('it-IT')}</div><div class="l">Protocollati nel ${annoOra}</div></div>
-    <div class="kpi"><div class="v">${s.ultimo_in || 0} / ${s.ultimo_out || 0}</div><div class="l">Ultimo numero IN / OUT</div></div>
+    ${s.serie_attiva === 'unica'
+      ? `<div class="kpi"><div class="v" style="font-size:19px">Prot_${esc(s.esercizio_corr)}_${String(s.ultimo_unica || 0).padStart(4, '0')}</div>
+           <div class="l">Ultimo protocollo dell'esercizio ${esc(s.esercizio_corr)}</div></div>`
+      : `<div class="kpi"><div class="v">${s.ultimo_in || 0} / ${s.ultimo_out || 0}</div>
+           <div class="l">Ultimo numero IN / OUT · serie unica dal ${dataIt(s.serie_unica_dal)}</div></div>`}
 
+    ${cardEsercizi(s.per_esercizio)}
     ${cardAnni(s.per_anno)}
     ${cardBarre('Tipo di documento', s.per_tipo)}
     ${cardBarre('Mezzo di trasmissione', s.per_mezzo)}
     ${cardBarre("Cartella d'archivio", s.per_cartella)}`;
 
   $('#st-anno').addEventListener('change', (e) => render(e.target.value ? Number(e.target.value) : null));
+}
+
+function cardEsercizi(righe) {
+  if (!righe?.length) return '';
+  const max = Math.max(...righe.map((r) => r.n));
+  return `
+    <div class="card">
+      <div class="sect-title" style="margin-top:0">Serie unica, per esercizio</div>
+      ${righe.map((r) => `
+        <div class="bar-row">
+          <span class="lb">${esc(r.v)}</span>
+          <span class="br" style="display:flex">
+            <i style="width:${(r.entrata / max * 100).toFixed(1)}%;background:var(--in)"></i>
+            <i style="width:${(r.uscita / max * 100).toFixed(1)}%;background:var(--out)"></i>
+          </span>
+          <span class="vl">${r.n}</span>
+        </div>`).join('')}
+      <p style="font-size:11px;color:var(--testo-soft);margin:10px 0 0">
+        Un solo contatore per esercizio: entrata e uscita si dividono gli stessi numeri.
+      </p>
+    </div>`;
 }
 
 function cardAnni(righe) {

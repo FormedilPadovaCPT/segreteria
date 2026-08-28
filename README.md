@@ -51,11 +51,33 @@ values ('nome.cognome@did.formedilpadova.it', 'segreteria', 'attivo', 'Nome Cogn
 
 ## Come funziona il protocollo
 
-- Registro unico con **numerazione separata IN / OUT**, che prosegue quella di
-  Access (entrata da 2010, uscita da 2554).
+Il registro attraversa due epoche, e l'app le tiene distinte senza riscrivere
+niente di quello che c'era.
+
+| Fino al **30/09/2026** | Dal **01/10/2026** |
+|---|---|
+| due contatori, uno per entrata e uno per uscita | **un contatore solo**: entrata e uscita si dividono i numeri |
+| proseguono quelli di Access (entrata 2010, uscita 2554) | riparte da 1 a ogni **1° ottobre** |
+| si scrive `2554-out` | si scrive **`Prot_26-27_0001`** |
+
+`AA-AA` è l'**esercizio dell'ente**, che va dal 1° ottobre al 30 settembre. Si
+scrivono tutti e due gli anni apposta: `2026/0001` non direbbe se è l'esercizio
+2026-27 o l'anno solare 2026, ed è lo stesso equivoco che il vault si porta
+dietro con `ES_aaaa` dei bilanci.
+
 - Il numero **non si sceglie**: lo assegna il database con la funzione
-  `s_crea_protocollo`, che prende un lock sulla direzione. Due postazioni che
+  `s_crea_protocollo`, che prende un lock sulla serie. Due postazioni che
   protocollano nello stesso momento non possono ottenere lo stesso numero.
+- **Quale serie usare lo decide la data del protocollo**, confrontata con
+  `s_config.protocollo_serie_unica_dal`. L'app non sceglie mai: chiede
+  l'anteprima e la richiede daccapo se cambi la data, perché il 30 settembre e
+  il 1° ottobre danno due numeri di due serie diverse.
+- Le righe storiche si riconoscono perché hanno `esercizio` vuoto. La colonna
+  `codice`, calcolata dal database, dà la forma giusta per l'epoca giusta:
+  `2554-out` oppure `Prot_26-27_0001`.
+- **Le serie parallele si chiudono qui.** DNL, RLST, RS, richieste visite e
+  attestati prendevano il numero dall'`id` della propria tabella: dal passaggio
+  prendono quello del registro unico.
 - Un protocollo non si cancella: si **annulla** con motivazione, e resta nel
   registro barrato.
 - Ogni inserimento, modifica e annullamento finisce in `s_protocollo_audit`.
@@ -69,7 +91,7 @@ Due impaginazioni, come in Access:
 - **blocco** — riquadro in alto a sinistra della prima pagina;
 - **striscia** — fascia verticale sul bordo sinistro di tutte le pagine.
 
-Il QR contiene `Prot_<numero> <data> <oggetto> <nominativo>` ed è disegnato come
+Il QR contiene `Prot_<codice> <data> <oggetto> <nominativo>` ed è disegnato come
 vettore, quindi resta nitido in stampa. Il file timbrato si affianca
 all'originale, che non viene toccato.
 
@@ -117,6 +139,13 @@ collegata a visite, cantieri e protocolli.
 
 ## Da fare
 
+- [ ] Allineare la maschera alle tendine di Access: impresa con codice e comune,
+      dipendente con data di nascita e codice impresa, referente e cartelle
+      d'archivio da tabella invece che da valori già usati
+- [ ] Invio in uscita come il doppio clic della vecchia maschera: mail su carta
+      intestata all'impresa (o al dipendente, con l'impresa in copia)
+- [ ] Riferimento alla pratica sul protocollo, per ritrovare «la DNL 12/2016»
+      ora che le serie parallele si chiudono
 - [ ] Modelli Word ufficiali delle lettere di incarico
 - [ ] Scheda persona con storico nomine (`s_nomine`, 7.496 righe)
 - [ ] Aggancio dei vecchi documenti su Drive (`drive_file_id` / `drive_url`)

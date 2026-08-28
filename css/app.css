@@ -166,9 +166,11 @@ textarea{resize:vertical;min-height:80px;line-height:1.5}
 .fieldset legend{font-size:12px;font-weight:700;color:var(--arancio);text-transform:uppercase;letter-spacing:.8px;padding:0 6px}
 .form-actions{display:flex;gap:10px;justify-content:flex-end;border-top:1px solid var(--bordo);padding-top:16px;margin-top:6px;flex-wrap:wrap}
 .numero-box{background:var(--grigio-chiaro);border:1px dashed var(--bordo);border-radius:6px;padding:10px 14px;
-  display:flex;align-items:baseline;gap:10px}
+  display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
 .numero-box .n{font-size:26px;font-weight:800;color:var(--arancio);font-variant-numeric:tabular-nums}
+.numero-box .n.lungo{font-size:19px;letter-spacing:-.2px}
 .numero-box .lbl{font-size:11px;color:var(--testo-soft);text-transform:uppercase;letter-spacing:.6px}
+.numero-box .serie{flex-basis:100%;font-size:11px;color:var(--testo-soft)}
 
 /* autocomplete */
 .ac-wrap{position:relative}

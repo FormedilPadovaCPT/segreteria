@@ -8,7 +8,7 @@
    in stampa e non serve incorporare immagini.
    ============================================================ */
 
-import { sb, state, dataIt } from './core.js';
+import { sb, state, dataIt, codiceProtocollo, siglaProtocollo } from './core.js';
 import { BUCKET, ENTE } from './config.js';
 import { pdfLib, qrGen } from './cdn.js';
 
@@ -23,7 +23,7 @@ const NERO = rgb(0.1, 0.1, 0.12);
 export function testoQr(p) {
   const nominativo = p.impresa_nome || p.persona || p.alla_ca || '';
   return [
-    `Prot_${p.numero}`,
+    siglaProtocollo(p),
     dataIt(p.data_prot),
     (p.oggetto || '').slice(0, 90),
     nominativo.slice(0, 60),
@@ -70,7 +70,9 @@ function timbroBlocco(page, p, font, bold) {
 
   /* numero e data in evidenza */
   page.drawText(`PROTOCOLLO IN ${dir}`, { x: L + 7, y: y + H - 30, size: 6.5, font: bold, color: GRIGIO });
-  page.drawText(`n° ${p.numero}`, { x: L + 7, y: y + H - 51, size: 17, font: bold, color: ARANCIO });
+  const codice = codiceProtocollo(p);
+  page.drawText(p.esercizio ? codice : `n° ${p.numero}`,
+    { x: L + 7, y: y + H - 51, size: p.esercizio ? 13 : 17, font: bold, color: ARANCIO });
   page.drawText(`del ${dataIt(p.data_prot)}`, { x: L + 7, y: y + H - 65, size: 8.5, font, color: NERO });
 
   /* QR a destra */
@@ -116,7 +118,8 @@ function timbroStriscia(page, p, font, bold) {
   page.drawRectangle({ x: larg - 2.2, y: 0, width: 2.2, height, color: ARANCIO });
 
   const dir = p.direzione === 'IN' ? 'ENTRATA' : 'USCITA';
-  const testo = `${ENTE.nome} · PROTOCOLLO IN ${dir} n° ${p.numero} del ${dataIt(p.data_prot)}`;
+  const rif = p.esercizio ? codiceProtocollo(p) : `n° ${p.numero}`;
+  const testo = `${ENTE.nome} · PROTOCOLLO IN ${dir} ${rif} del ${dataIt(p.data_prot)}`;
 
   page.drawText(testo, {
     x: 19, y: 96, size: 8.5, font: bold, color: GRIGIO, rotate: degrees(90),
@@ -143,10 +146,10 @@ export async function timbraAllegato(attId, protocollo, stile) {
   if (stile === 'striscia') pdf.getPages().forEach((pg) => timbroStriscia(pg, protocollo, font, bold));
   else timbroBlocco(pdf.getPages()[0], protocollo, font, bold);
 
-  pdf.setSubject(`Protocollo ${protocollo.direzione} n° ${protocollo.numero} del ${dataIt(protocollo.data_prot)}`);
+  pdf.setSubject(`Protocollo ${siglaProtocollo(protocollo)} del ${dataIt(protocollo.data_prot)}`);
   const bytes = await pdf.save();
 
-  const nome = att.nome.replace(/\.pdf$/i, '') + `_prot${protocollo.numero}.pdf`;
+  const nome = att.nome.replace(/\.pdf$/i, '') + `_${siglaProtocollo(protocollo)}.pdf`;
   const path = att.path.replace(/([^/]+)$/, `${Date.now()}_timbrato.pdf`);
 
   const { error: e3 } = await sb.storage.from(BUCKET)

@@ -8,6 +8,7 @@
 import {
   sb, state, $, $$, esc, dataIt, oggiIso, toast, attendi,
   mostraVista, apriDrawer, chiudiDrawer,
+  codiceProtocollo, protocolloEsteso,
 } from './core.js';
 import { PAGE_SIZE, BUCKET } from './config.js';
 import { UFFICI, MEZZI, normalizzaMezzo } from './lookups.js';
@@ -94,7 +95,7 @@ async function caricaElenco() {
   tb.innerHTML = `<tr><td colspan="8" class="empty">Caricamento…</td></tr>`;
 
   let q = sb.from('s_protocollo')
-    .select('id,direzione,numero,data_prot,data_doc,impresa_nome,persona,alla_ca,oggetto,tipo_doc_txt,tipo_doc_id,mezzo,ufficio,annullato,drive_url', { count: 'exact' });
+    .select('id,direzione,numero,esercizio,codice,data_prot,data_doc,impresa_nome,persona,alla_ca,oggetto,tipo_doc_txt,tipo_doc_id,mezzo,ufficio,annullato,drive_url', { count: 'exact' });
 
   if (f.direzione) q = q.eq('direzione', f.direzione);
   if (f.tipo) q = q.eq('tipo_doc_id', Number(f.tipo));
@@ -110,6 +111,7 @@ async function caricaElenco() {
       `note.ilike.%${t}%`,
       `alla_ca.ilike.%${t}%`,
     ];
+    parti.push(`codice.ilike.%${t.split('/').join('_')}%`);
     if (/^\d+$/.test(t)) parti.push(`numero.eq.${t}`);
     q = q.or(parti.join(','));
   }
@@ -146,7 +148,9 @@ function riga(p) {
     .filter(Boolean).join(' · ');
   return `
   <tr data-id="${p.id}" class="${inn ? 'row-in' : 'row-out'}${p.annullato ? ' is-annullato' : ''}">
-    <td class="num">${p.numero ?? ''}</td>
+    <td class="num">${p.esercizio
+      ? `${String(p.numero).padStart(4, '0')}<span class="cell-sub">${esc(p.esercizio)}</span>`
+      : (p.numero ?? '')}</td>
     <td><span class="dot ${inn ? 'dot-in' : 'dot-out'}" title="${inn ? 'Entrata' : 'Uscita'}"></span></td>
     <td>${dataIt(p.data_prot)}</td>
     <td>${esc(contatto)}${sotto ? `<span class="cell-sub">${esc(sotto)}</span>` : ''}</td>
@@ -235,7 +239,7 @@ export async function apriDettaglio(id) {
       Il numero di protocollo non è modificabile.
     </p>`;
 
-  apriDrawer(`Protocollo n° ${p.numero} del ${dataIt(p.data_prot)}`, p.direzione, html);
+  apriDrawer(`Protocollo ${protocolloEsteso(p)} del ${dataIt(p.data_prot)}`, p.direzione, html);
 }
 
 /* ── azioni del drawer ────────────────────────────────────── */
@@ -328,7 +332,7 @@ async function caricaAllegato(file) {
 
   const anno = String(p.data_prot || oggiIso()).slice(0, 4);
   const pulito = file.name.replace(/[^\w.\-]+/g, '_');
-  const path = `${anno}/${p.direzione}/${p.numero}/${Date.now()}_${pulito}`;
+  const path = `${anno}/${p.direzione}/${codiceProtocollo(p)}/${Date.now()}_${pulito}`;
 
   toast('Caricamento in corso…');
   const { error } = await sb.storage.from(BUCKET).upload(path, file, { upsert: false });
@@ -348,11 +352,13 @@ export async function apriForm(direzione, record = null, duplica = false) {
   const inn = direzione === 'IN';
   const r = record || {};
 
-  let numeroMostrato = r.numero;
-  if (!modificaId) {
-    const { data } = await sb.rpc('s_prossimo_numero', { p_dir: direzione });
-    numeroMostrato = data;
-  }
+  /* Anteprima del prossimo protocollo. Quale serie usare lo decide
+     il database dalla data, quindi la si richiede daccapo a ogni
+     cambio di data: il 30 settembre e il 1 ottobre danno due numeri
+     di due serie diverse. */
+  let anteprima = null;
+  if (!modificaId) anteprima = await anteprimaProtocollo(direzione, r.data_prot || oggiIso());
+  const codiceMostrato = modificaId ? codiceProtocollo(r) : (anteprima?.codice ?? '—');
 
   $('#form-title').textContent = modificaId
     ? `Modifica protocollo n° ${r.numero} (${inn ? 'entrata' : 'uscita'})`
@@ -368,8 +374,9 @@ export async function apriForm(direzione, record = null, duplica = false) {
   host.innerHTML = `
     <div class="grid" style="margin-bottom:18px">
       <div class="numero-box">
-        <span class="lbl">${modificaId ? 'Protocollo' : 'Prossimo numero'} ${inn ? 'entrata' : 'uscita'}</span>
-        <span class="n">${numeroMostrato ?? '—'}</span>
+        <span class="lbl">${modificaId ? 'Protocollo' : 'Prossimo protocollo'}</span>
+        <span class="n${codiceMostrato.length > 6 ? ' lungo' : ''}" id="c-numero">${esc(codiceMostrato)}</span>
+        <span class="serie" id="c-serie">${esc(notaSerie(anteprima, inn, modificaId ? r : null))}</span>
       </div>
       <div class="field">
         <label for="c-data_prot">Data di protocollo</label>
@@ -466,11 +473,25 @@ export async function apriForm(direzione, record = null, duplica = false) {
     <div class="form-actions">
       <button class="btn btn-ghost" id="btn-annulla-form">Annulla</button>
       <button class="btn ${inn ? 'btn-in' : 'btn-out'}" id="btn-salva">
-        ${modificaId ? 'Salva le modifiche' : `Protocolla n° ${numeroMostrato}`}
+        ${modificaId ? 'Salva le modifiche' : `Protocolla ${esc(codiceMostrato)}`}
       </button>
     </div>`;
 
   mostraVista('form');
+
+  /* La data comanda la serie: se cambia, cambia il numero proposto. */
+  if (!modificaId) {
+    $('#c-data_prot').addEventListener('change', async () => {
+      const a = await anteprimaProtocollo(direzione, $('#c-data_prot').value || oggiIso());
+      if (!a) return;
+      anteprima = a;
+      const el = $('#c-numero');
+      el.textContent = a.codice;
+      el.classList.toggle('lungo', a.codice.length > 6);
+      $('#c-serie').textContent = notaSerie(a, inn, null);
+      $('#btn-salva').textContent = `Protocolla ${a.codice}`;
+    });
+  }
 
   /* aggancio anagrafica imprese */
   autocompleta($('#c-impresa'), cercaImprese, (scelta) => {
@@ -485,6 +506,27 @@ export async function apriForm(direzione, record = null, duplica = false) {
 
   $('#btn-annulla-form').addEventListener('click', () => { mostraVista('registro'); caricaElenco(); });
   $('#btn-salva').addEventListener('click', salva);
+}
+
+/* Chiede al database quale numero toccherebbe, senza assegnarlo. */
+async function anteprimaProtocollo(direzione, data) {
+  const { data: a, error } = await sb.rpc('s_prossimo_protocollo', { p_dir: direzione, p_data: data });
+  if (error) { toast('Non riesco a leggere il prossimo numero: ' + error.message, 'err'); return null; }
+  return a;
+}
+
+/* Riga sotto al numero: dice a quale registro appartiene. */
+function notaSerie(a, inn, rec) {
+  const dir = inn ? 'entrata' : 'uscita';
+  if (rec) {
+    return rec.esercizio
+      ? `serie unica · esercizio ${rec.esercizio} · ${dir}`
+      : `registro ${dir} · serie storica`;
+  }
+  if (!a) return '';
+  return a.serie === 'unica'
+    ? `serie unica · esercizio ${a.esercizio} · ${dir}`
+    : `registro ${dir} · serie storica, il passaggio non è ancora avvenuto`;
 }
 
 /* ── salvataggio ──────────────────────────────────────────── */
@@ -535,7 +577,7 @@ async function salva(ev) {
   if (file) {
     const anno = String(nuovo.data_prot).slice(0, 4);
     const pulito = file.name.replace(/[^\w.\-]+/g, '_');
-    const path = `${anno}/${nuovo.direzione}/${nuovo.numero}/${Date.now()}_${pulito}`;
+    const path = `${anno}/${nuovo.direzione}/${codiceProtocollo(nuovo)}/${Date.now()}_${pulito}`;
     const { error: errUp } = await sb.storage.from(BUCKET).upload(path, file);
     if (errUp) toast('Protocollo salvato, ma il file non è stato caricato: ' + errUp.message, 'err');
     else {
@@ -554,7 +596,7 @@ async function salva(ev) {
   }
 
   attendi(btn, false);
-  toast(`Protocollo n° ${nuovo.numero} registrato.`, 'ok');
+  toast(`Protocollo ${codiceProtocollo(nuovo)} registrato.`, 'ok');
   mostraVista('registro');
   await caricaElenco();
   apriDettaglio(nuovo.id);
