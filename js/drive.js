@@ -94,6 +94,24 @@ export async function sfoglia({ parentId = null, cerca = null } = {}) {
   });
 }
 
+/* Da un percorso del vault ('2_AREE/Enti/FORMEDIL Italia') alla
+   cartella di Drive corrispondente. Il protocollo sa gia' dove il
+   documento e' stato archiviato: quando si va a collegarlo, si parte
+   di li' invece che dalla radice. Se un pezzo del percorso non esiste
+   torna `mancante` e la pila si ferma alla cartella piu' profonda che
+   ha trovato — meglio partire vicini che ripartire da capo. */
+export async function risolviCartella(percorso) {
+  return chiama({ action: 'cartella', percorso });
+}
+
+/* I documenti che portano gia' il codice del protocollo NEL NOME.
+   E' la regola dell'ufficio letta al contrario: il numero si scrive nel
+   nome del file perche' l'umano lo ritrovi sfogliando Drive — e allora
+   puo' ritrovarlo anche l'app, invece di farsi dare i link a mano. */
+export async function agganci(codice) {
+  return chiama({ action: 'agganci', codice });
+}
+
 /* L'id di un file dentro a un link di Drive, in tutte le forme in
    cui capita di incollarlo. Se gli si da' gia' un id nudo, lo
    riconosce e lo restituisce. */

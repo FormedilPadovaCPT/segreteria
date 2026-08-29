@@ -11,7 +11,7 @@ import {
   codiceProtocollo, protocolloEsteso,
 } from './core.js';
 import { PAGE_SIZE } from './config.js';
-import { caricaFile, cestina, dove, idDaLink, sfoglia, LIMITE_MB } from './drive.js';
+import { agganci, caricaFile, cestina, dove, idDaLink, risolviCartella, sfoglia, LIMITE_MB } from './drive.js';
 import { UFFICI, MEZZI, normalizzaMezzo, vuoleTimbro, PERCHE_NIENTE_TIMBRO } from './lookups.js';
 import { CARTELLE_VAULT } from './cartelle-vault.js';
 
@@ -122,6 +122,8 @@ async function caricaElenco() {
       `impresa_nome.ilike.%${t}%`,
       `persona.ilike.%${t}%`,
       `note.ilike.%${t}%`,
+      `sintesi.ilike.%${t}%`,
+      `scadenze.ilike.%${t}%`,
       `alla_ca.ilike.%${t}%`,
     ];
     parti.push(`codice.ilike.%${t.split('/').join('_')}%`);
@@ -221,7 +223,15 @@ export async function apriDettaglio(id) {
     <div class="sect-title">Oggetto</div>
     <p style="margin:0 0 14px;white-space:pre-line">${esc(p.oggetto || '—')}</p>
 
-    ${p.note ? `<div class="sect-title">Note</div><p style="margin:0 0 14px;white-space:pre-line">${esc(p.note)}</p>` : ''}
+    ${p.scadenze ? `
+      <div class="sect-title">Scadenze</div>
+      <p class="avviso-scadenza" style="margin:0 0 14px;white-space:pre-line">${esc(p.scadenze)}</p>` : ''}
+
+    ${p.sintesi ? `<div class="sect-title">Sintesi</div><p style="margin:0 0 14px;white-space:pre-line">${esc(p.sintesi)}</p>` : ''}
+
+    ${p.note ? `
+      <div class="sect-title">Note — testo ${inn ? 'ricevuto' : 'spedito'}</div>
+      <p style="margin:0 0 14px;white-space:pre-line">${esc(p.note)}</p>` : ''}
 
     <div class="sect-title">Documenti protocollati</div>
     <p class="hint" style="margin:-6px 0 8px">
@@ -271,6 +281,10 @@ export async function apriDettaglio(id) {
 
   apriDrawer(`Protocollo ${protocolloEsteso(p)} del ${dataIt(p.data_prot)}`, p.direzione, html);
 
+  /* I documenti che portano il numero nel nome si agganciano da soli.
+     Anche questo dopo il render, per la stessa ragione. */
+  agganciaDalNome(p, allegati || []);
+
   /* Dove sta adesso ogni documento. Si chiede a Drive dopo aver
      mostrato il pannello: e' la parte lenta, e non deve far
      aspettare tutto il resto. */
@@ -284,6 +298,49 @@ export async function apriDettaglio(id) {
       el.title = err.message;
     }
   });
+}
+
+/* ── i documenti si trovano da soli ─────────────────────────
+   La regola dell'ufficio dice che il numero di protocollo va scritto
+   nel NOME del file, perche' chi sfoglia Drive lo riconosca. Allora
+   lo riconosce anche l'app: qui si cercano i file che portano questo
+   protocollo nel nome e si collegano da soli, senza che nessuno vada
+   a ripescare i link a mano. Poi si sceglie solo che cosa timbrare.
+
+   Vale per i documenti battezzati con la forma nuova (`Prot_2012-in`,
+   o il codice in testa). Sui file storici, che portano `_Prot1450`
+   senza direzione, non scatta — e non deve: quel numero da solo non
+   dice a quale dei due registri appartiene, ed e' proprio l'equivoco
+   che il suffisso `-in`/`-out` e' nato per togliere.                */
+async function agganciaDalNome(p, gia) {
+  let trovati;
+  try { trovati = (await agganci(codiceProtocollo(p))).voci || []; }
+  catch { return; }                       /* silenzioso: e' un aiuto, non un obbligo */
+
+  const noti = new Set((gia || []).map((a) => a.drive_file_id).filter(Boolean));
+  const nuovi = trovati.filter((v) => !noti.has(v.id));
+  if (!nuovi.length) return;
+
+  const { error } = await sb.from('s_prot_allegati').insert(nuovi.map((v) => ({
+    protocollo_id: p.id, nome: v.nome, mime: v.mime,
+    dimensione: v.dimensione, drive_file_id: v.id, drive_url: v.drive_url,
+    created_by: state.email,
+  })));
+  if (error) { toast('Documenti trovati ma non collegati: ' + error.message, 'err'); return; }
+
+  toast(nuovi.length === 1
+    ? `Collegato dal nome: ${nuovi[0].nome}`
+    : `Collegati dal nome ${nuovi.length} documenti che portano ${codiceProtocollo(p)}.`, 'ok');
+
+  /* Se il protocollo non aveva ancora un documento principale, lo
+     diventa il primo PDF trovato: e' quello che si timbra e che si
+     allega alle mail. */
+  if (!p.drive_file_id) {
+    const pdf = nuovi.find((v) => /\.pdf$/i.test(v.nome)) || nuovi[0];
+    await sb.from('s_protocollo')
+      .update({ drive_file_id: pdf.id, drive_url: pdf.drive_url }).eq('id', p.id);
+  }
+  if (recordCorrente?.id === p.id) apriDettaglio(p.id);
 }
 
 /* ── azioni del drawer ────────────────────────────────────── */
@@ -397,7 +454,7 @@ async function caricaAllegato(file, poiTimbra = false) {
    l'unico modo di allegare era caricare dal PC, e la copia caricata
    finiva nella zona d'attesa insieme al suo timbrato.            */
 async function collegaDaDrive() {
-  const scelto = await sfogliaDrive();
+  const scelto = await sfogliaDrive({ partiDa: recordCorrente?.cartella || null });
   if (!scelto) return;
   await registraAllegato(scelto.id, scelto.nome, scelto.cartella);
 }
@@ -428,7 +485,7 @@ async function registraAllegato(id, nome, cartella) {
    Si naviga fra le cartelle del vault come in un gestore file,
    oppure si cerca per nome. Serve a non dover aprire Drive in
    un'altra scheda per andare a copiare un link a mano.        */
-function sfogliaDrive() {
+function sfogliaDrive({ partiDa = null } = {}) {
   return new Promise((risolvi) => {
     const bg = document.createElement('div');
     bg.className = 'drawer-bg ant-bg';
@@ -439,7 +496,9 @@ function sfogliaDrive() {
           <div>
             <h3>Quale documento?</h3>
             <p>Si sfogliano le cartelle del vault. Il documento <strong>resta dov'è</strong>:
-               il protocollo prende solo nota di dove sta.</p>
+               il protocollo prende solo nota di dove sta.${partiDa
+                 ? ` Si parte da <code>${esc(partiDa)}</code>, la cartella di archivio di questo
+                    protocollo; da lì ci si sposta dove si vuole.` : ''}</p>
           </div>
         </div>
         <div style="padding:10px 16px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
@@ -537,7 +596,25 @@ function sfogliaDrive() {
 
     $('#sf-annulla', bg).addEventListener('click', () => chiudi(null));
     bg.addEventListener('click', (ev) => { if (ev.target === bg) chiudi(null); });
-    mostra();
+
+    /* Non si parte dalla radice se si sa gia' dove guardare: il campo
+       «Cartella di archivio» del protocollo dice dove quel documento e'
+       stato messo, e nove volte su dieci e' li'. Le briciole restano
+       cliccabili, «Vault» riporta in cima: si parte vicini, non chiusi. */
+    (async () => {
+      if (partiDa) {
+        try {
+          const r = await risolviCartella(partiDa);
+          if (r.pila?.length) pila.push(...r.pila);
+          if (r.mancante) {
+            nota(pila.length
+              ? `Di «${partiDa}» su Drive c'è fin qui; «${r.mancante}» non esiste.`
+              : `«${partiDa}» su Drive non c'è: si parte dalla radice.`);
+          }
+        } catch { /* si parte dalla radice, come prima */ }
+      }
+      mostra();
+    })();
   });
 }
 
@@ -711,7 +788,19 @@ export async function apriForm(direzione, record = null, duplica = false) {
           </div>
           <div class="field full" style="margin-top:8px">
             <label for="c-note">${inn ? 'Note &mdash; corpo della mail' : 'Note &mdash; testo della comunicazione'}</label>
-            <textarea id="c-note" placeholder="Testo o annotazioni...">${esc(r.note || '')}</textarea>
+            <textarea id="c-note" placeholder="${inn ? 'Incolla qui il testo della comunicazione ricevuta, tale e quale.' : 'Il testo della comunicazione in partenza, tale e quale.'}">${esc(r.note || '')}</textarea>
+            <span class="hint"><strong>Solo il testo ${inn ? 'ricevuto' : 'spedito'}, parola per parola.</strong>
+              Serve a ritrovare il protocollo cercando le parole ${inn ? 'che il mittente ha scritto' : 'scritte nella comunicazione'}:
+              se ci si mette un riassunto, quelle parole qui dentro non ci sono pi&ugrave;.
+              La lettura va in <em>Sintesi</em>, i termini in <em>Scadenze</em>.</span>
+          </div>
+          <div class="field full" style="margin-top:8px">
+            <label for="c-scadenze">Scadenze &mdash; i termini che il documento impone</label>
+            <textarea id="c-scadenze" rows="2" placeholder="Es. iscrizione entro il 04/09/2026">${esc(r.scadenze || '')}</textarea>
+          </div>
+          <div class="field full" style="margin-top:8px">
+            <label for="c-sintesi">Sintesi &mdash; di che cosa si tratta</label>
+            <textarea id="c-sintesi" rows="3" placeholder="Contesto, collegamenti ad altre pratiche, cose da decidere...">${esc(r.sintesi || '')}</textarea>
           </div>
         </fieldset>
       </div>
@@ -856,6 +945,8 @@ async function salva(ev) {
     vostro_protocollo: $('#c-vostro').value.trim() || null,
     oggetto: $('#c-oggetto').value.trim() || null,
     note: $('#c-note').value.trim() || null,
+    scadenze: $('#c-scadenze')?.value.trim() || null,
+    sintesi: $('#c-sintesi')?.value.trim() || null,
     ufficio: $('#c-ufficio').value || null,
     referente: $('#c-referente').value.trim() || null,
     mezzo: $('#c-mezzo').value || null,

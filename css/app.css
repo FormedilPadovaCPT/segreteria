@@ -232,6 +232,13 @@ textarea{resize:vertical;min-height:80px;line-height:1.5}
 .sect-title{font-size:12px;font-weight:700;color:var(--arancio);text-transform:uppercase;letter-spacing:.8px;
   margin:22px 0 10px;padding-bottom:5px;border-bottom:1px solid var(--bordo)}
 
+/* Le scadenze del protocollo si vedono da lontano: e' la riga per cui
+   qualcuno tornera' a cercare quel documento fra tre settimane. */
+.avviso-scadenza{
+  background:var(--arancio-chiaro);border-left:4px solid var(--arancio);
+  border-radius:0 var(--radius) var(--radius) 0;padding:10px 14px;
+  font-weight:600;color:var(--testo);line-height:1.5}
+
 /* ── statistiche ───────────────────────── */
 .stat-host{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
 .kpi{background:#fff;border:1px solid var(--bordo);border-radius:var(--radius);padding:16px;border-left:5px solid var(--arancio)}

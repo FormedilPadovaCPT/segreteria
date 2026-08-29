@@ -23,6 +23,8 @@
 //   { action:'download', drive_file_id }
 //   { action:'dove',     drive_file_id }
 //   { action:'sfoglia',  parent_id? , cerca? }   → naviga le cartelle
+//   { action:'cartella', percorso }               → risolve '2_AREE/Enti/...' in un id
+//   { action:'agganci',  codice }                 → i file che portano il protocollo nel nome
 //   { action:'delete',   drive_file_id }          → cestino, non cancella
 //
 // Secret: GOOGLE_SERVICE_ACCOUNT_JSON (lo stesso di allegati-ass)
@@ -242,6 +244,89 @@ serve(async (req) => {
         modificato: f.modifiedTime,
       }))
       return new Response(JSON.stringify({ ok: true, voci }),
+        { headers: { 'Content-Type': 'application/json', ...CORS } })
+    }
+
+    /* Da un percorso del vault ('2_AREE/Enti/FORMEDIL Italia') all'id
+       della cartella, scendendo un segmento alla volta. Serve perche' il
+       protocollo sa gia' dove il documento e' stato archiviato: quando si
+       collega un file, tanto vale partire di li' invece che dalla radice.
+       Restituisce anche la pila dei nomi, per le briciole di pane.       */
+    if (action === 'cartella') {
+      const percorsoTesto = String(body.percorso || '').trim()
+      if (!percorsoTesto) throw new Error('percorso mancante')
+      const segmenti = percorsoTesto.split(/[\\/]+/).map((x: string) => x.trim()).filter(Boolean)
+      const pila: { id: string; nome: string }[] = []
+      let padre: string | null = null
+      let mancante: string | null = null
+      for (const seg of segmenti) {
+        /* Il primo segmento si cerca dentro la radice; se li' non c'e',
+           lo si cerca dappertutto (e' quel che fa gia' zonaAttesa per
+           00_INBOX, che nella radice condivisa non sempre si vede). */
+        let id = await findFolder(token, seg, padre ?? 'root')
+        if (!id && !padre) id = await findFolder(token, seg, null)
+        if (!id) { mancante = seg; break }
+        pila.push({ id, nome: seg })
+        padre = id
+      }
+      return new Response(JSON.stringify({
+        ok: true,
+        id: pila.at(-1)?.id ?? null,
+        pila,
+        /* Se un pezzo del percorso non esiste su Drive si dice quale, e chi
+           chiama apre la cartella piu' profonda che ha trovato invece di
+           fallire: meglio partire vicini che ripartire dalla radice. */
+        mancante,
+      }), { headers: { 'Content-Type': 'application/json', ...CORS } })
+    }
+
+    /* I documenti che portano gia' il codice del protocollo nel NOME.
+       E' la regola dell'ufficio ribaltata a favore della macchina: il
+       numero si scrive nel nome del file perche' l'umano lo ritrovi
+       sfogliando Drive, e allora puo' ritrovarlo anche l'app — senza
+       che nessuno vada a ripescare i link a mano.                      */
+    if (action === 'agganci') {
+      const codice = String(body.codice || '').trim()
+      if (!codice) throw new Error('codice mancante')
+      const u = 'https://www.googleapis.com/drive/v3/files?' + new URLSearchParams({
+        q: `name contains '${esc(codice)}' and trashed = false`,
+        pageSize: '100', fields: 'files(id,name,mimeType,size,modifiedTime)',
+      })
+      const r = await fetch(u, { headers: { Authorization: `Bearer ${token}` } })
+      const d = await r.json()
+      if (d.error) throw new Error('Ricerca su Drive fallita: ' + JSON.stringify(d.error))
+
+      /* `name contains` e' una sottostringa qualunque, e la sola
+         delimitazione non basta: '2012-in' pesca anche
+         «ELEN_visite-cantiere-per-tecnico-2012-in-poi.xlsx», dove
+         quel numero non e' un protocollo ma un anno (successo alla
+         prima prova, 29/08/2026). Perche' sia un protocollo il codice
+         deve essere annunciato come tale: preceduto da «Prot», oppure
+         in testa al nome — che e' la forma con cui l'app battezza i
+         file che carica lei. */
+      const codiceEsc = codice.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const fine = '([^0-9A-Za-z]|$)'
+      const dentro = /^prot/i.test(codice)
+        /* la serie unica dal 1/10/2026 ha gia' «Prot_» dentro al codice */
+        ? new RegExp('(^|[^0-9A-Za-z])' + codiceEsc + fine, 'i')
+        : new RegExp('(^' + codiceEsc + fine + ')'
+          + '|((^|[^0-9A-Za-z])prot[._ -]*' + codiceEsc + fine + ')', 'i')
+
+      const trovati = []
+      for (const f of (d.files || [])) {
+        if (f.mimeType === 'application/vnd.google-apps.folder') continue
+        if (!dentro.test(f.name)) continue
+        let cartella = ''
+        try { cartella = (await percorso(token, f.id)).cartella } catch { /* si mostra lo stesso */ }
+        trovati.push({
+          id: f.id, nome: f.name, mime: f.mimeType, cartella,
+          dimensione: f.size ? Number(f.size) : null,
+          modificato: f.modifiedTime,
+          drive_url: `https://drive.google.com/file/d/${f.id}/view`,
+        })
+      }
+      trovati.sort((a, b) => a.nome.localeCompare(b.nome, 'it'))
+      return new Response(JSON.stringify({ ok: true, voci: trovati }),
         { headers: { 'Content-Type': 'application/json', ...CORS } })
     }
 
