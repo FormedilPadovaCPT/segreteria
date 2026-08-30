@@ -443,3 +443,8 @@ tr.riga-ceiv{border-left:4px solid var(--ceiv);background:var(--ceiv-bg)}
   .grid-5,.grid-6{grid-template-columns:repeat(4,minmax(0,1fr))}}
 @media (max-width:900px){.grid-5,.grid-6,.grid-8{grid-template-columns:repeat(2,minmax(0,1fr))}
   .field.span3{grid-column:span 2}}
+/* loghi di appartenenza nella testata della scheda impresa:
+   CEIV pieno se attiva, in grigio se sospesa o cessata */
+.chip-logo{padding:5px 9px;background:#fff;display:flex;align-items:center}
+.chip-logo img{height:26px;display:block;max-width:130px;object-fit:contain}
+.logo-spento{filter:grayscale(1);opacity:.4}
