@@ -177,6 +177,16 @@ serve(async (req) => {
       senza_numero: 0, senza_data: 0, nessun_candidato: 0, ambigui: 0,
       esempi_collegati: [] as string[], esempi_scartati: [] as string[],
     }
+    /* Quali collegamenti esistono gia'. Si chiede una volta sola: prima
+       si faceva una domanda al database per ogni singolo file, e su una
+       cartella come l'asseverazione (2.934 file) quelle domande da sole
+       mandavano la funzione oltre il tempo massimo. */
+    const gia = new Set<string>(
+      ((await db('s_prot_allegati?select=protocollo_id,drive_file_id'
+        + '&drive_file_id=not.is.null&limit=20000')) as
+        { protocollo_id: number; drive_file_id: string }[])
+        .map((x) => `${x.protocollo_id}:${x.drive_file_id}`))
+
     const daScrivere: Record<string, unknown>[] = []
     const principaleDi = new Map<number, string>()
     const cache = new Map<number, { id: number; direzione: string; data_prot: string | null; data_doc: string | null }[]>()
@@ -224,8 +234,8 @@ serve(async (req) => {
       }
 
       const p = vicini[0]
-      const gia = await db(`s_prot_allegati?protocollo_id=eq.${p.id}&drive_file_id=eq.${f.id}&select=id`) as unknown[]
-      if (gia.length) { esito.gia_collegati++; continue }
+      if (gia.has(`${p.id}:${f.id}`)) { esito.gia_collegati++; continue }
+      gia.add(`${p.id}:${f.id}`)
 
       daScrivere.push({
         protocollo_id: p.id, nome: f.nome, mime: f.mime, dimensione: f.dimensione,
