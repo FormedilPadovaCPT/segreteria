@@ -79,6 +79,7 @@ export function mostraVista(nome) {
     'nuovo-out': '#view-form',
     form: '#view-form',
     imprese: '#view-imprese',
+    'doc-tecnici': '#view-doc-tecnici',
     statistiche: '#view-statistiche',
   };
   $$('.view').forEach((v) => v.classList.add('hidden'));

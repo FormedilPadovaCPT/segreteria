@@ -372,3 +372,39 @@ tr.riga-ceiv{border-left:4px solid var(--ceiv);background:var(--ceiv-bg)}
 .chip{border:1px solid var(--bordo);background:#fff;border-radius:20px;padding:4px 11px;font-size:11.5px;
   cursor:pointer;color:var(--testo);font-family:inherit}
 .chip:hover{border-color:var(--arancio);background:var(--arancio-chiaro)}
+
+/* ── Documenti tecnici: griglia semaforo ─────────────────── */
+.dt-barra{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px}
+.dt-legenda{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12px;color:var(--testo-soft)}
+.dt-legenda .dt-dot{margin-left:10px}
+.dt-tacito-hint{margin-left:14px;font-style:italic}
+.dt-storici{font-size:12.5px;color:var(--testo-soft);display:flex;align-items:center;gap:6px;cursor:pointer}
+.dt-dot{display:inline-block;width:11px;height:11px;border-radius:50%;vertical-align:middle}
+.dt-tbl th.dt-th{font-size:11px;line-height:1.3;max-width:110px}
+.dt-tbl td{font-variant-numeric:tabular-nums}
+.dt-nome{font-weight:600;cursor:pointer;white-space:nowrap}
+.dt-nome:hover{color:var(--arancio)}
+.dt-ass{display:inline-block;background:var(--arancio);color:#fff;border-radius:4px;font-size:10px;
+        font-weight:800;padding:0 5px;margin-left:4px;vertical-align:middle}
+.dt-riga-storico .dt-nome{font-weight:400;color:var(--testo-soft)}
+.dt-cella{cursor:pointer;text-align:center;font-size:12px;border-radius:4px}
+.dt-cella:hover{outline:2px solid var(--arancio)}
+.dt-ok{background:#e3f4e3;color:#22662a}
+.dt-scade{background:#ffe9c9;color:#8a5200;font-weight:700}
+.dt-scaduto{background:#ffdcd6;color:#a01f00;font-weight:700}
+.dt-senzadata{background:#fdf6d8;color:#7a6a00}
+.dt-mancante{background:var(--grigio-chiaro);color:var(--testo-soft);font-style:italic}
+.dt-na{color:var(--bordo);text-align:center}
+.dt-dot.dt-ok{background:#4caf50}.dt-dot.dt-scade{background:#f5a623}
+.dt-dot.dt-scaduto{background:#e04a2c}.dt-dot.dt-senzadata{background:#d9c33a}
+.dt-dot.dt-mancante{background:#b9bec7}
+
+/* drawer: elenco documenti e quadro tecnico */
+.dt-doc{border:1px solid var(--bordo);border-radius:8px;padding:10px 12px;margin-bottom:10px;background:#fff}
+.dt-doc-testa{display:flex;justify-content:space-between;gap:10px;font-size:13.5px;flex-wrap:wrap}
+.dt-doc-riga{font-size:12.5px;color:var(--testo-soft);margin-top:3px}
+.dt-doc-note{font-size:11.5px;color:var(--testo-soft);margin-top:5px;font-style:italic;word-break:break-all}
+.dt-doc-azioni{display:flex;gap:6px;justify-content:flex-end;margin-top:6px}
+.dt-quadro-riga{display:flex;align-items:center;gap:9px;padding:7px 0;border-bottom:1px solid var(--grigio-chiaro);font-size:13.5px}
+.dt-quadro-req{flex:1;font-weight:600}
+.dt-quadro-stato{color:var(--testo-soft);font-size:12.5px}

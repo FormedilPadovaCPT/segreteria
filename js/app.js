@@ -99,6 +99,13 @@ async function vaiA(vista) {
     return mod.imprese.render();
   }
 
+  if (vista === 'doc-tecnici') {
+    mostraVista('doc-tecnici');
+    $('#doc-tecnici-host').innerHTML = '<p class="empty">Un istante…</p>';
+    mod.docTecnici = mod.docTecnici || await import('./documenti-tecnici.js');
+    return mod.docTecnici.render();
+  }
+
   if (vista === 'statistiche') {
     mostraVista('statistiche');
     mod.statistiche = mod.statistiche || await import('./statistiche.js');
