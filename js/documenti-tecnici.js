@@ -80,7 +80,7 @@ async function carica() {
   const [rq, dc, tc] = await Promise.all([
     sb.from('s_doc_requisito').select('*').eq('attivo', true).order('ordine'),
     sb.from('s_doc_tecnico').select('*'),
-    sb.from('tecnici').select('tecnico_id, tecnico_cognome, tecnico_nome, email, attivo, asseveratore'),
+    sb.from('tecnici').select('tecnico_id, tecnico_cognome, tecnico_nome, email, attivo, asseveratore, dipendente'),
   ]);
   requisiti = rq.data || [];
   documenti = dc.data || [];
@@ -91,7 +91,9 @@ async function carica() {
    gli storici — tecnici disattivati e persone rimaste solo come
    testo nell'import Access. */
 function righeGriglia() {
-  const esclusi = (t) => t.tecnico_id === 'TEC-PROVA-2026' || (t.email || '').includes('@did.scuolaedilepadova');
+  /* fuori dalla griglia: account di prova/servizio e i dipendenti interni
+     (i requisiti vengono dal contratto di collaborazione, che loro non hanno) */
+  const esclusi = (t) => t.dipendente || t.tecnico_id === 'TEC-PROVA-2026' || (t.email || '').includes('@did.scuolaedilepadova');
   const visti = new Set();
   const righe = [];
   for (const t of tecnici.filter((t) => t.attivo && !esclusi(t))) {
