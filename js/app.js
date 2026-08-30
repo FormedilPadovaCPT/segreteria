@@ -127,6 +127,13 @@ async function vaiA(vista) {
     return mod.persona.render();
   }
 
+  if (vista === 'nomine') {
+    mostraVista('nomine');
+    $('#nomine-host').innerHTML = '<p class="empty">Un istante…</p>';
+    mod.nomine = mod.nomine || await import('./nomine.js');
+    return mod.nomine.render();
+  }
+
   if (vista === 'statistiche') {
     mostraVista('statistiche');
     mod.statistiche = mod.statistiche || await import('./statistiche.js');
