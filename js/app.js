@@ -113,6 +113,13 @@ async function vaiA(vista) {
     return mod.rlst.render();
   }
 
+  if (vista === 'rls') {
+    mostraVista('rls');
+    $('#rls-host').innerHTML = '<p class="empty">Un istante…</p>';
+    mod.rls = mod.rls || await import('./rls.js');
+    return mod.rls.render();
+  }
+
   if (vista === 'statistiche') {
     mostraVista('statistiche');
     mod.statistiche = mod.statistiche || await import('./statistiche.js');

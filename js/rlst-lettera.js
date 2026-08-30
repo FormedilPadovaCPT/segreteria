@@ -22,7 +22,7 @@ import { dataIt, siglaProtocollo } from './comune.js';
 
 /* ── testi ────────────────────────────────────────────────── */
 
-const ISTITUZIONALE =
+export const ISTITUZIONALE =
   "Lo scrivente Formedil Padova — Scuola Costruzioni Giuseppe Jappelli, Ente Unico per la " +
   "Formazione e la Sicurezza per il settore dell'Edilizia ed affini della Provincia di Padova, " +
   "costituito da rappresentanti del Collegio Costruttori Edili della Provincia di Padova e da " +
@@ -70,6 +70,40 @@ export function corpoNegativa(p) {
     'tale richiesta dovrà essere inoltrata all’organismo paritetico della Vs. ' +
     'categoria/associazione.',
     'Rimaniamo a disposizione per ulteriori chiarimenti.',
+    'Distinti saluti.',
+  ];
+}
+
+/* Il riscontro alla comunicazione dell'RLS aziendale: iscrizione nel
+   «Registro Anagrafe degli R.L.S.» (CCNL allegato 2 e CCPL 3/3/2022),
+   promemoria della formazione ex art. 37 co. 11 e dell'obbligo di
+   aggiornamento annuale, invito a comunicare gli avvicendamenti.
+   Testo ricalcato sulla lettera storica dell'ufficio. */
+export function corpoRiscontroRls(p) {
+  const rls = [p.rls_titolo, p.rls_cognome, p.rls_nome].filter(Boolean).join(' ') || p.rls_nominativo || 'il nominativo comunicato';
+  const rielezione = /riel/i.test(p.tipo_elezione || '');
+  return [
+    ISTITUZIONALE,
+    `Con riferimento alla Vostra comunicazione di ${rielezione ? 'rielezione' : 'elezione'} dell'RLS` +
+    `${p.data_verbale ? ` del ${p.data_verbale}` : ''}${p.protocollo_verbale ? `, Vs. Prot. ${p.protocollo_verbale}` : ''}, ` +
+    'in attuazione di quanto stabilito nell’allegato 2 dell’accordo di rinnovo del Contratto ' +
+    'Collettivo Nazionale di Lavoro per i dipendenti delle imprese edili ed affini e delle ' +
+    'Cooperative, e dell’aggiornamento del Contratto Collettivo Provinciale di Lavoro del ' +
+    '3 marzo 2022, lo scrivente Ente inserisce nel proprio «Registro Anagrafe degli R.L.S.» ' +
+    `${rls}${p.rls_cf ? ` — Cod. Fisc. ${p.rls_cf}` : ''}, al ruolo di Rappresentante dei ` +
+    `Lavoratori per la Sicurezza${p.decorrenza ? ` a decorrere dal ${p.decorrenza.split('-').reverse().join('/')}` : ''}.`,
+    'Come indicato nel D.Lgs. 81/08 e s.m.i. (art. 37 co. 11) il Rappresentante dei Lavoratori ' +
+    'per la Sicurezza ha diritto ad una formazione particolare in materia di salute e sicurezza ' +
+    'concernente i rischi specifici esistenti negli ambiti in cui esercita la propria ' +
+    'rappresentanza, tale da assicurargli adeguate competenze sulle principali tecniche di ' +
+    'controllo e prevenzione dei rischi stessi.',
+    'Ricordiamo che l’art. 37 comma 11 del D.Lgs. 81/08 ha introdotto l’obbligo di aggiornamento ' +
+    'annuale dei Rappresentanti dei Lavoratori per la Sicurezza della seguente durata:',
+    '- non inferiore a 4 ore per le imprese che occupano dai 15 ai 50 lavoratori',
+    '- non inferiore a 8 ore per le imprese che occupano più di 50 lavoratori',
+    'Ricordiamo inoltre di comunicare alla scrivente ogni eventuale successiva variazione ' +
+    'sull’avvicendamento dell’RLS.',
+    'Rimaniamo a disposizione per ogni eventuale chiarimento.',
     'Distinti saluti.',
   ];
 }
@@ -140,9 +174,14 @@ export async function generaLetteraPdf(p, protocollo, paragrafi, oggettoRiga) {
   if (p.partita_iva) rigaSx(`P.IVA: ${p.partita_iva}`);
   y = Math.min(y, yDest) - 8;
 
-  const rl = [p.rl_titolo, p.rl_cognome, p.rl_nome].filter(Boolean).join(' ');
+  /* la riga «Alla c.a.»: di norma il legale rappresentante; chi chiama
+     puo' sostituirla per intero (es. «e.p.c. alla c.a. <RLS>») */
+  const rl = p.alla_ca_riga || (() => {
+    const n = [p.rl_titolo, p.rl_cognome, p.rl_nome].filter(Boolean).join(' ');
+    return n ? `Alla c.a. ${n}` : '';
+  })();
   if (rl) {
-    pagina.drawText(`Alla c.a. ${rl}`, { x: 300, y, size: 9.5, font: italic, color: nero });
+    pagina.drawText(rl, { x: 300, y, size: 9.5, font: italic, color: nero });
     y -= 20;
   }
 
