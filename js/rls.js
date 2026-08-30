@@ -90,7 +90,10 @@ export async function render() {
           `<button class="seg-btn ${filtroStato === s ? 'is-active' : ''}" data-val="${s}">${s === 'aperte' ? 'Da lavorare' : s === 'tutte' ? 'Anagrafe completa' : 'Chiuse'}</button>`).join('')}
       </div>
       <input id="rls-cerca" class="inp inp-sm" type="search" placeholder="Cerca impresa, RLS, CF…" value="${esc(cerca)}">
-      <button class="btn btn-ghost btn-sm" id="rls-importa">⟳ Importa adesso dal foglio</button>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-ghost btn-sm" id="rls-importa">⟳ Importa adesso dal foglio</button>
+        <button class="btn btn-primary btn-sm" id="rls-nuova">+ Nuova comunicazione</button>
+      </div>
     </div>
     <div class="table-wrap">
       <table class="tbl">
@@ -121,8 +124,91 @@ export async function render() {
     toast(n ? `${n} comunicazioni nuove importate.` : 'Nessuna comunicazione nuova.', 'ok');
     if (n) render();
   });
+  $('#rls-nuova').addEventListener('click', nuovaComunicazione);
   host.querySelectorAll('tbody tr[data-id]').forEach((tr) =>
     tr.addEventListener('click', () => apriComunicazione(Number(tr.dataset.id))));
+}
+
+/* Inserimento manuale: la comunicazione puo' arrivare anche per PEC
+   o carta, fuori dal modulo. Stessa pre-istruttoria dell'import. */
+function nuovaComunicazione() {
+  const campo = (id, label, tipo = 'text', ph = '') =>
+    `<div class="field"><label>${label}</label><input type="${tipo}" id="nc-${id}" placeholder="${ph}"></div>`;
+  apriDrawer('Nuova comunicazione RLS (manuale)', '', `
+    <p class="hint" style="margin:0 0 10px">Per i verbali arrivati fuori dal modulo online (PEC, carta).</p>
+    ${campo('ragione', 'Ragione sociale *')}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      ${campo('piva', 'Partita IVA', 'text', '11 cifre')}${campo('ceiv', 'Codice CEIV dichiarato')}
+      ${campo('email', 'Email impresa')}${campo('tel', 'Telefono')}
+    </div>
+    ${campo('sede', 'Sede')}
+    <div class="field"><label>Tipo</label>
+      <select id="nc-tipo"><option>Elezione</option><option>Rielezione</option></select></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      ${campo('verbdata', 'Data del verbale', 'text', 'gg/mm/aaaa')}${campo('verbprot', 'Vs. protocollo sul verbale')}
+      ${campo('decorrenza', 'Decorrenza nomina', 'date')}${campo('finenomina', 'Fine nomina (se comunicata)', 'date')}
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+      ${campo('rlstitolo', 'Titolo RLS', 'text', 'Sig./Sig.ra')}${campo('rlscognome', 'Cognome RLS *')}${campo('rlsnome', 'Nome RLS *')}
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      ${campo('rlscf', 'CF dell’RLS')}${campo('rlsemail', 'Email RLS')}
+      ${campo('mansione', 'Mansione')}${campo('entecorso', 'Ente del corso RLS')}
+    </div>
+    <div class="field"><label>Note</label><textarea id="nc-note"></textarea></div>
+    <button class="btn btn-primary" id="nc-crea" style="margin-top:10px">Registra la comunicazione</button>`);
+
+  $('#nc-crea').addEventListener('click', async (ev) => {
+    const ragione = $('#nc-ragione').value.trim();
+    const cognome = $('#nc-rlscognome').value.trim();
+    if (!ragione || !cognome) return toast('Servono ragione sociale e cognome dell\'RLS.', 'err');
+    const m = $('#nc-piva').value.match(/\d{10,11}/);
+    const piva = m ? m[0].padStart(11, '0') : null;
+    attendi(ev.currentTarget, true);
+    let impresaId = null;
+    if (piva) {
+      const { data: imp } = await sb.from('imprese').select('impresa_id').eq('impresa_id', piva).maybeSingle();
+      impresaId = imp?.impresa_id || null;
+    }
+    const cf = $('#nc-rlscf').value.trim().toUpperCase();
+    let personaId = null;
+    if (/^[A-Z0-9]{16}$/.test(cf)) {
+      const { data: per } = await sb.from('persone').select('persona_id').eq('cf', cf).limit(2);
+      if (per?.length === 1) personaId = per[0].persona_id;
+    }
+    const dec = $('#nc-decorrenza').value || null;
+    const { data: nuova, error } = await sb.from('s_rls_anagrafe').insert({
+      fonte: 'manuale',
+      timestamp_modulo: new Date().toISOString(),
+      ragione_sociale: ragione,
+      partita_iva: piva || $('#nc-piva').value.trim() || null,
+      codice_ceiv_dich: $('#nc-ceiv').value.trim() || null,
+      email: $('#nc-email').value.trim() || null,
+      telefono: $('#nc-tel').value.trim() || null,
+      ind_sede: $('#nc-sede').value.trim() || null,
+      tipo_elezione: $('#nc-tipo').value,
+      data_verbale: $('#nc-verbdata').value.trim() || null,
+      protocollo_verbale: $('#nc-verbprot').value.trim() || null,
+      decorrenza: dec,
+      fine_nomina: $('#nc-finenomina').value || null,
+      rls_titolo: $('#nc-rlstitolo').value.trim() || null,
+      rls_cognome: cognome,
+      rls_nome: $('#nc-rlsnome').value.trim() || null,
+      rls_cf: /^[A-Z0-9]{16}$/.test(cf) ? cf : null,
+      rls_email: $('#nc-rlsemail').value.trim() || null,
+      mansione: $('#nc-mansione').value.trim() || null,
+      ente_corso: $('#nc-entecorso').value.trim() || null,
+      note_modulo: $('#nc-note').value.trim() || null,
+      impresa_id: impresaId,
+      persona_id: personaId,
+      aggiornato_da: state.email,
+    }).select('id').single();
+    attendi(ev.currentTarget, false);
+    if (error) return toast('Registrazione non riuscita: ' + error.message, 'err');
+    toast('Comunicazione registrata.', 'ok');
+    await render();
+    apriComunicazione(nuova.id);
+  });
 }
 
 /* ── dettaglio ────────────────────────────────────────────── */

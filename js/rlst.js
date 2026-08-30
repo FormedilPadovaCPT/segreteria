@@ -68,7 +68,10 @@ export async function render() {
         ${['aperte', 'tutte', 'chiusa'].map((s) =>
           `<button class="seg-btn ${filtroStato === s ? 'is-active' : ''}" data-val="${s}">${s === 'aperte' ? 'Da lavorare' : s === 'tutte' ? 'Tutte' : 'Chiuse'}</button>`).join('')}
       </div>
-      <button class="btn btn-ghost btn-sm" id="rlst-importa">⟳ Importa adesso dal foglio</button>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-ghost btn-sm" id="rlst-importa">⟳ Importa adesso dal foglio</button>
+        <button class="btn btn-primary btn-sm" id="rlst-nuova">+ Nuova richiesta</button>
+      </div>
     </div>
     <div class="table-wrap">
       <table class="tbl">
@@ -93,8 +96,87 @@ export async function render() {
     toast(data.nuove ? `${data.nuove} richieste nuove importate.` : 'Nessuna richiesta nuova.', 'ok');
     if (data.nuove) render();
   });
+  $('#rlst-nuova').addEventListener('click', nuovaRichiesta);
   host.querySelectorAll('tbody tr[data-id]').forEach((tr) =>
     tr.addEventListener('click', () => apriPratica(Number(tr.dataset.id))));
+}
+
+/* Inserimento manuale: una richiesta puo' arrivare anche per PEC o
+   carta, fuori dal modulo online. Stessa pre-istruttoria dell'import:
+   aggancio impresa per P.IVA ed esito CEIV dall'anagrafica. */
+function nuovaRichiesta() {
+  const campo = (id, label, tipo = 'text', ph = '') =>
+    `<div class="field"><label>${label}</label><input type="${tipo}" id="nr-${id}" placeholder="${ph}"></div>`;
+  apriDrawer('Nuova richiesta RLST (manuale)', '', `
+    <p class="hint" style="margin:0 0 10px">Per le richieste arrivate fuori dal modulo online (PEC, carta).</p>
+    ${campo('ragione', 'Ragione sociale *')}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      ${campo('piva', 'Partita IVA', 'text', '11 cifre')}${campo('ceiv', 'Codice CEIV dichiarato')}
+      ${campo('lav', 'N° lavoratori', 'number')}${campo('tel', 'Telefono')}
+      ${campo('email', 'Email')}${campo('comune', 'Comune sede legale')}
+    </div>
+    ${campo('sede', 'Indirizzo sede legale')}
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+      ${campo('rlnome', 'Nome legale rappr.')}${campo('rlcognome', 'Cognome legale rappr.')}${campo('rlcf', 'CF legale rappr.')}
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      ${campo('verbdata', 'Verbale non elezione: data')}${campo('verbluogo', 'Verbale: luogo')}
+    </div>
+    <div class="field"><label>Note</label><textarea id="nr-note"></textarea></div>
+    <button class="btn btn-primary" id="nr-crea" style="margin-top:10px">Crea la pratica</button>`);
+
+  $('#nr-crea').addEventListener('click', async (ev) => {
+    const ragione = $('#nr-ragione').value.trim();
+    if (!ragione) return toast('Serve la ragione sociale.', 'err');
+    const m = $('#nr-piva').value.match(/\d{10,11}/);
+    const piva = m ? m[0].padStart(11, '0') : null;
+    attendi(ev.currentTarget, true);
+    let impresaId = null;
+    let esito = 'da_verificare';
+    if (piva) {
+      const { data: imp } = await sb.from('imprese')
+        .select('impresa_id, cod_ceiv, stato_cassa').eq('impresa_id', piva).maybeSingle();
+      if (imp) {
+        impresaId = imp.impresa_id;
+        esito = imp.cod_ceiv && /attiv/i.test(imp.stato_cassa || '') ? 'iscritta' : 'non_iscritta';
+      }
+    }
+    const cf = $('#nr-rlcf').value.trim().toUpperCase();
+    let personaId = null;
+    if (/^[A-Z0-9]{16}$/.test(cf)) {
+      const { data: per } = await sb.from('persone').select('persona_id').eq('cf', cf).limit(2);
+      if (per?.length === 1) personaId = per[0].persona_id;
+    }
+    const { data: nuova, error } = await sb.from('s_rlst_pratiche').insert({
+      fonte: 'manuale',
+      timestamp_modulo: new Date().toISOString(),
+      data_comp: oggiIso(),
+      ragione_sociale: ragione,
+      partita_iva: piva || $('#nr-piva').value.trim() || null,
+      codice_ceiv_dich: $('#nr-ceiv').value.trim() || null,
+      n_lavoratori: Number($('#nr-lav').value) || null,
+      telefono: $('#nr-tel').value.trim() || null,
+      email: $('#nr-email').value.trim() || null,
+      ind_sede_legale: $('#nr-sede').value.trim() || null,
+      comune_legale: $('#nr-comune').value.trim() || null,
+      rl_nome: $('#nr-rlnome').value.trim() || null,
+      rl_cognome: $('#nr-rlcognome').value.trim() || null,
+      rl_cf: /^[A-Z0-9]{16}$/.test(cf) ? cf : null,
+      data_verbale: $('#nr-verbdata').value.trim() || null,
+      luogo_riunione: $('#nr-verbluogo').value.trim() || null,
+      note_modulo: $('#nr-note').value.trim() || null,
+      impresa_id: impresaId,
+      persona_id: personaId,
+      esito_ceiv: esito,
+      ceiv_verificato_il: new Date().toISOString(),
+      aggiornato_da: state.email,
+    }).select('id').single();
+    attendi(ev.currentTarget, false);
+    if (error) return toast('Creazione non riuscita: ' + error.message, 'err');
+    toast('Pratica creata.', 'ok');
+    await render();
+    apriPratica(nuova.id);
+  });
 }
 
 /* ── dettaglio e istruttoria ──────────────────────────────── */

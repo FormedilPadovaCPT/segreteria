@@ -24,6 +24,7 @@ export function render() {
       <input type="search" id="imp-cerca" class="inp"
              placeholder="Ragione sociale, codice fiscale, partita IVA o codice CEIV — almeno 3 caratteri">
       <button class="btn btn-primary" id="imp-vai">Cerca</button>
+      <button class="btn btn-ghost" id="imp-nuova">+ Nuova impresa</button>
     </div>
     <div id="imp-risultati"></div>`;
 
@@ -31,6 +32,58 @@ export function render() {
   $('#imp-vai').addEventListener('click', cerca);
   $('#imp-cerca').addEventListener('keydown', (e) => { if (e.key === 'Enter') cerca(); });
   $('#imp-cerca').focus();
+  $('#imp-nuova').addEventListener('click', nuovaImpresa);
+}
+
+/* Creazione minima: i campi identificativi, il resto si completa
+   dalla scheda. Il codice fiscale/P.IVA e' la chiave (impresa_id):
+   prima di creare si controlla che non esista gia'. */
+function nuovaImpresa() {
+  const box = $('#imp-risultati');
+  box.innerHTML = `
+    <div class="sez" style="max-width:720px">
+      <h3>Nuova impresa</h3>
+      <div class="grid-3">
+        <div class="field full"><label>Ragione sociale *</label><input type="text" id="ni-nome"></div>
+        <div class="field"><label>Codice fiscale / P.IVA *</label><input type="text" id="ni-id" placeholder="11 cifre o CF"></div>
+        <div class="field"><label>Codice CEIV</label><input type="text" id="ni-ceiv"></div>
+        <div class="field"><label>Telefono</label><input type="text" id="ni-tel"></div>
+        <div class="field full"><label>Indirizzo</label><input type="text" id="ni-ind"></div>
+        <div class="field"><label>Comune</label><input type="text" id="ni-comune"></div>
+        <div class="field"><label>Email</label><input type="text" id="ni-email"></div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">
+        <button class="btn btn-ghost" id="ni-annulla">Annulla</button>
+        <button class="btn btn-primary" id="ni-crea">Crea e apri la scheda</button>
+      </div>
+    </div>`;
+  $('#ni-annulla').addEventListener('click', render);
+  $('#ni-crea').addEventListener('click', async (ev) => {
+    const nome = $('#ni-nome').value.trim();
+    const id = $('#ni-id').value.trim().toUpperCase().replace(/\s/g, '');
+    if (!nome || !id) return toast('Servono ragione sociale e codice fiscale/P.IVA.', 'err');
+    attendi(ev.currentTarget, true);
+    const { data: gia } = await sb.from('imprese').select('impresa_id').eq('impresa_id', id).maybeSingle();
+    if (gia) {
+      attendi(ev.currentTarget, false);
+      toast('Esiste già un\'impresa con questo codice: la apro.', 'err');
+      return apriScheda(id);
+    }
+    const { error } = await sb.from('imprese').insert({
+      impresa_id: id,
+      impresa_nome: nome,
+      cod_ceiv: $('#ni-ceiv').value.trim() || null,
+      impresa_telefono: $('#ni-tel').value.trim() || null,
+      indirizzo: $('#ni-ind').value.trim() || null,
+      comune: $('#ni-comune').value.trim() || null,
+      impresa_email_ref: $('#ni-email').value.trim() || null,
+      note_access: `Creata a mano dalla maschera Imprese (${state.email}, ${new Date().toISOString().slice(0, 10)})`,
+    });
+    attendi(ev.currentTarget, false);
+    if (error) return toast('Creazione non riuscita: ' + error.message, 'err');
+    toast('Impresa creata.', 'ok');
+    apriScheda(id);
+  });
 }
 
 async function eseguiRicerca(testo) {
