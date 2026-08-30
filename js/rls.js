@@ -233,6 +233,7 @@ async function apriComunicazione(id) {
   });
 
   $('#rc-persona')?.addEventListener('click', async () => {
+    chiudiDrawer();
     const mod = await import('./persona.js');
     mod.apriPersona(per.persona_id);
   });
@@ -249,6 +250,7 @@ async function apriComunicazione(id) {
       });
       await sb.from('s_rls_anagrafe').update({ persona_id: pid, aggiornato_da: state.email, updated_at: new Date().toISOString() }).eq('id', r.id);
       toast('Persona creata in anagrafica.', 'ok');
+      chiudiDrawer();
       apriPersona(pid);
     } catch (e) {
       toast(e.message, 'err');

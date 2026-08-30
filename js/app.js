@@ -120,6 +120,13 @@ async function vaiA(vista) {
     return mod.rls.render();
   }
 
+  if (vista === 'persone') {
+    mostraVista('persone');
+    $('#persone-host').innerHTML = '<p class="empty">Un istante…</p>';
+    mod.persona = mod.persona || await import('./persona.js');
+    return mod.persona.render();
+  }
+
   if (vista === 'statistiche') {
     mostraVista('statistiche');
     mod.statistiche = mod.statistiche || await import('./statistiche.js');
