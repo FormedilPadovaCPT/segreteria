@@ -184,6 +184,41 @@ dietro con `ES_aaaa` dei bilanci.
 - Limite pratico di 12 MB per file: il passaggio via edge function tiene tutto
   in memoria. Sopra, si mette il file a mano nella cartella e si incolla il link.
 
+### Ricollegare i documenti già in archivio
+
+Il registro ereditato da Access aveva **4.563 righe e due soli documenti
+attaccati**. I documenti però ci sono, nel vault, e quasi sempre portano il
+numero di protocollo nel nome: la edge function **`riconcilia-protocollo`** li
+rimette insieme, una cartella per volta.
+
+```
+{ "percorso": "3_RISORSE/Circolari_FORMEDIL_Italia" }              → prova a vuoto
+{ "percorso": "...", "esegui": true, "token": "…", "giorni": 15 }  → scrive
+```
+
+- ⚠️ **Il numero da solo non basta, mai.** Sui due registri storici **2.011
+  numeri su 2.554 esistono in entrambi**: `_Prot1450` può essere un documento in
+  entrata del 2015 o uno in uscita del 2018. Si aggancia solo quando numero *e*
+  data del nome file portano a **un candidato solo**.
+- ⚠️ **La finestra stretta è meglio di quella larga**, e non per prudenza:
+  sull'asseverazione, passando da 60 a 15 giorni, gli agganci sono **saliti** da
+  360 a 386 e gli ambigui crollati da 56 a 3. Con la finestra larga entrambi i
+  registri cadevano dentro il periodo e il caso veniva scartato per doppio
+  candidato. **15 giorni** è il valore predefinito.
+- ⚠️ **Chi resta fuori non è un caso dubbio: è il protocollo del mittente.** Nei
+  nomi convivono due numerazioni, la nostra e quella di chi scrive
+  (`Circ. 448/2025` di FORMEDIL). Agganciarli legherebbe una circolare del 2025 a
+  un nostro numero del 2014 — è l'errore che il controllo sulla data esiste per
+  evitare.
+- **Gli attestati restano fuori**: la loro serie (`3xxx`-`4xxx`) nel database non
+  esiste — il registro si ferma a 2554. Non c'è a cosa collegarli.
+- **Non tocca nessun file**: scrive solo righe in `s_prot_allegati`. Niente si
+  sposta e niente si rinomina.
+- **Senza `esegui: true` non scrive nulla** e dice solo cosa farebbe: la prova a
+  vuoto si guarda sempre prima. Per scrivere pretende la parola d'ordine di
+  `s_config.riconcilia_token`, che si crea prima del lotto e **si cancella
+  subito dopo** — la chiave anon dell'app sta in un repository pubblico.
+
 ### Timbro
 
 Due impaginazioni, come in Access:
