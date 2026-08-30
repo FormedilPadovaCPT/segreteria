@@ -326,9 +326,9 @@ async function dettaglioRichiesta(id) {
 
 /* ── ANAGRAFICA (modificabile) ────────────────────────────── */
 const CAMPI = [
-  ['Identificazione e sede', [
-    ['impresa_nome', 'Ragione sociale', 'span2'],
-    ['ragione_sociale2', 'Ragione sociale estesa', 'span2'],
+  ['Identificazione e sede', 'grid-6', [
+    ['impresa_nome', 'Ragione sociale', 'span3'],
+    ['ragione_sociale2', 'Ragione sociale estesa', 'span3'],
     ['impresa_id', 'Codice fiscale (chiave)', '', true],
     ['piva', 'Partita IVA'],
     ['tipo_impresa', 'Forma giuridica'],
@@ -339,9 +339,9 @@ const CAMPI = [
     ['comune', 'Comune'],
     ['prov', 'Provincia'],
     ['cap', 'CAP'],
-    ['sede_amministrativa', 'Sede amministrativa', 'span2'],
+    ['sede_amministrativa', 'Sede amministrativa', 'span3'],
   ]],
-  ['Contatti', [
+  ['Contatti', 'grid-5', [
     ['impresa_email_ref', 'Email di riferimento'],
     ['impresa_email2', 'Email 2'],
     ['impresa_email3', 'Email 3'],
@@ -352,7 +352,7 @@ const CAMPI = [
     ['cellulare', 'Cellulare'],
     ['pagina_web', 'Sito web', 'span2'],
   ]],
-  ['Inquadramento e codici', [
+  ['Inquadramento e codici', 'grid-6', [
     ['ccnl', 'CCNL'],
     ['contratto_ccnl', 'Contratto CCNL'],
     ['contratto_ccnl_altro', 'Altro contratto'],
@@ -386,10 +386,10 @@ function tabAnagrafica() {
     </div>`;
 
   return `
-    ${CAMPI.map(([titolo, campi]) => `
+    ${CAMPI.map(([titolo, griglia, campi]) => `
       <div class="sez">
         <h3>${esc(titolo)}</h3>
-        <div class="grid-4">${campi.map(campo).join('')}</div>
+        <div class="${griglia}">${campi.map(campo).join('')}</div>
       </div>`).join('')}
 
     <div class="sez">

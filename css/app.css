@@ -433,3 +433,13 @@ tr.riga-ceiv{border-left:4px solid var(--ceiv);background:var(--ceiv-bg)}
 .grid-4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px 12px}
 @media (max-width:900px){.grid-4{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .field.span2{grid-column:span 2}
+/* griglie larghe per le anagrafiche (richiesta utente 30/08):
+   su schermi stretti degradano a 4 e poi 2 colonne */
+.grid-5{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:3px 10px}
+.grid-6{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:3px 10px}
+.grid-8{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:3px 10px}
+.field.span3{grid-column:span 3}
+@media (max-width:1200px){.grid-8{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .grid-5,.grid-6{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media (max-width:900px){.grid-5,.grid-6,.grid-8{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .field.span3{grid-column:span 2}}

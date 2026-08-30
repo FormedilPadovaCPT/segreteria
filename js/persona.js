@@ -26,15 +26,15 @@ let corrente = null;   // persona aperta (null = ricerca)
 /* I campi della tabella persone, raggruppati come nella maschera
    Access. Quelli d'impresa (ruolo, mansione, assunzione...) NON
    sono qui: stanno nelle nomine. */
-/* Due sezioni dense a quattro colonne: tutta l'anagrafica a video
-   senza scorrere (regola «dati condensati come il protocollo»). */
+/* Due sezioni dense a OTTO colonne (chiesto dall'utente): tutta
+   l'anagrafica in tre righe, come una maschera Access. */
 const GRUPPI = [
   ['Anagrafica', [
     ['titolo', 'Titolo'], ['cognome', 'Cognome'], ['nome', 'Nome'], ['sesso', 'Sesso'],
     ['cf', 'Codice fiscale'], ['piva', 'P.IVA'],
     ['data_nascita', 'Nato il', 'date'], ['comune_nascita', 'Comune di nascita'],
     ['cittadinanza', 'Cittadinanza'],
-    ['indirizzo', 'Indirizzo'], ['comune_res', 'Comune res.'], ['prov_res', 'Prov.'],
+    ['indirizzo', 'Indirizzo', 'span2'], ['comune_res', 'Comune res.'], ['prov_res', 'Prov.'],
     ['cap_res', 'CAP'], ['stato_res', 'Stato'],
   ]],
   ['Contatti e codici', [
@@ -153,9 +153,9 @@ async function scheda(host) {
     ${GRUPPI.map(([titolo, campi]) => `
       <div class="sez">
         <h3>${titolo}</h3>
-        <div class="grid-4">
+        <div class="grid-8">
           ${campi.map(([k, l, tipo]) => `
-            <div class="field"><label for="pe-${k}">${l}</label>
+            <div class="field ${tipo === 'span2' ? 'span2' : ''}"><label for="pe-${k}">${l}</label>
               <input type="${tipo === 'date' ? 'date' : 'text'}" id="pe-${k}" data-campo="${k}"
                      ${tipo === 'email' ? 'data-mail="1" title="Doppio clic per scrivere una mail"' : ''}
                      value="${esc(p[k] ?? '')}"></div>`).join('')}
