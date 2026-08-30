@@ -11,12 +11,15 @@
    Qui si completa l'istruttoria: si verifica l'esito CEIV (la
    lista si aggiorna mensilmente — la data d'aggiornamento è
    scritta accanto all'esito), si crea l'impresa o la persona se
-   mancano, si annota il verbale di non elezione. La risposta
-   all'impresa (lettera + protocollo OUT + bozza mail) è il
-   prossimo passo del flusso, in costruzione.
+   mancano, si annota il verbale di non elezione. E si chiude:
+   «Protocolla e prepara la risposta» genera la lettera giusta per
+   l'esito (affidamento coi contatti RLST, o negativa non iscritta),
+   la protocolla in uscita, la deposita nella cartella-pratica su
+   Drive e scarica la bozza .eml — l'invio resta a una persona.
    ============================================================ */
 
-import { sb, state, $, esc, dataIt, toast, attendi, apriDrawer } from './core.js';
+import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo, siglaProtocollo } from './core.js';
+import { risolviCartella, sfoglia, creaCartella, caricaByte, leggiByte } from './drive.js';
 
 let pratiche = [];
 let filtroStato = 'aperte';
@@ -173,9 +176,30 @@ async function apriPratica(id) {
       <textarea id="rl-note">${esc(p.note_ufficio || '')}</textarea></div>
     <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:12px">
       ${!imp && p.partita_iva ? '<button class="btn btn-ghost" id="rl-crea-imp">+ Crea impresa in anagrafica</button>' : ''}
+      <button class="btn btn-ghost" id="rl-prot-in">📥 Protocolla la richiesta (IN)</button>
       <button class="btn btn-primary" id="rl-salva">Salva</button>
     </div>
-    <p class="hint" style="margin-top:12px">Lettera di risposta e protocollo: in costruzione — per ora si preparano dal registro (Nuovo OUT).</p>
+
+    ${['ricevuta', 'istruita'].includes(p.stato) ? `
+    <hr style="margin:16px 0;border:0;border-top:1px solid var(--bordo)">
+    <h4 style="margin:0 0 6px">Risposta all'impresa</h4>
+    <p class="hint" style="margin:0 0 10px">
+      ${p.esito_ceiv === 'iscritta'
+        ? 'Lettera di <strong>affidamento</strong> coi contatti degli RLST di ASC Veneto.'
+        : p.esito_ceiv === 'non_iscritta'
+          ? 'Lettera <strong>negativa</strong>: non iscritta CEIV, la richiesta va all&rsquo;organismo paritetico di categoria.'
+          : 'Esito CEIV ancora <strong>da verificare</strong>: decidilo qui sopra prima di preparare la risposta.'}
+      La lettera nasce già protocollata in uscita, col numero nel nome, nella cartella della pratica su Drive;
+      la bozza mail si apre in Outlook e la invii tu.
+    </p>
+    <button class="btn btn-primary" id="rl-risposta" ${p.esito_ceiv === 'da_verificare' ? 'disabled' : ''}>
+      📄 Protocolla e prepara la risposta
+    </button>` : ''}
+
+    ${p.protocollo_out_id ? `
+    <hr style="margin:16px 0;border:0;border-top:1px solid var(--bordo)">
+    <p class="hint">Risposta protocollata${p.lettera_drive_url ? ` — <a href="${esc(p.lettera_drive_url)}" target="_blank" rel="noopener">apri la lettera su Drive</a>` : ''}.</p>
+    <button class="btn btn-ghost" id="rl-eml">📧 Scarica di nuovo la bozza mail</button>` : ''}
   `);
 
   $('#rl-crea-imp')?.addEventListener('click', async (ev) => {
@@ -198,6 +222,30 @@ async function apriPratica(id) {
     apriPratica(id);
   });
 
+  $('#rl-prot-in')?.addEventListener('click', async () => {
+    chiudiDrawer();
+    const mod = await import('./protocollo.js');
+    mod.apriForm('IN', {
+      data_prot: oggiIso(),
+      data_doc: p.data_comp || (p.timestamp_modulo || '').slice(0, 10) || null,
+      impresa_nome: p.ragione_sociale,
+      impresa_id: imp?.impresa_id || null,
+      persona: [p.rl_cognome, p.rl_nome].filter(Boolean).join(' ') || null,
+      oggetto: 'Richiesta di affidamento al servizio di RLS-T',
+      note: `Richiesta n° ${p.progressivo} del modulo online${p.data_comp ? ` del ${dataIt(p.data_comp)}` : ''}. ` +
+        `Lavoratori: ${p.n_lavoratori ?? '?'} — Cod. CEIV dichiarato: ${p.codice_ceiv_dich || '—'} — ` +
+        `RSPP: ${[p.rspp_nome, p.rspp_ruolo].filter(Boolean).join(', ') || '—'}` +
+        `${p.note_modulo ? ` — Note: ${p.note_modulo}` : ''}`,
+      tipo_doc_id: 52,
+      mezzo: 'e-mail',
+      cartella: '2_AREE/Servizi_CPT/RLST',
+    }, true);
+    toast('Maschera IN precompilata: allega il PDF di riepilogo e salva.', 'ok');
+  });
+
+  $('#rl-risposta')?.addEventListener('click', (ev) => preparaRisposta(p, imp, ev.currentTarget));
+  $('#rl-eml')?.addEventListener('click', (ev) => bozzaMail(p, ev.currentTarget));
+
   $('#rl-salva').addEventListener('click', async (ev) => {
     attendi(ev.currentTarget, true);
     const { error } = await sb.from('s_rlst_pratiche').update({
@@ -212,4 +260,191 @@ async function apriPratica(id) {
     toast('Pratica aggiornata.', 'ok');
     render();
   });
+}
+
+/* ══════════ RISPOSTA: lettera + protocollo OUT + Drive + mail ══════════
+   L'ordine è quello delle regole del vault: prima il protocollo (il
+   numero lo assegna il database, registro unico), poi la lettera che
+   nasce già col numero dentro, poi il deposito nella cartella-pratica
+   NN_IMPRESA su Drive, e per ultima la bozza .eml — che la manda una
+   persona da Outlook, come sempre. */
+
+const slugImpresa = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+  .replace(/\b(srls?|snc|sas|spa|scarl|s\.r\.l\.s?|s\.n\.c\.|s\.a\.s\.|s\.p\.a\.)\b/gi, '')
+  .replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '').toUpperCase().slice(0, 40);
+
+/* La cartella della pratica in 2_AREE/Servizi_CPT/RLST: NN_IMPRESA,
+   dove NN è il progressivo di affidamento. Se esiste la si riusa,
+   altrimenti si crea col numero successivo all'ultimo. */
+async function cartellaPratica(p) {
+  const r = await risolviCartella('2_AREE/Servizi_CPT/RLST');
+  if (!r.id) throw new Error('Cartella RLST non trovata su Drive');
+  const { voci } = await sfoglia({ parentId: r.id });
+  const cartelle = voci.filter((v) => v.cartella);
+  const nome = slugImpresa(p.ragione_sociale);
+  const trovata = cartelle.find((v) => {
+    const m = v.nome.match(/^\d+_(.+)$/);
+    return (m && slugImpresa(m[1]) === nome) || slugImpresa(v.nome) === nome;
+  });
+  if (trovata) return { id: trovata.id, nome: trovata.nome, creata: false };
+  const max = Math.max(0, ...cartelle.map((v) => Number((v.nome.match(/^(\d+)_/) || [])[1] || 0)));
+  const nuovoNome = `${String(max + 1).padStart(2, '0')}_${nome}`;
+  const c = await creaCartella(r.id, nuovoNome);
+  return { id: c.id, nome: c.nome, creata: true };
+}
+
+function oggettoRisposta(esito) {
+  return esito === 'iscritta'
+    ? 'Affidamento al servizio di RLS-T'
+    : 'Richiesta di affidamento al servizio di RLS-T — impresa non iscritta CEIV';
+}
+
+async function preparaRisposta(p, imp, btn) {
+  if (!['iscritta', 'non_iscritta'].includes(p.esito_ceiv)) {
+    return toast("Decidi prima l'esito CEIV (iscritta / non iscritta).", 'err');
+  }
+  const esito = p.esito_ceiv;
+  if (!confirm(`Preparo la lettera di ${esito === 'iscritta' ? 'AFFIDAMENTO' : 'NON affidamento (non iscritta CEIV)'} per ${p.ragione_sociale}, protocollata in uscita. Procedo?`)) return;
+
+  attendi(btn, true, 'Preparo…');
+  try {
+    /* configurazione: contatti RLST e nota */
+    const { data: cfg } = await sb.from('s_config').select('chiave, valore')
+      .in('chiave', ['rlst_contatti', 'rlst_nota_url']);
+    const conf = Object.fromEntries((cfg || []).map((r) => [r.chiave, r.valore]));
+    const contatti = JSON.parse(conf.rlst_contatti || '[]');
+    const notaUrl = (conf.rlst_nota_url || '').trim();
+
+    const { corpoAffidamento, corpoNegativa, generaLetteraPdf } = await import('./rlst-lettera.js');
+    const paragrafi = esito === 'iscritta' ? corpoAffidamento(p, contatti, notaUrl) : corpoNegativa(p);
+    const oggettoRiga = `Vostra richiesta${p.data_comp ? ` del ${dataIt(p.data_comp)}` : ''} per l'affidamento al servizio di Rappresentante dei Lavoratori per la Sicurezza Territoriale.`;
+
+    /* cartella della pratica (prima del protocollo: il suo percorso
+       finisce nel campo «cartella» del registro) */
+    const cart = await cartellaPratica(p);
+    const percorso = `2_AREE/Servizi_CPT/RLST/${cart.nome}`;
+
+    /* protocollo OUT: il numero lo assegna il database */
+    const { data: nuovo, error: errProt } = await sb.rpc('s_crea_protocollo', { p: {
+      direzione: 'OUT',
+      data_prot: oggiIso(),
+      data_doc: oggiIso(),
+      impresa_nome: p.ragione_sociale,
+      impresa_id: imp?.impresa_id || null,
+      persona: [p.rl_cognome, p.rl_nome].filter(Boolean).join(' ') || null,
+      oggetto: oggettoRisposta(esito),
+      note: paragrafi.join('\n\n'),
+      sintesi: `Risposta alla richiesta RLST n° ${p.progressivo} del modulo online — esito: ${esito === 'iscritta' ? 'affidamento' : 'non iscritta CEIV'}.`,
+      ufficio: 'Segreteria Area Sicurezza e Salute',
+      mezzo: 'e-mail',
+      tipo_doc_id: 52,
+      tipo_doc_txt: 'Affidamento RLST',
+      cartella: percorso,
+    } });
+    if (errProt) throw new Error('Protocollazione non riuscita: ' + errProt.message);
+
+    /* la lettera, col numero già dentro */
+    const pdfByte = await generaLetteraPdf(p, nuovo, paragrafi, oggettoRiga);
+    const data = oggiIso().replace(/-/g, '_');
+    const nomeFile = `${data}_COMU_Formedil-Padova_${esito === 'iscritta'
+      ? 'affidamento-servizio-RLST-a' : 'non-affidamento-RLST-a'}-${slugImpresa(p.ragione_sociale)}.pdf`;
+    const su = await caricaByte(nuovo, nomeFile, pdfByte, 'application/pdf', cart.id);
+
+    await sb.from('s_prot_allegati').insert({
+      protocollo_id: nuovo.id, nome: su.file_name || nomeFile, mime: 'application/pdf',
+      dimensione: pdfByte.length, principale: true, created_by: state.email,
+      drive_file_id: su.drive_file_id, drive_url: su.drive_url,
+    });
+    await sb.from('s_protocollo').update({ drive_file_id: su.drive_file_id, drive_url: su.drive_url }).eq('id', nuovo.id);
+
+    await sb.from('s_rlst_pratiche').update({
+      stato: 'risposta_protocollata',
+      protocollo_out_id: nuovo.id,
+      lettera_drive_id: su.drive_file_id,
+      lettera_drive_url: su.drive_url,
+      impresa_id: imp?.impresa_id || p.impresa_id,
+      aggiornato_da: state.email,
+      updated_at: new Date().toISOString(),
+    }).eq('id', p.id);
+
+    scaricaEmlRisposta(p, nuovo, pdfByte, su.file_name || nomeFile, esito);
+    toast(`Lettera protocollata (${codiceProtocollo(nuovo)}) e depositata in ${cart.nome}. Bozza mail scaricata: aprila da Outlook e premi Invia.`, 'ok');
+    await render();
+  } catch (e) {
+    toast(e.message, 'err');
+  } finally {
+    attendi(btn, false);
+  }
+}
+
+/* Riscaricare la bozza mail di una risposta già protocollata. */
+async function bozzaMail(p, btn) {
+  attendi(btn, true, 'Rileggo la lettera…');
+  try {
+    const { data: prot } = await sb.from('s_protocollo').select('*').eq('id', p.protocollo_out_id).single();
+    const byte = await leggiByte(p.lettera_drive_id);
+    const nome = `${siglaProtocollo(prot)}_lettera.pdf`;
+    scaricaEmlRisposta(p, prot, byte, nome, p.esito_ceiv);
+    toast('Bozza scaricata: aprila da Outlook e premi Invia.', 'ok');
+  } catch (e) {
+    toast(e.message, 'err');
+  } finally {
+    attendi(btn, false);
+  }
+}
+
+/* La bozza .eml con la lettera allegata: X-Unsent la fa aprire a
+   Outlook in composizione. L'invio resta a una persona. */
+function scaricaEmlRisposta(p, prot, pdfByte, pdfNome, esito) {
+  const corpo = `Spett.le ${p.ragione_sociale},
+
+in allegato la nostra comunicazione ${siglaProtocollo(prot)} in riscontro alla Vostra richiesta di affidamento al servizio di Rappresentante dei Lavoratori per la Sicurezza Territoriale${esito === 'iscritta' ? ', con i contatti degli RLST di riferimento' : ''}.
+
+Restiamo a disposizione per ogni chiarimento.
+
+La Segreteria — Area Sicurezza e Salute
+FORMEDIL PADOVA — Scuola Costruzioni Giuseppe Jappelli
+Via Basilicata 10 — 35127 Padova — tel. 049 761168
+cpt@formedilpadova.it — www.formedilpadova.it`;
+
+  let s = '';
+  const PEZZO = 0x8000;
+  for (let i = 0; i < pdfByte.length; i += PEZZO) s += String.fromCharCode(...pdfByte.subarray(i, i + PEZZO));
+  const b64 = btoa(s).replace(/(.{76})/g, '$1\r\n');
+
+  const oggetto = `${oggettoRisposta(esito)} — Vs. richiesta`;
+  const oggettoCod = /^[\x20-\x7e]*$/.test(oggetto) ? oggetto
+    : '=?utf-8?B?' + btoa(String.fromCharCode(...new TextEncoder().encode(oggetto))) + '?=';
+  const B = 'Bozza-RLST-Formedil';
+  const eml = [
+    'X-Unsent: 1',
+    `To: ${p.email || ''}`,
+    `Subject: ${oggettoCod}`,
+    'MIME-Version: 1.0',
+    `Content-Type: multipart/mixed; boundary="${B}"`,
+    '',
+    `--${B}`,
+    'Content-Type: text/plain; charset=utf-8',
+    'Content-Transfer-Encoding: 8bit',
+    '',
+    corpo,
+    '',
+    `--${B}`,
+    `Content-Type: application/pdf; name="${pdfNome}"`,
+    'Content-Transfer-Encoding: base64',
+    `Content-Disposition: attachment; filename="${pdfNome}"`,
+    '',
+    b64,
+    `--${B}--`,
+  ].join('\r\n');
+
+  const bytes = new TextEncoder().encode(eml);
+  const url = URL.createObjectURL(new Blob([bytes], { type: 'message/rfc822' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `risposta-rlst-${slugImpresa(p.ragione_sociale)}.eml`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
 }

@@ -104,6 +104,12 @@ export async function risolviCartella(percorso) {
   return chiama({ action: 'cartella', percorso });
 }
 
+/* Crea (o ritrova) una sottocartella su Drive. Serve al flusso RLST
+   per far nascere la cartella-pratica NN_IMPRESA. Idempotente. */
+export async function creaCartella(parentId, nome) {
+  return chiama({ action: 'crea_cartella', parent_id: parentId, nome });
+}
+
 /* I documenti che portano gia' il codice del protocollo NEL NOME.
    E' la regola dell'ufficio letta al contrario: il numero si scrive nel
    nome del file perche' l'umano lo ritrovi sfogliando Drive — e allora
