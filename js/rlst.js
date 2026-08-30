@@ -19,7 +19,7 @@
    ============================================================ */
 
 import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo, siglaProtocollo } from './core.js';
-import { risolviCartella, sfoglia, creaCartella, caricaByte, leggiByte } from './drive.js';
+import { risolviCartella, sfoglia, creaCartella, caricaByte, leggiByte, idDaLink } from './drive.js';
 
 let pratiche = [];
 let filtroStato = 'aperte';
@@ -367,7 +367,7 @@ async function preparaRisposta(p, imp, btn) {
       updated_at: new Date().toISOString(),
     }).eq('id', p.id);
 
-    scaricaEmlRisposta(p, nuovo, pdfByte, su.file_name || nomeFile, esito);
+    await scaricaEmlRisposta(p, nuovo, [{ nome: su.file_name || nomeFile, byte: pdfByte }], esito, contatti);
     toast(`Lettera protocollata (${codiceProtocollo(nuovo)}) e depositata in ${cart.nome}. Bozza mail scaricata: aprila da Outlook e premi Invia.`, 'ok');
     await render();
   } catch (e) {
@@ -382,9 +382,11 @@ async function bozzaMail(p, btn) {
   attendi(btn, true, 'Rileggo la lettera…');
   try {
     const { data: prot } = await sb.from('s_protocollo').select('*').eq('id', p.protocollo_out_id).single();
+    const { data: cfg } = await sb.from('s_config').select('chiave, valore').eq('chiave', 'rlst_contatti');
+    const contatti = JSON.parse(cfg?.[0]?.valore || '[]');
     const byte = await leggiByte(p.lettera_drive_id);
     const nome = `${siglaProtocollo(prot)}_lettera.pdf`;
-    scaricaEmlRisposta(p, prot, byte, nome, p.esito_ceiv);
+    await scaricaEmlRisposta(p, prot, [{ nome, byte }], p.esito_ceiv, contatti);
     toast('Bozza scaricata: aprila da Outlook e premi Invia.', 'ok');
   } catch (e) {
     toast(e.message, 'err');
@@ -393,32 +395,76 @@ async function bozzaMail(p, btn) {
   }
 }
 
-/* La bozza .eml con la lettera allegata: X-Unsent la fa aprire a
-   Outlook in composizione. L'invio resta a una persona. */
-function scaricaEmlRisposta(p, prot, pdfByte, pdfNome, esito) {
-  const corpo = `Spett.le ${p.ragione_sociale},
+/* La bozza .eml, ricalcata sulla mail vera dell'ufficio (esempio del
+   05/05/2026): oggetto col protocollo, copia conoscenza al Direttore
+   e — nell'affidamento — all'RLST competente, corpo con «e.p.c.»,
+   firma e nota privacy. In allegato la lettera e, se raggiungibile,
+   il verbale di non elezione caricato col modulo. X-Unsent la fa
+   aprire a Outlook in composizione: l'invio resta a una persona. */
+async function scaricaEmlRisposta(p, prot, allegati, esito, contatti) {
+  const competente = (contatti || []).find((c) => c.competente);
 
-in allegato la nostra comunicazione ${siglaProtocollo(prot)} in riscontro alla Vostra richiesta di affidamento al servizio di Rappresentante dei Lavoratori per la Sicurezza Territoriale${esito === 'iscritta' ? ', con i contatti degli RLST di riferimento' : ''}.
+  /* il verbale di non elezione viaggia insieme alla lettera, come
+     nella prassi: si prova a leggerlo da Drive, e se non si riesce
+     la bozza parte lo stesso (lo si allega a mano) */
+  if (esito === 'iscritta' && p.verbale_url) {
+    try {
+      const vid = idDaLink(p.verbale_url);
+      if (vid) allegati.push({ nome: `verbale-non-elezione-RLS-${slugImpresa(p.ragione_sociale)}.pdf`, byte: await leggiByte(vid) });
+    } catch { toast('Verbale non scaricabile da Drive: allegalo a mano alla bozza.', 'err'); }
+  }
 
-Restiamo a disposizione per ogni chiarimento.
+  const rl = [p.rl_cognome, p.rl_titolo || 'Sig.', p.rl_nome].filter(Boolean).join(' ');
+  const corpo = `Prot. n°: ${siglaProtocollo(prot)}
 
-La Segreteria — Area Sicurezza e Salute
-FORMEDIL PADOVA — Scuola Costruzioni Giuseppe Jappelli
-Via Basilicata 10 — 35127 Padova — tel. 049 761168
-cpt@formedilpadova.it — www.formedilpadova.it`;
+Prevenzione infortuni.
 
-  let s = '';
-  const PEZZO = 0x8000;
-  for (let i = 0; i < pdfByte.length; i += PEZZO) s += String.fromCharCode(...pdfByte.subarray(i, i + PEZZO));
-  const b64 = btoa(s).replace(/(.{76})/g, '$1\r\n');
+Oggetto: ${oggettoRisposta(esito)}
 
-  const oggetto = `${oggettoRisposta(esito)} — Vs. richiesta`;
+Spett.le ${(p.ragione_sociale || '').toUpperCase()},
+${rl ? `Alla c.a. ${rl}` : ''}${esito === 'iscritta' && competente ? `
+e.p.c.
+RLST ${competente.nome}` : ''}
+
+Vogliate trovare in allegato la comunicazione in oggetto.
+
+Distinti saluti.
+
+Renato Squizzato
+Area Sicurezza e Salute | FORMEDIL PADOVA
+
+Via Basilicata 10
+35127 Padova (PD)
+email: cpt@formedilpadova.it
+Tel. +39 049761168 (int.4) e Fax. +39 049760940
+URL: https://www.formedilpadova.it
+
+Organismo Accreditato Regione Veneto
+per la formazione L.R. n. 19 del 09.08.02 cod. AO119
+per i servizi al lavoro codice L236
+
+__________________________________________________________________________
+
+Ai sensi del Regolamento (UE) 2016/679 (GDPR) relativo alla protezione delle persone fisiche con riguardo al trattamento dei dati personali, la presente e-mail è destinata unicamente alle persone sopra indicate e le informazioni in essa contenute sono da considerarsi strettamente riservate. Se avete ricevuto questo messaggio per errore, siete pregati di rispedirlo al mittente, distruggendo qualunque copia in Vostro possesso, grazie.`;
+
+  const inB64 = (byte) => {
+    let s = '';
+    const PEZZO = 0x8000;
+    for (let i = 0; i < byte.length; i += PEZZO) s += String.fromCharCode(...byte.subarray(i, i + PEZZO));
+    return btoa(s).replace(/(.{76})/g, '$1\r\n');
+  };
+
+  const cc = ['direzione@formedilpadova.it'];
+  if (esito === 'iscritta' && competente?.email) cc.push(competente.email);
+
+  const oggetto = `Formedil Padova - Area Sicurezza e Salute - Invio comunicazione richiesta di affidamento al servizio RLST - ${siglaProtocollo(prot)}`;
   const oggettoCod = /^[\x20-\x7e]*$/.test(oggetto) ? oggetto
     : '=?utf-8?B?' + btoa(String.fromCharCode(...new TextEncoder().encode(oggetto))) + '?=';
   const B = 'Bozza-RLST-Formedil';
   const eml = [
     'X-Unsent: 1',
     `To: ${p.email || ''}`,
+    `Cc: ${cc.join(', ')}`,
     `Subject: ${oggettoCod}`,
     'MIME-Version: 1.0',
     `Content-Type: multipart/mixed; boundary="${B}"`,
@@ -429,12 +475,14 @@ cpt@formedilpadova.it — www.formedilpadova.it`;
     '',
     corpo,
     '',
-    `--${B}`,
-    `Content-Type: application/pdf; name="${pdfNome}"`,
-    'Content-Transfer-Encoding: base64',
-    `Content-Disposition: attachment; filename="${pdfNome}"`,
-    '',
-    b64,
+    ...allegati.flatMap((a) => [
+      `--${B}`,
+      `Content-Type: application/pdf; name="${a.nome}"`,
+      'Content-Transfer-Encoding: base64',
+      `Content-Disposition: attachment; filename="${a.nome}"`,
+      '',
+      inB64(a.byte),
+    ]),
     `--${B}--`,
   ].join('\r\n');
 
