@@ -181,16 +181,16 @@ function disegnaScheda() {
     </div>
 
     <div class="imp-head">
-      <h2>${esc(i.impresa_nome || '')}</h2>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        ${i.cod_ceiv || /ceiv/i.test(i.cassa_edile || '')
+          ? `<img src="img/ceiv.jpg" alt="CEIV" class="logo-testata ${/attiv/i.test(i.stato_cassa || '') ? '' : 'logo-spento'}"
+                  title="CEIV — ${esc(i.stato_cassa || 'stato non noto')}">` : ''}
+        ${i.ance ? '<img src="img/ance.png" alt="ANCE Padova" class="logo-testata" title="Associata ANCE Padova">' : ''}
+        <h2>${esc(i.impresa_nome || '')}</h2>
+      </div>
       ${i.ragione_sociale2 && i.ragione_sociale2 !== i.impresa_nome
         ? `<p style="color:var(--testo-soft);font-size:13px;margin:0 0 10px">${esc(i.ragione_sociale2)}</p>` : ''}
       <div class="imp-chips">
-        ${i.cod_ceiv || /ceiv/i.test(i.cassa_edile || '')
-          ? `<span class="chip chip-logo" title="CEIV — ${esc(i.stato_cassa || 'stato non noto')}">
-               <img src="img/ceiv.jpg" alt="CEIV" class="${/attiv/i.test(i.stato_cassa || '') ? '' : 'logo-spento'}">
-             </span>` : ''}
-        ${i.ance ? `<span class="chip chip-logo" title="Associata ANCE Padova">
-               <img src="img/ance.png" alt="ANCE Padova"></span>` : ''}
         ${i.cassa_edile ? `<span class="chip chip-ce"><b>${esc(i.cassa_edile)}</b><span>Cassa Edile</span></span>` : ''}
         ${i.cod_ceiv ? `<span class="chip chip-ceiv"><b>${esc(i.cod_ceiv)}</b><span>Cod. CEIV</span></span>` : ''}
         ${i.cod_socrate ? `<span class="chip chip-socrate"><b>${esc(i.cod_socrate)}</b><span>Cod. Socrate</span></span>` : ''}

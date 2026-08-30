@@ -445,6 +445,5 @@ tr.riga-ceiv{border-left:4px solid var(--ceiv);background:var(--ceiv-bg)}
   .field.span3{grid-column:span 2}}
 /* loghi di appartenenza nella testata della scheda impresa:
    CEIV pieno se attiva, in grigio se sospesa o cessata */
-.chip-logo{padding:5px 9px;background:#fff;display:flex;align-items:center}
-.chip-logo img{height:26px;display:block;max-width:130px;object-fit:contain}
+.logo-testata{height:16px;max-width:80px;object-fit:contain;display:block}
 .logo-spento{filter:grayscale(1);opacity:.4}
