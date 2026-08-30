@@ -185,6 +185,11 @@
 <!-- ══════════ TOAST ══════════ -->
 <div id="toast" class="toast hidden"></div>
 
+<script>
+/* rete-prima sui nostri file: mai piu' moduli vecchi in cache
+   dopo una pubblicazione (vedi sw.js) */
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+</script>
 <script type="module" src="js/app.js"></script>
 </body>
 </html>
