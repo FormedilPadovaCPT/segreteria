@@ -124,7 +124,7 @@ export async function render() {
 
   const righe = righeGriglia();
   const testata = requisiti.map((r) =>
-    `<th class="dt-th" title="${esc(r.fonte || '')}${r.note ? ' — ' + esc(r.note) : ''}">${esc(r.descrizione)}</th>`).join('');
+    `<th class="dt-th" title="${esc(r.descrizione)}${r.fonte ? ' — ' + esc(r.fonte) : ''}${r.note ? ' — ' + esc(r.note) : ''}">${esc(r.breve || r.descrizione)}</th>`).join('');
 
   const corpo = righe.map((t) => {
     const celle = requisiti.map((r) => {
