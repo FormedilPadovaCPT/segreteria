@@ -26,24 +26,20 @@ let corrente = null;   // persona aperta (null = ricerca)
 /* I campi della tabella persone, raggruppati come nella maschera
    Access. Quelli d'impresa (ruolo, mansione, assunzione...) NON
    sono qui: stanno nelle nomine. */
+/* Due sezioni dense a quattro colonne: tutta l'anagrafica a video
+   senza scorrere (regola «dati condensati come il protocollo»). */
 const GRUPPI = [
-  ['Identità', [
-    ['titolo', 'Titolo'], ['cognome', 'Cognome'], ['nome', 'Nome'],
-    ['sesso', 'Sesso'], ['cf', 'Codice fiscale'], ['piva', 'P.IVA'],
-  ]],
-  ['Nascita e cittadinanza', [
+  ['Anagrafica', [
+    ['titolo', 'Titolo'], ['cognome', 'Cognome'], ['nome', 'Nome'], ['sesso', 'Sesso'],
+    ['cf', 'Codice fiscale'], ['piva', 'P.IVA'],
     ['data_nascita', 'Nato il', 'date'], ['comune_nascita', 'Comune di nascita'],
     ['cittadinanza', 'Cittadinanza'],
-  ]],
-  ['Residenza', [
-    ['indirizzo', 'Indirizzo'], ['comune_res', 'Comune'], ['prov_res', 'Prov.'],
+    ['indirizzo', 'Indirizzo'], ['comune_res', 'Comune res.'], ['prov_res', 'Prov.'],
     ['cap_res', 'CAP'], ['stato_res', 'Stato'],
   ]],
-  ['Contatti', [
+  ['Contatti e codici', [
     ['email', 'Email', 'email'], ['email2', 'Email 2', 'email'], ['email3', 'Email 3', 'email'],
-    ['telefono', 'Telefono'], ['telefono2', 'Telefono 2'],
-  ]],
-  ['Codici', [
+    ['telefono', 'Telefono'], ['telefono2', 'Cellulare'],
     ['qualifica', 'Qualifica'], ['cod_socrate', 'Codice Socrate'],
     ['cassa_previdenza', 'Cassa di previdenza'],
   ]],
@@ -157,7 +153,7 @@ async function scheda(host) {
     ${GRUPPI.map(([titolo, campi]) => `
       <div class="sez">
         <h3>${titolo}</h3>
-        <div class="grid-3">
+        <div class="grid-4">
           ${campi.map(([k, l, tipo]) => `
             <div class="field"><label for="pe-${k}">${l}</label>
               <input type="${tipo === 'date' ? 'date' : 'text'}" id="pe-${k}" data-campo="${k}"
@@ -167,12 +163,11 @@ async function scheda(host) {
       </div>`).join('')}
 
     <div class="sez">
-      <h3>Note</h3>
-      <textarea id="pe-note" style="min-height:90px">${esc(p.note ?? '')}</textarea>
-    </div>
-
-    <div style="display:flex;justify-content:flex-end;gap:8px;margin:12px 0">
-      <button class="btn btn-primary" id="pe-salva">${nuova ? 'Crea la persona' : 'Salva le modifiche'}</button>
+      <div style="display:flex;gap:14px;align-items:flex-start">
+        <div class="field" style="flex:1"><label>Note</label>
+          <textarea id="pe-note">${esc(p.note ?? '')}</textarea></div>
+        <button class="btn btn-primary" id="pe-salva" style="margin-top:18px;white-space:nowrap">${nuova ? 'Crea la persona' : 'Salva'}</button>
+      </div>
     </div>
 
     ${nuova ? '' : `
