@@ -81,6 +81,29 @@ export async function apriScheda(impresaId, tab = 'anagrafica') {
   }
   scheda = data;
   schedaTab = tab;
+
+  /* I codici ATECO veri (dalla tabella Access Atecoimprese, con la
+     loro storia) e le descrizioni ISTAT: un'impresa può averne più
+     d'uno, con date diverse. */
+  try {
+    const { data: ateco } = await sb.from('imprese_ateco')
+      .select('codice, data_ateco').eq('impresa_id', impresaId)
+      .order('data_ateco', { ascending: false, nullsFirst: false });
+    scheda.ateco = ateco || [];
+    if (scheda.ateco.length) {
+      const codici = [...new Set(scheda.ateco.map((a) => a.codice))];
+      const { data: descr } = await sb.from('ateco_codici')
+        .select('versione, codice, descrizione').in('codice', codici);
+      const mappa = {};
+      for (const d of (descr || [])) {
+        /* si preferisce la 2007 (la classificazione dei dati storici);
+           dove il codice esiste solo nella 2025, vale quella */
+        if (!mappa[d.codice] || d.versione === '2007') mappa[d.codice] = d;
+      }
+      scheda.ateco.forEach((a) => { a.desc = mappa[a.codice] || null; });
+    }
+  } catch { scheda.ateco = []; }
+
   disegnaScheda();
 }
 
@@ -186,7 +209,10 @@ const CAMPI = [
     ['n_inps', 'Posizione INPS'],
     ['n_inail', 'Posizione INAIL'],
     ['ance', 'ANCE'],
-    ['att_codice', 'Codice ATECO'],
+    /* att_codice NON è l'ATECO: è la categoria interna di Access
+       (COE, STU, PIR...). L'ATECO vero sta in imprese_ateco e ha la
+       sua sezione qui sotto. Etichetta corretta il 30/08/2026. */
+    ['att_codice', 'Categoria attività (interna)'],
     ['numero_addetti', 'N° addetti'],
     ['numero_dip_isc_ce_pd', 'Dipendenti iscritti CE PD'],
     ['rspp', 'RSPP', 'full'],
@@ -208,6 +234,19 @@ function tabAnagrafica() {
         <h3>${esc(titolo)}</h3>
         <div class="grid-3">${campi.map(campo).join('')}</div>
       </div>`).join('')}
+
+    <div class="sez">
+      <h3>Codici ATECO</h3>
+      ${(scheda.ateco || []).length
+        ? `<div>${scheda.ateco.map((a, idx) => `
+            <div class="dt-doc-riga" style="padding:4px 0;${idx === 0 ? 'font-weight:600' : ''}">
+              <code>${esc(a.codice)}</code>
+              ${a.desc ? `&mdash; ${esc(a.desc.descrizione)} <span style="color:var(--testo-soft);font-size:11px">(ATECO ${esc(a.desc.versione)})</span>` : ''}
+              ${a.data_ateco ? `<span style="color:var(--testo-soft)"> &middot; dal ${esc(a.data_ateco.split('-').reverse().join('/'))}</span>` : ''}
+            </div>`).join('')}
+           <p class="hint" style="margin-top:6px">Dalla tabella Access Atecoimprese; il più recente in grassetto. Descrizioni ISTAT.</p></div>`
+        : '<p class="hint">Nessun codice ATECO registrato per questa impresa.</p>'}
+    </div>
 
     <div class="sez">
       <h3>Note d'ufficio</h3>
