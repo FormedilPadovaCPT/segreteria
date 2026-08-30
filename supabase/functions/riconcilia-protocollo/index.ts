@@ -157,8 +157,20 @@ serve(async (req) => {
 
     /* numero e data dal NOME: sono i due dati che l'ufficio ci ha messo,
        e sono quelli su cui si decide */
-    const rxNum = /[_ .-]prot[._ ]?([0-9]{2,5})(?![0-9A-Za-z-])/i
-    const rxData = /(^|[^0-9])([0-9]{4})[_.-]([0-9]{2})[_.-]([0-9]{2})(?![0-9])/
+    /* Il numero, e — se c'e' — la direzione scritta accanto. I file
+       battezzati con la forma nuova portano «_Prot_2012-in»: li' non
+       c'e' niente da indovinare, il registro lo dice il nome. */
+    const rxNum = /[_ .-]prot[._ ]?([0-9]{2,5})(-(in|out))?(?![0-9A-Za-z-])/i
+    /* La data nel nome, in tutti i modi in cui l'ufficio l'ha scritta in
+       vent'anni: 2026_08_26, 2026-08-26, «2014 04 03» (la forma dei
+       verbali) e 20250904 tutta attaccata. Il separatore e' facoltativo,
+       e mese e giorno sono validati: senza questo, sull'asseverazione si
+       perdevano 405 file su 798 — piu' della meta' — perche' portavano la
+       data compatta o separata da spazi.
+       Il guardiano (^|[^0-9]) davanti impedisce di pescare otto cifre in
+       mezzo a una partita IVA: li' la sequenza e' preceduta da un'altra
+       cifra e non passa. */
+    const rxData = /(^|[^0-9])(20[0-2][0-9])[_. -]?(0[1-9]|1[0-2])[_. -]?(0[1-9]|[12][0-9]|3[01])(?![0-9])/
 
     const esito = {
       esaminati: file.length, da_collegare: 0, gia_collegati: 0,
@@ -182,14 +194,18 @@ serve(async (req) => {
         continue
       }
       const numero = Number(mn[1])
+      const direzioneScritta = mn[3] ? mn[3].toUpperCase() : null
       const dataFile = `${md[2]}-${md[3]}-${md[4]}`
 
       if (!cache.has(numero)) {
         cache.set(numero, await db(`s_protocollo?numero=eq.${numero}&esercizio=is.null`
           + '&select=id,direzione,data_prot,data_doc'))
       }
-      const vicini = cache.get(numero)!.filter((p) =>
-        Math.min(giorniFra(p.data_prot, dataFile), giorniFra(p.data_doc, dataFile)) <= giorni)
+      const vicini = cache.get(numero)!
+        /* se la direzione e' scritta nel nome, l'altro registro non c'entra */
+        .filter((p) => !direzioneScritta || p.direzione === direzioneScritta)
+        .filter((p) =>
+          Math.min(giorniFra(p.data_prot, dataFile), giorniFra(p.data_doc, dataFile)) <= giorni)
 
       if (!vicini.length) {
         esito.nessun_candidato++
