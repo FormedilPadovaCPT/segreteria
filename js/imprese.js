@@ -260,7 +260,6 @@ function tabAnagrafica() {
         : '<p class="hint">Nessun codice ATECO registrato per questa impresa.</p>'}
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
         <button class="btn btn-ghost btn-sm" data-verifica="https://www.ufficiocamerale.it/trova-azienda">🔎 ufficiocamerale.it</button>
-        <button class="btn btn-ghost btn-sm" data-verifica="https://www.registroimprese.it/ricerca-libera-e-acquisto">🔎 registroimprese.it</button>
         <span class="hint" style="align-self:center">il bottone copia la P.IVA: incollala nella ricerca</span>
       </div>
     </div>

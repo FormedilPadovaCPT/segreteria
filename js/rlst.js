@@ -194,9 +194,7 @@ async function apriPratica(id) {
     <div class="field" style="margin-top:8px"><label>Note dell'ufficio</label>
       <textarea id="rl-note">${esc(p.note_ufficio || '')}</textarea></div>
     <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:12px">
-      ${p.partita_iva ? `
-        <button class="btn btn-ghost" data-verifica="https://www.ufficiocamerale.it/trova-azienda">🔎 ufficiocamerale.it</button>
-        <button class="btn btn-ghost" data-verifica="https://www.registroimprese.it/ricerca-libera-e-acquisto">🔎 registroimprese.it</button>` : ''}
+      ${p.partita_iva ? '<button class="btn btn-ghost" data-verifica="https://www.ufficiocamerale.it/trova-azienda">🔎 ufficiocamerale.it</button>' : ''}
       ${!imp && p.partita_iva ? '<button class="btn btn-ghost" id="rl-crea-imp">+ Crea impresa in anagrafica</button>' : ''}
       <button class="btn btn-ghost" id="rl-prot-in">📥 Protocolla la richiesta (IN)</button>
       <button class="btn btn-primary" id="rl-salva">Salva</button>
