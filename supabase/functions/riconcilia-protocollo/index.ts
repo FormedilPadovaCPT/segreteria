@@ -161,6 +161,7 @@ serve(async (req) => {
        battezzati con la forma nuova portano «_Prot_2012-in»: li' non
        c'e' niente da indovinare, il registro lo dice il nome. */
     const rxNum = /[_ .-]prot[._ ]?([0-9]{2,5})(-(in|out))?(?![0-9A-Za-z-])/i
+    const rxNumTutti = new RegExp(rxNum.source, 'gi')
     /* La data nel nome, in tutti i modi in cui l'ufficio l'ha scritta in
        vent'anni: 2026_08_26, 2026-08-26, «2014 04 03» (la forma dei
        verbali) e 20250904 tutta attaccata. Il separatore e' facoltativo,
@@ -195,27 +196,41 @@ serve(async (req) => {
       : 1e9)
 
     for (const f of file) {
-      const mn = f.nome.match(rxNum)
-      if (!mn) { esito.senza_numero++; continue }
+      /* Tutti i numeri di protocollo che compaiono nel nome, non solo il
+         primo: capita che ci sia anche quello del mittente, e che il
+         nostro venga dopo — «...email-cpc-prot6483-convocazioneProt-223»,
+         dove 6483 e' dello SPISAL e 223 e' il nostro, esatto al giorno.
+         Leggendo solo il primo si perdeva un aggancio certo. */
+      const numeri = [...f.nome.matchAll(rxNumTutti)]
+      if (!numeri.length) { esito.senza_numero++; continue }
+      const mn = numeri[0]
       const md = f.nome.match(rxData)
       if (!md) {
         esito.senza_data++
         if (esito.esempi_scartati.length < 15) esito.esempi_scartati.push(`senza data nel nome — ${f.nome}`)
         continue
       }
-      const numero = Number(mn[1])
-      const direzioneScritta = mn[3] ? mn[3].toUpperCase() : null
       const dataFile = `${md[2]}-${md[3]}-${md[4]}`
 
-      if (!cache.has(numero)) {
-        cache.set(numero, await db(`s_protocollo?numero=eq.${numero}&esercizio=is.null`
-          + '&select=id,direzione,data_prot,data_doc'))
+      /* Ogni numero trovato nel nome viene provato. Chi non e' nostro non
+         trova niente li' intorno e cade da se': e' il caso del numero del
+         mittente. Se ne restano due che tornano, non si sceglie. */
+      const vicini: { id: number; direzione: string; data_prot: string | null; data_doc: string | null }[] = []
+      let numero = Number(mn[1])
+      for (const m of numeri) {
+        const n = Number(m[1])
+        const direzioneScritta = m[3] ? m[3].toUpperCase() : null
+        if (!cache.has(n)) {
+          cache.set(n, await db(`s_protocollo?numero=eq.${n}&esercizio=is.null`
+            + '&select=id,direzione,data_prot,data_doc'))
+        }
+        const q = cache.get(n)!
+          /* se la direzione e' scritta nel nome, l'altro registro non c'entra */
+          .filter((p) => !direzioneScritta || p.direzione === direzioneScritta)
+          .filter((p) =>
+            Math.min(giorniFra(p.data_prot, dataFile), giorniFra(p.data_doc, dataFile)) <= giorni)
+        if (q.length) { numero = n; vicini.push(...q) }
       }
-      const vicini = cache.get(numero)!
-        /* se la direzione e' scritta nel nome, l'altro registro non c'entra */
-        .filter((p) => !direzioneScritta || p.direzione === direzioneScritta)
-        .filter((p) =>
-          Math.min(giorniFra(p.data_prot, dataFile), giorniFra(p.data_doc, dataFile)) <= giorni)
 
       if (!vicini.length) {
         esito.nessun_candidato++
