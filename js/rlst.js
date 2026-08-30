@@ -116,6 +116,16 @@ async function apriPratica(id) {
     per = data?.[0] || null;
   }
 
+  /* il requisito è «settore edile e iscritta CEIV»: il settore si legge
+     dall'ATECO (divisioni 41, 42, 43 = costruzioni), dove registrato */
+  let ateco = [];
+  if (imp) {
+    const { data } = await sb.from('imprese_ateco').select('codice, data_ateco')
+      .eq('impresa_id', imp.impresa_id).order('data_ateco', { ascending: false, nullsFirst: false });
+    ateco = data || [];
+  }
+  const edile = ateco.length ? ateco.some((a) => /^4[123]/.test(a.codice)) : null;
+
   const ceivRiga = imp
     ? `<div class="dt-quadro-riga">
          <span class="dt-dot ${imp.cod_ceiv && /attiv/i.test(imp.stato_cassa || '') ? 'dt-ok' : 'dt-scaduto'}"></span>
@@ -138,6 +148,15 @@ async function apriPratica(id) {
       <span class="dt-dot ${imp ? 'dt-ok' : 'dt-mancante'}"></span>
       <span class="dt-quadro-req">Anagrafica impresa</span>
       <span class="dt-quadro-stato">${imp ? esc(imp.impresa_nome) : 'non censita'}</span>
+    </div>
+    <div class="dt-quadro-riga">
+      <span class="dt-dot ${edile === true ? 'dt-ok' : edile === false ? 'dt-scaduto' : 'dt-senzadata'}"></span>
+      <span class="dt-quadro-req">Settore edile (ATECO)</span>
+      <span class="dt-quadro-stato">${edile === true
+        ? `sì — ${esc(ateco.filter((a) => /^4[123]/.test(a.codice)).map((a) => a.codice).join(', '))}`
+        : edile === false
+          ? `codici registrati fuori dalle costruzioni: ${esc(ateco.map((a) => a.codice).join(', '))}`
+          : 'nessun ATECO registrato: da verificare (visura o CEIV)'}</span>
     </div>
     <div class="dt-quadro-riga">
       <span class="dt-dot ${per ? 'dt-ok' : 'dt-mancante'}"></span>
