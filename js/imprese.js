@@ -157,6 +157,16 @@ function disegnaTab() {
   else if (schedaTab === 'attivita') host.innerHTML = tabAttivita();
   else { host.innerHTML = tabAnagrafica(); agganciaAnagrafica(); }
 
+  /* controllo manuale sul sito camerale: la ricerca lì è protetta da
+     captcha e non accetta la P.IVA nell'indirizzo, quindi si copia
+     negli appunti e si apre la pagina — incolli e premi Cerca */
+  host.querySelector('#imp-ufficiocam')?.addEventListener('click', async () => {
+    const piva = scheda.impresa.piva || scheda.impresa.impresa_id || '';
+    try { await navigator.clipboard.writeText(piva); toast(`P.IVA ${piva} copiata: incollala nella ricerca.`, 'ok'); }
+    catch { toast('Non riesco a copiare la P.IVA: scrivila a mano — ' + piva, 'err'); }
+    window.open('https://www.ufficiocamerale.it/trova-azienda', '_blank', 'noopener');
+  });
+
   /* apertura del protocollo dal riepilogo attività */
   host.querySelectorAll('tr[data-prot]').forEach((tr) =>
     tr.addEventListener('click', async () => {
@@ -246,6 +256,9 @@ function tabAnagrafica() {
             </div>`).join('')}
            <p class="hint" style="margin-top:6px">Dalla tabella Access Atecoimprese; il più recente in grassetto. Descrizioni ISTAT.</p></div>`
         : '<p class="hint">Nessun codice ATECO registrato per questa impresa.</p>'}
+      <button class="btn btn-ghost btn-sm" id="imp-ufficiocam" style="margin-top:6px">
+        🔎 Verifica su ufficiocamerale.it (copia la P.IVA)
+      </button>
     </div>
 
     <div class="sez">
