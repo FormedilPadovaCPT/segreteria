@@ -25,13 +25,19 @@ const attiva = (n) => !n.data_fine || n.data_fine >= oggiIso();
 const nominativo = (n) => n.persona_txt || '?';
 
 async function carica() {
+  /* la ricerca va SUL SERVER, su tutto l'archivio (7.500 nomine):
+     limitarla alle ultime caricate faceva sparire lo storico di una
+     persona. Ruolo e testo si combinano. */
+  const t = cerca.trim();
+  let q = sb.from('s_nomine').select('*');
+  if (filtroRuolo) q = q.eq('ruolo_txt', filtroRuolo);
+  if (t.length >= 3) q = q.or(`persona_txt.ilike.%${t}%,impresa_txt.ilike.%${t}%`);
+  q = (filtroRuolo || t.length >= 3)
+    ? q.order('data_inizio', { ascending: false, nullsFirst: false }).limit(1500)
+    : q.order('data_reg', { ascending: false, nullsFirst: false }).limit(300);
   const [r, n] = await Promise.all([
     sb.from('s_ruoli').select('id_ruolo, ruolo').order('ruolo'),
-    filtroRuolo
-      ? sb.from('s_nomine').select('*').eq('ruolo_txt', filtroRuolo)
-          .order('data_inizio', { ascending: false, nullsFirst: false }).limit(1500)
-      : sb.from('s_nomine').select('*')
-          .order('data_reg', { ascending: false, nullsFirst: false }).limit(300),
+    q,
   ]);
   ruoli = r.data || [];
   nomine = n.data || [];
@@ -42,10 +48,9 @@ export async function render() {
   host.innerHTML = '<p class="empty">Un istante…</p>';
   await carica();
 
-  const t = cerca.trim().toLowerCase();
+  /* il testo ha già filtrato sul server: qui resta solo lo stato */
   const visibili = nomine.filter((n) =>
-    (filtroStato === 'tutte' ? true : filtroStato === 'attive' ? attiva(n) : !attiva(n)) &&
-    (!t || `${n.persona_txt} ${n.impresa_txt || ''} ${n.mansione || ''}`.toLowerCase().includes(t)));
+    filtroStato === 'tutte' ? true : filtroStato === 'attive' ? attiva(n) : !attiva(n));
 
   host.innerHTML = `
     <div class="dt-barra">
@@ -87,7 +92,9 @@ export async function render() {
       </table>
     </div>
     <p class="hint" style="margin-top:8px">
-      ${filtroRuolo ? `${visibili.length} nomine per «${esc(filtroRuolo)}».` : 'Senza un ruolo scelto si vedono le ultime 300 registrate.'}
+      ${cerca.trim().length >= 3 ? `${visibili.length} nomine trovate su tutto l'archivio.`
+        : filtroRuolo ? `${visibili.length} nomine per «${esc(filtroRuolo)}».`
+        : 'Senza ruolo né ricerca si vedono le ultime 300 registrate; cercando (3+ lettere) si cerca su tutto l\'archivio.'}
       Il foglio presenze stampa gli attivi in questo momento del ruolo scelto; l'elenco stampa ciò che vedi.
     </p>`;
 
