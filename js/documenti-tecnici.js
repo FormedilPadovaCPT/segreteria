@@ -353,37 +353,18 @@ La preghiamo di trasmettere alla Segreteria copia dei documenti rinnovati (o le 
 Restiamo a disposizione per ogni chiarimento.`;
 }
 
-function scaricaAvviso(t, voci) {
-  const corpo = `${testoAvviso(t, voci)}
+/* Niente allegati → mailto: Outlook si apre subito in composizione. */
+async function scaricaAvviso(t, voci) {
+  const { apriMailto } = await import('./eml.js');
+  apriMailto({
+    to: t.email || '',
+    oggetto: 'Avviso scadenza documenti — ' + t.nome,
+    corpo: `${testoAvviso(t, voci)}
 
 La Segreteria — ${ENTE.area}
 ${ENTE.nome} — ${ENTE.sotto}
 ${ENTE.indirizzo} — tel. ${ENTE.tel}
-${ENTE.email} — ${ENTE.web}`;
-
-  const eml = [
-    'X-Unsent: 1',
-    `To: ${t.email || ''}`,
-    `Subject: ${codificaOggetto('Avviso scadenza documenti — ' + t.nome)}`,
-    'Content-Type: text/plain; charset=utf-8',
-    'Content-Transfer-Encoding: 8bit',
-    '',
-    corpo,
-  ].join('\r\n');
-
-  const url = URL.createObjectURL(new Blob([new TextEncoder().encode(eml)], { type: 'message/rfc822' }));
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `avviso-scadenze-${t.nome.replace(/\s+/g, '-')}.eml`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 4000);
-  toast('Bozza pronta: aprila da Outlook, rileggi e premi Invia. Poi protocollala in uscita.', 'ok');
-}
-
-/* Oggetto con accenti: RFC 2047, base64 utf-8 */
-function codificaOggetto(s) {
-  return /^[\x20-\x7e]*$/.test(s) ? s
-    : '=?utf-8?B?' + btoa(String.fromCharCode(...new TextEncoder().encode(s))) + '?=';
+${ENTE.email} — ${ENTE.web}`,
+  });
+  toast('Outlook si apre con l\'avviso: rileggi e premi Invia. Poi protocollalo in uscita.', 'ok');
 }

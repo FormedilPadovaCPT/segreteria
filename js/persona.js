@@ -19,7 +19,7 @@
    ============================================================ */
 
 import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, mostraVista } from './core.js';
-import { scaricaEml, FIRMA_SEGRETERIA } from './eml.js';
+import { apriMailto, FIRMA_SEGRETERIA } from './eml.js';
 
 let corrente = null;   // persona aperta (null = ricerca)
 
@@ -283,13 +283,15 @@ async function scheda(host) {
 }
 
 /* La mail «da doppio clic», ricalcata su quella che generava Access:
-   oggetto con data e ora, cc alla Direzione, corpo da completare. */
+   oggetto con data e ora, cc alla Direzione, corpo da completare.
+   Niente allegati → mailto: Outlook si apre subito in composizione,
+   senza passare da un file. */
 function bozzaMailPersona(p, indirizzo) {
   const chi = nomePersona(p) || indirizzo;
   const ora = new Date();
   const zeri = (n) => String(n).padStart(2, '0');
   const quando = `${zeri(ora.getDate())}/${zeri(ora.getMonth() + 1)}/${ora.getFullYear()} ${zeri(ora.getHours())}:${zeri(ora.getMinutes())}:${zeri(ora.getSeconds())}`;
-  scaricaEml({
+  apriMailto({
     to: indirizzo,
     cc: ['direzione@formedilpadova.it'],
     oggetto: `FORMEDIL PADOVA - Area Sicurezza e Salute - Invio - del ${quando} - ${chi}.`,
@@ -301,9 +303,8 @@ buongiorno,
 Distinti saluti.
 
 ${FIRMA_SEGRETERIA}`,
-    nomeFile: `mail-${(p.cognome || 'persona').toLowerCase()}.eml`,
   });
-  toast(`Bozza per ${indirizzo} scaricata: completala in Outlook e premi Invia.`, 'ok');
+  toast(`Outlook si apre con la mail per ${indirizzo}: completa e premi Invia.`, 'ok');
 }
 
 /* Crea una persona coi dati già noti e restituisce il suo id.

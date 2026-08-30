@@ -18,6 +18,20 @@ const b64riga = (byte) => {
 const codificaOggetto = (s) => /^[\x20-\x7e]*$/.test(s) ? s
   : '=?utf-8?B?' + btoa(String.fromCharCode(...new TextEncoder().encode(s))) + '?=';
 
+/* Per le mail SENZA allegato: mailto: apre direttamente la finestra
+   di composizione dell'app di posta predefinita (Outlook), senza
+   passare da un file. Il protocollo mailto non puo' portare allegati:
+   quando c'e' un PDF da allegare resta la strada del .eml. */
+export function apriMailto({ to = '', cc = [], oggetto = '', corpo = '' }) {
+  const p = new URLSearchParams();
+  if (cc.length) p.set('cc', cc.join(','));
+  p.set('subject', oggetto);
+  p.set('body', corpo);
+  /* URLSearchParams codifica gli spazi come «+», che i client di posta
+     leggono alla lettera: si riportano alla forma %20 */
+  window.location.href = `mailto:${encodeURIComponent(to)}?${p.toString().replace(/\+/g, '%20')}`;
+}
+
 /* Compone la bozza e la scarica. `allegati` = [{nome, byte, mime?}]. */
 export function scaricaEml({ to = '', cc = [], oggetto, corpo, allegati = [], nomeFile = 'bozza.eml' }) {
   const B = 'Bozza-Formedil-Segreteria';
