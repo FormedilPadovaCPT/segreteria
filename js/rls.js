@@ -198,6 +198,9 @@ async function apriComunicazione(id) {
       <textarea id="rc-note">${esc(r.note_ufficio || '')}</textarea></div>
     <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:12px">
       ${r.partita_iva ? '<button class="btn btn-ghost" data-verifica="https://www.ufficiocamerale.it/trova-azienda">🔎 ufficiocamerale.it</button>' : ''}
+      ${imp ? '<button class="btn btn-ghost" id="rc-impresa">🏢 Scheda impresa</button>' : ''}
+      ${per ? '<button class="btn btn-ghost" id="rc-persona">👤 Scheda persona</button>'
+            : (r.rls_cf ? '<button class="btn btn-ghost" id="rc-crea-persona">+ Crea persona RLS</button>' : '')}
       <button class="btn btn-ghost" id="rc-prot-in">📥 Protocolla la comunicazione (IN)</button>
       <button class="btn btn-primary" id="rc-salva">Salva</button>
     </div>
@@ -222,6 +225,37 @@ async function apriComunicazione(id) {
     catch { toast('Non riesco a copiare la P.IVA — ' + r.partita_iva, 'err'); }
     window.open(b.dataset.verifica, '_blank', 'noopener');
   }));
+
+  $('#rc-impresa')?.addEventListener('click', async () => {
+    chiudiDrawer();
+    const mod = await import('./imprese.js');
+    mod.apriScheda(imp.impresa_id);
+  });
+
+  $('#rc-persona')?.addEventListener('click', async () => {
+    const mod = await import('./persona.js');
+    mod.apriPersona(per.persona_id);
+  });
+
+  $('#rc-crea-persona')?.addEventListener('click', async (ev) => {
+    attendi(ev.currentTarget, true);
+    try {
+      const { creaPersona, apriPersona } = await import('./persona.js');
+      const pid = await creaPersona({
+        titolo: r.rls_titolo, nome: r.rls_nome, cognome: r.rls_cognome, cf: r.rls_cf,
+        email: r.rls_email, telefono: r.rls_tel,
+        comune_nascita: r.nato_a, indirizzo: r.residenza, comune_res: r.comune_res,
+        note: `RLS di ${r.ragione_sociale || '?'} — creata dall'anagrafe RLS (${state.email})`,
+      });
+      await sb.from('s_rls_anagrafe').update({ persona_id: pid, aggiornato_da: state.email, updated_at: new Date().toISOString() }).eq('id', r.id);
+      toast('Persona creata in anagrafica.', 'ok');
+      apriPersona(pid);
+    } catch (e) {
+      toast(e.message, 'err');
+    } finally {
+      attendi(ev.currentTarget, false);
+    }
+  });
 
   $('#rc-prot-in')?.addEventListener('click', async () => {
     chiudiDrawer();

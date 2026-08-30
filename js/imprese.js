@@ -104,6 +104,16 @@ export async function apriScheda(impresaId, tab = 'anagrafica') {
     }
   } catch { scheda.ateco = []; }
 
+  /* gli RLS comunicati dall'impresa (anagrafe CCPL 3/3/2022):
+     compaiono fra le persone, accanto a dipendenti e nomine */
+  try {
+    const { data: rls } = await sb.from('s_rls_anagrafe')
+      .select('id, rls_titolo, rls_nome, rls_cognome, rls_nominativo, rls_cf, tipo_elezione, decorrenza, fine_nomina, ente_corso, data_corso')
+      .eq('impresa_id', impresaId)
+      .order('decorrenza', { ascending: false, nullsFirst: false });
+    scheda.rls = rls || [];
+  } catch { scheda.rls = []; }
+
   disegnaScheda();
 }
 
@@ -135,7 +145,7 @@ function disegnaScheda() {
     <div class="tabs" id="imp-tabs">
       <button class="tab-btn" data-tab="anagrafica">Anagrafica</button>
       <button class="tab-btn" data-tab="cantieri">Cantieri <span class="cnt">${cantieri}</span></button>
-      <button class="tab-btn" data-tab="persone">Persone <span class="cnt">${n('persone') + n('nomine')}</span></button>
+      <button class="tab-btn" data-tab="persone">Persone <span class="cnt">${n('persone') + n('nomine') + n('rls')}</span></button>
       <button class="tab-btn" data-tab="attivita">Attività <span class="cnt">${n('visite') + n('richieste') + n('protocolli')}</span></button>
     </div>
 
@@ -384,6 +394,49 @@ function tabCantieri() {
 
 /* ── PERSONE ──────────────────────────────────────────────── */
 function tabPersone() {
+  const rls = scheda.rls || [];
+  const oggi = new Date().toISOString().slice(0, 10);
+  const fineMandato = (r) => {
+    if (r.fine_nomina) return { fine: r.fine_nomina, presunta: false };
+    if (!r.decorrenza) return { fine: null };
+    const d = new Date(r.decorrenza + 'T00:00:00');
+    d.setFullYear(d.getFullYear() + 3);
+    return { fine: d.toISOString().slice(0, 10), presunta: true };
+  };
+
+  return `
+    <div class="sez">
+      <h3>RLS comunicati — ${rls.length}</h3>
+      ${rls.length ? `
+      <div class="table-wrap">
+        <table class="tbl">
+          <thead><tr>
+            <th>Rappresentante dei Lavoratori</th><th style="width:150px">Codice fiscale</th>
+            <th style="width:110px">Tipo</th><th style="width:105px">Dal</th>
+            <th style="width:150px">Mandato fino al</th><th>Formazione</th>
+          </tr></thead>
+          <tbody>
+            ${rls.map((r) => {
+              const m = fineMandato(r);
+              return `<tr>
+                <td><strong>${esc([r.rls_titolo, r.rls_cognome, r.rls_nome].filter(Boolean).join(' ') || r.rls_nominativo || '?')}</strong></td>
+                <td style="font-size:12px">${esc(r.rls_cf || '')}</td>
+                <td>${esc(r.tipo_elezione || '')}</td>
+                <td>${dataIt(r.decorrenza)}</td>
+                <td>${m.fine ? `<span class="dt-cella ${m.fine < oggi ? 'dt-scaduto' : 'dt-ok'}" style="padding:1px 7px">${dataIt(m.fine)}${m.presunta ? ' ?' : ''}</span>` : ''}</td>
+                <td style="font-size:12px">${esc([r.ente_corso, r.data_corso].filter(Boolean).join(' · '))}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+      <p class="hint" style="margin-top:4px">Dall'anagrafe RLS (CCPL 3/3/2022). La data col «?» è la scadenza teorica a 3 anni.</p>`
+      : '<p class="empty">Nessun RLS comunicato da questa impresa.</p>'}
+    </div>
+` + tabPersoneResto();
+}
+
+function tabPersoneResto() {
   const persone = scheda.persone || [];
   const nomine = scheda.nomine || [];
 
