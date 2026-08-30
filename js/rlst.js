@@ -217,10 +217,28 @@ async function apriPratica(id) {
              : 'nessun codice CEIV in anagrafica'}
            ${imp.data_agg_access ? ` · lista al ${dataIt(imp.data_agg_access)}` : ''}</span>
        </div>`
-    : `<div class="dt-quadro-riga"><span class="dt-dot dt-senzadata"></span>
-         <span class="dt-quadro-req">CEIV</span>
-         <span class="dt-quadro-stato">impresa non in anagrafica: da verificare sul portale CEIV
-           (dichiarato nel modulo: ${esc(p.codice_ceiv_dich || '—')})</span></div>`;
+    : await (async () => {
+        /* non in anagrafica: si guarda direttamente la lista CEIV
+           completa, aggiornata ogni mese (import-ceiv) */
+        if (p.partita_iva && /^\d{11}$/.test(p.partita_iva)) {
+          const { data: l } = await sb.from('ceiv_lista')
+            .select('codice, stato, ragione_sociale, aggiornata_il')
+            .or(`cf.eq.${p.partita_iva},piva.eq.${p.partita_iva}`)
+            .order('stato').limit(1);
+          const r = l?.[0];
+          if (r) {
+            return `<div class="dt-quadro-riga">
+              <span class="dt-dot ${r.stato === 'Attiva' ? 'dt-ok' : 'dt-scaduto'}"></span>
+              <span class="dt-quadro-req">CEIV</span>
+              <span class="dt-quadro-stato">nella lista CEIV: ${esc(r.stato || 'non iscritta')} — cod. ${esc(r.codice || '—')}
+                (${esc(r.ragione_sociale || '')}) · lista al ${dataIt(r.aggiornata_il)}</span></div>`;
+          }
+        }
+        return `<div class="dt-quadro-riga"><span class="dt-dot dt-senzadata"></span>
+          <span class="dt-quadro-req">CEIV</span>
+          <span class="dt-quadro-stato">né in anagrafica né nella lista CEIV: da verificare
+            (dichiarato nel modulo: ${esc(p.codice_ceiv_dich || '—')})</span></div>`;
+      })();
 
   const campo = (l, v) => v ? `<div class="dt-doc-riga"><strong>${l}:</strong> ${esc(v)}</div>` : '';
 
