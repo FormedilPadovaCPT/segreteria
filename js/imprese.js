@@ -242,22 +242,20 @@ function disegnaTab() {
 
 /* ── ANAGRAFICA (modificabile) ────────────────────────────── */
 const CAMPI = [
-  ['Identificazione', [
-    ['impresa_nome', 'Ragione sociale', 'full'],
-    ['ragione_sociale2', 'Ragione sociale estesa', 'full'],
-    ['impresa_id', 'Codice fiscale (chiave, non modificabile)', '', true],
+  ['Identificazione e sede', [
+    ['impresa_nome', 'Ragione sociale', 'span2'],
+    ['ragione_sociale2', 'Ragione sociale estesa', 'span2'],
+    ['impresa_id', 'Codice fiscale (chiave)', '', true],
     ['piva', 'Partita IVA'],
     ['tipo_impresa', 'Forma giuridica'],
     ['ruolo', 'Ruolo'],
     ['stato', 'Stato'],
     ['tipologia_impresa', 'Tipologia impresa'],
-  ]],
-  ['Sede', [
-    ['indirizzo', 'Indirizzo', 'full'],
+    ['indirizzo', 'Indirizzo', 'span2'],
     ['comune', 'Comune'],
     ['prov', 'Provincia'],
     ['cap', 'CAP'],
-    ['sede_amministrativa', 'Sede amministrativa', 'full'],
+    ['sede_amministrativa', 'Sede amministrativa', 'span2'],
   ]],
   ['Contatti', [
     ['impresa_email_ref', 'Email di riferimento'],
@@ -268,7 +266,7 @@ const CAMPI = [
     ['impresa_telefono2', 'Telefono 2'],
     ['tel_3', 'Telefono 3'],
     ['cellulare', 'Cellulare'],
-    ['pagina_web', 'Sito web', 'full'],
+    ['pagina_web', 'Sito web', 'span2'],
   ]],
   ['Inquadramento e codici', [
     ['ccnl', 'CCNL'],
@@ -290,14 +288,14 @@ const CAMPI = [
     ['att_codice', 'Categoria attività (interna)'],
     ['numero_addetti', 'N° addetti'],
     ['numero_dip_isc_ce_pd', 'Dipendenti iscritti CE PD'],
-    ['rspp', 'RSPP', 'full'],
+    ['rspp', 'RSPP', 'span2'],
   ]],
 ];
 
 function tabAnagrafica() {
   const i = scheda.impresa;
   const campo = ([k, etichetta, cls, bloccato]) => `
-    <div class="field ${cls === 'full' ? 'full' : ''}">
+    <div class="field ${cls || ''}">
       <label for="ia-${k}">${esc(etichetta)}</label>
       <input type="text" id="ia-${k}" data-campo="${k}" value="${esc(i[k] ?? '')}"
              ${bloccato ? 'readonly class="readonly"' : ''}>
@@ -307,7 +305,7 @@ function tabAnagrafica() {
     ${CAMPI.map(([titolo, campi]) => `
       <div class="sez">
         <h3>${esc(titolo)}</h3>
-        <div class="grid-3">${campi.map(campo).join('')}</div>
+        <div class="grid-4">${campi.map(campo).join('')}</div>
       </div>`).join('')}
 
     <div class="sez">
