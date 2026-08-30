@@ -122,6 +122,23 @@ async function scheda(host) {
       .order('data_inizio', { ascending: false, nullsFirst: false });
     nomine = data || [];
   }
+  /* i rapporti di lavoro già censiti (persone_imprese, dall'import
+     Access): convivono con le nomine finché la maschera nomine non
+     unificherà la gestione */
+  let rapporti = [];
+  let nomiImprese = {};
+  if (!nuova) {
+    const { data } = await sb.from('persone_imprese')
+      .select('impresa_id, qualifica, mansione, tipo_rapporto, data_assunzione, data_cessazione, note')
+      .eq('persona_id', p.persona_id)
+      .order('data_assunzione', { ascending: false, nullsFirst: false });
+    rapporti = data || [];
+    if (rapporti.length) {
+      const { data: imp } = await sb.from('imprese').select('impresa_id, impresa_nome')
+        .in('impresa_id', [...new Set(rapporti.map((r) => r.impresa_id).filter(Boolean))]);
+      nomiImprese = Object.fromEntries((imp || []).map((i) => [i.impresa_id, i.impresa_nome]));
+    }
+  }
   let rls = [];
   if (!nuova && p.cf) {
     const { data } = await sb.from('s_rls_anagrafe')
@@ -185,6 +202,28 @@ async function scheda(host) {
           </tr>`).join('')}
         </tbody></table></div>` : '<p class="empty">Nessuna nomina registrata.</p>'}
     </div>
+
+    ${rapporti.length ? `
+    <div class="sez">
+      <h3>Rapporti di lavoro — ${rapporti.length}</h3>
+      <div class="table-wrap"><table class="tbl">
+        <thead><tr>
+          <th style="width:100px">Assunzione</th><th style="width:100px">Cessazione</th>
+          <th>Impresa</th><th style="width:150px">Qualifica</th>
+          <th style="width:150px">Mansione</th><th>Note</th>
+        </tr></thead>
+        <tbody>${rapporti.map((r) => `
+          <tr ${r.impresa_id ? `data-imp="${esc(r.impresa_id)}" style="cursor:pointer" title="Apri la scheda impresa"` : ''}
+              class="${!r.data_cessazione || r.data_cessazione >= oggiIso() ? '' : 'dt-riga-storico'}">
+            <td>${dataIt(r.data_assunzione)}</td>
+            <td>${r.data_cessazione ? dataIt(r.data_cessazione) : '<span class="pill pill-prima">in forza</span>'}</td>
+            <td><strong>${esc(nomiImprese[r.impresa_id] || r.impresa_id || '—')}</strong></td>
+            <td>${esc(String(r.qualifica ?? ''))}</td>
+            <td>${esc(r.mansione || '')}</td>
+            <td style="font-size:12px">${esc(r.note || '')}</td>
+          </tr>`).join('')}
+        </tbody></table></div>
+    </div>` : ''}
 
     ${rls.length ? `
     <div class="sez">
