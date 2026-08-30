@@ -106,6 +106,13 @@ async function vaiA(vista) {
     return mod.docTecnici.render();
   }
 
+  if (vista === 'rlst') {
+    mostraVista('rlst');
+    $('#rlst-host').innerHTML = '<p class="empty">Un istante…</p>';
+    mod.rlst = mod.rlst || await import('./rlst.js');
+    return mod.rlst.render();
+  }
+
   if (vista === 'statistiche') {
     mostraVista('statistiche');
     mod.statistiche = mod.statistiche || await import('./statistiche.js');
