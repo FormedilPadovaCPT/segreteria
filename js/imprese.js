@@ -157,15 +157,17 @@ function disegnaTab() {
   else if (schedaTab === 'attivita') host.innerHTML = tabAttivita();
   else { host.innerHTML = tabAnagrafica(); agganciaAnagrafica(); }
 
-  /* controllo manuale sul sito camerale: la ricerca lì è protetta da
-     captcha e non accetta la P.IVA nell'indirizzo, quindi si copia
-     negli appunti e si apre la pagina — incolli e premi Cerca */
-  host.querySelector('#imp-ufficiocam')?.addEventListener('click', async () => {
+  /* controllo manuale sui siti camerali (ufficiocamerale.it e
+     registroimprese.it): entrambe le ricerche sono POST — captcha il
+     primo, portlet il secondo — e non accettano la P.IVA
+     nell'indirizzo. Quindi si copia negli appunti e si apre la
+     pagina: incolli e premi Cerca. */
+  host.querySelectorAll('[data-verifica]').forEach((b) => b.addEventListener('click', async () => {
     const piva = scheda.impresa.piva || scheda.impresa.impresa_id || '';
     try { await navigator.clipboard.writeText(piva); toast(`P.IVA ${piva} copiata: incollala nella ricerca.`, 'ok'); }
     catch { toast('Non riesco a copiare la P.IVA: scrivila a mano — ' + piva, 'err'); }
-    window.open('https://www.ufficiocamerale.it/trova-azienda', '_blank', 'noopener');
-  });
+    window.open(b.dataset.verifica, '_blank', 'noopener');
+  }));
 
   /* apertura del protocollo dal riepilogo attività */
   host.querySelectorAll('tr[data-prot]').forEach((tr) =>
@@ -256,9 +258,11 @@ function tabAnagrafica() {
             </div>`).join('')}
            <p class="hint" style="margin-top:6px">Dalla tabella Access Atecoimprese; il più recente in grassetto. Descrizioni ISTAT.</p></div>`
         : '<p class="hint">Nessun codice ATECO registrato per questa impresa.</p>'}
-      <button class="btn btn-ghost btn-sm" id="imp-ufficiocam" style="margin-top:6px">
-        🔎 Verifica su ufficiocamerale.it (copia la P.IVA)
-      </button>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+        <button class="btn btn-ghost btn-sm" data-verifica="https://www.ufficiocamerale.it/trova-azienda">🔎 ufficiocamerale.it</button>
+        <button class="btn btn-ghost btn-sm" data-verifica="https://www.registroimprese.it/ricerca-libera-e-acquisto">🔎 registroimprese.it</button>
+        <span class="hint" style="align-self:center">il bottone copia la P.IVA: incollala nella ricerca</span>
+      </div>
     </div>
 
     <div class="sez">

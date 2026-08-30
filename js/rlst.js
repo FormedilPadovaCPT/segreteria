@@ -194,7 +194,9 @@ async function apriPratica(id) {
     <div class="field" style="margin-top:8px"><label>Note dell'ufficio</label>
       <textarea id="rl-note">${esc(p.note_ufficio || '')}</textarea></div>
     <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:12px">
-      ${p.partita_iva ? '<button class="btn btn-ghost" id="rl-ufficiocam">🔎 ufficiocamerale.it</button>' : ''}
+      ${p.partita_iva ? `
+        <button class="btn btn-ghost" data-verifica="https://www.ufficiocamerale.it/trova-azienda">🔎 ufficiocamerale.it</button>
+        <button class="btn btn-ghost" data-verifica="https://www.registroimprese.it/ricerca-libera-e-acquisto">🔎 registroimprese.it</button>` : ''}
       ${!imp && p.partita_iva ? '<button class="btn btn-ghost" id="rl-crea-imp">+ Crea impresa in anagrafica</button>' : ''}
       <button class="btn btn-ghost" id="rl-prot-in">📥 Protocolla la richiesta (IN)</button>
       <button class="btn btn-primary" id="rl-salva">Salva</button>
@@ -222,13 +224,13 @@ async function apriPratica(id) {
     <button class="btn btn-ghost" id="rl-eml">📧 Scarica di nuovo la bozza mail</button>` : ''}
   `);
 
-  /* controllo manuale su ufficiocamerale.it: la ricerca lì ha il
-     captcha e niente P.IVA nell'indirizzo — si copia e si apre */
-  $('#rl-ufficiocam')?.addEventListener('click', async () => {
+  /* controllo manuale sui siti camerali: entrambe le ricerche sono
+     POST senza P.IVA nell'indirizzo — si copia e si apre */
+  $('#drawer-body').querySelectorAll('[data-verifica]').forEach((b) => b.addEventListener('click', async () => {
     try { await navigator.clipboard.writeText(p.partita_iva); toast(`P.IVA ${p.partita_iva} copiata: incollala nella ricerca.`, 'ok'); }
     catch { toast('Non riesco a copiare la P.IVA: scrivila a mano — ' + p.partita_iva, 'err'); }
-    window.open('https://www.ufficiocamerale.it/trova-azienda', '_blank', 'noopener');
-  });
+    window.open(b.dataset.verifica, '_blank', 'noopener');
+  }));
 
   $('#rl-crea-imp')?.addEventListener('click', async (ev) => {
     attendi(ev.currentTarget, true);
