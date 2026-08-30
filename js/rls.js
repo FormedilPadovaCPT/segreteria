@@ -211,6 +211,15 @@ function nuovaComunicazione() {
   });
 }
 
+/* Apertura di una comunicazione da un'altra maschera (es. dalla
+   scheda impresa), senza passare dall'elenco. */
+export async function apriComunicazioneId(id) {
+  const { data, error } = await sb.from('s_rls_anagrafe').select('*').eq('id', id).maybeSingle();
+  if (error || !data) return toast('Comunicazione non trovata: ' + (error?.message || id), 'err');
+  righe = [data, ...righe.filter((x) => x.id !== id)];
+  apriComunicazione(id);
+}
+
 /* ── dettaglio ────────────────────────────────────────────── */
 async function apriComunicazione(id) {
   const r = righe.find((x) => x.id === id);

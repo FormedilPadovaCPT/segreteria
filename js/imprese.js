@@ -10,7 +10,7 @@
      · azzurro  = risulta operante secondo CEIV/CNCE
    ============================================================ */
 
-import { sb, state, $, $$, esc, dataIt, toast, attendi, mostraVista } from './core.js';
+import { sb, state, $, $$, esc, dataIt, toast, attendi, mostraVista, apriDrawer } from './core.js';
 
 let scheda = null;          // ultimo JSON caricato
 let schedaTab = 'anagrafica';
@@ -238,6 +238,90 @@ function disegnaTab() {
       const { apriDettaglio } = await import('./protocollo.js');
       apriDettaglio(Number(tr.dataset.prot));
     }));
+
+  /* dalle persone dell'impresa alle loro schede */
+  host.querySelectorAll('tr[data-pers]').forEach((tr) =>
+    tr.addEventListener('click', async () => {
+      const { apriPersona } = await import('./persona.js');
+      apriPersona(tr.dataset.pers);
+    }));
+  host.querySelectorAll('tr[data-nomina]').forEach((tr) =>
+    tr.addEventListener('click', async () => {
+      const { apriNomina } = await import('./nomine.js');
+      apriNomina(Number(tr.dataset.nomina));
+    }));
+  host.querySelectorAll('tr[data-rlscom]').forEach((tr) =>
+    tr.addEventListener('click', async () => {
+      const { apriComunicazioneId } = await import('./rls.js');
+      apriComunicazioneId(Number(tr.dataset.rlscom));
+    }));
+
+  /* visite e richieste si aprono in dettaglio */
+  host.querySelectorAll('tr[data-vis]').forEach((tr) =>
+    tr.addEventListener('click', () => dettaglioVisita(tr.dataset.vis)));
+  host.querySelectorAll('tr[data-ric]').forEach((tr) =>
+    tr.addEventListener('click', () => dettaglioRichiesta(Number(tr.dataset.ric))));
+}
+
+/* ── dettaglio visita (dal gestionale visite, in sola lettura) ── */
+async function dettaglioVisita(visitaId) {
+  const [{ data: v, error }, { count: nFoto }] = await Promise.all([
+    sb.from('visite').select('*').eq('visita_id', visitaId).maybeSingle(),
+    sb.from('visite_foto').select('id', { count: 'exact', head: true }).eq('visita_id', visitaId),
+  ]);
+  if (error || !v) return toast('Visita non trovata: ' + (error?.message || visitaId), 'err');
+  const r = (scheda.visite || []).find((x) => x.visita_id === visitaId) || {};
+  const campo = (l, val) => val ? `<div class="dt-doc-riga"><strong>${l}:</strong> ${esc(String(val))}</div>` : '';
+  const nome3 = (t, n, c) => [t, n, c].filter(Boolean).join(' ');
+
+  apriDrawer(`Visita ${v.nr_verbale ? 'verbale ' + v.nr_verbale : ''} — ${dataIt(v.data_visita)}`, '', `
+    ${campo('Cantiere', [r.cantiere_indirizzo, r.comune_nome].filter(Boolean).join(' — '))}
+    ${campo('Tecnico', r.tecnico)}
+    ${campo('Orario', [v.ora_visita, v.ora_fine].filter(Boolean).join(' → '))}
+    ${campo('Stato', [v.stato, v.chiusa ? `chiusa${v.data_chiusura ? ' il ' + dataIt(v.data_chiusura) : ''}` : null].filter(Boolean).join(' — '))}
+    ${campo('Esito / osservazioni', v.esito_osserv)}
+    ${campo('IPC', `${v.ipc ?? 0} (NC+ ${v.ipc_nc_plus ?? 0} · NC− ${v.ipc_nc_minus ?? 0} · OSS ${v.ipc_oss ?? 0})`)}
+    ${campo('Lavoratori presenti', v.nr_lavoratori != null ? `${v.nr_lavoratori}${v.nr_lavoratori_stranieri ? ` (di cui ${v.nr_lavoratori_stranieri} stranieri)` : ''}` : null)}
+    ${campo('Stato lavori', v.stato_lav)}
+    ${campo('Accesso', [v.tipo_accesso, v.acc_cant].filter(Boolean).join(' — '))}
+    ${campo('Preposto', [nome3(v.ppre_titolo, v.ppre_nome, v.ppre_cog) || v.nom_ppre, v.qual_ppre, v.tel_ppre].filter(Boolean).join(' · '))}
+    ${campo('Legale rappr.', [nome3(v.rl_titolo, v.rl_nome, v.rl_cog) || v.impresa_rl_nome, v.rl_tel, v.rl_email].filter(Boolean).join(' · '))}
+    ${campo('CSP', nome3(v.csp_titolo, v.csp_nome, v.csp_cog) || v.csp)}
+    ${campo('CSE', nome3(v.cse_titolo, v.cse_nome, v.cse_cog) || v.cse)}
+    ${campo('RLST presente', v.rlst_sn)}
+    ${campo('Ritorno previsto', v.data_ritorno ? dataIt(v.data_ritorno) : null)}
+    ${campo('Note visita', v.note_visita)}
+    ${campo('Prescrizioni', v.prescrizioni)}
+    ${campo('Osservazioni del tecnico', v.oss_tec)}
+    ${campo('Note lavoratori', v.note_lav)}
+    ${campo('Fotografie', nFoto ? `${nFoto} nel gestionale visite` : null)}
+    <p class="hint" style="margin-top:12px">Dettaglio in sola lettura dal Gestionale Visite: per modifiche si lavora di là.</p>
+  `);
+}
+
+/* ── dettaglio richiesta / incarico ───────────────────────── */
+async function dettaglioRichiesta(id) {
+  const { data: r, error } = await sb.from('incarichi').select('*').eq('id', id).maybeSingle();
+  if (error || !r) return toast('Richiesta non trovata: ' + (error?.message || id), 'err');
+  const campo = (l, val) => val ? `<div class="dt-doc-riga"><strong>${l}:</strong> ${esc(String(val))}</div>` : '';
+
+  apriDrawer(`Richiesta del ${dataIt(r.data_richiesta)} — ${r.tipologia_richiesta || r.tipo_richiesta || ''}`, '', `
+    ${campo('Richiedente', [r.richiedente, r.mezzo].filter(Boolean).join(' · '))}
+    ${campo('Testo', r.testo_richiesta)}
+    ${campo('Cantiere', [r.cantiere, r.indirizzo, r.comune].filter(Boolean).join(' · '))}
+    ${campo('Referente', [r.referente, r.cell_referente].filter(Boolean).join(' · '))}
+    ${campo('Approvata', r.approvato === true ? 'sì' : r.approvato === false ? 'no' : null)}
+    ${campo('Tecnico incaricato', r.tecnico_nome)}
+    ${campo('Comunicazione segreteria', r.data_com_segreteria ? dataIt(r.data_com_segreteria) : null)}
+    ${campo('Risposta', r.data_risposta ? dataIt(r.data_risposta) : null)}
+    ${campo('Visite', r.visite_previste != null || r.visite_fatte != null ? `${r.visite_fatte ?? 0} fatte su ${r.visite_previste ?? '?'} previste` : null)}
+    ${campo('Verbale', [r.verbale_visita, r.data_verbale].filter(Boolean).join(' del '))}
+    ${campo('Corrispettivo', r.corrispettivo != null ? `€ ${r.corrispettivo}${r.ore ? ` · ${r.ore} ore` : ''}` : null)}
+    ${campo('Valutazione cantiere', r.valutazione_cantiere)}
+    ${campo('Note comunicazione', r.note_comunicazione)}
+    ${campo('Note del tecnico', r.note_tecnico)}
+    ${campo('Stato', [r.stato, r.eseguito_il ? `eseguita il ${dataIt(r.eseguito_il.slice(0, 10))}` : null, r.chiuso_il ? `chiusa il ${dataIt(r.chiuso_il.slice(0, 10))}` : null].filter(Boolean).join(' — '))}
+  `);
 }
 
 /* ── ANAGRAFICA (modificabile) ────────────────────────────── */
@@ -469,7 +553,7 @@ function tabPersone() {
           <tbody>
             ${rls.map((r) => {
               const m = fineMandato(r);
-              return `<tr>
+              return `<tr data-rlscom="${r.id}" title="Apri la comunicazione RLS">
                 <td><strong>${esc([r.rls_titolo, r.rls_cognome, r.rls_nome].filter(Boolean).join(' ') || r.rls_nominativo || '?')}</strong></td>
                 <td style="font-size:12px">${esc(r.rls_cf || '')}</td>
                 <td>${esc(r.tipo_elezione || '')}</td>
@@ -505,7 +589,7 @@ function tabPersoneResto() {
           </tr></thead>
           <tbody>
             ${persone.map((p) => `
-              <tr>
+              <tr data-pers="${esc(p.persona_id)}" title="Apri la scheda persona">
                 <td><strong>${esc([p.titolo, p.nominativo].filter(Boolean).join(' '))}</strong></td>
                 <td style="font-size:12px">${esc(p.cf || '')}</td>
                 <td>${esc(p.qualifica || '')}</td>
@@ -532,7 +616,7 @@ function tabPersoneResto() {
           </tr></thead>
           <tbody>
             ${nomine.map((x) => `
-              <tr>
+              <tr data-nomina="${x.access_id}" title="Apri la nomina">
                 <td>${dataIt(x.data_reg)}</td>
                 <td><strong>${esc(x.nominativo || '')}</strong>${x.note ? `<span class="cell-sub">${esc(x.note)}</span>` : ''}</td>
                 <td>${esc(x.ruolo_txt || '')}</td>
@@ -574,7 +658,7 @@ function tabAttivita() {
           </tr></thead>
           <tbody>
             ${visite.map((v) => `
-              <tr class="${v.is_principale ? 'riga-prima' : 'riga-succ'}">
+              <tr class="${v.is_principale ? 'riga-prima' : 'riga-succ'}" data-vis="${esc(v.visita_id)}" title="Apri la visita">
                 <td>${dataIt(v.data_visita)}</td>
                 <td class="num">${esc(v.nr_verbale || '')}</td>
                 <td>${esc(v.cantiere_indirizzo || '')}</td>
@@ -603,7 +687,7 @@ function tabAttivita() {
           </tr></thead>
           <tbody>
             ${richieste.map((r) => `
-              <tr>
+              <tr data-ric="${r.id}" title="Apri la richiesta">
                 <td>${dataIt(r.data_richiesta)}</td>
                 <td>${esc(r.tipologia_richiesta || '')}</td>
                 <td>${esc(r.richiedente || '')}${r.mezzo ? `<span class="cell-sub">${esc(r.mezzo)}</span>` : ''}</td>

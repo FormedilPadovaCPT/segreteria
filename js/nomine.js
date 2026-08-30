@@ -118,6 +118,18 @@ export async function render() {
     }));
 }
 
+/* Apertura di una singola nomina da un'altra maschera (es. dalla
+   scheda impresa): carica i ruoli se servono e apre il drawer. */
+export async function apriNomina(accessId) {
+  if (!ruoli.length) {
+    const { data } = await sb.from('s_ruoli').select('id_ruolo, ruolo').order('ruolo');
+    ruoli = data || [];
+  }
+  const { data: n, error } = await sb.from('s_nomine').select('*').eq('access_id', accessId).maybeSingle();
+  if (error || !n) return toast('Nomina non trovata: ' + (error?.message || accessId), 'err');
+  formNomina(n);
+}
+
 /* ── stampe ───────────────────────────────────────────────── */
 async function stampa(tipo, btn, visibili = []) {
   attendi(btn, true, 'Preparo il PDF…');
