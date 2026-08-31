@@ -141,20 +141,29 @@ async function apriCarta() {
 
 const salva = async (doc) => new Uint8Array(await doc.save());
 
-/* ── dati comuni della segnalazione, in righe etichetta+valore ── */
-function datiSegnalazione(c, p) {
-  c.campo('Pratica', `Segnalazione n° ${p.progressivo || p.id}${p.fonte && p.fonte !== 'modulo' ? ` (arrivata per ${p.fonte})` : ' (modulo online)'}`);
-  c.campo('Data segnalazione', p.timestamp_modulo ? dataIt(p.timestamp_modulo.slice(0, 10)) : '—');
-  c.campo('TipologiaRichiesta', 'Richiesta Visita su segnalazione');
-  c.campo('Segnalante', [p.notificante, p.segnalante_tipo ? `(${p.segnalante_tipo})` : ''].filter(Boolean).join(' '));
-  c.campo('Contatti', [p.telefono, p.email].filter(Boolean).join(' — '));
-  c.campo('Comunicazione', p.motivo);
-  c.campo('Stato lavori', p.stato_lavori);
-  c.campo('Imprese presenti', p.imprese_presenti);
-  c.campo('Indirizzo cantiere', p.ind_cantiere);
-  c.campo('Comune cantiere', p.comune_cantiere);
-  c.campo('Note', p.note_modulo);
-  if (p.foto_urls) c.campo('Foto', `${String(p.foto_urls).split(';').filter((s) => s.trim()).length} allegate alla pratica (su Drive)`);
+/* ── i dati della pratica, in righe etichetta+valore ──
+   Come array [etichetta, valore]: cosi' lo stesso foglio di
+   autorizzazione serve a segnalazioni, consulenze e ai prossimi
+   servizi — cambiano i campi, non il documento. */
+function campiSegnalazione(p) {
+  return [
+    ['Pratica', `Segnalazione n° ${p.progressivo || p.id}${p.fonte && p.fonte !== 'modulo' ? ` (arrivata per ${p.fonte})` : ' (modulo online)'}`],
+    ['Data segnalazione', p.timestamp_modulo ? dataIt(p.timestamp_modulo.slice(0, 10)) : '—'],
+    ['TipologiaRichiesta', 'Richiesta Visita su segnalazione'],
+    ['Segnalante', [p.notificante, p.segnalante_tipo ? `(${p.segnalante_tipo})` : ''].filter(Boolean).join(' ')],
+    ['Contatti', [p.telefono, p.email].filter(Boolean).join(' — ')],
+    ['Comunicazione', p.motivo],
+    ['Stato lavori', p.stato_lavori],
+    ['Imprese presenti', p.imprese_presenti],
+    ['Indirizzo cantiere', p.ind_cantiere],
+    ['Comune cantiere', p.comune_cantiere],
+    ['Note', p.note_modulo],
+    ['Foto', p.foto_urls ? `${String(p.foto_urls).split(';').filter((s) => s.trim()).length} allegate alla pratica (su Drive)` : null],
+  ];
+}
+
+function scriviCampi(c, campi) {
+  for (const [etichetta, valore] of campi) c.campo(etichetta, valore);
 }
 
 /* banda arancio col tecnico, come la stampa Access */
@@ -172,14 +181,19 @@ function bandaTecnico(c, nomeTecnico) {
 
 /* ── 1. richiesta di autorizzazione (riquadro firma vuoto) ── */
 export async function pdfRichiestaAut(p, nomeTecnico) {
+  return pdfRichiestaAutCampi(campiSegnalazione(p), nomeTecnico,
+    'Ai sensi della procedura sui servizi CPT, si chiede al Direttore l’autorizzazione a effettuare la visita di sopralluogo sul cantiere segnalato.');
+}
+
+export async function pdfRichiestaAutCampi(campi, nomeTecnico, richiestaTxt) {
   const c = await apriCarta();
   c.scrivi('Richiesta di autorizzazione', c.bold, 15, c.nero);
   c.scrivi(`Padova, ${dataIt(new Date().toISOString().slice(0, 10))}`, c.font, 9, c.grigio);
   c.stato.y -= 8;
   bandaTecnico(c, nomeTecnico);
-  datiSegnalazione(c, p);
+  scriviCampi(c, campi);
   c.stato.y -= 6;
-  c.scrivi('Ai sensi della procedura sui servizi CPT, si chiede al Direttore l’autorizzazione a effettuare la visita di sopralluogo sul cantiere segnalato.', c.font, 9.5);
+  c.scrivi(richiestaTxt, c.font, 9.5);
 
   /* riquadro per la firma */
   c.serve(90);
@@ -197,11 +211,16 @@ export async function pdfRichiestaAut(p, nomeTecnico) {
    visto = { esito: 'approvata'|'respinta', nome, data_ora, utente, note }
    firmaByte = immagine della firma (png/jpg) o null */
 export async function pdfAutorizzazione(p, nomeTecnico, visto, firmaByte) {
+  return pdfAutorizzazioneCampi(campiSegnalazione(p), nomeTecnico, visto, firmaByte,
+    'Autorizzazione visita su segnalazione');
+}
+
+export async function pdfAutorizzazioneCampi(campi, nomeTecnico, visto, firmaByte, titolo) {
   const c = await apriCarta();
-  c.scrivi('Autorizzazione visita su segnalazione', c.bold, 15, c.nero);
+  c.scrivi(titolo, c.bold, 15, c.nero);
   c.stato.y -= 8;
   bandaTecnico(c, nomeTecnico);
-  datiSegnalazione(c, p);
+  scriviCampi(c, campi);
   c.stato.y -= 10;
 
   /* il visto: riquadro col bordo arancio — numero pratica, esito,

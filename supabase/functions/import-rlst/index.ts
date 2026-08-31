@@ -1,11 +1,13 @@
 // Supabase Edge Function – import-rlst
-// Legge TRE schede del foglio Google dei servizi CPT e importa le
-// righe nuove:
+// Legge QUATTRO schede del foglio Google dei servizi CPT e importa
+// le righe nuove:
 //  - richieste di affidamento al servizio RLST → s_rlst_pratiche
 //  - verbali di elezione dell'RLS aziendale    → s_rls_anagrafe
 //    (CCPL 3/3/2022: anagrafe di categoria degli RLS eletti)
 //  - segnalazioni di cantiere dall'esterno     → s_segnalazioni
 //    (il servizio CPT che richiede l'autorizzazione del Direttore)
+//  - richieste di consulenza                   → s_consulenze
+//    (scheda riconosciuta per TITOLO, non per gid)
 //
 // La fonte dei DATI e' il foglio (gia' strutturato); il PDF di
 // riepilogo resta il DOCUMENTO da protocollare. Le righe gia'
@@ -123,6 +125,21 @@ async function leggiFoglio(token: string, sheetId: string, gid: number):
   return { righe: parseCsv(await expRes.text()), scheda: `gid ${gid}`, via: 'export-csv' }
 }
 
+/* Trova il gid di una scheda dal titolo (anche parziale): piu' robusto
+   del gid scritto in configurazione, regge se la scheda si sposta. */
+async function gidPerTitolo(token: string, sheetId: string, titolo: string): Promise<number> {
+  const metaRes = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}?fields=sheets.properties`,
+    { headers: { Authorization: `Bearer ${token}` } })
+  const meta = await metaRes.json()
+  if (meta.error) throw new Error('Metadati del foglio non leggibili: ' + JSON.stringify(meta.error))
+  const t = titolo.toUpperCase()
+  const s = (meta.sheets || []).map((x: { properties: { sheetId: number; title: string } }) => x.properties)
+    .find((p: { title: string }) => p.title.toUpperCase().includes(t))
+  if (!s) throw new Error(`Nessuna scheda col titolo «${titolo}» nel foglio`)
+  return s.sheetId
+}
+
 function parseData(s: string): string | null {
   const t = String(s || '').trim()
   let m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/)
@@ -210,7 +227,7 @@ serve(async (req) => {
     )
 
     const { data: cfg } = await sb.from('s_config').select('chiave, valore')
-      .in('chiave', ['rlst_sheet_id', 'rlst_sheet_gid', 'rls_sheet_gid', 'segn_sheet_gid'])
+      .in('chiave', ['rlst_sheet_id', 'rlst_sheet_gid', 'rls_sheet_gid', 'segn_sheet_gid', 'cons_sheet_titolo'])
     const conf = Object.fromEntries((cfg || []).map((r) => [r.chiave, r.valore]))
     const sheetId = conf.rlst_sheet_id
     if (!sheetId) throw new Error('rlst_sheet_id mancante in s_config')
@@ -406,6 +423,60 @@ serve(async (req) => {
         }
       }
       esiti.segnalazioni = { scheda, via, totali: Math.max(0, righe.length - 1), nuove, dettagli }
+    }
+
+    /* ── scheda CONSULENZE: richieste di consulenza dalle imprese ── */
+    if (conf.cons_sheet_titolo) {
+      const gid = await gidPerTitolo(token, sheetId, conf.cons_sheet_titolo)
+      const { righe, scheda, via } = await leggiFoglio(token, sheetId, gid)
+      let nuove = 0
+      const dettagli: unknown[] = []
+      if (righe.length > 1) {
+        const { candidate, v } = accessore(righe[0])
+        for (const o of ['PROGRESSIVO', 'RAGIONE SOCIALE']) {
+          if (!candidate(o).length) throw new Error(`Colonna "${o}" non trovata nella scheda ${scheda}`)
+        }
+        const { data: esistenti } = await sb.from('s_consulenze').select('progressivo').not('progressivo', 'is', null)
+        const gia = new Set((esistenti || []).map((r) => r.progressivo))
+        for (const r of righe.slice(1)) {
+          const prog = Number(v(r, 'PROGRESSIVO'))
+          if (!prog || gia.has(prog)) continue
+          gia.add(prog)
+          const piva = pivaNorm(v(r, 'PARTITA IVA') || '') || pivaNorm(v(r, 'CF IMPRESA') || '')
+          const cfGrezzo = (v(r, 'RL CF') || '').toUpperCase()
+          const rlCf = /^[A-Z0-9]{16}$/.test(cfGrezzo) ? cfGrezzo : null
+          const agg = await agganciImpresaPersona(sb, piva, rlCf)
+          const riga = {
+            fonte: 'modulo',
+            progressivo: prog,
+            timestamp_modulo: parseTimestamp(v(r, 'TIMESTAMP') || ''),
+            ragione_sociale: v(r, 'RAGIONE SOCIALE'),
+            codice_ceiv_dich: v(r, 'CODICE CEIV'),
+            partita_iva: piva || v(r, 'PARTITA IVA'),
+            cf_impresa: v(r, 'CF IMPRESA'),
+            rl_titolo: v(r, 'RL TITOLO'),
+            rl_nome: v(r, 'RL NOME'),
+            rl_cognome: v(r, 'RL COGNOME'),
+            rl_cf: rlCf,
+            cellulare: v(r, 'CELLULARE'),
+            email: v(r, 'E-MAIL'),
+            rspp_ruolo: v(r, 'RSPP RUOLO'),
+            tipi_consulenza: v(r, 'TIPI CONSULENZA'),
+            note_modulo: v(r, 'NOTE'),
+            quesito: v(r, 'NOTE'),
+            privacy: v(r, 'PRIVACY'),
+            impresa_id: agg.impresaId,
+            persona_id: agg.personaId,
+            esito_ceiv: agg.esito,
+            ceiv_verificato_il: new Date().toISOString(),
+          }
+          const { error } = await sb.from('s_consulenze').insert(riga)
+          if (error) throw new Error(`Consulenza riga ${prog} non inserita: ` + error.message)
+          nuove++
+          dettagli.push({ progressivo: prog, ragione_sociale: riga.ragione_sociale, esito_ceiv: agg.esito })
+        }
+      }
+      esiti.consulenze = { scheda, via, totali: Math.max(0, righe.length - 1), nuove, dettagli }
     }
 
     return new Response(JSON.stringify(esiti),

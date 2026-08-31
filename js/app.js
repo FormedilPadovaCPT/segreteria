@@ -127,6 +127,13 @@ async function vaiA(vista) {
     return mod.segnalazioni.render();
   }
 
+  if (vista === 'consulenze') {
+    mostraVista('consulenze');
+    $('#consulenze-host').innerHTML = '<p class="empty">Un istante…</p>';
+    mod.consulenze = mod.consulenze || await import('./consulenze.js');
+    return mod.consulenze.render();
+  }
+
   if (vista === 'persone') {
     mostraVista('persone');
     $('#persone-host').innerHTML = '<p class="empty">Un istante…</p>';
@@ -198,24 +205,30 @@ try {
       const { data: tipi } = await sb.from('s_tipo_doc').select('*').order('descrizione');
       state.tipiDoc = tipi || [];
 
-      /* link profondo dalle mail: #segnalazione-<id> apre la pratica
-         (es. «Autorizza dall'app» nella mail al Direttore) */
-      const hashSegn = location.hash.match(/^#segnalazione-(\d+)$/);
+      /* link profondo dalle mail: #segnalazione-<id> o #consulenza-<id>
+         apre la pratica (es. «Autorizza dall'app» nella mail al Direttore) */
+      const hashPratica = location.hash.match(/^#(segnalazione|consulenza)-(\d+)$/);
+      const apriDaHash = async () => {
+        if (!hashPratica) return;
+        const vista = hashPratica[1] === 'consulenza' ? 'consulenze' : 'segnalazioni';
+        await vaiA(vista);
+        await mod[vista]?.apriPratica?.(Number(hashPratica[2]));
+      };
 
       if (soloDirettore) {
-        /* il Direttore vede solo le segnalazioni: le altre viste sono
-           comunque chiuse dalle policy del database */
+        /* il Direttore vede solo le pratiche da autorizzare
+           (segnalazioni e consulenze): le altre viste sono comunque
+           chiuse dalle policy del database */
         $('#topbar-sub').textContent = 'Autorizzazioni — Direzione';
-        $$('.nav-item').forEach((b) => { if (b.dataset.view !== 'segnalazioni') b.style.display = 'none'; });
-        await vaiA('segnalazioni');
-        if (hashSegn) await mod.segnalazioni?.apriPratica?.(Number(hashSegn[1]));
+        $$('.nav-item').forEach((b) => {
+          if (!['segnalazioni', 'consulenze'].includes(b.dataset.view)) b.style.display = 'none';
+        });
+        if (hashPratica) await apriDaHash();
+        else await vaiA('segnalazioni');
       } else {
         mod.protocollo = await import('./protocollo.js');
         await mod.protocollo.init();
-        if (hashSegn) {
-          await vaiA('segnalazioni');
-          await mod.segnalazioni?.apriPratica?.(Number(hashSegn[1]));
-        }
+        await apriDaHash();
       }
     }
   }
