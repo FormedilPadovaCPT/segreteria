@@ -1,0 +1,419 @@
+// Supabase Edge Function – import-rlst
+// Legge TRE schede del foglio Google dei servizi CPT e importa le
+// righe nuove:
+//  - richieste di affidamento al servizio RLST → s_rlst_pratiche
+//  - verbali di elezione dell'RLS aziendale    → s_rls_anagrafe
+//    (CCPL 3/3/2022: anagrafe di categoria degli RLS eletti)
+//  - segnalazioni di cantiere dall'esterno     → s_segnalazioni
+//    (il servizio CPT che richiede l'autorizzazione del Direttore)
+//
+// La fonte dei DATI e' il foglio (gia' strutturato); il PDF di
+// riepilogo resta il DOCUMENTO da protocollare. Le righe gia'
+// importate non si toccano mai: l'istruttoria vive nel database.
+//
+// Nessun input viene onorato dalla richiesta: id e schede stanno in
+// s_config (rlst_sheet_id, rlst_sheet_gid, rls_sheet_gid,
+// segn_sheet_gid). Cosi' la funzione puo' girare dal cron con la
+// sola chiave anon senza che nessuno possa farle leggere un foglio
+// diverso.
+//
+// Lettura: prima l'API Sheets; se non attiva sul progetto Google, si
+// ripiega sull'esportazione CSV di Drive (stesso token, scope drive).
+// Le colonne si riconoscono per NOME (esatto, poi per contenimento).
+//
+// Pre-istruttoria: aggancio impresa per P.IVA (11 cifre), esito CEIV
+// (impresa non censita → da_verificare, mai non_iscritta: l'assenza
+// non e' una prova), aggancio persona per CF. Per le segnalazioni:
+// proposta del tecnico di zona da tecnici_zone sul comune del
+// cantiere — solo se il candidato e' UNO (con due non si sceglie).
+//
+// Secret: GOOGLE_SERVICE_ACCOUNT_JSON (lo stesso di allegati-protocollo)
+
+import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+}
+
+async function getAccessToken(sa: Record<string, string>): Promise<string> {
+  const now = Math.floor(Date.now() / 1000)
+  const b64 = (obj: unknown) =>
+    btoa(JSON.stringify(obj)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
+  const header = { alg: 'RS256', typ: 'JWT' }
+  const payload = {
+    iss: sa.client_email,
+    sub: 'cptpd@did.formedilpadova.it',
+    scope: 'https://www.googleapis.com/auth/drive',
+    aud: 'https://oauth2.googleapis.com/token',
+    iat: now, exp: now + 3600,
+  }
+  const signingInput = `${b64(header)}.${b64(payload)}`
+  const pemBody = sa.private_key
+    .replace('-----BEGIN PRIVATE KEY-----', '')
+    .replace('-----END PRIVATE KEY-----', '')
+    .replace(/\s/g, '')
+  const binaryKey = Uint8Array.from(atob(pemBody), (c) => c.charCodeAt(0))
+  const cryptoKey = await crypto.subtle.importKey(
+    'pkcs8', binaryKey.buffer, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign'])
+  const sig = await crypto.subtle.sign(
+    'RSASSA-PKCS1-v1_5', cryptoKey, new TextEncoder().encode(signingInput))
+  const sigB64 = btoa(String.fromCharCode(...new Uint8Array(sig)))
+    .replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
+  const jwt = `${signingInput}.${sigB64}`
+  const res = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: `grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=${jwt}`,
+  })
+  const d = await res.json()
+  if (!d.access_token) throw new Error('Token Google non ottenuto: ' + JSON.stringify(d))
+  return d.access_token
+}
+
+function parseCsv(testo: string): string[][] {
+  const righe: string[][] = []
+  let riga: string[] = []
+  let campo = ''
+  let dentro = false
+  for (let i = 0; i < testo.length; i++) {
+    const c = testo[i]
+    if (dentro) {
+      if (c === '"') {
+        if (testo[i + 1] === '"') { campo += '"'; i++ } else dentro = false
+      } else campo += c
+    } else if (c === '"') {
+      dentro = true
+    } else if (c === ',') {
+      riga.push(campo); campo = ''
+    } else if (c === '\n' || c === '\r') {
+      if (c === '\r' && testo[i + 1] === '\n') i++
+      riga.push(campo); campo = ''
+      righe.push(riga); riga = []
+    } else campo += c
+  }
+  if (campo !== '' || riga.length) { riga.push(campo); righe.push(riga) }
+  return righe
+}
+
+async function leggiFoglio(token: string, sheetId: string, gid: number):
+  Promise<{ righe: string[][]; scheda: string; via: string }> {
+  const metaRes = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}?fields=sheets.properties`,
+    { headers: { Authorization: `Bearer ${token}` } })
+  const meta = await metaRes.json()
+  if (!meta.error) {
+    const scheda = (meta.sheets || []).map((s: { properties: { sheetId: number; title: string } }) => s.properties)
+      .find((p: { sheetId: number }) => p.sheetId === gid)
+    if (!scheda) throw new Error(`Nessuna scheda con gid ${gid} nel foglio`)
+    const valRes = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(`'${scheda.title}'!A1:AZ100000`)}`,
+      { headers: { Authorization: `Bearer ${token}` } })
+    const val = await valRes.json()
+    if (val.error) throw new Error('Valori non leggibili: ' + JSON.stringify(val.error))
+    return { righe: val.values || [], scheda: scheda.title, via: 'sheets-api' }
+  }
+  const expRes = await fetch(
+    `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}`,
+    { headers: { Authorization: `Bearer ${token}` } })
+  if (!expRes.ok) {
+    throw new Error(`Foglio non leggibile: API Sheets dice "${meta.error?.message || JSON.stringify(meta.error)}", esportazione CSV risponde HTTP ${expRes.status}`)
+  }
+  return { righe: parseCsv(await expRes.text()), scheda: `gid ${gid}`, via: 'export-csv' }
+}
+
+function parseData(s: string): string | null {
+  const t = String(s || '').trim()
+  let m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/)
+  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`
+  m = t.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`
+  return null
+}
+function parseTimestamp(s: string): string | null {
+  const t = String(s || '').trim()
+  const m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})[ T](\d{1,2})[.:](\d{2})[.:](\d{2})/)
+  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}T${m[4].padStart(2, '0')}:${m[5]}:${m[6]}+02:00`
+  return parseData(t)
+}
+function pivaNorm(s: string): string | null {
+  const t = String(s || '')
+  const m = t.match(/\d{10,11}/)
+  if (m) return m[0].padStart(11, '0')
+  const cifre = t.replace(/\D/g, '')
+  if (cifre.length >= 8 && cifre.length <= 11) return cifre.padStart(11, '0')
+  return null
+}
+
+/* accesso ai campi per nome di intestazione: esatto, poi contenimento */
+function accessore(testataGrezza: string[]) {
+  const testata = testataGrezza.map((h) => String(h || '').trim().toUpperCase())
+  const candidate = (nome: string) => {
+    const esatte: number[] = []
+    const larghe: number[] = []
+    testata.forEach((h, i) => {
+      if (h === nome) esatte.push(i)
+      else if (h.includes(nome)) larghe.push(i)
+    })
+    return [...esatte, ...larghe]
+  }
+  const v = (r: string[], nome: string) => {
+    for (const i of candidate(nome)) {
+      const val = String(r[i] ?? '').trim()
+      if (val) return val
+    }
+    return null
+  }
+  return { candidate, v }
+}
+
+type SB = ReturnType<typeof createClient>
+
+async function agganciImpresaPersona(sb: SB, piva: string | null, cf: string | null) {
+  let impresaId: string | null = null
+  let esito = 'da_verificare'
+  if (piva) {
+    const { data: imp } = await sb.from('imprese')
+      .select('impresa_id, cod_ceiv, stato_cassa').eq('impresa_id', piva).maybeSingle()
+    if (imp) {
+      impresaId = imp.impresa_id
+      const ceivOk = !!(imp.cod_ceiv && String(imp.cod_ceiv).trim())
+      const attiva = /attiv/i.test(imp.stato_cassa || '')
+      esito = ceivOk && attiva ? 'iscritta' : 'non_iscritta'
+    }
+  }
+  let personaId: string | null = null
+  if (cf && /^[A-Z0-9]{16}$/.test(cf)) {
+    const { data: per } = await sb.from('persone').select('persona_id').eq('cf', cf).limit(2)
+    if (per && per.length === 1) personaId = per[0].persona_id as string
+  }
+  return { impresaId, esito, personaId }
+}
+
+/* Il comune del modulo puo' portare la parentesi dei quartieri
+   («PADOVA - Q3 EST (Brenta - Venezia, ...)»); in tecnici_zone la
+   stessa zona e' scritta senza («PADOVA - Q3 Est»). Confronto a
+   maiuscole, parentesi tolta. */
+function normComune(s: string): string {
+  return String(s || '').toUpperCase().replace(/\(.*$/, '').replace(/\s+/g, ' ').trim()
+}
+
+serve(async (req) => {
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
+  try {
+    const SA_JSON = Deno.env.get('GOOGLE_SERVICE_ACCOUNT_JSON')
+    if (!SA_JSON) throw new Error('GOOGLE_SERVICE_ACCOUNT_JSON non configurato')
+    const sb = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+    )
+
+    const { data: cfg } = await sb.from('s_config').select('chiave, valore')
+      .in('chiave', ['rlst_sheet_id', 'rlst_sheet_gid', 'rls_sheet_gid', 'segn_sheet_gid'])
+    const conf = Object.fromEntries((cfg || []).map((r) => [r.chiave, r.valore]))
+    const sheetId = conf.rlst_sheet_id
+    if (!sheetId) throw new Error('rlst_sheet_id mancante in s_config')
+    const token = await getAccessToken(JSON.parse(SA_JSON))
+
+    const esiti: Record<string, unknown> = { ok: true }
+
+    /* ── scheda RLST: richieste di affidamento ── */
+    if (conf.rlst_sheet_gid) {
+      const { righe, scheda, via } = await leggiFoglio(token, sheetId, Number(conf.rlst_sheet_gid))
+      let nuove = 0
+      const dettagli: unknown[] = []
+      if (righe.length > 1) {
+        const { candidate, v } = accessore(righe[0])
+        for (const o of ['PROGRESSIVO', 'RAGIONE SOCIALE', 'PARTITA IVA']) {
+          if (!candidate(o).length) throw new Error(`Colonna "${o}" non trovata nella scheda ${scheda}`)
+        }
+        const { data: esistenti } = await sb.from('s_rlst_pratiche').select('progressivo')
+        const gia = new Set((esistenti || []).map((r) => r.progressivo))
+        for (const r of righe.slice(1)) {
+          const prog = Number(v(r, 'PROGRESSIVO'))
+          if (!prog || gia.has(prog)) continue
+          gia.add(prog)
+          const piva = pivaNorm(v(r, 'PARTITA IVA') || '') || pivaNorm(v(r, 'CF IMPRESA') || '')
+          const cfGrezzo = (v(r, 'RL CF') || '').toUpperCase()
+          const rlCf = /^[A-Z0-9]{16}$/.test(cfGrezzo) ? cfGrezzo : null
+          const agg = await agganciImpresaPersona(sb, piva, rlCf)
+          const riga = {
+            progressivo: prog,
+            timestamp_modulo: parseTimestamp(v(r, 'TIMESTAMP') || ''),
+            data_comp: parseData(v(r, 'DATA COMP.') || ''),
+            ragione_sociale: v(r, 'RAGIONE SOCIALE'),
+            codice_ceiv_dich: v(r, 'CODICE CEIV') || v(r, 'CASSA EDILE'),
+            partita_iva: piva || v(r, 'PARTITA IVA'),
+            cf_impresa: v(r, 'CF IMPRESA'),
+            n_lavoratori: Number((v(r, 'N. LAVORATORI') || '').replace(/\D/g, '')) || null,
+            ccnl: v(r, 'CCNL'),
+            telefono: v(r, 'TELEFONO'),
+            cellulare: v(r, 'CELLULARE'),
+            email: v(r, 'E-MAIL'),
+            ind_sede_legale: v(r, 'IND. SEDE LEGALE') || v(r, 'SEDE LEGALE'),
+            comune_legale: v(r, 'COMUNE LEGALE'),
+            ind_sede_amm: v(r, 'IND. SEDE AMM.') || v(r, 'SEDE AMMINISTRATIVA'),
+            comune_amm: v(r, 'COMUNE AMM.'),
+            rl_titolo: v(r, 'RL TITOLO'),
+            rl_nome: v(r, 'RL NOME'),
+            rl_cognome: v(r, 'RL COGNOME'),
+            rl_cf: rlCf,
+            rspp_nome: v(r, 'RSPP NOME') || v(r, 'RSPP'),
+            rspp_ruolo: v(r, 'RSPP RUOLO'),
+            data_verbale: v(r, 'DATA VERBALE'),
+            luogo_riunione: v(r, 'LUOGO RIUNIONE'),
+            verbale_url: v(r, 'VERBALE URL'),
+            note_modulo: v(r, 'NOTE'),
+            impresa_id: agg.impresaId,
+            persona_id: agg.personaId,
+            esito_ceiv: agg.esito,
+            ceiv_verificato_il: new Date().toISOString(),
+          }
+          const { error } = await sb.from('s_rlst_pratiche').insert(riga)
+          if (error) throw new Error(`RLST riga ${prog} non inserita: ` + error.message)
+          nuove++
+          dettagli.push({ progressivo: prog, ragione_sociale: riga.ragione_sociale, esito_ceiv: agg.esito })
+        }
+      }
+      esiti.rlst = { scheda, via, totali: Math.max(0, righe.length - 1), nuove, dettagli }
+    }
+
+    /* ── scheda RLS: verbali di elezione dell'RLS aziendale ── */
+    if (conf.rls_sheet_gid) {
+      const { righe, scheda, via } = await leggiFoglio(token, sheetId, Number(conf.rls_sheet_gid))
+      let nuove = 0
+      const dettagli: unknown[] = []
+      if (righe.length > 1) {
+        const { candidate, v } = accessore(righe[0])
+        for (const o of ['PROGRESSIVO', 'RAGIONE SOCIALE']) {
+          if (!candidate(o).length) throw new Error(`Colonna "${o}" non trovata nella scheda ${scheda}`)
+        }
+        const { data: esistenti } = await sb.from('s_rls_anagrafe').select('progressivo').not('progressivo', 'is', null)
+        const gia = new Set((esistenti || []).map((r) => r.progressivo))
+        for (const r of righe.slice(1)) {
+          const prog = Number(v(r, 'PROGRESSIVO'))
+          if (!prog || gia.has(prog)) continue
+          gia.add(prog)
+          const piva = pivaNorm(v(r, 'PARTITA IVA') || '') || pivaNorm(v(r, 'CF IMPRESA') || '')
+          const rlsCfGrezzo = (v(r, 'RLS CF') || '').toUpperCase()
+          const rlsCf = /^[A-Z0-9]{16}$/.test(rlsCfGrezzo) ? rlsCfGrezzo : null
+          const agg = await agganciImpresaPersona(sb, piva, rlsCf)
+          const riga = {
+            fonte: 'modulo',
+            progressivo: prog,
+            timestamp_modulo: parseTimestamp(v(r, 'TIMESTAMP') || ''),
+            ragione_sociale: v(r, 'RAGIONE SOCIALE'),
+            codice_ceiv_dich: v(r, 'CODICE CEIV'),
+            partita_iva: piva || v(r, 'PARTITA IVA'),
+            cf_impresa: v(r, 'CF IMPRESA'),
+            ind_sede: v(r, 'IND. SEDE'),
+            telefono: v(r, 'TELEFONO'),
+            email: v(r, 'E-MAIL'),
+            lr_titolo: v(r, 'LR TITOLO'),
+            lr_nome: v(r, 'LR NOME'),
+            lr_cognome: v(r, 'LR COGNOME'),
+            lr_cf: v(r, 'LR CF'),
+            tipo_elezione: v(r, 'ELEZIONE'),
+            data_verbale: v(r, 'DATA VERBALE'),
+            protocollo_verbale: v(r, 'PROTOCOLLO'),
+            verbale_url: v(r, 'VERBALE URL'),
+            rls_titolo: v(r, 'RLS TITOLO'),
+            rls_nome: v(r, 'RLS NOME'),
+            rls_cognome: v(r, 'RLS COGNOME'),
+            rls_cf: rlsCf,
+            nato_a: v(r, 'NATO A'),
+            nato_il: v(r, 'NATO IL'),
+            residenza: v(r, 'RESIDENZA'),
+            comune_res: v(r, 'COMUNE RES.'),
+            rls_tel: v(r, 'RLS TEL'),
+            rls_email: v(r, 'RLS EMAIL'),
+            indeterminato: v(r, 'INDETERMINATO'),
+            lul: v(r, 'LUL'),
+            ceiv_operaio: v(r, 'CEIV OPERAIO'),
+            altra_ce: v(r, 'ALTRA CE'),
+            mansione: v(r, 'MANSIONE'),
+            data_assunzione: v(r, 'DATA ASSUNZIONE'),
+            livello_ccnl: v(r, 'LIVELLO CCNL'),
+            ente_corso: v(r, 'ENTE CORSO'),
+            op_provincia: v(r, 'OP PROVINCIA'),
+            formazione_url: v(r, 'FORMAZIONE URL'),
+            decorrenza: parseData(v(r, 'DATA VERBALE') || ''),
+            impresa_id: agg.impresaId,
+            persona_id: agg.personaId,
+          }
+          const { error } = await sb.from('s_rls_anagrafe').insert(riga)
+          if (error) throw new Error(`RLS riga ${prog} non inserita: ` + error.message)
+          nuove++
+          dettagli.push({ progressivo: prog, ragione_sociale: riga.ragione_sociale, rls: [riga.rls_cognome, riga.rls_nome].filter(Boolean).join(' ') })
+        }
+      }
+      esiti.rls = { scheda, via, totali: Math.max(0, righe.length - 1), nuove, dettagli }
+    }
+
+    /* ── scheda SEGNALAZIONI: cantieri segnalati dall'esterno ── */
+    if (conf.segn_sheet_gid) {
+      const { righe, scheda, via } = await leggiFoglio(token, sheetId, Number(conf.segn_sheet_gid))
+      let nuove = 0
+      const dettagli: unknown[] = []
+      if (righe.length > 1) {
+        const { candidate, v } = accessore(righe[0])
+        for (const o of ['PROGRESSIVO', 'NOTIFICANTE', 'MOTIVO']) {
+          if (!candidate(o).length) throw new Error(`Colonna "${o}" non trovata nella scheda ${scheda}`)
+        }
+        const { data: esistenti } = await sb.from('s_segnalazioni').select('progressivo').not('progressivo', 'is', null)
+        const gia = new Set((esistenti || []).map((r) => r.progressivo))
+
+        /* zone dei tecnici, per la proposta */
+        const { data: zone } = await sb.from('tecnici_zone').select('email, comune_nome')
+        const propostaTecnico = (comune: string | null): string | null => {
+          const c = normComune(comune || '')
+          if (!c) return null
+          const match = (zone || []).filter((z) => {
+            const zc = normComune(z.comune_nome)
+            return zc === c || c.startsWith(zc + ' ') || zc.startsWith(c + ' ')
+          })
+          const email = [...new Set(match.map((z) => z.email))]
+          return email.length === 1 ? email[0] : null   // con due candidati non si sceglie
+        }
+
+        for (const r of righe.slice(1)) {
+          const prog = Number(v(r, 'PROGRESSIVO'))
+          if (!prog || gia.has(prog)) continue
+          gia.add(prog)
+          const comune = v(r, 'COMUNE CANTIERE')
+          const riga = {
+            fonte: 'modulo',
+            progressivo: prog,
+            timestamp_modulo: parseTimestamp(v(r, 'TIMESTAMP') || ''),
+            notificante: v(r, 'NOTIFICANTE'),
+            telefono: v(r, 'TELEFONO'),
+            email: v(r, 'E-MAIL'),
+            ind_cantiere: v(r, 'IND. CANTIERE'),
+            comune_cantiere: comune,
+            motivo: v(r, 'MOTIVO'),
+            stato_lavori: v(r, 'STATO LAVORI'),
+            imprese_presenti: v(r, 'IMPRESE PRESENTI'),
+            note_modulo: v(r, 'NOTE'),
+            foto_urls: v(r, 'FOTO'),
+            privacy: v(r, 'PRIVACY'),
+            tecnico_proposto: propostaTecnico(comune),
+          }
+          const { error } = await sb.from('s_segnalazioni').insert(riga)
+          if (error) throw new Error(`Segnalazione riga ${prog} non inserita: ` + error.message)
+          nuove++
+          dettagli.push({ progressivo: prog, notificante: riga.notificante, comune: riga.comune_cantiere, tecnico_proposto: riga.tecnico_proposto })
+        }
+      }
+      esiti.segnalazioni = { scheda, via, totali: Math.max(0, righe.length - 1), nuove, dettagli }
+    }
+
+    return new Response(JSON.stringify(esiti),
+      { headers: { 'Content-Type': 'application/json', ...CORS } })
+  } catch (e) {
+    console.error('import-rlst:', e)
+    return new Response(JSON.stringify({ error: (e as Error).message }), {
+      status: 400, headers: { 'Content-Type': 'application/json', ...CORS },
+    })
+  }
+})

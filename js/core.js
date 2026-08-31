@@ -82,6 +82,7 @@ export function mostraVista(nome) {
     'doc-tecnici': '#view-doc-tecnici',
     rlst: '#view-rlst',
     rls: '#view-rls',
+    segnalazioni: '#view-segnalazioni',
     persone: '#view-persone',
     nomine: '#view-nomine',
     statistiche: '#view-statistiche',

@@ -120,6 +120,13 @@ async function vaiA(vista) {
     return mod.rls.render();
   }
 
+  if (vista === 'segnalazioni') {
+    mostraVista('segnalazioni');
+    $('#segnalazioni-host').innerHTML = '<p class="empty">Un istante…</p>';
+    mod.segnalazioni = mod.segnalazioni || await import('./segnalazioni.js');
+    return mod.segnalazioni.render();
+  }
+
   if (vista === 'persone') {
     mostraVista('persone');
     $('#persone-host').innerHTML = '<p class="empty">Un istante…</p>';
@@ -171,12 +178,19 @@ try {
     state.user = session.user;
     state.email = session.user.email || '';
 
-    /* l'app è riservata alla segreteria */
+    /* l'app è riservata alla segreteria; il Direttore ha un ingresso
+       suo, limitato alle autorizzazioni (pagina Segnalazioni) */
     const { data: abilitato, error: errRuolo } = await sb.rpc('is_segreteria');
+    let soloDirettore = false;
     if (errRuolo || !abilitato) {
+      const { data: dir } = await sb.rpc('is_direttore');
+      soloDirettore = !!dir;
+    }
+    if ((errRuolo || !abilitato) && !soloDirettore) {
       await sb.auth.signOut();
       mostraLogin(`L'indirizzo ${state.email} non è abilitato all'app Segreteria. Chiedi l'abilitazione al coordinatore.`);
     } else {
+      state.soloDirettore = soloDirettore;
       $('#login').classList.add('hidden');
       $('#app').classList.remove('hidden');
       $('#user-email').textContent = state.email;
@@ -184,8 +198,25 @@ try {
       const { data: tipi } = await sb.from('s_tipo_doc').select('*').order('descrizione');
       state.tipiDoc = tipi || [];
 
-      mod.protocollo = await import('./protocollo.js');
-      await mod.protocollo.init();
+      /* link profondo dalle mail: #segnalazione-<id> apre la pratica
+         (es. «Autorizza dall'app» nella mail al Direttore) */
+      const hashSegn = location.hash.match(/^#segnalazione-(\d+)$/);
+
+      if (soloDirettore) {
+        /* il Direttore vede solo le segnalazioni: le altre viste sono
+           comunque chiuse dalle policy del database */
+        $('#topbar-sub').textContent = 'Autorizzazioni — Direzione';
+        $$('.nav-item').forEach((b) => { if (b.dataset.view !== 'segnalazioni') b.style.display = 'none'; });
+        await vaiA('segnalazioni');
+        if (hashSegn) await mod.segnalazioni?.apriPratica?.(Number(hashSegn[1]));
+      } else {
+        mod.protocollo = await import('./protocollo.js');
+        await mod.protocollo.init();
+        if (hashSegn) {
+          await vaiA('segnalazioni');
+          await mod.segnalazioni?.apriPratica?.(Number(hashSegn[1]));
+        }
+      }
     }
   }
 } catch (e) {

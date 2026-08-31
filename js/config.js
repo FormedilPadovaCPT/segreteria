@@ -16,6 +16,10 @@ export const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFz
 /* Righe per pagina nel registro */
 export const PAGE_SIZE = 50;
 
+/* Indirizzo pubblicato dell'app (GitHub Pages): serve per i link
+   profondi nelle mail — es. «Autorizza dall'app» al Direttore. */
+export const APP_URL = 'https://formedilpadovacpt.github.io/segreteria/';
+
 /* Dati dell'ente usati nel timbro di protocollo */
 export const ENTE = {
   nome: 'FORMEDIL PADOVA',
