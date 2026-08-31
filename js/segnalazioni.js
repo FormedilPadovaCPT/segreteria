@@ -109,15 +109,31 @@ const emailCoordinatore = () =>
 
 /* ══════════ elenco ══════════ */
 
+/* il contatore sulla voce di menu: quante pratiche aspettano
+   un'autorizzazione (da richiedere o già sul tavolo del Direttore) */
+function aggiornaBadgeNav() {
+  const n = pratiche.filter((p) => !['chiusa', 'scartata'].includes(p.stato)
+    && ['da_richiedere', 'richiesta'].includes(p.aut_stato)).length;
+  const btn = document.querySelector('.nav-item[data-view="segnalazioni"]');
+  if (btn) btn.textContent = `🚨 Segnalazioni cantiere${n ? ` (${n})` : ''}`;
+}
+
 export async function render() {
   const host = $('#segnalazioni-host');
   host.innerHTML = '<p class="empty">Un istante…</p>';
   await carica();
+  aggiornaBadgeNav();
   if (filtro === 'storico') return renderStorico(host);
+
+  const aperte = pratiche.filter((p) => !['chiusa', 'scartata'].includes(p.stato));
+  const daRichiedere = aperte.filter((p) => p.aut_stato === 'da_richiedere');
+  const dalDirettore = aperte.filter((p) => p.aut_stato === 'richiesta');
+  const daLavorare = aperte.filter((p) => p.aut_stato === 'approvata' && p.stato !== 'riscontrata');
 
   const visibili = pratiche.filter((p) =>
     filtro === 'tutte' ? true :
     filtro === 'aperte' ? !['chiusa', 'scartata', 'riscontrata'].includes(p.stato) :
+    filtro === 'autorizzare' ? (!['chiusa', 'scartata'].includes(p.stato) && ['da_richiedere', 'richiesta'].includes(p.aut_stato)) :
     ['chiusa', 'scartata', 'riscontrata'].includes(p.stato));
 
   const codici = (p) => {
@@ -142,9 +158,14 @@ export async function render() {
   }).join('');
 
   host.innerHTML = `
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+      <span class="dt-cella ${daRichiedere.length ? 'dt-senzadata' : 'dt-ok'}" style="padding:4px 10px">✋ ${daRichiedere.length} da mandare al Direttore</span>
+      <span class="dt-cella ${dalDirettore.length ? 'dt-senzadata' : 'dt-ok'}" style="padding:4px 10px">⏳ ${dalDirettore.length} sul tavolo del Direttore</span>
+      <span class="dt-cella ${daLavorare.length ? 'dt-senzadata' : 'dt-ok'}" style="padding:4px 10px">✅ ${daLavorare.length} autorizzate da lavorare</span>
+    </div>
     <div class="dt-barra">
       <div class="seg" id="sg-f">
-        ${[['aperte', 'Da lavorare'], ['tutte', 'Tutte'], ['chiuse', 'Chiuse'], ['storico', '📜 Storico Access']].map(([v, l]) =>
+        ${[['aperte', 'Da lavorare'], ['autorizzare', `⏳ Da autorizzare${daRichiedere.length + dalDirettore.length ? ` (${daRichiedere.length + dalDirettore.length})` : ''}`], ['tutte', 'Tutte'], ['chiuse', 'Chiuse'], ['storico', '📜 Storico Access']].map(([v, l]) =>
           `<button class="seg-btn ${filtro === v ? 'is-active' : ''}" data-val="${v}">${l}</button>`).join('')}
       </div>
       <div style="display:flex;gap:6px">
@@ -207,7 +228,7 @@ async function renderStorico(host) {
   host.innerHTML = `
     <div class="dt-barra">
       <div class="seg" id="sg-f">
-        ${[['aperte', 'Da lavorare'], ['tutte', 'Tutte'], ['chiuse', 'Chiuse'], ['storico', '📜 Storico Access']].map(([v, l]) =>
+        ${[['aperte', 'Da lavorare'], ['autorizzare', '⏳ Da autorizzare'], ['tutte', 'Tutte'], ['chiuse', 'Chiuse'], ['storico', '📜 Storico Access']].map(([v, l]) =>
           `<button class="seg-btn ${filtro === v ? 'is-active' : ''}" data-val="${v}">${l}</button>`).join('')}
       </div>
       <input id="sg-cerca" class="inp" type="search" style="max-width:340px"
