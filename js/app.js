@@ -141,6 +141,13 @@ async function vaiA(vista) {
     return mod.visite.render();
   }
 
+  if (vista === 'notifiche') {
+    mostraVista('notifiche');
+    $('#notifiche-host').innerHTML = '<p class="empty">Un istante…</p>';
+    mod.notifiche = mod.notifiche || await import('./notifiche.js');
+    return mod.notifiche.render();
+  }
+
   if (vista === 'persone') {
     mostraVista('persone');
     $('#persone-host').innerHTML = '<p class="empty">Un istante…</p>';

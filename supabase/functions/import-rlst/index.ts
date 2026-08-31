@@ -9,7 +9,11 @@
 //  - richieste di consulenza                   → s_consulenze
 //    (scheda riconosciuta per TITOLO, non per gid)
 //  - richieste di visita e serie di visite     → s_visite_richieste
-//    (due schede per titolo; la serie porta fino a 4 cantieri)
+//    (scheda «Visita in Cantiere»; la serie arriva dalla stessa
+//    scheda, distinta dal campo tipo o dalle note)
+//  - notifiche di apertura cantiere            → s_notifiche_cantiere
+//    («segnala un cantiere al CPT»: alimenta le visite ordinarie,
+//    niente autorizzazione del Direttore)
 //
 // La fonte dei DATI e' il foglio (gia' strutturato); il PDF di
 // riepilogo resta il DOCUMENTO da protocollare. Le righe gia'
@@ -229,7 +233,7 @@ serve(async (req) => {
     )
 
     const { data: cfg } = await sb.from('s_config').select('chiave, valore')
-      .in('chiave', ['rlst_sheet_id', 'rlst_sheet_gid', 'rls_sheet_gid', 'segn_sheet_gid', 'cons_sheet_titolo', 'visita_sheet_titolo', 'serie_sheet_titolo'])
+      .in('chiave', ['rlst_sheet_id', 'rlst_sheet_gid', 'rls_sheet_gid', 'segn_sheet_gid', 'cons_sheet_titolo', 'visita_sheet_titolo', 'serie_sheet_titolo', 'notif_sheet_titolo'])
     const conf = Object.fromEntries((cfg || []).map((r) => [r.chiave, r.valore]))
     const sheetId = conf.rlst_sheet_id
     if (!sheetId) throw new Error('rlst_sheet_id mancante in s_config')
@@ -595,6 +599,90 @@ serve(async (req) => {
     if (conf.serie_sheet_titolo) {
       try { esiti.serie = await importaVisite(conf.serie_sheet_titolo, 'serie') }
       catch (e) { esiti.serie = { error: (e as Error).message } }
+    }
+
+    /* ── scheda NOTIFICA CANTIERE: «segnala un cantiere al CPT» ──
+       Chi comunica l'apertura di un cantiere: dati cantiere,
+       committente, responsabile dei lavori. Aggancio anagrafica
+       tentato sulla P.IVA del committente; tecnico di zona proposto
+       dal comune del cantiere. */
+    if (conf.notif_sheet_titolo) {
+      try {
+        const gid = await gidPerTitolo(token, sheetId, conf.notif_sheet_titolo)
+        const { righe, scheda, via } = await leggiFoglio(token, sheetId, gid)
+        let nuove = 0
+        const dettagli: unknown[] = []
+        if (righe.length > 1) {
+          const { candidate, v } = accessore(righe[0])
+          for (const o of ['PROGRESSIVO', 'COMUNE CANTIERE']) {
+            if (!candidate(o).length) throw new Error(`Colonna "${o}" non trovata nella scheda ${scheda}`)
+          }
+          const { data: esistenti } = await sb.from('s_notifiche_cantiere').select('progressivo').not('progressivo', 'is', null)
+          const gia = new Set((esistenti || []).map((r) => r.progressivo))
+          for (const r of righe.slice(1)) {
+            const prog = Number(v(r, 'PROGRESSIVO'))
+            if (!prog || gia.has(prog)) continue
+            gia.add(prog)
+            const comune = v(r, 'COMUNE CANTIERE')
+            const piva = pivaNorm(v(r, 'COMM. PIVA') || '')
+            const agg = await agganciImpresaPersona(sb, piva, null)
+            const riga = {
+              fonte: 'modulo',
+              progressivo: prog,
+              timestamp_modulo: parseTimestamp(v(r, 'TIMESTAMP') || ''),
+              data_com: parseData(v(r, 'DATA COM.') || ''),
+              ragione_sociale: v(r, 'RAGIONE SOC.'),
+              seg_titolo: v(r, 'TITOLO'),
+              seg_cognome: v(r, 'COGNOME'),
+              seg_nome: v(r, 'NOME'),
+              seg_cf: v(r, 'CF'),
+              email: v(r, 'E-MAIL'),
+              telefono: v(r, 'TELEFONO'),
+              ind_cantiere: v(r, 'IND. CANTIERE'),
+              comune_cantiere: comune,
+              data_inizio: parseData(v(r, 'DATA INIZIO') || ''),
+              data_fine: parseData(v(r, 'DATA FINE') || ''),
+              importo: v(r, 'IMPORTO'),
+              durata_gg: v(r, 'DURATA GG'),
+              max_lavoratori: v(r, 'MAX LAV.'),
+              n_imprese: v(r, 'N. IMPRESE'),
+              n_autonomi: v(r, 'N. AUTONOMI'),
+              note_cantiere: v(r, 'NOTE CANTIERE'),
+              comm_tipo: v(r, 'COMM. TIPO'),
+              comm_ragione_sociale: v(r, 'COMM. RAG. SOC.'),
+              comm_piva: piva || v(r, 'COMM. PIVA'),
+              comm_cf: v(r, 'COMM. CF'),
+              comm_indirizzo: v(r, 'COMM. IND.'),
+              comm_tel: v(r, 'COMM. TEL'),
+              comm_email: v(r, 'COMM. EMAIL'),
+              comm_titolo: v(r, 'COMM. TITOLO'),
+              comm_cognome: v(r, 'COMM. COGNOME'),
+              comm_nome: v(r, 'COMM. NOME'),
+              comm_cf2: v(r, 'COMM. CF2'),
+              comm_ind2: v(r, 'COMM. IND2'),
+              comm_com2: v(r, 'COMM. COM2'),
+              comm_tel2: v(r, 'COMM. TEL2'),
+              rl_titolo: v(r, 'RL TITOLO'),
+              rl_nome: v(r, 'RL NOME'),
+              rl_cognome: v(r, 'RL COGNOME'),
+              rl_cf: v(r, 'RL CF'),
+              rl_indirizzo: v(r, 'RL IND.'),
+              rl_comune: v(r, 'RL COMUNE'),
+              rl_note: v(r, 'RL NOTE'),
+              privacy: v(r, 'PRIVACY'),
+              impresa_id: agg.impresaId,
+              esito_ceiv: agg.esito,
+              ceiv_verificato_il: new Date().toISOString(),
+              tecnico_proposto: propostaTecnico(comune),
+            }
+            const { error } = await sb.from('s_notifiche_cantiere').insert(riga)
+            if (error) throw new Error(`Notifica riga ${prog} non inserita: ` + error.message)
+            nuove++
+            dettagli.push({ progressivo: prog, comune: riga.comune_cantiere, committente: riga.comm_ragione_sociale || [riga.comm_cognome, riga.comm_nome].filter(Boolean).join(' '), tecnico_proposto: riga.tecnico_proposto })
+          }
+        }
+        esiti.notifiche = { scheda, via, totali: Math.max(0, righe.length - 1), nuove, dettagli }
+      } catch (e) { esiti.notifiche = { error: (e as Error).message } }
     }
 
     return new Response(JSON.stringify(esiti),
