@@ -355,9 +355,10 @@ export async function apriPratica(id) {
       <span class="dt-dot ${p.tecnico_assegnato ? 'dt-ok' : p.tecnico_proposto ? 'dt-senzadata' : 'dt-mancante'}"></span>
       <span class="dt-quadro-req">Tecnico</span>
       <span class="dt-quadro-stato">${p.tecnico_assegnato
-        ? `assegnato: ${esc(nomeTecnico(p.tecnico_assegnato))}`
+        ? `assegnato: ${esc(nomeTecnico(p.tecnico_assegnato))}${p.tecnico_proposto && p.tecnico_proposto !== p.tecnico_assegnato
+            ? ` — la zona proponeva ${esc(nomeTecnico(p.tecnico_proposto))} (cambio della segreteria)` : ''}`
         : p.tecnico_proposto
-          ? `proposto dalla zona: ${esc(nomeTecnico(p.tecnico_proposto))} — da confermare`
+          ? `proposto dalla zona: ${esc(nomeTecnico(p.tecnico_proposto))} — da confermare o cambiare se non disponibile nei tempi`
           : 'nessuna proposta dalla zona: da assegnare'}</span>
     </div>
     <div class="dt-quadro-riga">
