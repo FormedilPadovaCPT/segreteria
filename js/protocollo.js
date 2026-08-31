@@ -24,6 +24,7 @@ let referentiNoti = [];
 let assegnatiNoti = [];
 let recordCorrente = null;
 let modificaId = null;
+let dopoSalvaCb = null;
 
 /* ══════════════ AVVIO ══════════════ */
 export async function init() {
@@ -698,7 +699,11 @@ async function chiediQualeDocumento() {
 }
 
 /* ══════════════ FORM ══════════════ */
-export async function apriForm(direzione, record = null, duplica = false) {
+export async function apriForm(direzione, record = null, duplica = false, dopoSalva = null) {
+  /* chi precompila la maschera (RLST, segnalazioni…) può farsi
+     richiamare col protocollo appena creato, per collegarlo alla
+     propria pratica senza ricopiare il numero a mano */
+  dopoSalvaCb = typeof dopoSalva === 'function' ? dopoSalva : null;
   modificaId = record && !duplica ? record.id : null;
   const inn = direzione === 'IN';
   const r = record || {};
@@ -1006,6 +1011,13 @@ async function salva(ev) {
 
   attendi(btn, false);
   toast(`Protocollo ${codiceProtocollo(nuovo)} registrato.`, 'ok');
+
+  /* la pratica che ha precompilato la maschera si collega da sola */
+  if (dopoSalvaCb) {
+    try { await dopoSalvaCb(nuovo); } catch (e) { toast('Protocollo salvato, ma la pratica non si è collegata: ' + e.message, 'err'); }
+    dopoSalvaCb = null;
+  }
+
   mostraVista('registro');
   await caricaElenco();
   apriDettaglio(nuovo.id);

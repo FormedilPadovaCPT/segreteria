@@ -38,6 +38,7 @@ let pratiche = [];
 let tecnici = [];
 let zone = [];
 let conf = {};
+let protDi = {};             // id protocollo → riga s_protocollo (per mostrare i numeri)
 let storico = null;          // caricato solo quando si apre la scheda
 let filtro = 'aperte';
 let cercaStorico = '';
@@ -75,6 +76,15 @@ async function carica() {
   tecnici = t || [];
   zone = z || [];
   conf = Object.fromEntries((c || []).map((r) => [r.chiave, r.valore]));
+
+  /* i numeri di protocollo collegati (per il Direttore la query è
+     chiusa dalle policy: si mostra solo «protocollata») */
+  const ids = [...new Set(pratiche.flatMap((x) => [x.protocollo_in_id, x.protocollo_out_id]).filter(Boolean))];
+  protDi = {};
+  if (ids.length) {
+    const { data: pr } = await sb.from('s_protocollo').select('*').in('id', ids);
+    for (const r of pr || []) protDi[r.id] = r;
+  }
 }
 
 const nomeTecnico = (email) => {
@@ -110,6 +120,13 @@ export async function render() {
     filtro === 'aperte' ? !['chiusa', 'scartata', 'riscontrata'].includes(p.stato) :
     ['chiusa', 'scartata', 'riscontrata'].includes(p.stato));
 
+  const codici = (p) => {
+    const pezzi = [];
+    if (p.protocollo_in_id) pezzi.push(protDi[p.protocollo_in_id] ? `IN ${codiceProtocollo(protDi[p.protocollo_in_id])}` : 'IN ✓');
+    if (p.protocollo_out_id) pezzi.push(protDi[p.protocollo_out_id] ? `OUT ${codiceProtocollo(protDi[p.protocollo_out_id])}` : 'OUT ✓');
+    return pezzi.join('<br>') || '—';
+  };
+
   const righe = visibili.map((p) => {
     const [cls, lbl] = AUT[p.aut_stato] || ['', p.aut_stato || '—'];
     return `<tr data-id="${p.id}">
@@ -119,6 +136,7 @@ export async function render() {
       <td>${esc(p.comune_cantiere || '—')}</td>
       <td><span class="dt-cella ${cls}" style="padding:2px 8px">${esc(lbl)}</span></td>
       <td>${esc(nomeTecnico(p.tecnico_assegnato || p.tecnico_proposto) || '—')}${!p.tecnico_assegnato && p.tecnico_proposto ? ' <span class="hint">(proposto)</span>' : ''}</td>
+      <td class="hint" style="white-space:nowrap">${codici(p)}</td>
       <td>${esc(STATI[p.stato] || p.stato)}</td>
     </tr>`;
   }).join('');
@@ -136,8 +154,8 @@ export async function render() {
     </div>
     <div class="table-wrap">
       <table class="tbl">
-        <thead><tr><th>N°</th><th>Data</th><th>Segnalante</th><th>Comune cantiere</th><th>Autorizzazione</th><th>Tecnico</th><th>Stato</th></tr></thead>
-        <tbody>${righe || `<tr><td colspan="7" class="empty">Nessuna segnalazione ${filtro === 'aperte' ? 'da lavorare' : ''}.</td></tr>`}</tbody>
+        <thead><tr><th>N°</th><th>Data</th><th>Segnalante</th><th>Comune cantiere</th><th>Autorizzazione</th><th>Tecnico</th><th>Protocollo</th><th>Stato</th></tr></thead>
+        <tbody>${righe || `<tr><td colspan="8" class="empty">Nessuna segnalazione ${filtro === 'aperte' ? 'da lavorare' : ''}.</td></tr>`}</tbody>
       </table>
     </div>
     <p class="hint" style="margin-top:10px">
@@ -324,8 +342,16 @@ export async function apriPratica(id) {
     <div class="dt-quadro-riga">
       <span class="dt-dot ${p.protocollo_in_id ? 'dt-ok' : 'dt-senzadata'}"></span>
       <span class="dt-quadro-req">Protocollo IN</span>
-      <span class="dt-quadro-stato">${p.protocollo_in_id ? 'protocollata' : 'da protocollare (il PDF di riepilogo del modulo è il documento)'}</span>
+      <span class="dt-quadro-stato">${p.protocollo_in_id
+        ? `<strong>${esc(protDi[p.protocollo_in_id] ? codiceProtocollo(protDi[p.protocollo_in_id]) : 'protocollata')}</strong>${!state.soloDirettore && protDi[p.protocollo_in_id] ? ` · <a href="#" data-apri-prot="${p.protocollo_in_id}">apri nel registro</a>` : ''}`
+        : 'da protocollare (il PDF di riepilogo del modulo è il documento)'}</span>
     </div>
+    ${p.protocollo_out_id ? `
+    <div class="dt-quadro-riga">
+      <span class="dt-dot dt-ok"></span>
+      <span class="dt-quadro-req">Riscontro OUT</span>
+      <span class="dt-quadro-stato"><strong>${esc(protDi[p.protocollo_out_id] ? codiceProtocollo(protDi[p.protocollo_out_id]) : 'protocollato')}</strong>${p.riscontro_tipo ? ` — ${p.riscontro_tipo === 'esito' ? 'esito completo' : 'presa d’atto'}` : ''}${!state.soloDirettore && protDi[p.protocollo_out_id] ? ` · <a href="#" data-apri-prot="${p.protocollo_out_id}">apri nel registro</a>` : ''}${p.riscontro_drive_url ? ` · <a href="${esc(p.riscontro_drive_url)}" target="_blank" rel="noopener">lettera</a>` : ''}</span>
+    </div>` : ''}
 
     <hr style="margin:14px 0;border:0;border-top:1px solid var(--bordo)">
     ${campo('Arrivata', [p.fonte, p.timestamp_modulo ? dataIt(p.timestamp_modulo.slice(0, 10)) : null].filter(Boolean).join(' — '))}
@@ -421,6 +447,14 @@ export async function apriPratica(id) {
     toast('Pratica aggiornata.', 'ok');
     await render();
   });
+
+  $('#drawer-body').querySelectorAll('[data-apri-prot]').forEach((a) =>
+    a.addEventListener('click', async (e) => {
+      e.preventDefault();
+      chiudiDrawer();
+      const mod = await import('./protocollo.js');
+      mod.apriDettaglio(Number(a.dataset.apriProt));
+    }));
 
   $('#sg-autpdf')?.addEventListener('click', (ev) => richiestaAutorizzazione(p, ev.currentTarget));
   $('#sg-approva')?.addEventListener('click', (ev) => decidiDaApp(p, 'approvata', ev.currentTarget));
@@ -592,8 +626,17 @@ async function protocollaIn(p) {
     tipo_doc_id: TIPO_DOC_SEGN,
     mezzo: p.fonte === 'modulo' ? 'e-mail' : p.fonte === 'pec' ? 'PEC' : 'e-mail',
     cartella: PERCORSO_VAULT,
-  }, true);
-  toast('Maschera IN precompilata: allega il PDF di riepilogo del modulo e salva. Poi torna sulla pratica per collegare il numero.', 'ok');
+  }, true, async (nuovo) => {
+    /* il numero appena assegnato si collega da solo alla pratica */
+    const { error } = await sb.from('s_segnalazioni').update({
+      protocollo_in_id: nuovo.id,
+      aggiornato_da: state.email,
+      updated_at: new Date().toISOString(),
+    }).eq('id', p.id);
+    if (error) throw new Error(error.message);
+    toast(`Protocollo ${codiceProtocollo(nuovo)} collegato alla segnalazione n° ${p.progressivo ?? `m${p.id}`}.`, 'ok');
+  });
+  toast('Maschera IN precompilata: allega il PDF di riepilogo del modulo e salva — il numero si collega da solo alla pratica.', 'ok');
 }
 
 /* ── riscontro al segnalante: protocollo OUT + lettera + Drive + mail ── */
