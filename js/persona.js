@@ -148,6 +148,7 @@ async function scheda(host) {
     <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center">
       <button class="btn btn-ghost btn-sm" id="pe-indietro">‹ Torna alla ricerca</button>
       <h3 style="margin:0">${nuova ? 'Nuova persona' : esc([p.titolo, p.cognome, p.nome].filter(Boolean).join(' '))}</h3>
+      ${nuova ? '' : '<button class="btn btn-ghost btn-sm" id="pe-nuova2" style="margin-left:auto">+ Nuova persona</button>'}
     </div>
 
     ${GRUPPI.map(([titolo, campi]) => `
@@ -231,6 +232,7 @@ async function scheda(host) {
   `;
 
   $('#pe-indietro').addEventListener('click', () => { corrente = null; render(); });
+  $('#pe-nuova2')?.addEventListener('click', () => { corrente = { persona_id: null }; render(); });
 
   /* doppio clic su una mail → bozza Outlook già strutturata,
      come il doppio clic della maschera Access */

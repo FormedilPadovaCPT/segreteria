@@ -43,6 +43,9 @@ export function render() {
    dalla scheda. Il codice fiscale/P.IVA e' la chiave (impresa_id):
    prima di creare si controlla che non esista gia'. */
 function nuovaImpresa() {
+  /* dalla scheda si passa prima dalla pagina di ricerca, dove
+     sta il riquadro in cui il modulo si disegna */
+  if (!$('#imp-risultati')) { scheda = null; render(); }
   const box = $('#imp-risultati');
   box.innerHTML = `
     <div class="sez" style="max-width:720px">
@@ -180,8 +183,9 @@ function disegnaScheda() {
   const cantieri = (scheda.cantieri_visitati || []).length + (scheda.cantieri_ceiv || []).length;
 
   $('#imprese-host').innerHTML = `
-    <div style="margin-bottom:12px">
+    <div style="margin-bottom:12px;display:flex;gap:8px">
       <button class="btn btn-ghost btn-sm" id="imp-indietro">‹ Torna alla ricerca</button>
+      <button class="btn btn-ghost btn-sm" id="imp-nuova2" style="margin-left:auto">+ Nuova impresa</button>
     </div>
 
     <div class="imp-head">
@@ -214,6 +218,7 @@ function disegnaScheda() {
     <div id="imp-tab-host"></div>`;
 
   $('#imp-indietro').addEventListener('click', () => { scheda = null; render(); });
+  $('#imp-nuova2')?.addEventListener('click', nuovaImpresa);
   $$('#imp-tabs .tab-btn').forEach((b) => b.addEventListener('click', () => {
     schedaTab = b.dataset.tab;
     disegnaTab();

@@ -17,6 +17,7 @@ import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiD
 
 let nomine = [];
 let ruoli = [];
+let tutte = null;   // archivio completo in memoria (si ricarica dopo ogni salvataggio)
 let filtroRuolo = '';
 let filtroStato = 'attive';
 let cerca = '';
@@ -24,23 +25,35 @@ let cerca = '';
 const attiva = (n) => !n.data_fine || n.data_fine >= oggiIso();
 const nominativo = (n) => n.persona_txt || '?';
 
+/* Niente limiti: l'archivio (~7.500 nomine) si carica UNA volta,
+   a blocchi da 1000 (il tetto per richiesta di Supabase), e i
+   filtri lavorano in locale — il limite delle 300 faceva sparire
+   lo storico di una persona (caso Tosato: 1 nomina visibile su 5). */
+async function caricaTutte() {
+  if (tutte) return;
+  const acc = [];
+  for (let da = 0; ; da += 1000) {
+    const { data, error } = await sb.from('s_nomine').select('*')
+      .order('data_reg', { ascending: false, nullsFirst: false })
+      .order('access_id', { ascending: false })
+      .range(da, da + 999);
+    if (error) throw error;
+    acc.push(...(data || []));
+    if (!data || data.length < 1000) break;
+  }
+  tutte = acc;
+}
+
 async function carica() {
-  /* la ricerca va SUL SERVER, su tutto l'archivio (7.500 nomine):
-     limitarla alle ultime caricate faceva sparire lo storico di una
-     persona. Ruolo e testo si combinano. */
-  const t = cerca.trim();
-  let q = sb.from('s_nomine').select('*');
-  if (filtroRuolo) q = q.eq('ruolo_txt', filtroRuolo);
-  if (t.length >= 3) q = q.or(`persona_txt.ilike.%${t}%,impresa_txt.ilike.%${t}%`);
-  q = (filtroRuolo || t.length >= 3)
-    ? q.order('data_inizio', { ascending: false, nullsFirst: false }).limit(1500)
-    : q.order('data_reg', { ascending: false, nullsFirst: false }).limit(300);
-  const [r, n] = await Promise.all([
+  const [r] = await Promise.all([
     sb.from('s_ruoli').select('id_ruolo, ruolo').order('ruolo'),
-    q,
+    caricaTutte(),
   ]);
   ruoli = r.data || [];
-  nomine = n.data || [];
+  const t = cerca.trim().toLowerCase();
+  nomine = tutte.filter((n) =>
+    (!filtroRuolo || n.ruolo_txt === filtroRuolo) &&
+    (t.length < 2 || `${n.persona_txt || ''} ${n.impresa_txt || ''} ${n.mansione || ''}`.toLowerCase().includes(t)));
 }
 
 export async function render() {
@@ -56,7 +69,7 @@ export async function render() {
     <div class="dt-barra">
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <select id="nm-ruolo" class="inp inp-sm" style="max-width:300px">
-          <option value="">Tutti i ruoli (ultime 300)</option>
+          <option value="">Tutti i ruoli</option>
           ${ruoli.map((r) => `<option ${filtroRuolo === r.ruolo ? 'selected' : ''}>${esc(r.ruolo)}</option>`).join('')}
         </select>
         <div class="seg" id="nm-f">
@@ -92,9 +105,7 @@ export async function render() {
       </table>
     </div>
     <p class="hint" style="margin-top:8px">
-      ${cerca.trim().length >= 3 ? `${visibili.length} nomine trovate su tutto l'archivio.`
-        : filtroRuolo ? `${visibili.length} nomine per «${esc(filtroRuolo)}».`
-        : 'Senza ruolo né ricerca si vedono le ultime 300 registrate; cercando (3+ lettere) si cerca su tutto l\'archivio.'}
+      ${visibili.length} nomine su ${tutte.length} in archivio${filtroRuolo ? ` per «${esc(filtroRuolo)}»` : ''}${cerca.trim().length >= 2 ? ` con «${esc(cerca.trim())}»` : ''}.
       Il foglio presenze stampa gli attivi in questo momento del ruolo scelto; l'elenco stampa ciò che vedi.
     </p>`;
 
@@ -251,6 +262,7 @@ function formNomina(n) {
     if (error) return toast('Chiusura non riuscita: ' + error.message, 'err');
     toast('Nomina chiusa a oggi.', 'ok');
     chiudiDrawer();
+    tutte = null;
     render();
   });
 
@@ -291,6 +303,7 @@ function formNomina(n) {
     if (error) return toast('Salvataggio non riuscito: ' + error.message, 'err');
     toast(nuova ? 'Nomina registrata.' : 'Modifiche salvate.', 'ok');
     chiudiDrawer();
+    tutte = null;
     render();
   });
 }
