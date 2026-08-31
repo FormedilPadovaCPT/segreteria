@@ -134,6 +134,13 @@ async function vaiA(vista) {
     return mod.consulenze.render();
   }
 
+  if (vista === 'visite') {
+    mostraVista('visite');
+    $('#visite-host').innerHTML = '<p class="empty">Un istante…</p>';
+    mod.visite = mod.visite || await import('./visite.js');
+    return mod.visite.render();
+  }
+
   if (vista === 'persone') {
     mostraVista('persone');
     $('#persone-host').innerHTML = '<p class="empty">Un istante…</p>';
@@ -205,23 +212,24 @@ try {
       const { data: tipi } = await sb.from('s_tipo_doc').select('*').order('descrizione');
       state.tipiDoc = tipi || [];
 
-      /* link profondo dalle mail: #segnalazione-<id> o #consulenza-<id>
-         apre la pratica (es. «Autorizza dall'app» nella mail al Direttore) */
-      const hashPratica = location.hash.match(/^#(segnalazione|consulenza)-(\d+)$/);
+      /* link profondo dalle mail: #segnalazione-<id>, #consulenza-<id>
+         o #visita-<id> apre la pratica (es. «Autorizza dall'app») */
+      const hashPratica = location.hash.match(/^#(segnalazione|consulenza|visita)-(\d+)$/);
       const apriDaHash = async () => {
         if (!hashPratica) return;
-        const vista = hashPratica[1] === 'consulenza' ? 'consulenze' : 'segnalazioni';
+        const vista = hashPratica[1] === 'consulenza' ? 'consulenze'
+          : hashPratica[1] === 'visita' ? 'visite' : 'segnalazioni';
         await vaiA(vista);
         await mod[vista]?.apriPratica?.(Number(hashPratica[2]));
       };
 
       if (soloDirettore) {
         /* il Direttore vede solo le pratiche da autorizzare
-           (segnalazioni e consulenze): le altre viste sono comunque
-           chiuse dalle policy del database */
+           (segnalazioni, consulenze, visite): le altre viste sono
+           comunque chiuse dalle policy del database */
         $('#topbar-sub').textContent = 'Autorizzazioni — Direzione';
         $$('.nav-item').forEach((b) => {
-          if (!['segnalazioni', 'consulenze'].includes(b.dataset.view)) b.style.display = 'none';
+          if (!['segnalazioni', 'consulenze', 'visite'].includes(b.dataset.view)) b.style.display = 'none';
         });
         if (hashPratica) await apriDaHash();
         else await vaiA('segnalazioni');

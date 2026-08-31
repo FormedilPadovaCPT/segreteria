@@ -8,6 +8,8 @@
 //    (il servizio CPT che richiede l'autorizzazione del Direttore)
 //  - richieste di consulenza                   → s_consulenze
 //    (scheda riconosciuta per TITOLO, non per gid)
+//  - richieste di visita e serie di visite     → s_visite_richieste
+//    (due schede per titolo; la serie porta fino a 4 cantieri)
 //
 // La fonte dei DATI e' il foglio (gia' strutturato); il PDF di
 // riepilogo resta il DOCUMENTO da protocollare. Le righe gia'
@@ -227,13 +229,42 @@ serve(async (req) => {
     )
 
     const { data: cfg } = await sb.from('s_config').select('chiave, valore')
-      .in('chiave', ['rlst_sheet_id', 'rlst_sheet_gid', 'rls_sheet_gid', 'segn_sheet_gid', 'cons_sheet_titolo'])
+      .in('chiave', ['rlst_sheet_id', 'rlst_sheet_gid', 'rls_sheet_gid', 'segn_sheet_gid', 'cons_sheet_titolo', 'visita_sheet_titolo', 'serie_sheet_titolo'])
     const conf = Object.fromEntries((cfg || []).map((r) => [r.chiave, r.valore]))
     const sheetId = conf.rlst_sheet_id
     if (!sheetId) throw new Error('rlst_sheet_id mancante in s_config')
     const token = await getAccessToken(JSON.parse(SA_JSON))
 
     const esiti: Record<string, unknown> = { ok: true }
+
+    /* i titoli di tutte le schede: guidano il riconoscimento per
+       titolo e aiutano a capire al volo che cosa c'e' nel foglio */
+    try {
+      const metaRes = await fetch(
+        `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}?fields=sheets.properties`,
+        { headers: { Authorization: `Bearer ${token}` } })
+      const meta = await metaRes.json()
+      if (!meta.error) esiti.schede = (meta.sheets || []).map((s: { properties: { title: string } }) => s.properties.title)
+    } catch (_e) { /* solo diagnostica */ }
+
+    /* zone dei tecnici: la proposta serve a segnalazioni e visite.
+       Vince la zona PIU' SPECIFICA: per i quartieri di Padova le
+       righe generiche «PADOVA» non devono battere «PADOVA - Q3 Est»
+       (bug trovato il 31/08 sulle prime 4 richieste importate). */
+    const { data: zone } = await sb.from('tecnici_zone').select('email, comune_nome')
+    const propostaTecnico = (comune: string | null): string | null => {
+      const c = normComune(comune || '')
+      if (!c) return null
+      const match = (zone || []).filter((z) => {
+        const zc = normComune(z.comune_nome as string)
+        return zc === c || c.startsWith(zc + ' ') || zc.startsWith(c + ' ')
+      })
+      if (!match.length) return null
+      const maxLen = Math.max(...match.map((z) => normComune(z.comune_nome as string).length))
+      const migliori = match.filter((z) => normComune(z.comune_nome as string).length === maxLen)
+      const email = [...new Set(migliori.map((z) => z.email as string))]
+      return email.length === 1 ? email[0] : null   // con due candidati alla pari non si sceglie
+    }
 
     /* ── scheda RLST: richieste di affidamento ── */
     if (conf.rlst_sheet_gid) {
@@ -381,19 +412,6 @@ serve(async (req) => {
         const { data: esistenti } = await sb.from('s_segnalazioni').select('progressivo').not('progressivo', 'is', null)
         const gia = new Set((esistenti || []).map((r) => r.progressivo))
 
-        /* zone dei tecnici, per la proposta */
-        const { data: zone } = await sb.from('tecnici_zone').select('email, comune_nome')
-        const propostaTecnico = (comune: string | null): string | null => {
-          const c = normComune(comune || '')
-          if (!c) return null
-          const match = (zone || []).filter((z) => {
-            const zc = normComune(z.comune_nome)
-            return zc === c || c.startsWith(zc + ' ') || zc.startsWith(c + ' ')
-          })
-          const email = [...new Set(match.map((z) => z.email))]
-          return email.length === 1 ? email[0] : null   // con due candidati non si sceglie
-        }
-
         for (const r of righe.slice(1)) {
           const prog = Number(v(r, 'PROGRESSIVO'))
           if (!prog || gia.has(prog)) continue
@@ -477,6 +495,106 @@ serve(async (req) => {
         }
       }
       esiti.consulenze = { scheda, via, totali: Math.max(0, righe.length - 1), nuove, dettagli }
+    }
+
+    /* ── schede VISITE: visita singola e serie di visite ──
+       Confluiscono nella stessa tabella s_visite_richieste, con
+       tab_origine visita|serie. Ogni blocco e' protetto: una scheda
+       che manca non ferma le altre. */
+    const importaVisite = async (titolo: string, origine: 'visita' | 'serie') => {
+      const gid = await gidPerTitolo(token, sheetId, titolo)
+      const { righe, scheda, via } = await leggiFoglio(token, sheetId, gid)
+      let nuove = 0
+      const dettagli: unknown[] = []
+      if (righe.length > 1) {
+        const { candidate, v } = accessore(righe[0])
+        for (const o of ['PROGRESSIVO', 'RAGIONE SOCIALE']) {
+          if (!candidate(o).length) throw new Error(`Colonna "${o}" non trovata nella scheda ${scheda}`)
+        }
+        const { data: esistenti } = await sb.from('s_visite_richieste')
+          .select('progressivo').eq('tab_origine', origine).not('progressivo', 'is', null)
+        const gia = new Set((esistenti || []).map((r) => r.progressivo))
+        for (const r of righe.slice(1)) {
+          const prog = Number(v(r, 'PROGRESSIVO'))
+          if (!prog || gia.has(prog)) continue
+          gia.add(prog)
+          const piva = pivaNorm(v(r, 'PARTITA IVA') || '') || pivaNorm(v(r, 'CF IMPRESA') || '')
+          const cfGrezzo = (v(r, 'RL CF') || '').toUpperCase()
+          const rlCf = /^[A-Z0-9]{16}$/.test(cfGrezzo) ? cfGrezzo : null
+          const agg = await agganciImpresaPersona(sb, piva, rlCf)
+
+          /* i cantieri: uno solo nella visita, fino a 4 nella serie */
+          const cantieri: Record<string, string | null>[] = []
+          if (origine === 'serie') {
+            for (const n of ['C1', 'C2', 'C3', 'C4']) {
+              const c = {
+                indirizzo: v(r, `${n} INDIRIZZO`),
+                comune: v(r, `${n} COMUNE`),
+                importo: v(r, `${n} IMPORTO`),
+                committente: v(r, `${n} COMMITTENTE`),
+                durata: v(r, `${n} DURATA`),
+                qualita: v(r, `${n} QUALITÀ`),
+              }
+              if (Object.values(c).some(Boolean)) cantieri.push(c)
+            }
+          } else {
+            const c = { indirizzo: v(r, 'IND. CANTIERE'), comune: v(r, 'COMUNE CANTIERE') }
+            if (c.indirizzo || c.comune) cantieri.push(c)
+          }
+          const primoComune = cantieri[0]?.comune || null
+
+          const riga = {
+            fonte: 'modulo',
+            tab_origine: origine,
+            tipo_richiesta: origine,
+            progressivo: prog,
+            timestamp_modulo: parseTimestamp(v(r, 'TIMESTAMP') || ''),
+            ragione_sociale: v(r, 'RAGIONE SOCIALE'),
+            codice_ceiv_dich: v(r, 'CODICE CEIV') || v(r, 'CASSA EDILE'),
+            partita_iva: piva || v(r, 'PARTITA IVA'),
+            cf_impresa: v(r, 'CF IMPRESA'),
+            ind_legale: v(r, 'IND. LEGALE') || v(r, 'INDIRIZZO'),
+            ind_amm: v(r, 'IND. AMM.'),
+            telefono: v(r, 'TELEFONO'),
+            cellulare: v(r, 'CELLULARE'),
+            email: v(r, 'E-MAIL'),
+            rl_titolo: v(r, 'RL TITOLO'),
+            rl_nome: v(r, 'RL NOME'),
+            rl_cognome: v(r, 'RL COGNOME'),
+            rl_cf: rlCf,
+            rspp_ruolo: v(r, 'RSPP RUOLO'),
+            tipo_visita: v(r, 'TIPO VISITA') || v(r, 'TIPO RICHIESTA'),
+            cantieri: cantieri.length ? cantieri : null,
+            ref_titolo: v(r, 'REF TITOLO'),
+            ref_nome: v(r, 'REF. NOME'),
+            ref_cognome: v(r, 'REF. COGNOME'),
+            ref_tel: v(r, 'REF. TEL') || v(r, 'REF. CELL'),
+            decl_contributi: v(r, 'DECL. CONTRIBUTI'),
+            decl_sicurezza: v(r, 'DECL. SICUREZZA'),
+            decl_obblighi: v(r, 'DECL. OBBLIGHI'),
+            note_modulo: v(r, 'NOTE'),
+            privacy: v(r, 'PRIVACY'),
+            impresa_id: agg.impresaId,
+            persona_id: agg.personaId,
+            esito_ceiv: agg.esito,
+            ceiv_verificato_il: new Date().toISOString(),
+            tecnico_proposto: propostaTecnico(primoComune),
+          }
+          const { error } = await sb.from('s_visite_richieste').insert(riga)
+          if (error) throw new Error(`Visita (${origine}) riga ${prog} non inserita: ` + error.message)
+          nuove++
+          dettagli.push({ progressivo: prog, ragione_sociale: riga.ragione_sociale, cantieri: cantieri.length, esito_ceiv: agg.esito, tecnico_proposto: riga.tecnico_proposto })
+        }
+      }
+      return { scheda, via, totali: Math.max(0, righe.length - 1), nuove, dettagli }
+    }
+    if (conf.visita_sheet_titolo) {
+      try { esiti.visite = await importaVisite(conf.visita_sheet_titolo, 'visita') }
+      catch (e) { esiti.visite = { error: (e as Error).message } }
+    }
+    if (conf.serie_sheet_titolo) {
+      try { esiti.serie = await importaVisite(conf.serie_sheet_titolo, 'serie') }
+      catch (e) { esiti.serie = { error: (e as Error).message } }
     }
 
     return new Response(JSON.stringify(esiti),
