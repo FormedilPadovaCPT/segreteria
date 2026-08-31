@@ -17,6 +17,10 @@ let schedaTab = 'anagrafica';
 
 /* ══════════════ RICERCA ══════════════ */
 export function render() {
+  /* come le maschere aperte di Access: se una scheda era aperta,
+     tornando su questa vista la si ritrova — alla ricerca si torna
+     col bottone «Torna alla ricerca» */
+  if (scheda) return disegnaScheda();
   const host = $('#imprese-host');
   host.innerHTML = `
     <div class="view-head"><h2>Imprese</h2></div>
@@ -202,14 +206,14 @@ function disegnaScheda() {
 
     <div class="tabs" id="imp-tabs">
       <button class="tab-btn" data-tab="anagrafica">Anagrafica</button>
-      <button class="tab-btn" data-tab="cantieri">Cantieri <span class="cnt">${cantieri}</span></button>
+      <button class="tab-btn" data-tab="cantieri">Cantieri e visite <span class="cnt">${cantieri + n('visite')}</span></button>
       <button class="tab-btn" data-tab="persone">Persone <span class="cnt">${n('persone') + n('nomine') + n('rls')}</span></button>
-      <button class="tab-btn" data-tab="attivita">Attività <span class="cnt">${n('visite') + n('richieste') + n('protocolli')}</span></button>
+      <button class="tab-btn" data-tab="attivita">Attività <span class="cnt">${n('richieste') + n('protocolli')}</span></button>
     </div>
 
     <div id="imp-tab-host"></div>`;
 
-  $('#imp-indietro').addEventListener('click', render);
+  $('#imp-indietro').addEventListener('click', () => { scheda = null; render(); });
   $$('#imp-tabs .tab-btn').forEach((b) => b.addEventListener('click', () => {
     schedaTab = b.dataset.tab;
     disegnaTab();
@@ -261,11 +265,99 @@ function disegnaTab() {
       apriComunicazioneId(Number(tr.dataset.rlscom));
     }));
 
-  /* visite e richieste si aprono in dettaglio */
+  /* visite, richieste e cantieri si aprono in dettaglio */
   host.querySelectorAll('tr[data-vis]').forEach((tr) =>
     tr.addEventListener('click', () => dettaglioVisita(tr.dataset.vis)));
   host.querySelectorAll('tr[data-ric]').forEach((tr) =>
     tr.addEventListener('click', () => dettaglioRichiesta(Number(tr.dataset.ric))));
+  host.querySelectorAll('tr[data-cant]').forEach((tr) =>
+    tr.addEventListener('click', () => dettaglioCantiere(tr.dataset.cant)));
+  host.querySelectorAll('tr[data-cip]').forEach((tr) =>
+    tr.addEventListener('click', () => dettaglioCip(Number(tr.dataset.cip))));
+}
+
+/* ── dettaglio cantiere: dati, committente, imprese, visite ── */
+async function dettaglioCantiere(cantiereId) {
+  const { data: c, error } = await sb.from('cantieri').select('*').eq('cantiere_id', cantiereId).maybeSingle();
+  if (error || !c) return toast('Cantiere non trovato: ' + (error?.message || cantiereId), 'err');
+
+  const [{ data: vis }, { data: prev }, { data: comm }] = await Promise.all([
+    sb.from('visite')
+      .select('visita_id, nr_verbale, data_visita, ipc, ipc_nc_plus, ipc_nc_minus, ipc_oss, tecnico_id, stato, impresa_id')
+      .eq('cantiere_id', cantiereId).or('elimina.is.null,elimina.eq.0')
+      .order('data_visita', { ascending: false }),
+    c.cantiere_cnce
+      ? sb.from('cantiere_imprese_previste').select('id, impresa_cf, note').eq('cnce', c.cantiere_cnce)
+      : Promise.resolve({ data: [] }),
+    c.cantiere_committente_id
+      ? sb.from('committenti').select('committente_nome, committente_tipo, cf_piva, piva, telefono, email').eq('committente_id', c.cantiere_committente_id).maybeSingle()
+      : Promise.resolve({ data: null }),
+  ]);
+
+  /* nomi di tecnici e imprese, in un giro solo */
+  const { data: tec } = await sb.from('tecnici').select('tecnico_id, tecnico_nome, tecnico_cognome');
+  const nomeTec = Object.fromEntries((tec || []).map((t) => [t.tecnico_id, `${t.tecnico_nome || ''} ${t.tecnico_cognome || ''}`.trim()]));
+  const cfImprese = [...new Set([...(prev || []).map((p) => p.impresa_cf), ...(vis || []).map((v) => v.impresa_id)].filter(Boolean))];
+  let nomeImp = {};
+  if (cfImprese.length) {
+    const { data: imp } = await sb.from('imprese').select('impresa_id, impresa_nome').in('impresa_id', cfImprese);
+    nomeImp = Object.fromEntries((imp || []).map((i) => [i.impresa_id, i.impresa_nome]));
+  }
+
+  const campo = (l, val) => val ? `<div class="dt-doc-riga"><strong>${l}:</strong> ${esc(String(val))}</div>` : '';
+  apriDrawer(`Cantiere — ${[c.cantiere_indirizzo, c.cantiere_civico].filter(Boolean).join(' ')} ${c.comune_nome ? '· ' + c.comune_nome : ''}`, '', `
+    ${campo('Codice CNCE', c.cantiere_cnce)}
+    ${campo('Descrizione', c.cantiere_descrizione)}
+    ${campo('Etichetta', c.cantiere_etichetta)}
+    ${campo('Tipologia', [c.cantiere_tip_int, c.cantiere_tip_ope, c.cantiere_tip_ope_altro].filter(Boolean).join(' — '))}
+    ${campo('Importo', c.cantiere_importo != null ? '€ ' + Number(c.cantiere_importo).toLocaleString('it-IT') : null)}
+    ${campo('Durata', c.cantiere_durata ? c.cantiere_durata + ' gg' : null)}
+    ${campo('Inizio lavori', c.data_inizio_lavori ? dataIt(c.data_inizio_lavori) : null)}
+    ${campo('Committente', comm ? [comm.committente_nome, comm.committente_tipo, comm.piva || comm.cf_piva, comm.telefono, comm.email].filter(Boolean).join(' · ') : null)}
+    ${campo('Protocollo interno', c.prot_int)}
+    ${campo('Stato', c.cantiere_chiuso
+      ? `chiuso${c.data_chiusura ? ' il ' + dataIt(c.data_chiusura) : ''}${c.motivo_chiusura ? ' — ' + c.motivo_chiusura : ''}${c.note_chiusura ? ' (' + c.note_chiusura + ')' : ''}`
+      : 'aperto')}
+
+    ${(prev || []).length ? `
+    <h4 style="margin:12px 0 6px">Imprese previste (CEIV) — ${prev.length}</h4>
+    ${prev.map((p) => `
+      <div class="dt-doc-riga" ${p.impresa_cf ? `style="cursor:pointer" data-apri-imp="${esc(p.impresa_cf)}" title="Apri la scheda impresa"` : ''}>
+        <strong>${esc(nomeImp[p.impresa_cf] || p.impresa_cf || '?')}</strong>${p.note ? ` — ${esc(p.note)}` : ''}
+      </div>`).join('')}` : ''}
+
+    ${(vis || []).length ? `
+    <h4 style="margin:12px 0 6px">Visite del cantiere — ${vis.length}</h4>
+    ${vis.map((v) => `
+      <div class="dt-doc-riga" style="cursor:pointer" data-apri-vis="${esc(v.visita_id)}" title="Apri la visita">
+        ${dataIt(v.data_visita)} — <strong>${esc(v.nr_verbale || 'senza verbale')}</strong>
+        · ${esc(nomeTec[v.tecnico_id] || '')}
+        ${v.impresa_id ? ` · ${esc(nomeImp[v.impresa_id] || v.impresa_id)}` : ''}
+        · IPC ${v.ipc ?? 0} (${v.ipc_nc_plus ?? 0}/${v.ipc_nc_minus ?? 0}/${v.ipc_oss ?? 0})
+      </div>`).join('')}` : '<p class="hint" style="margin-top:10px">Nessuna visita registrata su questo cantiere.</p>'}
+  `);
+
+  $('#drawer-body').querySelectorAll('[data-apri-vis]').forEach((el) =>
+    el.addEventListener('click', () => dettaglioVisita(el.dataset.apriVis)));
+  $('#drawer-body').querySelectorAll('[data-apri-imp]').forEach((el) =>
+    el.addEventListener('click', () => apriScheda(el.dataset.apriImp)));
+}
+
+/* Cantiere CEIV non ancora in archivio: si mostra quel che la
+   segnalazione CEIV sa (dalla scheda già caricata). */
+function dettaglioCip(id) {
+  const c = (scheda.cantieri_ceiv || []).find((x) => x.id === id);
+  if (!c) return;
+  const campo = (l, val) => val ? `<div class="dt-doc-riga"><strong>${l}:</strong> ${esc(String(val))}</div>` : '';
+  apriDrawer('Cantiere CEIV — non ancora in archivio', '', `
+    ${campo('Codice CNCE', c.cnce)}
+    ${campo('Tipo lavoro', c.tipo_lavoro)}
+    ${campo('Committente', c.committente_nome)}
+    <p class="hint" style="margin-top:10px">
+      La CEIV segnala l'impresa come operante su questo cantiere, ma il cantiere non è ancora
+      nell'archivio del gestionale visite: comparirà con tutti i dati alla prima visita.
+    </p>
+  `);
 }
 
 /* ── dettaglio visita (dal gestionale visite, in sola lettura) ── */
@@ -488,7 +580,7 @@ function tabCantieri() {
           </tr></thead>
           <tbody>
             ${visitati.map((c) => `
-              <tr class="${c.prima_impresa ? 'riga-prima' : 'riga-succ'}">
+              <tr class="${c.prima_impresa ? 'riga-prima' : 'riga-succ'}" data-cant="${esc(c.cantiere_id)}" title="Apri il dettaglio del cantiere">
                 <td><span class="pill ${c.prima_impresa ? 'pill-prima' : 'pill-succ'}">
                   ${c.prima_impresa ? 'prima' : 'successiva'}</span></td>
                 <td>${esc(indirizzo(c))}${c.cantiere_descrizione ? `<span class="cell-sub">${esc(c.cantiere_descrizione)}</span>` : ''}</td>
@@ -516,7 +608,7 @@ function tabCantieri() {
           </tr></thead>
           <tbody>
             ${ceiv.map((c) => `
-              <tr class="riga-ceiv">
+              <tr class="riga-ceiv" ${c.cantiere_id ? `data-cant="${esc(c.cantiere_id)}" title="Apri il dettaglio del cantiere"` : `data-cip="${c.id}" title="Dettaglio della segnalazione CEIV"`}>
                 <td style="font-size:11px">${esc(c.cnce || '')}</td>
                 <td><span class="pill pill-ceiv">${esc(c.tipo_lavoro || '—')}</span></td>
                 <td>${esc(indirizzo(c)) || '<em style="color:var(--testo-soft)">cantiere non ancora in archivio</em>'}
@@ -529,6 +621,43 @@ function tabCantieri() {
           </tbody>
         </table>
       </div>` : '<p class="empty">Nessun cantiere CEIV per questa impresa.</p>'}
+    </div>
+${sezioneVisite()}`;
+}
+
+/* Le visite in cantiere stanno qui, insieme ai cantieri
+   (spostate dal tab Attività su richiesta dell'utente). */
+function sezioneVisite() {
+  const visite = scheda.visite || [];
+  const coloreIpc = (v) => Number(v) ? 'pill-succ' : 'pill-prima';
+  return `
+    <div class="sez">
+      <h3>Visite in cantiere — ${visite.length}</h3>
+      ${visite.length ? `
+      <div class="table-wrap">
+        <table class="tbl">
+          <thead><tr>
+            <th style="width:105px">Data</th><th style="width:90px">Verbale</th>
+            <th>Cantiere</th><th style="width:140px">Comune</th>
+            <th style="width:170px">Tecnico</th><th style="width:75px">IPC</th>
+            <th style="width:130px">NC+ / NC− / OSS</th><th style="width:110px">Ruolo</th>
+          </tr></thead>
+          <tbody>
+            ${visite.map((v) => `
+              <tr class="${v.is_principale ? 'riga-prima' : 'riga-succ'}" data-vis="${esc(v.visita_id)}" title="Apri la visita">
+                <td>${dataIt(v.data_visita)}</td>
+                <td class="num">${esc(v.nr_verbale || '')}</td>
+                <td>${esc(v.cantiere_indirizzo || '')}</td>
+                <td>${esc(v.comune_nome || '')}</td>
+                <td>${esc(v.tecnico || '')}</td>
+                <td><span class="pill ${coloreIpc(v.ipc)}">${v.ipc ?? 0}</span></td>
+                <td class="num">${v.ipc_nc_plus ?? 0} / ${v.ipc_nc_minus ?? 0} / ${v.ipc_oss ?? 0}</td>
+                <td><span class="pill ${v.is_principale ? 'pill-prima' : 'pill-succ'}">
+                  ${v.is_principale ? 'prima' : 'successiva'}</span></td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>` : '<p class="empty">Nessuna visita registrata.</p>'}
     </div>`;
 }
 
@@ -638,47 +767,10 @@ function tabPersoneResto() {
 
 /* ── ATTIVITÀ ─────────────────────────────────────────────── */
 function tabAttivita() {
-  const visite = scheda.visite || [];
   const richieste = scheda.richieste || [];
   const protocolli = scheda.protocolli || [];
 
-  const coloreIpc = (v) => {
-    const n = Number(v);
-    if (!n) return 'pill-prima';
-    if (n <= 3) return 'pill-succ';
-    return 'pill-succ';
-  };
-
   return `
-    <div class="sez">
-      <h3>Visite in cantiere — ${visite.length}</h3>
-      ${visite.length ? `
-      <div class="table-wrap">
-        <table class="tbl">
-          <thead><tr>
-            <th style="width:105px">Data</th><th style="width:90px">Verbale</th>
-            <th>Cantiere</th><th style="width:140px">Comune</th>
-            <th style="width:170px">Tecnico</th><th style="width:75px">IPC</th>
-            <th style="width:130px">NC+ / NC− / OSS</th><th style="width:110px">Ruolo</th>
-          </tr></thead>
-          <tbody>
-            ${visite.map((v) => `
-              <tr class="${v.is_principale ? 'riga-prima' : 'riga-succ'}" data-vis="${esc(v.visita_id)}" title="Apri la visita">
-                <td>${dataIt(v.data_visita)}</td>
-                <td class="num">${esc(v.nr_verbale || '')}</td>
-                <td>${esc(v.cantiere_indirizzo || '')}</td>
-                <td>${esc(v.comune_nome || '')}</td>
-                <td>${esc(v.tecnico || '')}</td>
-                <td><span class="pill ${coloreIpc(v.ipc)}">${v.ipc ?? 0}</span></td>
-                <td class="num">${v.ipc_nc_plus ?? 0} / ${v.ipc_nc_minus ?? 0} / ${v.ipc_oss ?? 0}</td>
-                <td><span class="pill ${v.is_principale ? 'pill-prima' : 'pill-succ'}">
-                  ${v.is_principale ? 'prima' : 'successiva'}</span></td>
-              </tr>`).join('')}
-          </tbody>
-        </table>
-      </div>` : '<p class="empty">Nessuna visita registrata.</p>'}
-    </div>
-
     <div class="sez">
       <h3>Richieste di visita e consulenza — ${richieste.length}</h3>
       ${richieste.length ? `
