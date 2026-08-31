@@ -86,6 +86,7 @@ export function mostraVista(nome) {
     consulenze: '#view-consulenze',
     visite: '#view-visite',
     notifiche: '#view-notifiche',
+    conferenze: '#view-conferenze',
     persone: '#view-persone',
     nomine: '#view-nomine',
     statistiche: '#view-statistiche',

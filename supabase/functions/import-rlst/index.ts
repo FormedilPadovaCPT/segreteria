@@ -14,6 +14,8 @@
 //  - notifiche di apertura cantiere            → s_notifiche_cantiere
 //    («segnala un cantiere al CPT»: alimenta le visite ordinarie,
 //    niente autorizzazione del Direttore)
+//  - richieste di conferenza di cantiere       → s_conferenze_cantiere
+//    (formazione/informazione ai dipendenti di una singola impresa)
 //
 // La fonte dei DATI e' il foglio (gia' strutturato); il PDF di
 // riepilogo resta il DOCUMENTO da protocollare. Le righe gia'
@@ -233,7 +235,7 @@ serve(async (req) => {
     )
 
     const { data: cfg } = await sb.from('s_config').select('chiave, valore')
-      .in('chiave', ['rlst_sheet_id', 'rlst_sheet_gid', 'rls_sheet_gid', 'segn_sheet_gid', 'cons_sheet_titolo', 'visita_sheet_titolo', 'serie_sheet_titolo', 'notif_sheet_titolo'])
+      .in('chiave', ['rlst_sheet_id', 'rlst_sheet_gid', 'rls_sheet_gid', 'segn_sheet_gid', 'cons_sheet_titolo', 'visita_sheet_titolo', 'serie_sheet_titolo', 'notif_sheet_titolo', 'confcant_sheet_titolo'])
     const conf = Object.fromEntries((cfg || []).map((r) => [r.chiave, r.valore]))
     const sheetId = conf.rlst_sheet_id
     if (!sheetId) throw new Error('rlst_sheet_id mancante in s_config')
@@ -683,6 +685,73 @@ serve(async (req) => {
         }
         esiti.notifiche = { scheda, via, totali: Math.max(0, righe.length - 1), nuove, dettagli }
       } catch (e) { esiti.notifiche = { error: (e as Error).message } }
+    }
+
+    /* ── scheda CONFERENZA DI CANTIERE: formazione/informazione in
+       cantiere ai dipendenti di una singola impresa ── */
+    if (conf.confcant_sheet_titolo) {
+      try {
+        const gid = await gidPerTitolo(token, sheetId, conf.confcant_sheet_titolo)
+        const { righe, scheda, via } = await leggiFoglio(token, sheetId, gid)
+        let nuove = 0
+        const dettagli: unknown[] = []
+        if (righe.length > 1) {
+          const { candidate, v } = accessore(righe[0])
+          for (const o of ['PROGRESSIVO', 'RAGIONE SOCIALE']) {
+            if (!candidate(o).length) throw new Error(`Colonna "${o}" non trovata nella scheda ${scheda}`)
+          }
+          const { data: esistenti } = await sb.from('s_conferenze_cantiere').select('progressivo').not('progressivo', 'is', null)
+          const gia = new Set((esistenti || []).map((r) => r.progressivo))
+          for (const r of righe.slice(1)) {
+            const prog = Number(v(r, 'PROGRESSIVO'))
+            if (!prog || gia.has(prog)) continue
+            gia.add(prog)
+            const piva = pivaNorm(v(r, 'PARTITA IVA') || '') || pivaNorm(v(r, 'CF IMPRESA') || '')
+            const cfGrezzo = (v(r, 'RL CF') || '').toUpperCase()
+            const rlCf = /^[A-Z0-9]{16}$/.test(cfGrezzo) ? cfGrezzo : null
+            const agg = await agganciImpresaPersona(sb, piva, rlCf)
+            const comune = v(r, 'COMUNE CANTIERE')
+            const riga = {
+              fonte: 'modulo',
+              progressivo: prog,
+              timestamp_modulo: parseTimestamp(v(r, 'TIMESTAMP') || ''),
+              ragione_sociale: v(r, 'RAGIONE SOCIALE'),
+              codice_ceiv_dich: v(r, 'CODICE CEIV'),
+              partita_iva: piva || v(r, 'PARTITA IVA'),
+              cf_impresa: v(r, 'CF IMPRESA'),
+              ind_legale: v(r, 'IND. LEGALE'),
+              ind_amm: v(r, 'IND. AMM.'),
+              telefono: v(r, 'TELEFONO'),
+              cellulare: v(r, 'CELLULARE'),
+              email: v(r, 'E-MAIL'),
+              rl_titolo: v(r, 'RL TITOLO'),
+              rl_nome: v(r, 'RL NOME'),
+              rl_cognome: v(r, 'RL COGNOME'),
+              rl_cf: rlCf,
+              rspp_ruolo: v(r, 'RSPP RUOLO'),
+              tipo_richiesta: v(r, 'TIPO RICHIESTA'),
+              ind_cantiere: v(r, 'IND. CANTIERE'),
+              comune_cantiere: comune,
+              ref_titolo: v(r, 'REF TITOLO'),
+              ref_nome: v(r, 'REF. NOME'),
+              ref_cognome: v(r, 'REF. COGNOME'),
+              ref_tel: v(r, 'REF. CELL') || v(r, 'REF. TEL'),
+              note_modulo: v(r, 'NOTE'),
+              privacy: v(r, 'PRIVACY'),
+              impresa_id: agg.impresaId,
+              persona_id: agg.personaId,
+              esito_ceiv: agg.esito,
+              ceiv_verificato_il: new Date().toISOString(),
+              tecnico_proposto: propostaTecnico(comune),
+            }
+            const { error } = await sb.from('s_conferenze_cantiere').insert(riga)
+            if (error) throw new Error(`Conferenza riga ${prog} non inserita: ` + error.message)
+            nuove++
+            dettagli.push({ progressivo: prog, ragione_sociale: riga.ragione_sociale, comune: riga.comune_cantiere, esito_ceiv: agg.esito, tecnico_proposto: riga.tecnico_proposto })
+          }
+        }
+        esiti.conferenze = { scheda, via, totali: Math.max(0, righe.length - 1), nuove, dettagli }
+      } catch (e) { esiti.conferenze = { error: (e as Error).message } }
     }
 
     return new Response(JSON.stringify(esiti),
