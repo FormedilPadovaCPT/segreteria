@@ -79,7 +79,7 @@ export function emailAssegnatario(allaCa) {
    Attenzione: il protocollo lo prende lo stesso — è il timbro sul
    foglio che non ci va, non la registrazione.
    ────────────────────────────────────────────────────────── */
-export const TIPI_SENZA_TIMBRO = [/attestato/i];
+export const TIPI_SENZA_TIMBRO = [/attestato/i, /attestazione/i];
 
 export function vuoleTimbro(descrizioneTipo) {
   const t = (descrizioneTipo || '').trim();

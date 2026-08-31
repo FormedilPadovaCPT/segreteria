@@ -251,6 +251,78 @@ export async function pdfAutorizzazioneCampi(campi, nomeTecnico, visto, firmaByt
   return salva(c.doc);
 }
 
+/* ── 2-bis. ATTESTAZIONE DM 132/2024 ──
+   Ricalca il modello nazionale FORMEDIL (rev. 15/10/2025):
+   «Attestazione attività di consulenza e monitoraggio» ai sensi
+   dell'art. 5, co. 4, lett. b, n. 4 del DM 132/2024 e dell'Accordo
+   PP.SS. 19/09/2025. Esito positivo (senza rilievi / dopo verifica
+   adempimenti), validità 6 MESI, firma del PRESIDENTE (legale
+   rappresentante dell'OPT), numerazione propria N/anno + protocollo.
+   att = { numero: 'N/aaaa', protocollo, esito: 'positivo_senza_rilievi'|
+   'positivo_dopo_verifica', data_rilascio, firma_nome } */
+export async function pdfAttestazioneDM132(p, att, firmaByte) {
+  const c = await apriCarta();
+  c.scrivi('ATTESTAZIONE ATTIVITÀ DI CONSULENZA E MONITORAGGIO', c.bold, 14, c.arancio);
+  c.scrivi('(ai sensi del D.M. 132/2024, art. 5, co. 4, lett. b, n. 4 e dell’Accordo delle Parti Sociali del 19/09/2025)', c.italic, 8.5, c.grigio);
+  c.stato.y -= 10;
+  c.campo('Organismo Paritetico', 'FORMEDIL PADOVA — Scuola Costruzioni Giuseppe Jappelli, Ente Unico per la Formazione e la Sicurezza della Provincia di Padova');
+  c.stato.y -= 6;
+  c.scrivi('Impresa richiedente', c.bold, 10.5);
+  c.campo('Ragione sociale', p.ragione_sociale);
+  c.campo('Codice fiscale', p.cf_impresa || p.partita_iva);
+  c.campo('P. IVA', p.partita_iva);
+  c.campo('Sede legale', [p.indirizzo, p.comune].filter(Boolean).join(' — '));
+  c.stato.y -= 6;
+  c.scrivi('Dati dell’attività di monitoraggio svolta', c.bold, 10.5);
+  const cc = Array.isArray(p.cantieri) ? p.cantieri : [];
+  const principale = cc[0] || {};
+  c.campo('Localizzazione cantiere', [principale.indirizzo, principale.comune].filter(Boolean).join(' — ') || att.cantiere || '—');
+  c.campo('Committente', principale.committente || att.committente);
+  c.campo('Tipo di intervento', att.tipo_intervento);
+  c.campo('Durata dei lavori', principale.durata);
+  c.campo('Importo lavori', principale.importo);
+  if (cc.length > 1) {
+    c.campo('Altri cantieri monitorati', cc.slice(1).map((x) => [x.indirizzo, x.comune].filter(Boolean).join(', ')).join('; '));
+  }
+  c.stato.y -= 8;
+
+  /* esito con caselle, come il modello nazionale */
+  c.serve(24);
+  const ok1 = att.esito === 'positivo_senza_rilievi';
+  const casella = (x, spuntata) => {
+    c.stato.pagina.drawRectangle({ x, y: c.stato.y - 2, width: 11, height: 11, borderColor: c.nero, borderWidth: 0.9 });
+    if (spuntata) c.stato.pagina.drawText('X', { x: x + 2.4, y: c.stato.y, size: 9, font: c.bold, color: c.nero });
+  };
+  c.stato.pagina.drawText('Esito dell’attività svolta:', { x: SX, y: c.stato.y, size: 10, font: c.bold, color: c.nero });
+  casella(SX + 150, ok1);
+  c.stato.pagina.drawText('Positivo senza rilievi', { x: SX + 166, y: c.stato.y, size: 10, font: c.font, color: c.nero });
+  casella(SX + 290, !ok1);
+  c.stato.pagina.drawText('Positivo dopo verifica adempimenti', { x: SX + 306, y: c.stato.y, size: 10, font: c.font, color: c.nero });
+  c.stato.y -= 22;
+  c.scrivi('La presente attestazione ha validità di 6 (sei) mesi dalla data di rilascio.', c.bold, 10);
+  c.stato.y -= 6;
+  c.campo('Luogo e data di rilascio', `Padova, ${dataIt(att.data_rilascio)}`);
+  c.campo('Attestazione n°', att.numero);
+  c.campo('Protocollo n°', att.protocollo ? siglaProtocollo(att.protocollo) : null);
+
+  /* firma del Presidente (legale rappresentante dell'OPT) */
+  c.serve(90);
+  const yF = c.stato.y - 60;
+  c.stato.pagina.drawText('Timbro e firma del legale rappresentante', { x: 320, y: yF + 52, size: 9, font: c.font, color: c.grigio });
+  c.stato.pagina.drawText('dell’Organismo Paritetico Territoriale', { x: 320, y: yF + 41, size: 9, font: c.font, color: c.grigio });
+  c.stato.pagina.drawText(att.firma_nome || 'Il Presidente', { x: 320, y: yF + 26, size: 10.5, font: c.bold, color: c.nero });
+  if (firmaByte) {
+    try {
+      let img;
+      try { img = await c.doc.embedPng(firmaByte); } catch { img = await c.doc.embedJpg(firmaByte); }
+      const w = 130, ih = (img.height / img.width) * w;
+      c.stato.pagina.drawImage(img, { x: 330, y: yF - 30, width: w, height: Math.min(ih, 52) });
+    } catch { /* senza firma grafica: si firma a mano */ }
+  }
+  c.stato.y = yF - 40;
+  return salva(c.doc);
+}
+
 /* ── 3. riscontro al segnalante ──
    tipo = 'esito' (modello «Risposta») | 'presa_atto' (due righe) */
 export async function pdfRiscontro(p, prot, tipo) {

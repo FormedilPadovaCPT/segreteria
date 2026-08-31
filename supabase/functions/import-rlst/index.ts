@@ -16,6 +16,8 @@
 //    niente autorizzazione del Direttore)
 //  - richieste di conferenza di cantiere       → s_conferenze_cantiere
 //    (formazione/informazione ai dipendenti di una singola impresa)
+//  - richieste di attestazione DM 132/2024     → s_attestazioni_dm132
+//    (consulenza e monitoraggio → crediti aggiuntivi patente)
 //
 // La fonte dei DATI e' il foglio (gia' strutturato); il PDF di
 // riepilogo resta il DOCUMENTO da protocollare. Le righe gia'
@@ -235,7 +237,7 @@ serve(async (req) => {
     )
 
     const { data: cfg } = await sb.from('s_config').select('chiave, valore')
-      .in('chiave', ['rlst_sheet_id', 'rlst_sheet_gid', 'rls_sheet_gid', 'segn_sheet_gid', 'cons_sheet_titolo', 'visita_sheet_titolo', 'serie_sheet_titolo', 'notif_sheet_titolo', 'confcant_sheet_titolo'])
+      .in('chiave', ['rlst_sheet_id', 'rlst_sheet_gid', 'rls_sheet_gid', 'segn_sheet_gid', 'cons_sheet_titolo', 'visita_sheet_titolo', 'serie_sheet_titolo', 'notif_sheet_titolo', 'confcant_sheet_titolo', 'attest_sheet_titolo'])
     const conf = Object.fromEntries((cfg || []).map((r) => [r.chiave, r.valore]))
     const sheetId = conf.rlst_sheet_id
     if (!sheetId) throw new Error('rlst_sheet_id mancante in s_config')
@@ -752,6 +754,80 @@ serve(async (req) => {
         }
         esiti.conferenze = { scheda, via, totali: Math.max(0, righe.length - 1), nuove, dettagli }
       } catch (e) { esiti.conferenze = { error: (e as Error).message } }
+    }
+
+    /* ── scheda ATTESTAZIONE DM 132/2024: consulenza e monitoraggio
+       per i crediti aggiuntivi della patente (circ. 69/2025) ── */
+    if (conf.attest_sheet_titolo) {
+      try {
+        const gid = await gidPerTitolo(token, sheetId, conf.attest_sheet_titolo)
+        const { righe, scheda, via } = await leggiFoglio(token, sheetId, gid)
+        let nuove = 0
+        const dettagli: unknown[] = []
+        if (righe.length > 1) {
+          const { candidate, v } = accessore(righe[0])
+          for (const o of ['PROGRESSIVO', 'RAGIONE SOCIALE']) {
+            if (!candidate(o).length) throw new Error(`Colonna "${o}" non trovata nella scheda ${scheda}`)
+          }
+          const { data: esistenti } = await sb.from('s_attestazioni_dm132').select('progressivo').not('progressivo', 'is', null)
+          const gia = new Set((esistenti || []).map((r) => r.progressivo))
+          for (const r of righe.slice(1)) {
+            const prog = Number(v(r, 'PROGRESSIVO'))
+            if (!prog || gia.has(prog)) continue
+            gia.add(prog)
+            const piva = pivaNorm(v(r, 'PARTITA IVA') || '') || pivaNorm(v(r, 'CF IMPRESA') || '')
+            const cfGrezzo = (v(r, 'RL CF') || '').toUpperCase()
+            const rlCf = /^[A-Z0-9]{16}$/.test(cfGrezzo) ? cfGrezzo : null
+            const agg = await agganciImpresaPersona(sb, piva, rlCf)
+            const cantieri: Record<string, string | null>[] = []
+            for (const n of ['C1', 'C2', 'C3', 'C4']) {
+              const c = {
+                indirizzo: v(r, `${n} INDIRIZZO`),
+                comune: v(r, `${n} COMUNE`),
+                importo: v(r, `${n} IMPORTO`),
+                committente: v(r, `${n} COMMITTENTE`),
+                durata: v(r, `${n} DURATA`),
+                qualita: v(r, `${n} QUALITÀ`),
+              }
+              if (Object.values(c).some(Boolean)) cantieri.push(c)
+            }
+            const primoComune = cantieri[0]?.comune || null
+            const riga = {
+              fonte: 'modulo',
+              progressivo: prog,
+              timestamp_modulo: parseTimestamp(v(r, 'TIMESTAMP') || ''),
+              ragione_sociale: v(r, 'RAGIONE SOCIALE'),
+              codice_ceiv_dich: v(r, 'CODICE CEIV'),
+              cassa_edile_prov: v(r, 'CASSA EDILE PROV.') || v(r, 'CASSA EDILE'),
+              partita_iva: piva || v(r, 'PARTITA IVA'),
+              cf_impresa: v(r, 'CF IMPRESA'),
+              indirizzo: v(r, 'INDIRIZZO'),
+              comune: v(r, 'COMUNE'),
+              telefono: v(r, 'TELEFONO'),
+              email: v(r, 'E-MAIL'),
+              rl_titolo: v(r, 'RL TITOLO'),
+              rl_nome: v(r, 'RL NOME'),
+              rl_cognome: v(r, 'RL COGNOME'),
+              rl_cf: rlCf,
+              cantieri: cantieri.length ? cantieri : null,
+              decl_contributi: v(r, 'DECL. CONTRIBUTI'),
+              decl_sicurezza: v(r, 'DECL. SICUREZZA'),
+              decl_obblighi: v(r, 'DECL. OBBLIGHI'),
+              privacy: v(r, 'PRIVACY'),
+              impresa_id: agg.impresaId,
+              persona_id: agg.personaId,
+              esito_ceiv: agg.esito,
+              ceiv_verificato_il: new Date().toISOString(),
+              tecnico_proposto: propostaTecnico(primoComune),
+            }
+            const { error } = await sb.from('s_attestazioni_dm132').insert(riga)
+            if (error) throw new Error(`Attestazione riga ${prog} non inserita: ` + error.message)
+            nuove++
+            dettagli.push({ progressivo: prog, ragione_sociale: riga.ragione_sociale, cantieri: cantieri.length, esito_ceiv: agg.esito, tecnico_proposto: riga.tecnico_proposto })
+          }
+        }
+        esiti.attestazioni = { scheda, via, totali: Math.max(0, righe.length - 1), nuove, dettagli }
+      } catch (e) { esiti.attestazioni = { error: (e as Error).message } }
     }
 
     return new Response(JSON.stringify(esiti),
