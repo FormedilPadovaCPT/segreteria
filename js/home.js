@@ -63,6 +63,10 @@ export async function render() {
   }
   daAutorizzare.sort((a, b) => String(a.quando || '').localeCompare(String(b.quando || '')));
 
+  /* segnalazioni aperte: hanno anche il loro riquadro, oltre ai mucchi
+     autorizzativi comuni (chiesto dall'utente il 01/09) */
+  const segnalazioni = servizi.find((s) => s.vista === 'segnalazioni').righe;
+
   /* consulenze in corsia immediata: il giro segreteria→coordinatore→impresa */
   const cons = servizi.find((s) => s.vista === 'consulenze').righe;
   const consDaGirare = cons.filter((p) => p.corsia !== 'uscita' && !p.girata_il && !p.risposta);
@@ -105,6 +109,15 @@ export async function render() {
         <div class="hm-riga" data-goto="consulenze"><span>⏱</span><span>In attesa della risposta del coordinatore</span><span class="hm-mini">${consInAttesa.length}</span></div>
         <div class="hm-riga" data-goto="consulenze"><span>📤</span><span>Risposta pronta, da trasmettere all'impresa</span><span class="hm-mini">${consDaTrasmettere.length}</span></div>`,
         vai('consulenze', 'Apri le consulenze'))}
+
+      ${card('🚨 Segnalazioni cantiere', segnalazioni.length,
+        segnalazioni.length
+          ? segnalazioni.slice(0, 6).map((p) => `
+            <div class="hm-riga" data-vista="segnalazioni" data-id="${p.id}"><span>🚨</span>
+              <span><strong>n° ${esc(String(p.progressivo ?? `m${p.id}`))}</strong> — ${esc(p.notificante || '?')}${p.comune_cantiere ? ` · ${esc(p.comune_cantiere)}` : ''}</span>
+              <span class="hint">${esc(p.stato)}${['da_richiedere', 'richiesta'].includes(p.aut_stato) ? ' · dal Direttore' : ''}</span></div>`).join('')
+          : '<p class="hint">Nessuna segnalazione aperta.</p>',
+        vai('segnalazioni', 'Apri le segnalazioni'))}
 
       ${card('🦺 Pratiche RLST aperte', (rlst || []).length,
         (rlst || []).length
