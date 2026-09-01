@@ -80,6 +80,16 @@ function centrato(c, testo, f, dim, colore) {
   }
 }
 
+/* banda colorata a tutta larghezza */
+function banda(c, testo, colore, colTxt, centraTesto = true) {
+  c.serve(20);
+  c.stato.pagina.drawRectangle({ x: SX, y: c.stato.y - 5, width: DX - SX, height: 16, color: colore });
+  const f = c.bold;
+  const x = centraTesto ? SX + (DX - SX - f.widthOfTextAtSize(testo, 10)) / 2 : SX + 6;
+  c.stato.pagina.drawText(testo, { x, y: c.stato.y - 1, size: 10, font: f, color: colTxt });
+  c.stato.y -= 20;
+}
+
 /* cornice arancione doppia + piè «Stampato a Padova il» su ogni pagina */
 function cornice(c, dataStampa) {
   for (const pg of c.doc.getPages()) {
@@ -246,28 +256,34 @@ export async function pdfAttestato(corso, iscritto, anagrafica, giornate, interv
 /* ── 2. REGISTRO PRESENZE ── */
 export async function pdfRegistro(corso, giornate, interventi, iscritti, conf) {
   const c = await apriCarta();
-  c.scrivi('REGISTRO PRESENZA ALLIEVI', c.bold, 14, c.arancio);
-  c.stato.y -= 6;
-  c.campo('Ente Attuatore', "FORMEDIL PADOVA — Ente Unico per la Formazione e la Sicurezza per il settore dell'Edilizia ed affini della Provincia di Padova");
-  c.campo('Codice corso', String(corso.id));
-  c.campo('Titolo corso', corso.titolo);
-  c.campo('Sede di svolgimento', corso.sede);
-  c.campo('Data inizio corso', dataIt(corso.data_inizio));
-  c.campo('Data fine corso', dataIt(corso.data_fine || corso.data_inizio));
-  c.campo('Settore ATECO', corso.ateco_txt);
-  c.campo('Rappresentante Legale', corso.rappresentante_legale || conf.presidente_nome);
-  c.campo('Resp. progetto formativo', corso.responsabile_formativo || conf.responsabile_formativo_nome);
-  c.campo('Tipologia di corso', corso.tipo === 'conferenza_cantiere' ? 'Conferenza di Cantiere' : corso.tipo);
-  c.campo('Numero partecipanti', `Presenti allievi n° ______  (iscritti: ${iscritti.length})`);
+  banda(c, 'REGISTRO PRESENZA ALLIEVI', c.arancio, c.bianco);
+  c.stato.y -= 4;
+  tabella(c, [
+    [{ l: 'Ente Attuatore', v: "FORMEDIL PADOVA — Ente Unico per la Formazione e la Sicurezza per il settore dell'Edilizia ed affini della Provincia di Padova", dim: 9 }],
+    [{ l: 'Codice corso', v: String(corso.id), peso: 1, centro: true }, { l: 'Titolo corso', v: corso.titolo, peso: 3, dim: 10.5 }],
+    [{ l: 'Sede di svolgimento', v: corso.sede || '—' }],
+    [{ l: 'Data inizio corso', v: dataIt(corso.data_inizio) || '—', centro: true },
+     { l: 'Data fine corso', v: dataIt(corso.data_fine || corso.data_inizio) || '—', centro: true },
+     { l: 'Durata (ore)', v: corso.durata_ore ?? '—', centro: true }],
+    [{ l: 'Tipologia di corso', v: corso.tipo === 'conferenza_cantiere' ? 'Conferenza di Cantiere' : corso.tipo, peso: 1 },
+     { l: 'Settore ATECO', v: corso.ateco_txt || '—', peso: 2 }],
+    [{ l: 'Rappresentante Legale', v: corso.rappresentante_legale || conf.presidente_nome || '—' },
+     { l: 'Resp. del progetto formativo', v: corso.responsabile_formativo || conf.responsabile_formativo_nome || '—' }],
+    [{ l: 'Numero partecipanti', v: `Presenti allievi n° ______   (iscritti: ${iscritti.length})` }],
+  ]);
+  c.stato.y -= 16;
+  const yNotaPagine = c.stato.y;   /* la riga si scrive alla fine, quando il totale è noto */
 
   const partecipanti = iscritti.filter((i) => !['annullato', 'sostituito'].includes(i.esito))
-    .sort((a, b) => a.nominativo.localeCompare(b.nominativo));
+    .sort((a, b) => a.nominativo.localeCompare(b.nominativo, 'it', { numeric: true }));
 
   for (const g of giornate) {
     c.nuovaPagina();
+    c.stato.y = 795;
     c.scrivi(`${corso.titolo}`, c.bold, 10.5);
-    c.scrivi(`Giorno lezione: ${dataIt(g.data)}    ·    Orario: ${fascia(g.dalle, g.alle)}${g.dalle2 ? ` e ${fascia(g.dalle2, g.alle2)}` : ''}    ·    Aula: ${g.aula || g.sede || corso.sede || '—'}`, c.font, 9.5, c.grigio);
-    c.stato.y -= 6;
+    c.stato.y -= 2;
+    banda(c, `Data lezione   ${dataIt(g.data)}    ·    Orario ${fascia(g.dalle, g.alle)}${g.dalle2 ? ` e ${fascia(g.dalle2, g.alle2)}` : ''}    ·    ${g.aula || g.sede || corso.sede || ''}`, c.verde, c.bianco, false);
+    c.stato.y -= 4;
 
     /* docenti della giornata, con spazio firma */
     for (const it of interventi.filter((x) => x.giornata_id === g.id && ['docente', 'codocente', 'relatore'].includes(x.qualita))) {
@@ -328,11 +344,12 @@ export async function pdfRegistro(corso, giornate, interventi, iscritti, conf) {
     c.scrivi('Ai sensi degli artt. 13 e 14 del Regolamento Europeo n. 2016/679 (GDPR), ciascun firmatario esprime il consenso al trattamento dei propri dati personali da parte di Formedil Padova, Via Basilicata 10 — Padova, per le finalità e con le modalità contenute nell\'informativa, che conferma di aver ricevuto e della quale ha preso integrale visione.', c.font, 6.5, c.grigio);
   }
 
-  /* numeri di pagina, ora che il totale è noto */
+  /* cornice + numeri di pagina, ora che il totale è noto */
+  cornice(c, new Date().toISOString().slice(0, 10));
   const pagine = c.doc.getPages();
-  pagine.forEach((p, i) => p.drawText(`Pagina ${i + 1} di ${pagine.length}`, { x: DX - 70, y: 40, size: 7.5, font: c.font, color: c.grigio }));
-  const nota = `Il presente registro è composto di n° ${pagine.length} pagine progressivamente numerate dal n° 1 al n° ${pagine.length}`;
-  pagine[0].drawText(nota, { x: SX, y: 52, size: 8, font: c.italic, color: c.nero });
+  pagine.forEach((p, i) => p.drawText(`Pagina ${i + 1} di ${pagine.length}`, { x: DX - 70, y: 30, size: 7.5, font: c.font, color: c.grigio }));
+  const nota = `Il presente registro di formazione è composto di n° ${pagine.length} pagine progressivamente numerate dal n° 1 al n° ${pagine.length}`;
+  pagine[0].drawText(nota, { x: SX + (DX - SX - c.italic.widthOfTextAtSize(nota, 9.5)) / 2, y: yNotaPagine, size: 9.5, font: c.italic, color: c.nero });
   return salva(c.doc);
 }
 

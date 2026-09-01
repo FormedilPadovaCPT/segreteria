@@ -209,6 +209,21 @@ textarea{resize:vertical;min-height:80px;line-height:1.5}
 .ac-item:hover,.ac-item.is-sel{background:var(--arancio-chiaro)}
 .ac-item small{display:block;color:var(--testo-soft)}
 
+/* ── cruscotto (home) ──────────────────── */
+.hm-griglia{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px}
+.hm-card{background:#fff;border:1px solid var(--bordo);border-radius:10px;padding:14px 16px;box-shadow:0 1px 3px rgba(0,0,0,.05)}
+.hm-card.hm-vuota{opacity:.75}
+.hm-testa{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.hm-testa h3{margin:0;font-size:15px}
+.hm-n{min-width:26px;text-align:center;border-radius:12px;padding:2px 8px;font-weight:700;background:var(--grigio-chiaro);color:var(--testo-soft)}
+.hm-n-attivo{background:var(--arancio);color:#fff}
+.hm-riga{display:flex;gap:8px;align-items:baseline;padding:5px 6px;border-radius:6px;cursor:pointer;font-size:13.5px}
+.hm-riga:hover{background:var(--grigio-chiaro)}
+.hm-riga>span:nth-child(2){flex:1;min-width:0}
+.hm-riga .hint{white-space:nowrap}
+.hm-mini{font-weight:700}
+.hm-vai{margin-top:8px}
+
 /* ── drawer ────────────────────────────── */
 .drawer-bg{position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:50}
 .drawer{position:fixed;top:0;right:0;bottom:0;width:min(680px,100%);background:#fff;z-index:51;

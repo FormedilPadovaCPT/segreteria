@@ -74,6 +74,7 @@ export function attendi(btn, attivo, testoAttesa = 'Attendere…') {
 /* ── navigazione ──────────────────────────────────────────── */
 export function mostraVista(nome) {
   const mappa = {
+    home: '#view-home',
     registro: '#view-registro',
     'nuovo-in': '#view-form',
     'nuovo-out': '#view-form',

@@ -45,7 +45,8 @@
 
   <div class="shell">
     <nav id="sidebar" class="sidebar">
-      <button class="nav-item is-active" data-view="registro">📚 Registro protocollo</button>
+      <button class="nav-item is-active" data-view="home">🏠 Cruscotto</button>
+      <button class="nav-item" data-view="registro">📚 Registro protocollo</button>
       <button class="nav-item" data-view="nuovo-in">📥 Nuovo protocollo IN</button>
       <button class="nav-item" data-view="nuovo-out">📤 Nuovo protocollo OUT</button>
       <div class="nav-sep"></div>
@@ -70,6 +71,12 @@
     </nav>
 
     <main id="main" class="main">
+
+      <!-- ── CRUSCOTTO ── -->
+      <section id="view-home" class="view hidden">
+        <div class="view-head"><h2>Cruscotto — cosa c'è da fare</h2></div>
+        <div id="home-host" class="condensa"></div>
+      </section>
 
       <!-- ── REGISTRO ── -->
       <section id="view-registro" class="view">

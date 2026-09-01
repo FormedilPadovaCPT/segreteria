@@ -162,6 +162,13 @@ async function vaiA(vista) {
     return mod.attestazioni.render();
   }
 
+  if (vista === 'home') {
+    mostraVista('home');
+    $('#home-host').innerHTML = '<p class="empty">Un istante…</p>';
+    mod.home = mod.home || await import('./home.js');
+    return mod.home.render();
+  }
+
   if (vista === 'corsi') {
     mostraVista('corsi');
     $('#corsi-host').innerHTML = '<p class="empty">Un istante…</p>';
@@ -208,6 +215,15 @@ $$('.nav-item').forEach((b) => b.addEventListener('click', () => vaiA(b.dataset.
 document.addEventListener('click', (e) => {
   const g = e.target.closest('[data-goto]');
   if (g) vaiA(g.dataset.goto);
+});
+
+/* dal cruscotto: apri una pratica nella sua vista */
+document.addEventListener('apri-pratica', async (e) => {
+  const { vista, id } = e.detail || {};
+  if (!vista) return;
+  await vaiA(vista);
+  if (vista === 'corsi') return mod.corsi?.apriCorso?.(id);
+  return mod[vista]?.apriPratica?.(id);
 });
 
 /* ── avvio ────────────────────────────────────────────────── */
@@ -262,7 +278,9 @@ try {
       } else {
         mod.protocollo = await import('./protocollo.js');
         await mod.protocollo.init();
-        await apriDaHash();
+        /* la prima pagina è il CRUSCOTTO, non il registro (deciso 01/09/2026) */
+        if (hashPratica) await apriDaHash();
+        else await vaiA('home');
       }
     }
   }
