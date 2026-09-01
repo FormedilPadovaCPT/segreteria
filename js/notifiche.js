@@ -14,8 +14,13 @@
    quando viene creato); il verbale vive di là.
    ============================================================ */
 
-import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo } from './core.js';
+import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo, siglaProtocollo } from './core.js';
 import { scaricaEml, FIRMA_SEGRETERIA } from './eml.js';
+import { risolviCartella, caricaByte } from './drive.js';
+
+const slug = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+  .replace(/\b(srls?|snc|sas|spa|scarl|s\.r\.l\.s?|s\.n\.c\.|s\.a\.s\.|s\.p\.a\.)\b/gi, '')
+  .replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
 
 let pratiche = [];
 let tecnici = [];
@@ -249,6 +254,10 @@ export async function apriPratica(id) {
     ${campo('Presenze', [p.max_lavoratori ? `max ${p.max_lavoratori} lavoratori` : null, p.n_imprese ? `${p.n_imprese} imprese` : null, p.n_autonomi ? `${p.n_autonomi} autonomi` : null].filter(Boolean).join(' — '))}
     ${campo('Committente', [committenteDi(p), p.comm_piva ? `P.IVA ${p.comm_piva}` : p.comm_cf2 || p.comm_cf, p.comm_indirizzo || p.comm_ind2, p.comm_tel || p.comm_tel2, p.comm_email].filter(Boolean).join(' — '))}
     ${campo('Responsabile dei lavori', [[p.rl_titolo, p.rl_nome, p.rl_cognome].filter(Boolean).join(' '), p.rl_cf, [p.rl_indirizzo, p.rl_comune].filter(Boolean).join(', '), p.rl_note].filter(Boolean).join(' — '))}
+    ${(Array.isArray(p.figure) && p.figure.length) ? `<div class="dt-doc-riga"><strong>Altre figure professionali:</strong><br>${p.figure.map((f) =>
+      esc(['· ' + (f.ruolo || 'ruolo n.d.'), [f.titolo, f.nome, f.cognome].filter(Boolean).join(' '), f.cf, f.email, f.telefono].filter(Boolean).join(' — '))).join('<br>')}</div>` : ''}
+    ${(Array.isArray(p.imprese) && p.imprese.length) ? `<div class="dt-doc-riga"><strong>Imprese previste in cantiere:</strong><br>${p.imprese.map((i) =>
+      esc(['· ' + (i.ruolo || 'ruolo n.d.'), i.ragione_sociale, i.piva ? `P.IVA ${i.piva}` : null, i.cod_cassa ? `Cassa Edile ${i.cod_cassa}` : null, [i.indirizzo, i.comune].filter(Boolean).join(', '), i.email].filter(Boolean).join(' — '))).join('<br>')}</div>` : ''}
     ${campo('Note', p.note_cantiere)}
 
     <hr style="margin:14px 0;border:0;border-top:1px solid var(--bordo)">
@@ -270,10 +279,11 @@ export async function apriPratica(id) {
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       ${!p.protocollo_in_id ? '<button class="btn btn-ghost" id="nt-protin">📥 Protocolla la notifica (IN)</button>' : ''}
       <button class="btn btn-primary" id="nt-grazie">📧 Ringraziamento a chi ha segnalato</button>
+      ${!p.protocollo_out_id ? '<button class="btn btn-ghost" id="nt-riscontro">📄 Riscontro completo (lettera OUT)</button>' : ''}
     </div>
     <p class="hint" style="margin-top:6px">${p.riscontro_inviato_il
-      ? `Ringraziamento già preparato il ${dataIt(p.riscontro_inviato_il.slice(0, 10))}.`
-      : 'Il ringraziamento è la presa d\'atto: due righe, senza impegni sul merito.'}</p>
+      ? `Riscontro già preparato il ${dataIt(p.riscontro_inviato_il.slice(0, 10))}.`
+      : 'Il ringraziamento è la presa d\'atto (due righe). Il riscontro completo è la lettera protocollata col riepilogo di cantiere, figure e imprese — l\'erede della vecchia lettera DNL.'}</p>
   `);
 
   $('#drawer-body').querySelectorAll('[data-apri-prot]').forEach((a) =>
@@ -301,6 +311,7 @@ export async function apriPratica(id) {
 
   $('#nt-protin')?.addEventListener('click', () => protocollaIn(p));
   $('#nt-grazie')?.addEventListener('click', () => mailGrazie(p));
+  $('#nt-riscontro')?.addEventListener('click', (e) => riscontroCompleto(p, e.currentTarget));
 }
 
 async function protocollaIn(p) {
@@ -353,4 +364,145 @@ ${FIRMA_SEGRETERIA}`,
   }).eq('id', p.id);
   toast('Bozza di ringraziamento scaricata: aprila da Outlook e premi Invia.', 'ok');
   await render();
+}
+
+/* ══════════ riscontro completo — l'erede della lettera DNL ══════════
+   Modellato sul riscontro storico alle Denunce di Nuovo Lavoro
+   (Com_DNL_CPT_PD_rev.02): conferma di corretta trasmissione, dati
+   del cantiere, riepilogo delle persone fisiche e delle persone
+   giuridiche. Protocollato OUT nel registro unico (la serie .dnl
+   resta solo da leggere sullo storico), depositato nella cartella
+   del vault, bozza .eml con la lettera allegata — la manda l'umano
+   da Outlook. */
+
+function corpoRiscontroNotifica(p, ISTITUZIONALE) {
+  const par = [ISTITUZIONALE];
+  par.push(
+    'Essa ha constatato che è stata correttamente trasmessa la comunicazione di apertura ' +
+    `cantiere${p.note_cantiere ? ` per lavori di: ${p.note_cantiere}` : ''}, presso il cantiere ` +
+    `sito in ${p.ind_cantiere || 'indirizzo da precisare'}${p.comune_cantiere ? ` nel Comune di ${p.comune_cantiere}` : ''}.`);
+
+  const datiCantiere = [
+    p.data_inizio ? `- Data presunta di inizio lavori: ${dataIt(p.data_inizio)}` : null,
+    p.data_fine ? `- Data presunta di fine lavori: ${dataIt(p.data_fine)}` : null,
+    p.importo ? `- Ammontare complessivo presunto dei lavori (IVA esclusa): € ${p.importo}` : null,
+    p.durata_gg ? `- Durata presunta dei lavori: ${p.durata_gg} giorni` : null,
+    p.max_lavoratori ? `- Numero massimo presunto di lavoratori in cantiere: ${p.max_lavoratori}` : null,
+    p.n_imprese ? `- Numero previsto di imprese: ${p.n_imprese}` : null,
+    p.n_autonomi ? `- Numero previsto di lavoratori autonomi: ${p.n_autonomi}` : null,
+  ].filter(Boolean);
+  if (datiCantiere.length) { par.push('Dati del cantiere comunicati:'); par.push(...datiCantiere); }
+
+  /* persone fisiche: notificatore, committente persona fisica, RL, poi le figure aggiunte */
+  const persone = [];
+  const notif = [p.seg_titolo, p.seg_nome, p.seg_cognome].filter(Boolean).join(' ');
+  if (notif) persone.push(`- Soggetto notificatore: ${notif}${p.seg_cf ? ` — CF ${p.seg_cf}` : ''}`);
+  const commP = [p.comm_titolo, p.comm_nome, p.comm_cognome].filter(Boolean).join(' ');
+  if (commP) persone.push(`- Committente: ${commP}${p.comm_cf2 ? ` — CF ${p.comm_cf2}` : ''}`);
+  const rl = [p.rl_titolo, p.rl_nome, p.rl_cognome].filter(Boolean).join(' ');
+  if (rl) persone.push(`- Responsabile dei lavori: ${rl}${p.rl_cf ? ` — CF ${p.rl_cf}` : ''}`);
+  for (const f of (Array.isArray(p.figure) ? p.figure : [])) {
+    persone.push(`- ${f.ruolo || 'Figura professionale'}: ${[f.titolo, f.nome, f.cognome].filter(Boolean).join(' ')}${f.cf ? ` — CF ${f.cf}` : ''}`);
+  }
+  if (persone.length) { par.push('Riepilogo soggetti — persone fisiche:'); par.push(...persone); }
+
+  /* persone giuridiche: notificatore azienda, committente giuridico, poi le imprese elencate */
+  const giuridiche = [];
+  if (p.ragione_sociale) giuridiche.push(`- Soggetto notificatore: ${p.ragione_sociale}`);
+  if (p.comm_ragione_sociale) giuridiche.push(`- Committente: ${p.comm_ragione_sociale}${p.comm_piva ? ` — P.IVA ${p.comm_piva}` : ''}`);
+  for (const i of (Array.isArray(p.imprese) ? p.imprese : [])) {
+    giuridiche.push(`- ${i.ruolo || 'Impresa'}: ${i.ragione_sociale || '?'}${i.piva ? ` — P.IVA ${i.piva}` : ''}${i.cod_cassa ? ` — Cassa Edile ${i.cod_cassa}` : ''}`);
+  }
+  if (giuridiche.length) { par.push('Riepilogo soggetti — persone giuridiche:'); par.push(...giuridiche); }
+
+  par.push(
+    'La comunicazione è stata registrata e il cantiere entrerà nella normale programmazione ' +
+    'delle visite dei nostri tecnici. Vi ringraziamo per la collaborazione, preziosa per ' +
+    "l'attività di prevenzione del nostro Ente.");
+  par.push('Distinti saluti.');
+  return par;
+}
+
+async function riscontroCompleto(p, btn) {
+  if (!confirm(`Preparo la lettera di riscontro completa per la notifica n° ${p.progressivo ?? `m${p.id}`}, protocollata in uscita. Procedo?`)) return;
+  attendi(btn, true, 'Preparo…');
+  try {
+    const { ISTITUZIONALE, generaLetteraPdf } = await import('./rlst-lettera.js');
+    const paragrafi = corpoRiscontroNotifica(p, ISTITUZIONALE);
+    const dataCom = p.data_com || (p.timestamp_modulo || '').slice(0, 10) || null;
+    const oggettoRiga = `Vostra comunicazione di apertura cantiere${dataCom ? ` del ${dataIt(dataCom)}` : ''}.`;
+
+    const { data: nuovo, error: errProt } = await sb.rpc('s_crea_protocollo', { p: {
+      direzione: 'OUT',
+      data_prot: oggiIso(),
+      data_doc: oggiIso(),
+      impresa_nome: p.ragione_sociale || committenteDi(p) || null,
+      impresa_id: p.impresa_id || null,
+      persona: [p.seg_cognome, p.seg_nome].filter(Boolean).join(' ') || null,
+      oggetto: `Riscontro alla comunicazione di apertura cantiere — ${[p.ind_cantiere, p.comune_cantiere].filter(Boolean).join(', ') || 'cantiere da individuare'}`,
+      note: paragrafi.join('\n\n'),
+      sintesi: `Riscontro completo alla notifica n° ${p.progressivo ?? `m${p.id}`} (erede della lettera DNL): conferma di trasmissione con riepilogo cantiere, figure professionali e imprese.`,
+      ufficio: 'Segreteria Area Sicurezza e Salute',
+      mezzo: 'e-mail',
+      tipo_doc_id: TIPO_DOC_NOTIF,
+      cartella: PERCORSO_VAULT,
+    } });
+    if (errProt) throw new Error('Protocollazione non riuscita: ' + errProt.message);
+
+    /* la lettera, col numero già dentro; il destinatario è chi ha notificato */
+    const pdfByte = await generaLetteraPdf({
+      ragione_sociale: p.ragione_sociale || committenteDi(p) || [p.seg_nome, p.seg_cognome].filter(Boolean).join(' '),
+      email: p.email,
+      telefono: p.telefono,
+      alla_ca_riga: [p.seg_titolo, p.seg_nome, p.seg_cognome].filter(Boolean).length
+        ? `Alla c.a. ${[p.seg_titolo, p.seg_nome, p.seg_cognome].filter(Boolean).join(' ')}` : '',
+    }, nuovo, paragrafi, oggettoRiga);
+
+    const cart = await risolviCartella(PERCORSO_VAULT);
+    if (!cart.id) throw new Error(`Cartella «${PERCORSO_VAULT}» non trovata su Drive`);
+    const nomeFile = `${oggiIso().replace(/-/g, '_')}_COMU_Formedil-Padova_riscontro-notifica-cantiere-${p.progressivo ?? `m${p.id}`}.pdf`;
+    const su = await caricaByte(nuovo, nomeFile, pdfByte, 'application/pdf', cart.id);
+
+    await sb.from('s_prot_allegati').insert({
+      protocollo_id: nuovo.id, nome: su.file_name || nomeFile, mime: 'application/pdf',
+      dimensione: pdfByte.length, principale: true, created_by: state.email,
+      drive_file_id: su.drive_file_id, drive_url: su.drive_url,
+    });
+    await sb.from('s_protocollo').update({ drive_file_id: su.drive_file_id, drive_url: su.drive_url }).eq('id', nuovo.id);
+
+    await sb.from('s_notifiche_cantiere').update({
+      protocollo_out_id: nuovo.id,
+      lettera_drive_id: su.drive_file_id,
+      lettera_drive_url: su.drive_url,
+      riscontro_inviato_il: new Date().toISOString(),
+      aggiornato_da: state.email, updated_at: new Date().toISOString(),
+    }).eq('id', p.id);
+
+    const chi = p.ragione_sociale || [p.seg_titolo, p.seg_nome, p.seg_cognome].filter(Boolean).join(' ') || 'Gentile Segnalante';
+    scaricaEml({
+      to: p.email || '',
+      oggetto: 'Formedil Padova - Area Sicurezza e Salute - Riscontro alla Vostra comunicazione di apertura cantiere',
+      corpo: `Prot. n°: ${siglaProtocollo(nuovo)}
+
+Prevenzione infortuni.
+
+Spett.le ${chi},
+
+Vogliate trovare in allegato il riscontro alla Vostra comunicazione di apertura del cantiere di ${[p.ind_cantiere, p.comune_cantiere].filter(Boolean).join(', ') || 'cui alla Vostra segnalazione'}.
+
+Distinti saluti.
+
+${FIRMA_SEGRETERIA}`,
+      allegati: [{ nome: su.file_name || nomeFile, byte: pdfByte }],
+      nomeFile: `riscontro-notifica-${p.progressivo ?? `m${p.id}`}.eml`,
+    });
+
+    toast(`Lettera protocollata (${codiceProtocollo(nuovo)}) e depositata nel vault. Bozza mail scaricata: aprila da Outlook e premi Invia.`, 'ok');
+    chiudiDrawer();
+    await render();
+  } catch (e) {
+    toast(e.message, 'err');
+  } finally {
+    attendi(btn, false);
+  }
 }

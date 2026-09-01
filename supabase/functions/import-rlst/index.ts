@@ -172,6 +172,13 @@ function pivaNorm(s: string): string | null {
   if (cifre.length >= 8 && cifre.length <= 11) return cifre.padStart(11, '0')
   return null
 }
+/* Le colonne FIGURE JSON / IMPRESE JSON della notifica: un JSON non
+   leggibile non blocca l'import della riga, si perde solo l'elenco. */
+function jsonSafe(s: string): unknown | null {
+  const t = String(s || '').trim()
+  if (!t) return null
+  try { const v = JSON.parse(t); return Array.isArray(v) && v.length ? v : null } catch { return null }
+}
 
 /* accesso ai campi per nome di intestazione: esatto, poi contenimento */
 function accessore(testataGrezza: string[]) {
@@ -673,6 +680,8 @@ serve(async (req) => {
               rl_indirizzo: v(r, 'RL IND.'),
               rl_comune: v(r, 'RL COMUNE'),
               rl_note: v(r, 'RL NOTE'),
+              figure: jsonSafe(v(r, 'FIGURE JSON')),
+              imprese: jsonSafe(v(r, 'IMPRESE JSON')),
               privacy: v(r, 'PRIVACY'),
               impresa_id: agg.impresaId,
               esito_ceiv: agg.esito,

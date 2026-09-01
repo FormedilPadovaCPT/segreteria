@@ -117,12 +117,20 @@ export async function generaLetteraPdf(p, protocollo, paragrafi, oggettoRiga) {
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
   const italic = await doc.embedFont(StandardFonts.HelveticaOblique);
 
-  const pagina = doc.addPage([595.28, 841.89]);   // A4
+  let pagina = doc.addPage([595.28, 841.89]);   // A4
   const arancio = rgb(...COLORI.arancio);
   const grigio = rgb(...COLORI.grigio);
   const nero = rgb(0.1, 0.1, 0.1);
   const SX = 57, DX = 538;
   let y = 800;
+
+  /* le lettere con molti riepiloghi (es. riscontro notifica cantiere)
+     non stanno in una pagina: quando il corpo arriva in fondo si
+     continua su una pagina nuova, senza testata */
+  const nuovaPagina = () => {
+    pagina = doc.addPage([595.28, 841.89]);
+    y = 790;
+  };
 
   /* logo, se raggiungibile: la carta regge anche senza */
   try {
@@ -201,6 +209,7 @@ export async function generaLetteraPdf(p, protocollo, paragrafi, oggettoRiga) {
     }
     if (riga) righe.push(riga);
     for (const r of righe) {
+      if (y < 90) nuovaPagina();
       pagina.drawText(r, { x: SX + rientro, y, size: dim, font: f, color: colore });
       y -= dim + 4;
     }
@@ -214,7 +223,8 @@ export async function generaLetteraPdf(p, protocollo, paragrafi, oggettoRiga) {
     y -= elenco ? 4 : 8;
   }
 
-  /* firma */
+  /* firma: se il corpo è arrivato in fondo, va su una pagina nuova */
+  if (y < 160) nuovaPagina();
   y = Math.max(y - 14, 120);
   pagina.drawText(`Padova, ${dataIt(protocollo.data_prot)}`, { x: SX, y, size: 10, font, color: nero });
   pagina.drawText('FORMEDIL PADOVA', { x: 380, y: y + 4, size: 10, font: bold, color: nero });
