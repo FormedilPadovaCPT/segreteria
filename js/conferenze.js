@@ -315,6 +315,7 @@ export async function apriPratica(id) {
       ${p.aut_stato === 'approvata' ? `
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn btn-primary" id="cf-conferma">📧 Mail di conferma all'impresa</button>
+        <button class="btn btn-ghost" id="cf-corso">📖 Apri il corso (giornate, docenti, iscritti)</button>
       </div>` : ''}` : `
       <p class="hint" style="margin:0 0 10px">La conferenza di cantiere comporta una spesa:
         non è lavorabile finché il Direttore non autorizza.</p>
@@ -368,6 +369,10 @@ export async function apriPratica(id) {
   $('#cf-respingi')?.addEventListener('click', (ev) => decidiDaApp(p, 'respinta', ev.currentTarget));
   $('#cf-cartacea')?.addEventListener('click', () => registraCartacea(p));
   $('#cf-conferma')?.addEventListener('click', () => mailConferma(p));
+  $('#cf-corso')?.addEventListener('click', async () => {
+    const mod = await import('./corsi.js');
+    mod.nuovoCorsoDaConferenza(p);   // se il corso esiste già, apre quello
+  });
   $('#cf-protin')?.addEventListener('click', () => protocollaIn(p));
 }
 

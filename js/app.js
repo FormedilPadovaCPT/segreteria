@@ -162,6 +162,13 @@ async function vaiA(vista) {
     return mod.attestazioni.render();
   }
 
+  if (vista === 'corsi') {
+    mostraVista('corsi');
+    $('#corsi-host').innerHTML = '<p class="empty">Un istante…</p>';
+    mod.corsi = mod.corsi || await import('./corsi.js');
+    return mod.corsi.render();
+  }
+
   if (vista === 'persone') {
     mostraVista('persone');
     $('#persone-host').innerHTML = '<p class="empty">Un istante…</p>';
