@@ -18,10 +18,6 @@ import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiD
 import { scaricaEml, FIRMA_SEGRETERIA } from './eml.js';
 import { risolviCartella, caricaByte } from './drive.js';
 
-const slug = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
-  .replace(/\b(srls?|snc|sas|spa|scarl|s\.r\.l\.s?|s\.n\.c\.|s\.a\.s\.|s\.p\.a\.)\b/gi, '')
-  .replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
-
 let pratiche = [];
 let tecnici = [];
 let zone = [];
@@ -470,17 +466,22 @@ async function riscontroCompleto(p, btn) {
     });
     await sb.from('s_protocollo').update({ drive_file_id: su.drive_file_id, drive_url: su.drive_url }).eq('id', nuovo.id);
 
-    await sb.from('s_notifiche_cantiere').update({
+    /* niente lettera_drive_*: la tabella notifiche non ha quelle colonne
+       (il link al PDF vive sul protocollo) — con una colonna inesistente
+       Supabase rifiuterebbe TUTTO l'update, protocollo compreso */
+    const { error: errAgg } = await sb.from('s_notifiche_cantiere').update({
       protocollo_out_id: nuovo.id,
-      lettera_drive_id: su.drive_file_id,
-      lettera_drive_url: su.drive_url,
       riscontro_inviato_il: new Date().toISOString(),
       aggiornato_da: state.email, updated_at: new Date().toISOString(),
     }).eq('id', p.id);
+    if (errAgg) throw new Error('Riscontro protocollato ma pratica non aggiornata: ' + errAgg.message);
 
+    /* al COMUNICANTE e, per conoscenza, all'IMPRESA/committente
+       (il giro della vecchia lettera DNL, descritto dall'utente) */
     const chi = p.ragione_sociale || [p.seg_titolo, p.seg_nome, p.seg_cognome].filter(Boolean).join(' ') || 'Gentile Segnalante';
     scaricaEml({
       to: p.email || '',
+      cc: [p.comm_email].filter((m) => m && m !== p.email),
       oggetto: 'Formedil Padova - Area Sicurezza e Salute - Riscontro alla Vostra comunicazione di apertura cantiere',
       corpo: `Prot. n°: ${siglaProtocollo(nuovo)}
 
@@ -497,7 +498,33 @@ ${FIRMA_SEGRETERIA}`,
       nomeFile: `riscontro-notifica-${p.progressivo ?? `m${p.id}`}.eml`,
     });
 
-    toast(`Lettera protocollata (${codiceProtocollo(nuovo)}) e depositata nel vault. Bozza mail scaricata: aprila da Outlook e premi Invia.`, 'ok');
+    /* e il cantiere viene NOTIFICATO AL TECNICO di zona, per le
+       eventuali visite (la seconda metà del giro DNL storico) */
+    const tecnico = p.tecnico_assegnato || p.tecnico_proposto;
+    if (tecnico) {
+      scaricaEml({
+        to: tecnico,
+        oggetto: `Formedil Padova - Cantiere notificato per eventuali visite - ${[p.ind_cantiere, p.comune_cantiere].filter(Boolean).join(', ') || '—'}`,
+        corpo: `Ciao ${nomeTecnico(tecnico)},
+
+è stato notificato un nuovo cantiere nella tua zona, da tenere presente per le eventuali visite:
+
+Cantiere: ${[p.ind_cantiere, p.comune_cantiere].filter(Boolean).join(', ') || '—'}
+Comunicante: ${p.ragione_sociale || [p.seg_nome, p.seg_cognome].filter(Boolean).join(' ') || '—'}
+Committente: ${committenteDi(p) || '—'}
+Periodo presunto: ${[dataIt(p.data_inizio), dataIt(p.data_fine)].filter(Boolean).join(' → ') || '—'}
+Max lavoratori: ${p.max_lavoratori ?? '—'} · imprese previste: ${p.n_imprese ?? '—'}${p.note_cantiere ? `
+Note: ${p.note_cantiere}` : ''}
+
+Riscontro protocollato ${codiceProtocollo(nuovo)} (lettera allegata, agli atti su Drive).
+
+${FIRMA_SEGRETERIA}`,
+        allegati: [{ nome: su.file_name || nomeFile, byte: pdfByte }],
+        nomeFile: `cantiere-notificato-tecnico-${p.progressivo ?? `m${p.id}`}.eml`,
+      });
+    }
+
+    toast(`Lettera protocollata (${codiceProtocollo(nuovo)}) e depositata nel vault. Bozze mail scaricate: comunicante${p.comm_email ? ' + committente in cc' : ''}${tecnico ? ' e avviso al tecnico' : ''}.`, 'ok');
     chiudiDrawer();
     await render();
   } catch (e) {

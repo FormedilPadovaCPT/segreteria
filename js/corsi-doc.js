@@ -49,6 +49,12 @@ const SX = 57;
 const DX = 538;
 const salva = async (doc) => new Uint8Array(await doc.save());
 
+/* dimensioni entro un riquadro SENZA deformare (proporzioni conservate) */
+function adatta(img, maxW, maxH) {
+  const scala = Math.min(maxW / img.width, maxH / img.height);
+  return { width: img.width * scala, height: img.height * scala };
+}
+
 export function scaricaPdf(byte, nome) {
   const url = URL.createObjectURL(new Blob([byte], { type: 'application/pdf' }));
   const a = document.createElement('a');
@@ -259,8 +265,8 @@ export async function pdfAttestato(corso, iscritto, anagrafica, giornate, interv
     try {
       let img;
       try { img = await c.doc.embedPng(ctx.firmaByte); } catch { img = await c.doc.embedJpg(ctx.firmaByte); }
-      const w = 150, h = Math.min((img.height / img.width) * w, 75);
-      pg().drawImage(img, { x: centro - w / 2, y: yF - 22 - h, width: w, height: h });
+      const { width, height } = adatta(img, 160, 80);
+      pg().drawImage(img, { x: centro - width / 2, y: yF - 22 - height, width, height });
     } catch { /* si firma a mano */ }
   }
   pg().drawText(`Rilasciato a Padova il ${dataIt(ctx.dataRilascio) || dataIt(new Date().toISOString().slice(0, 10))}`,
@@ -442,8 +448,8 @@ export async function pdfLetteraIncarico(corso, incarico, mieiInterventi, conf, 
     try {
       let img;
       try { img = await c.doc.embedPng(firmaByte); } catch { img = await c.doc.embedJpg(firmaByte); }
-      const w = 120, h = Math.min((img.height / img.width) * w, 55);
-      c.stato.pagina.drawImage(img, { x: 330, y: yF - 16 - h, width: w, height: h });
+      const { width, height } = adatta(img, 130, 60);
+      c.stato.pagina.drawImage(img, { x: 330, y: yF - 16 - height, width, height });
     } catch { /* firma a mano */ }
   }
   c.stato.y -= 86;

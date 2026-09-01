@@ -245,8 +245,9 @@ export async function pdfAutorizzazioneCampi(campi, nomeTecnico, visto, firmaByt
     try {
       let img;
       try { img = await c.doc.embedPng(firmaByte); } catch { img = await c.doc.embedJpg(firmaByte); }
-      const w = 110, ih = (img.height / img.width) * w;
-      c.stato.pagina.drawImage(img, { x: DX - w - 16, y: y0 + 12, width: w, height: Math.min(ih, h - 24) });
+      /* proporzioni conservate: si riduce tutto, non si schiaccia */
+      const scala = Math.min(110 / img.width, (h - 24) / img.height);
+      c.stato.pagina.drawImage(img, { x: DX - img.width * scala - 16, y: y0 + 12, width: img.width * scala, height: img.height * scala });
     } catch { /* firma non leggibile: il visto vale lo stesso */ }
   }
   c.stato.y = y0 - 16;
@@ -318,8 +319,9 @@ export async function pdfAttestazioneDM132(p, att, firmaByte) {
     try {
       let img;
       try { img = await c.doc.embedPng(firmaByte); } catch { img = await c.doc.embedJpg(firmaByte); }
-      const w = 130, ih = (img.height / img.width) * w;
-      c.stato.pagina.drawImage(img, { x: 330, y: yF - 30, width: w, height: Math.min(ih, 52) });
+      /* proporzioni conservate: si riduce tutto, non si schiaccia */
+      const scala = Math.min(130 / img.width, 60 / img.height);
+      c.stato.pagina.drawImage(img, { x: 330, y: yF - 30, width: img.width * scala, height: img.height * scala });
     } catch { /* senza firma grafica: si firma a mano */ }
   }
   c.stato.y = yF - 40;
