@@ -29,7 +29,7 @@
 
 import { ENTE, COLORI } from './config.js';
 import { pdfLib } from './cdn.js';
-import { dataIt, siglaProtocollo } from './comune.js';
+import { dataIt, siglaProtocollo, testoPdf } from './comune.js';
 
 const A4 = [595.28, 841.89];
 const SX = 57;
@@ -90,10 +90,10 @@ export async function apriCarta() {
   };
   const serve = (h) => { if (stato.y - h < 70) nuovaPagina(); };
 
-  /* a capo automatico + cambio pagina */
+  /* a capo automatico + cambio pagina (testo ripulito per WinAnsi) */
   const scrivi = (testo, f = font, dim = 10, colore = nero, rientro = 0) => {
     const larghezza = DX - SX - rientro;
-    for (const rigaTesto of String(testo).split(/\n/)) {
+    for (const rigaTesto of testoPdf(testo).split(/\n/)) {
       const parole = rigaTesto.split(/\s+/).filter(Boolean);
       let riga = '';
       const righe = [];
@@ -115,11 +115,11 @@ export async function apriCarta() {
   const campo = (etichetta, valore) => {
     if (!valore) return;
     serve(30);
-    stato.pagina.drawText(etichetta, { x: SX, y: stato.y, size: 8, font, color: grigio });
+    stato.pagina.drawText(testoPdf(etichetta), { x: SX, y: stato.y, size: 8, font, color: grigio });
     const yEt = stato.y;
     stato.y -= 0;
     const largo = DX - (SX + 130);
-    const parole = String(valore).split(/\s+/).filter(Boolean);
+    const parole = testoPdf(valore).split(/\s+/).filter(Boolean);
     let riga = '';
     const righe = [];
     for (const w of parole) {
@@ -202,7 +202,12 @@ export async function pdfRichiestaAutCampi(campi, nomeTecnico, richiestaTxt) {
   c.serve(90);
   const y0 = c.stato.y - 70;
   c.stato.pagina.drawRectangle({ x: 320, y: y0, width: DX - 320, height: 70, borderColor: c.grigio, borderWidth: 0.8 });
-  c.stato.pagina.drawText('Approvato   SI □   /   NO □', { x: 332, y: y0 + 50, size: 10, font: c.font, color: c.nero });
+  /* le caselle si DISEGNANO: il carattere «quadratino» non esiste in
+     WinAnsi e faceva crollare la generazione del PDF */
+  c.stato.pagina.drawText('Approvato   SI', { x: 332, y: y0 + 50, size: 10, font: c.font, color: c.nero });
+  c.stato.pagina.drawRectangle({ x: 402, y: y0 + 48, width: 11, height: 11, borderColor: c.nero, borderWidth: 0.9 });
+  c.stato.pagina.drawText('/   NO', { x: 424, y: y0 + 50, size: 10, font: c.font, color: c.nero });
+  c.stato.pagina.drawRectangle({ x: 458, y: y0 + 48, width: 11, height: 11, borderColor: c.nero, borderWidth: 0.9 });
   c.stato.pagina.drawText('Firma per approvazione', { x: 332, y: y0 + 8, size: 8.5, font: c.font, color: c.grigio });
   c.stato.pagina.drawText('Il Direttore', { x: 332, y: y0 + 34, size: 9.5, font: c.italic, color: c.nero });
   c.stato.y = y0 - 18;

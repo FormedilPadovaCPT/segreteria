@@ -19,6 +19,23 @@ export function dataIt(iso) {
   return g && m && a ? `${g}/${m}/${a}` : iso;
 }
 
+/* I font standard dei PDF (Helvetica, codifica WinAnsi) non sanno
+   scrivere i caratteri fuori dal Latin-1 + cp1252: un solo «□» in un
+   testo faceva crollare l'intera generazione. Qui i caratteri noti
+   si traducono, gli ignoti diventano «?» — il PDF esce sempre. */
+const PDF_TRADUZIONI = {
+  '□': '[ ]', '☐': '[ ]', '☑': '[x]', '☒': '[x]',
+  '→': '->', '←': '<-', '↔': '<->', '⇒': '=>',
+  ' ': ' ', '​': '', '️': '', '✓': 'v', '✔': 'v',
+  '●': '-', '▪': '-', '◦': '-', '─': '-', '═': '=',
+};
+const PDF_AMMESSI = new Set('€‚ƒ„…†‡ˆ‰Š‹ŒŽ'
+  + '‘’“”•–—˜™š›œžŸ');
+export function testoPdf(s) {
+  return String(s ?? '').replace(/[Ā-￿]/g, (ch) =>
+    PDF_AMMESSI.has(ch) ? ch : (PDF_TRADUZIONI[ch] ?? '?'));
+}
+
 export function oggiIso() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;

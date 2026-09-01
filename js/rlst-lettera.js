@@ -18,7 +18,7 @@
 
 import { ENTE, COLORI } from './config.js';
 import { pdfLib } from './cdn.js';
-import { dataIt, siglaProtocollo } from './comune.js';
+import { dataIt, siglaProtocollo, testoPdf } from './comune.js';
 
 /* ── testi ────────────────────────────────────────────────── */
 
@@ -111,6 +111,13 @@ export function corpoRiscontroRls(p) {
 /* ── il PDF ───────────────────────────────────────────────── */
 
 export async function generaLetteraPdf(p, protocollo, paragrafi, oggettoRiga) {
+  /* testo ripulito per WinAnsi: un carattere fuori codifica non deve
+     far crollare la lettera (successo col «quadratino», 01/09/2026) */
+  paragrafi = (paragrafi || []).map(testoPdf);
+  oggettoRiga = testoPdf(oggettoRiga);
+  p = { ...p,
+    ragione_sociale: testoPdf(p.ragione_sociale), email: testoPdf(p.email),
+    telefono: testoPdf(p.telefono), alla_ca_riga: testoPdf(p.alla_ca_riga) };
   const { PDFDocument, StandardFonts, rgb } = await pdfLib();
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);

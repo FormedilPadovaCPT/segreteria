@@ -23,7 +23,7 @@
    ============================================================ */
 
 import { apriCarta } from './segnalazioni-doc.js';
-import { dataIt } from './comune.js';
+import { dataIt, testoPdf } from './comune.js';
 import { qrGen } from './cdn.js';
 
 /* QR a vettore, come il timbro (nitido in stampa, niente bitmap) */
@@ -108,6 +108,7 @@ function centrato(c, testo, f, dim, colore) {
 
 /* banda colorata a tutta larghezza */
 function banda(c, testo, colore, colTxt, centraTesto = true) {
+  testo = testoPdf(testo);
   c.serve(20);
   c.stato.pagina.drawRectangle({ x: SX, y: c.stato.y - 5, width: DX - SX, height: 16, color: colore });
   const f = c.bold;
@@ -126,7 +127,7 @@ function cornice(c, dataStampa) {
 }
 
 function spezza(c, testo, largo, f, dim) {
-  const parole = String(testo).split(/\s+/).filter(Boolean);
+  const parole = testoPdf(testo).split(/\s+/).filter(Boolean);
   const righe = [];
   let riga = '';
   for (const w of parole) {
@@ -157,7 +158,7 @@ function argomentiTrattati(c, corso, giornate, interventi) {
     c.serve(34);
     const y0 = c.stato.y;
     c.stato.pagina.drawText(`Dalle ${orario(it.dalle) || '—'}  Alle ${orario(it.alle) || '—'}`, { x: SX + 4, y: y0, size: 9, font: c.font, color: c.grigio });
-    c.stato.pagina.drawText(`${it.qualita === 'docente' ? 'Docente' : it.qualita.charAt(0).toUpperCase() + it.qualita.slice(1)}  ${it.nominativo}`, { x: SX + 130, y: y0, size: 9.5, font: c.bold, color: c.nero });
+    c.stato.pagina.drawText(testoPdf(`${it.qualita === 'docente' ? 'Docente' : it.qualita.charAt(0).toUpperCase() + it.qualita.slice(1)}  ${it.nominativo}`), { x: SX + 130, y: y0, size: 9.5, font: c.bold, color: c.nero });
     const cred = `Crediti formativi  ${it.crediti ?? 0}`;
     c.stato.pagina.drawText(cred, { x: DX - 6 - c.italic.widthOfTextAtSize(cred, 8.5), y: y0, size: 8.5, font: c.italic, color: c.grigio });
     c.stato.y -= 13;
@@ -327,8 +328,8 @@ export async function pdfRegistro(corso, giornate, interventi, iscritti, conf) {
     for (const it of interventi.filter((x) => x.giornata_id === g.id && ['docente', 'codocente', 'relatore'].includes(x.qualita))) {
       c.serve(40);
       const y0 = c.stato.y;
-      c.stato.pagina.drawText(`${it.nominativo}   ·   ${fascia(it.dalle, it.alle)}`, { x: SX, y: y0, size: 9.5, font: c.bold, color: c.nero });
-      c.stato.pagina.drawText(it.materia || '', { x: SX, y: y0 - 12, size: 8.5, font: c.italic, color: c.grigio });
+      c.stato.pagina.drawText(testoPdf(`${it.nominativo}   ·   ${fascia(it.dalle, it.alle)}`), { x: SX, y: y0, size: 9.5, font: c.bold, color: c.nero });
+      c.stato.pagina.drawText(testoPdf(it.materia || ''), { x: SX, y: y0 - 12, size: 8.5, font: c.italic, color: c.grigio });
       c.stato.pagina.drawText('Firma docente', { x: 380, y: y0, size: 7, font: c.font, color: c.grigio });
       c.stato.pagina.drawLine({ start: { x: 380, y: y0 - 14 }, end: { x: DX, y: y0 - 14 }, thickness: 0.7, color: c.grigio });
       c.stato.y -= 32;
@@ -359,10 +360,10 @@ export async function pdfRegistro(corso, giornate, interventi, iscritti, conf) {
         c.stato.pagina.drawRectangle({ x, y: y0 - 26, width: w, height: 26, borderWidth: 0.6, borderColor: c.grigio });
         if (i === 0) c.stato.pagina.drawText(vals[0], { x: x + 3, y: y0 - 16, size: 8, font: c.font, color: c.nero });
         if (i === 1) {
-          c.stato.pagina.drawText(p.nominativo.slice(0, 38), { x: x + 3, y: y0 - 11, size: 8, font: c.bold, color: c.nero });
-          if (p.cf) c.stato.pagina.drawText(p.cf, { x: x + 3, y: y0 - 21, size: 7, font: c.font, color: c.grigio });
+          c.stato.pagina.drawText(testoPdf(p.nominativo).slice(0, 38), { x: x + 3, y: y0 - 11, size: 8, font: c.bold, color: c.nero });
+          if (p.cf) c.stato.pagina.drawText(testoPdf(p.cf), { x: x + 3, y: y0 - 21, size: 7, font: c.font, color: c.grigio });
         }
-        if (i === 2) c.stato.pagina.drawText((p.impresa_txt || '').slice(0, 30), { x: x + 3, y: y0 - 16, size: 7.5, font: c.font, color: c.nero });
+        if (i === 2) c.stato.pagina.drawText(testoPdf(p.impresa_txt || '').slice(0, 30), { x: x + 3, y: y0 - 16, size: 7.5, font: c.font, color: c.nero });
         x += w;
       });
       c.stato.y -= 26;

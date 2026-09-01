@@ -57,8 +57,54 @@ export function apriDettaglioStorico(r) {
     ${campo('Corrispettivo', r.corrispettivo)}
     ${campo('Fattura', [r.da_fatturare ? 'da fatturare' : null, r.n_fatt].filter(Boolean).join(' — '))}
     ${campo('Pratica chiusa', r.pratica_chiusa)}
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button class="btn btn-ghost btn-sm" id="ss-stampa">🖨 Scheda in PDF</button>
+    </div>
     <p class="hint" style="margin-top:10px">Registro storico di Access: sola consultazione, non si modifica.
       L'ID ${r.id} è il numero della vecchia serie «richieste visite».</p>`);
+
+  $('#ss-stampa').addEventListener('click', async (ev) => {
+    ev.currentTarget.disabled = true;
+    try {
+      const byte = await pdfSchedaStorico(r);
+      const { scaricaPdf } = await import('./corsi-doc.js');
+      scaricaPdf(byte, `Storico_${r.id}_${String(r.tipologia || 'pratica').replace(/^Richiesta /, '').replace(/[^\w]+/g, '-').slice(0, 40)}.pdf`);
+    } finally { ev.currentTarget.disabled = false; }
+  });
+}
+
+/* la scheda stampabile di una pratica storica, su carta Formedil */
+export async function pdfSchedaStorico(r) {
+  const { apriCarta } = await import('./segnalazioni-doc.js');
+  const c = await apriCarta();
+  c.scrivi(`Pratica storica n° ${r.id}`, c.bold, 14, c.arancio);
+  c.scrivi(r.tipologia || '', c.bold, 10.5, c.nero);
+  c.scrivi('Registro richieste/servizi Access (VisiteCassaEdile) — ristampa di consultazione', c.italic, 8, c.grigio);
+  c.stato.y -= 8;
+  c.campo('Data richiesta', r.data_richiesta ? dataIt(r.data_richiesta) : null);
+  c.campo('Mezzo', r.mezzo);
+  c.campo('Richiedente', r.richiedente);
+  c.campo('Impresa', r.impresa);
+  c.campo('Cantiere', [r.cantiere, r.indirizzo_cantiere, r.comune_cantiere].filter(Boolean).join(' — '));
+  c.campo('Referente', [r.referente, r.cell_referente].filter(Boolean).join(' — '));
+  c.campo('Comunicazione', r.comunicazione);
+  c.campo('Oggetto', r.oggetto);
+  c.stato.y -= 6;
+  c.campo('Approvata', r.approvato);
+  c.campo('Data risposta', r.data_risposta ? dataIt(r.data_risposta) : null);
+  c.campo('Tecnico', r.tecnico);
+  c.campo('Verbale visita', [r.verbale_visita, r.data_verbale ? `del ${dataIt(r.data_verbale)}` : null].filter(Boolean).join(' '));
+  c.campo('Verbale comunicato il', r.data_com_verbale ? dataIt(r.data_com_verbale) : null);
+  c.campo('Valutazione', r.valutazione);
+  c.campo('Note del tecnico', r.note_tecnico);
+  c.campo('Note', r.note);
+  c.campo('Ore', r.ore);
+  c.campo('Corrispettivo', r.corrispettivo);
+  c.campo('Fattura', [r.da_fatturare ? 'da fatturare' : null, r.n_fatt].filter(Boolean).join(' — '));
+  c.campo('Pratica chiusa', r.pratica_chiusa);
+  c.stato.y -= 10;
+  c.scrivi(`L'ID ${r.id} è il numero della vecchia serie «richieste visite», chiusa col registro unico dal 1/10/2026. Stampata il ${dataIt(new Date().toISOString().slice(0, 10))}.`, c.font, 7.5, c.grigio);
+  return new Uint8Array(await c.doc.save());
 }
 
 /* righe 📜 da accodare a «Chiuse» nelle viste: colspan tarato sul

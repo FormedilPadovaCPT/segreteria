@@ -202,23 +202,21 @@ export async function render() {
     tr.addEventListener('click', () => apriPratica(Number(tr.dataset.id))));
 }
 
-/* lo storico Access: sola consultazione, con ricerca */
+/* lo storico Access: sola consultazione, con ricerca. Qui sotto
+   Segnalazioni si vedono LE SEGNALAZIONI storiche; le altre famiglie
+   stanno nelle loro viste (interruttore «tutte» per il registro intero). */
+let storicoTutte = false;
 async function renderStorico(host) {
   if (!storico) {
-    /* a blocchi: 1.078 righe contro il tetto di 1.000 per chiamata */
-    storico = [];
-    for (let da = 0; ; da += 1000) {
-      const { data } = await sb.from('s_servizi_storico').select('*')
-        .order('id', { ascending: false }).range(da, da + 999);
-      storico.push(...(data || []));
-      if (!data || data.length < 1000) break;
-    }
+    const { caricaStorico } = await import('./servizi-storico.js');
+    storico = await caricaStorico();
   }
+  const base = storicoTutte ? storico : storico.filter((r) => /segnalazion/i.test(r.tipologia || ''));
   const q = cercaStorico.toLowerCase();
   const filtrate = q
-    ? storico.filter((r) => [r.richiedente, r.impresa, r.comune_cantiere, r.tipologia, r.tecnico, r.comunicazione, String(r.id)]
+    ? base.filter((r) => [r.richiedente, r.impresa, r.comune_cantiere, r.tipologia, r.tecnico, r.comunicazione, String(r.id)]
         .some((v) => (v || '').toLowerCase().includes(q)))
-    : storico;
+    : base;
   const MOSTRA = 150;
   const righe = filtrate.slice(0, MOSTRA).map((r) => `<tr data-sid="${r.id}">
     <td>${r.id}</td>
@@ -237,8 +235,12 @@ async function renderStorico(host) {
         ${[['aperte', 'Da lavorare'], ['autorizzare', '⏳ Da autorizzare'], ['tutte', 'Tutte'], ['chiuse', 'Chiuse'], ['storico', '📜 Storico Access']].map(([v, l]) =>
           `<button class="seg-btn ${filtro === v ? 'is-active' : ''}" data-val="${v}">${l}</button>`).join('')}
       </div>
-      <input id="sg-cerca" class="inp" type="search" style="max-width:340px"
-        placeholder="Cerca in richiedente, impresa, comune, tecnico…" value="${esc(cercaStorico)}">
+      <div style="display:flex;gap:10px;align-items:center">
+        <label class="hint" style="display:flex;align-items:center;gap:4px;white-space:nowrap">
+          <input type="checkbox" id="sg-tutte" ${storicoTutte ? 'checked' : ''}> tutte le tipologie</label>
+        <input id="sg-cerca" class="inp" type="search" style="max-width:340px"
+          placeholder="Cerca in richiedente, impresa, comune, tecnico…" value="${esc(cercaStorico)}">
+      </div>
     </div>
     <div class="table-wrap">
       <table class="tbl">
@@ -247,8 +249,9 @@ async function renderStorico(host) {
       </table>
     </div>
     <p class="hint" style="margin-top:10px">
-      Registro richieste/servizi di Access (VisiteCassaEdile), 2011-2026: ${storico.length} pratiche di tutte le
-      tipologie, ${filtrate.length} con questa ricerca${filtrate.length > MOSTRA ? ` (mostrate le prime ${MOSTRA})` : ''}.
+      Registro richieste/servizi di Access (VisiteCassaEdile), 2011-2026:
+      ${storicoTutte ? `${base.length} pratiche di tutte le tipologie` : `${base.length} segnalazioni storiche (le altre famiglie stanno nelle loro viste — spunta «tutte le tipologie» per il registro intero)`},
+      ${filtrate.length} con questa ricerca${filtrate.length > MOSTRA ? ` (mostrate le prime ${MOSTRA})` : ''}.
       L'ID è il numero della vecchia serie «richieste visite», chiusa col registro unico dal 1/10/2026.
     </p>`;
 
@@ -256,9 +259,13 @@ async function renderStorico(host) {
     const b = e.target.closest('[data-val]');
     if (b) { filtro = b.dataset.val; render(); }
   });
+  $('#sg-tutte').addEventListener('change', (e) => { storicoTutte = e.target.checked; renderStorico(host); });
   $('#sg-cerca').addEventListener('input', (e) => { cercaStorico = e.target.value; renderStorico(host); });
   host.querySelectorAll('tbody tr[data-sid]').forEach((tr) =>
-    tr.addEventListener('click', () => apriStorico(Number(tr.dataset.sid))));
+    tr.addEventListener('click', async () => {
+      const { apriDettaglioStorico } = await import('./servizi-storico.js');
+      apriDettaglioStorico(storico.find((x) => x.id === Number(tr.dataset.sid)));
+    }));
 }
 
 function apriStorico(id) {
