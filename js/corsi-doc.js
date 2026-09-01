@@ -24,6 +24,26 @@
 
 import { apriCarta } from './segnalazioni-doc.js';
 import { dataIt } from './comune.js';
+import { qrGen } from './cdn.js';
+
+/* QR a vettore, come il timbro (nitido in stampa, niente bitmap) */
+function disegnaQr(c, qrcode, testo, x, y, lato) {
+  const qr = qrcode(0, 'M');
+  qr.addData(testo);
+  qr.make();
+  const n = qr.getModuleCount();
+  const passo = lato / n;
+  c.stato.pagina.drawRectangle({ x, y, width: lato, height: lato, color: c.bianco });
+  for (let r = 0; r < n; r++) {
+    for (let col = 0; col < n; col++) {
+      if (!qr.isDark(r, col)) continue;
+      c.stato.pagina.drawRectangle({
+        x: x + col * passo, y: y + lato - (r + 1) * passo,
+        width: passo + 0.2, height: passo + 0.2, color: c.nero,
+      });
+    }
+  }
+}
 
 const SX = 57;
 const DX = 538;
@@ -227,8 +247,8 @@ export async function pdfAttestato(corso, iscritto, anagrafica, giornate, interv
   tabella(c, righeCorsista);
   c.stato.y -= 22;
 
-  /* ── firma centrata in basso, come il modello ── */
-  c.serve(110);
+  /* ── firma centrata in basso; a sinistra il QR di verifica ── */
+  c.serve(150);
   const centro = SX + (DX - SX) / 2;
   const yF = c.stato.y;
   const t1 = 'Timbro e firma del responsabile del corso';
@@ -246,7 +266,19 @@ export async function pdfAttestato(corso, iscritto, anagrafica, giornate, interv
   pg().drawText(`Rilasciato a Padova il ${dataIt(ctx.dataRilascio) || dataIt(new Date().toISOString().slice(0, 10))}`,
     { x: SX, y: yF - 14, size: 9, font: c.font, color: c.nero });
   pg().drawText('Verifica integrità documento', { x: SX, y: yF - 28, size: 7.5, font: c.font, color: c.grigio });
-  pg().drawText(nTxt, { x: SX, y: yF - 38, size: 8, font: c.bold, color: c.nero });
+  /* il QR di verifica del modello storico: numero, corsista, corso */
+  try {
+    const qrcode = await qrGen();
+    const testoQr = [
+      'FORMEDIL PADOVA', nTxt, iscritto.nominativo, iscritto.cf ? `CF ${iscritto.cf}` : null,
+      `Corso ${corso.id} — ${String(corso.titolo).slice(0, 60)}`,
+      dataIt(ctx.dataRilascio) || '',
+    ].filter(Boolean).join(' | ');
+    disegnaQr(c, qrcode, testoQr, SX, yF - 86, 50);
+    pg().drawText(nTxt, { x: SX, y: yF - 97, size: 8, font: c.bold, color: c.nero });
+  } catch {
+    pg().drawText(nTxt, { x: SX, y: yF - 38, size: 8, font: c.bold, color: c.nero });
+  }
 
   argomentiTrattati(c, corso, giornate, interventi);
   cornice(c, ctx.dataRilascio || new Date().toISOString().slice(0, 10));
