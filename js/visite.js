@@ -111,6 +111,15 @@ export async function render() {
   host.innerHTML = '<p class="empty">Un istante…</p>';
   await carica();
 
+  /* sotto «Chiuse» compaiono anche le storiche di Access, marcate 📜 */
+  let storicoDati = [];
+  let storicoRighe = '';
+  if (filtro === 'chiuse') {
+    const { caricaStorico, righeStorico } = await import('./servizi-storico.js');
+    storicoDati = (await caricaStorico()).filter((r) => /visit/i.test(r.tipologia || ''));
+    storicoRighe = righeStorico(storicoDati, 9);
+  }
+
   const aperte = pratiche.filter((p) => !['chiusa', 'scartata'].includes(p.stato));
   const daAutorizzare = aperte.filter((p) => ['da_richiedere', 'richiesta'].includes(p.aut_stato));
   const daEseguire = aperte.filter((p) => p.aut_stato === 'approvata' && !['eseguita'].includes(p.stato));
@@ -161,7 +170,7 @@ export async function render() {
     <div class="table-wrap">
       <table class="tbl">
         <thead><tr><th>N°</th><th>Data</th><th>Impresa</th><th>Cantiere</th><th>CEIV</th><th>Autorizzazione</th><th>Tecnico</th><th>Protocollo</th><th>Stato</th></tr></thead>
-        <tbody>${righe || '<tr><td colspan="9" class="empty">Nessuna richiesta con questo filtro.</td></tr>'}</tbody>
+        <tbody>${(righe + storicoRighe) || '<tr><td colspan="9" class="empty">Nessuna richiesta con questo filtro.</td></tr>'}</tbody>
       </table>
     </div>
     <p class="hint" style="margin-top:10px">
@@ -191,6 +200,10 @@ export async function render() {
   });
   host.querySelectorAll('tbody tr[data-id]').forEach((tr) =>
     tr.addEventListener('click', () => apriPratica(Number(tr.dataset.id))));
+  if (storicoDati.length) {
+    const { collegaRigheStorico } = await import('./servizi-storico.js');
+    collegaRigheStorico(host, storicoDati);
+  }
 }
 
 /* ══════════ inserimento manuale ══════════ */
