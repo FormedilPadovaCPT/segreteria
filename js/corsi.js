@@ -19,7 +19,9 @@
       va SOLO sui corsi riconosciuti (riconosciuto_regione).
    ============================================================ */
 
-import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer } from './core.js';
+import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo } from './core.js';
+import { risolviCartella, caricaByte, leggiByte } from './drive.js';
+import { scaricaEml, FIRMA_SEGRETERIA } from './eml.js';
 
 let corsi = [];
 let progetti = [];
@@ -48,7 +50,7 @@ async function carica() {
     sb.from('s_corsi').select('*').order('id', { ascending: false }),
     sb.from('s_progetti_formativi').select('*').order('id', { ascending: false }),
     sb.from('s_config').select('chiave, valore').in('chiave',
-      ['responsabile_formativo_nome', 'responsabile_formativo_firma_id', 'presidente_nome', 'docenza_tariffa_default']),
+      ['responsabile_formativo_nome', 'responsabile_formativo_firma_id', 'presidente_nome', 'presidente_firma_id', 'docenza_tariffa_default']),
     sb.from('s_corsi_iscritti').select('corso_id, attestato_numero'),
   ]);
   corsi = c || [];
@@ -182,6 +184,7 @@ function formCorso(c, prefill = {}) {
   $('#fc-salva').addEventListener('click', async (ev) => {
     const titolo = $('#fc-titolo').value.trim();
     if (!titolo) return toast('Serve il titolo.', 'err');
+    if (!c && !$('#fc-inizio').value) return toast('Serve la data di inizio: un corso ha sempre almeno una giornata.', 'err');
     attendi(ev.currentTarget, true);
     const dati = {
       titolo,
@@ -305,7 +308,7 @@ export async function apriCorso(id) {
         ? ` <span class="dt-cella ${okFreq ? 'dt-ok' : 'dt-scaduto'}" style="padding:1px 6px">${Math.round(i.perc_frequenza)}%</span>` : ''}</td>
       <td>${esc(i.valutazione || '—')}</td>
       <td>${i.attestato_numero ? esc(i.attestato_numero) : '—'}</td>
-      <td style="white-space:nowrap"><a href="#" data-pres="${i.id}">presenze</a> · <a href="#" data-mod-iscr="${i.id}">modifica</a> · <a href="#" data-del-iscr="${i.id}">togli</a></td>
+      <td style="white-space:nowrap"><a href="#" data-pres="${i.id}">presenze</a> · <a href="#" data-mod-iscr="${i.id}">modifica</a>${i.attestato_numero ? ` · <a href="#" data-rist="${i.id}" title="Ristampa l'attestato col suo numero (storico compreso), sul modello standard">🖨 attestato</a>` : ''} · <a href="#" data-del-iscr="${i.id}">togli</a></td>
     </tr>`;
   };
 
@@ -314,8 +317,8 @@ export async function apriCorso(id) {
     <td>${k.ore ?? '—'}</td>
     <td>${k.tariffa_oraria != null ? `€ ${k.tariffa_oraria}` : '—'}</td>
     <td>${k.corrispettivo != null ? `€ ${k.corrispettivo}` : '—'}</td>
-    <td>${k.data_incarico ? dataIt(k.data_incarico) : '—'}</td>
-    <td style="white-space:nowrap"><a href="#" data-del-inc="${k.id}">elimina</a></td>
+    <td>${k.protocollo_out_id ? '✓ prot.' : (k.data_incarico ? dataIt(k.data_incarico) : '—')}</td>
+    <td style="white-space:nowrap"><a href="#" data-lett-inc="${k.id}">📄 lettera</a> · <a href="#" data-del-inc="${k.id}">elimina</a></td>
   </tr>`;
 
   apriDrawer(`${TIPI[c.tipo] || 'Corso'} n° ${c.id} — ${c.titolo}`, '', `
@@ -373,9 +376,19 @@ export async function apriCorso(id) {
       <button class="btn btn-ghost btn-sm" id="co-addiscr">+ Iscrivi dall'anagrafica</button>
       <button class="btn btn-ghost btn-sm" id="co-calcola">🧮 Calcola frequenze dalle presenze</button>
     </div>
+
+    <hr style="margin:12px 0;border:0;border-top:1px solid var(--bordo)">
+    <h4 style="margin:0 0 6px">📄 Documenti del corso</h4>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-ghost btn-sm" id="co-registro">📋 Registro presenze (PDF)</button>
+      ${c.rilascio_attestato ? `<button class="btn btn-primary btn-sm" id="co-attestati">🎓 Genera attestati (serie N/${(c.data_fine || c.data_inizio || oggiIso()).slice(0, 4)})</button>` : ''}
+    </div>
     <p class="hint" style="margin-top:8px">L'impresa dell'iscritto è uno <strong>snapshot al momento del corso</strong>,
       proposta dal rapporto attivo in anagrafica: se la persona cambia datore dopo, l'attestato resta giusto.
-      Registro, lettere di incarico e attestati in PDF arrivano con il prossimo passo di sviluppo.</p>
+      Gli attestati prendono la <strong>serie dedicata N/anno</strong>, finiscono in
+      <code>2_AREE/Formazione/attestati_emessi/&lt;anno&gt;/</code> su Drive e il numero resta sulla riga dell'iscritto.
+      ${c.riconosciuto_regione ? 'Corso riconosciuto: il logo Regione va sull\'attestato (img/logo-regione.png).' : 'Il logo Regione NON va su questo attestato (corso non riconosciuto).'}
+      La lettera di incarico si genera dalla riga dell'incarico (protocollo OUT nel registro unico).</p>
   `);
 
   /* ── eventi ── */
@@ -438,6 +451,11 @@ export async function apriCorso(id) {
     const i = (iscritti || []).find((x) => x.id === Number(a.dataset.pres));
     formPresenze(c, i, giornate || [], pres.filter((r) => r.iscritto_id === i.id));
   }));
+  $('#drawer-body').querySelectorAll('[data-rist]').forEach((a) => a.addEventListener('click', async (e) => {
+    e.preventDefault();
+    const i = (iscritti || []).find((x) => x.id === Number(a.dataset.rist));
+    if (i) await ristampaAttestato(c, i, giornate || [], interventi || []);
+  }));
 
   $('#co-calcola').addEventListener('click', async (ev) => {
     attendi(ev.currentTarget, true, 'Calcolo…');
@@ -446,6 +464,215 @@ export async function apriCorso(id) {
     toast('Frequenze ricalcolate.', 'ok');
     apriCorso(c.id);
   });
+
+  $('#co-registro').addEventListener('click', async (ev) => {
+    if (!(giornate || []).length) return toast('Un corso ha sempre almeno una giornata: aggiungila prima del registro.', 'err');
+    attendi(ev.currentTarget, true, 'Genero…');
+    try {
+      const { pdfRegistro, scaricaPdf } = await import('./corsi-doc.js');
+      const byte = await pdfRegistro(c, giornate || [], interventi || [], iscritti || [], conf);
+      scaricaPdf(byte, `${(c.data_inizio || oggiIso()).replace(/-/g, '')}_Registro_corso-${c.id}.pdf`);
+      toast('Registro scaricato: stamparlo per le firme in aula/cantiere.', 'ok');
+    } catch (e) { toast(e.message, 'err'); }
+    attendi(ev.currentTarget, false);
+  });
+  $('#co-attestati')?.addEventListener('click', (ev) =>
+    generaAttestati(c, giornate || [], interventi || [], iscritti || [], ev.currentTarget));
+  $('#drawer-body').querySelectorAll('[data-lett-inc]').forEach((a) => a.addEventListener('click', (e) => {
+    e.preventDefault();
+    const k = (incarichi || []).find((x) => x.id === Number(a.dataset.lettInc));
+    if (k) letteraIncarico(c, k, interventi || [], giornate || []);
+  }));
+}
+
+/* ── ATTESTATI: serie N/aaaa + PDF + deposito su Drive ──
+   Prende gli iscritti PRESENTI dei corsi con rilascio: chi non ha
+   ancora un numero lo riceve (progressivo dell'anno), chi ha già
+   un numero della serie nuova ma non il PDF viene rigenerato.
+   Gli attestati storici (numero senza /) non si toccano. */
+async function generaAttestati(c, giornate, interventi, iscritti, btn) {
+  if (!giornate.length) return toast('Un corso ha sempre almeno una giornata: aggiungila prima degli attestati.', 'err');
+  const anno = (c.data_fine || c.data_inizio || oggiIso()).slice(0, 4);
+  const candidati = iscritti.filter((i) =>
+    ['presente', 'presente_online'].includes(i.esito) && i.ammesso !== false &&
+    (!i.attestato_numero || (i.attestato_numero.includes('/') && !i.attestato_drive_id)));
+  if (!candidati.length) return toast('Nessun iscritto da attestare (servono presenti senza attestato).', 'err');
+  if (!confirm(`Genero ${candidati.length} attestati (serie N/${anno}, tipo «${TIPI_ATT[c.tipo_attestato]}»), li deposito su Drive in attestati_emessi/${anno} e scrivo i numeri sulle righe. Procedo?`)) return;
+  attendi(btn, true, 'Genero…');
+  try {
+    const { pdfAttestato, scaricaPdf } = await import('./corsi-doc.js');
+
+    /* firma del responsabile + logo Regione (solo riconosciuti) */
+    let firmaByte = null;
+    if (conf.responsabile_formativo_firma_id) {
+      try { firmaByte = await leggiByte(conf.responsabile_formativo_firma_id); } catch { /* senza firma */ }
+    }
+    let logoRegioneByte = null;
+    if (c.riconosciuto_regione) {
+      try { logoRegioneByte = new Uint8Array(await (await fetch('img/logo-regione.png')).arrayBuffer()); }
+      catch { toast('img/logo-regione.png non trovato: attestati senza logo Regione.', 'err'); }
+    }
+
+    /* progressivo dell'anno sulla serie nuova */
+    const { data: numeri } = await sb.from('s_corsi_iscritti')
+      .select('attestato_numero').like('attestato_numero', `%/${anno}`);
+    let prossimo = Math.max(0, ...(numeri || [])
+      .map((r) => Number((r.attestato_numero || '').split('/')[0]))
+      .filter((n) => Number.isFinite(n))) + 1;
+
+    /* anagrafiche per luogo/data di nascita */
+    const ids = [...new Set(candidati.map((i) => i.persona_id).filter(Boolean))];
+    const anag = {};
+    if (ids.length) {
+      const { data } = await sb.from('persone')
+        .select('persona_id, comune_nascita, data_nascita').in('persona_id', ids);
+      for (const p of data || []) anag[p.persona_id] = { nato_luogo: p.comune_nascita, nato_il: p.data_nascita };
+    }
+
+    const cart = await risolviCartella(`2_AREE/Formazione/attestati_emessi/${anno}`);
+    const oggi = oggiIso();
+    let fatti = 0;
+    for (const i of candidati) {
+      const numero = i.attestato_numero?.includes('/') ? i.attestato_numero : `${prossimo++}/${anno}`;
+      const byte = await pdfAttestato(c, i, anag[i.persona_id], giornate, interventi, {
+        numero, firmaByte, firmaNome: c.responsabile_formativo || conf.responsabile_formativo_nome,
+        logoRegioneByte, loghiExtra: [], dataRilascio: oggi,
+      });
+      const nome = `${(c.data_fine || c.data_inizio || oggi)}_Attestato_${i.nominativo}${i.cf ? `_${i.cf}` : ''}_Prot_${numero.replace('/', '-')}.pdf`;
+      const agg = { attestato_numero: numero, attestato_data: oggi, updated_at: new Date().toISOString() };
+      if (cart.id) {
+        const { data: su, error: errUp } = await sb.functions.invoke('allegati-protocollo', {
+          body: { action: 'upload', filename: nome, mime_type: 'application/pdf',
+            base64: btoa(Array.from(byte, (b) => String.fromCharCode(b)).join('')), parent_id: cart.id },
+        });
+        if (errUp || su?.error) throw new Error('Deposito su Drive non riuscito: ' + (su?.error || errUp.message));
+        agg.attestato_drive_id = su.drive_file_id;
+        agg.attestato_drive_url = su.drive_url;
+      } else {
+        scaricaPdf(byte, nome);   /* cartella dell'anno non ancora su Drive: almeno in locale */
+      }
+      const { error } = await sb.from('s_corsi_iscritti').update(agg).eq('id', i.id);
+      if (error) throw new Error(error.message);
+      fatti += 1;
+    }
+    toast(`${fatti} attestati generati${cart.id ? ` e depositati in attestati_emessi/${anno}` : ' (scaricati in locale: crea la cartella dell\'anno su Drive)'}.`, 'ok');
+    await render();
+    apriCorso(c.id);
+  } catch (e) {
+    toast(e.message, 'err');
+  } finally {
+    attendi(btn, false);
+  }
+}
+
+/* ── RISTAMPA di un attestato già numerato (storico compreso):
+      stesso modello standard, il numero resta quello suo — per lo
+      storico è il «Prot.» dell'Access. Solo scarico locale, non
+      tocca Drive né la riga. ── */
+async function ristampaAttestato(c, i, giornate, interventi) {
+  try {
+    const { pdfAttestato, scaricaPdf } = await import('./corsi-doc.js');
+    let firmaByte = null;
+    if (conf.responsabile_formativo_firma_id) {
+      try { firmaByte = await leggiByte(conf.responsabile_formativo_firma_id); } catch { /* senza firma */ }
+    }
+    let logoRegioneByte = null;
+    if (c.riconosciuto_regione) {
+      try { logoRegioneByte = new Uint8Array(await (await fetch('img/logo-regione.png')).arrayBuffer()); } catch { /* senza logo */ }
+    }
+    let anagrafica = null;
+    if (i.persona_id) {
+      const { data: p } = await sb.from('persone')
+        .select('comune_nascita, data_nascita').eq('persona_id', i.persona_id).maybeSingle();
+      if (p) anagrafica = { nato_luogo: p.comune_nascita, nato_il: p.data_nascita };
+    }
+    const byte = await pdfAttestato(c, i, anagrafica, giornate, interventi, {
+      numero: i.attestato_numero,
+      firmaByte, firmaNome: c.responsabile_formativo || conf.responsabile_formativo_nome,
+      logoRegioneByte, loghiExtra: [],
+      dataRilascio: i.attestato_data || c.data_fine || c.data_inizio,
+    });
+    const numeroFile = String(i.attestato_numero).replace('/', '-');
+    scaricaPdf(byte, `${(c.data_fine || c.data_inizio || oggiIso())}_Attestato_${i.nominativo}${i.cf ? `_${i.cf}` : ''}_Prot_${numeroFile}.pdf`);
+    toast(`Attestato ${i.attestato_numero} ristampato (modello standard).`, 'ok');
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+/* ── LETTERA DI INCARICO: protocollo OUT + PDF + bozza .eml ── */
+async function letteraIncarico(c, k, interventi, giornate) {
+  if (!confirm(`Genero la lettera di incarico per ${k.nominativo} (${k.ore ?? '?'} ore a € ${k.tariffa_oraria ?? '?'}/h), protocollata in uscita nel registro unico. Procedo?`)) return;
+  try {
+    const giornataDi = Object.fromEntries(giornate.map((g) => [g.id, g.data]));
+    const miei = interventi
+      .filter((x) => (k.persona_id && x.persona_id === k.persona_id) || x.nominativo === k.nominativo)
+      .map((x) => ({ ...x, giornata_data: giornataDi[x.giornata_id] || null }));
+
+    const { data: nuovo, error: errProt } = await sb.rpc('s_crea_protocollo', { p: {
+      direzione: 'OUT',
+      data_prot: oggiIso(),
+      data_doc: k.data_incarico || oggiIso(),
+      persona: k.nominativo,
+      oggetto: `Lettera di incarico per attività di docenza — ${c.titolo}`,
+      sintesi: `Incarico docenza corso n° ${c.id} (${TIPI[c.tipo] || c.tipo}): ${k.ore ?? '?'} ore a € ${k.tariffa_oraria ?? '?'}/h${k.corrispettivo ? `, corrispettivo € ${k.corrispettivo}` : ''}.`,
+      ufficio: 'Segreteria Area Sicurezza e Salute',
+      mezzo: 'e-mail',
+      tipo_doc_txt: 'Lettera di incarico docenza',
+      cartella: `2_AREE/Formazione`,
+    } });
+    if (errProt) throw new Error('Protocollazione non riuscita: ' + errProt.message);
+
+    let firmaByte = null;
+    if (conf.presidente_firma_id) {
+      try { firmaByte = await leggiByte(conf.presidente_firma_id); } catch { /* firma a mano */ }
+    }
+    let anagDoc = null;
+    let emailDoc = '';
+    if (k.persona_id) {
+      const { data: p } = await sb.from('persone')
+        .select('comune_nascita, data_nascita, cf, email').eq('persona_id', k.persona_id).maybeSingle();
+      if (p) { anagDoc = { nato_luogo: p.comune_nascita, nato_il: p.data_nascita, cf: p.cf }; emailDoc = p.email || ''; }
+    }
+
+    const { pdfLetteraIncarico, scaricaPdf } = await import('./corsi-doc.js');
+    const byte = await pdfLetteraIncarico(c, k, miei, conf, codiceProtocollo(nuovo), firmaByte, anagDoc);
+    const nome = `${oggiIso().replace(/-/g, '_')}_INC_${k.nominativo}_docenza-corso-${c.id}.pdf`;
+    scaricaPdf(byte, nome);
+
+    /* deposito su Drive nella cartella del protocollo + aggancio */
+    try {
+      const cart = await risolviCartella('2_AREE/Formazione');
+      if (cart.id) {
+        const su = await caricaByte(nuovo, nome, byte, 'application/pdf', cart.id);
+        await sb.from('s_prot_allegati').insert({
+          protocollo_id: nuovo.id, nome: su.file_name || nome, mime: 'application/pdf',
+          dimensione: byte.length, principale: true, created_by: state.email,
+          drive_file_id: su.drive_file_id, drive_url: su.drive_url,
+        });
+      }
+    } catch { /* il PDF locale c'è comunque */ }
+
+    await sb.from('s_corsi_incarichi').update({
+      protocollo_out_id: nuovo.id, data_incarico: k.data_incarico || oggiIso(),
+    }).eq('id', k.id);
+
+    scaricaEml({
+      to: emailDoc,
+      oggetto: `Formedil Padova - Area Sicurezza e Salute - Lettera di incarico docenza ${codiceProtocollo(nuovo)} - ${c.titolo}`,
+      corpo: `Egr. ${k.nominativo},
+
+in allegato la lettera di incarico per l'attività di docenza in oggetto (${k.ore ?? '?'} ore). La preghiamo di restituirla firmata per accettazione.
+
+Distinti saluti.
+
+${FIRMA_SEGRETERIA}`,
+      allegati: [{ nome, byte }],
+      nomeFile: `incarico-docenza-corso-${c.id}-${k.id}.eml`,
+    });
+    toast(`Lettera protocollata ${codiceProtocollo(nuovo)}: PDF e bozza mail scaricati.`, 'ok');
+    apriCorso(c.id);
+  } catch (e) {
+    toast(e.message, 'err');
+  }
 }
 
 /* ── giornata ── */

@@ -35,8 +35,9 @@ const A4 = [595.28, 841.89];
 const SX = 57;
 const DX = 538;
 
-/* Carta intestata + scrittura con cambio pagina automatico. */
-async function apriCarta() {
+/* Carta intestata + scrittura con cambio pagina automatico.
+   Esportata: la riusa anche corsi-doc.js (attestati, registro, incarichi). */
+export async function apriCarta() {
   const { PDFDocument, StandardFonts, rgb } = await pdfLib();
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
