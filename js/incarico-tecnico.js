@@ -22,9 +22,15 @@ export async function creaIncaricoDaPratica({ tabella, pratica, tipologia, tecni
   if (!tecnicoEmail) { toast('Incarico non creato: manca il tecnico assegnato.', 'err'); return null; }
   if (pratica.incarico_id) return pratica.incarico_id;   /* già creato */
 
-  /* prosegue il contatore interno (max + 1) */
-  const { data: ultimo } = await sb.from('incarichi').select('id').order('id', { ascending: false }).limit(1);
-  const nuovoId = ((ultimo?.[0]?.id) || 0) + 1;
+  /* prosegue il contatore interno (max + 1) guardando ANCHE il
+     registro storico: la serie vecchia arriva a numeri che in
+     `incarichi` non ci sono (il 1082 di ARIANNA sta solo in
+     s_servizi_storico — collisione trovata il 01/09/2026) */
+  const [{ data: u1 }, { data: u2 }] = await Promise.all([
+    sb.from('incarichi').select('id').order('id', { ascending: false }).limit(1),
+    sb.from('s_servizi_storico').select('id').order('id', { ascending: false }).limit(1),
+  ]);
+  const nuovoId = Math.max((u1?.[0]?.id) || 0, (u2?.[0]?.id) || 0) + 1;
 
   const { error } = await sb.from('incarichi').insert({
     id: nuovoId,
