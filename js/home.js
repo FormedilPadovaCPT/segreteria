@@ -43,6 +43,25 @@ export async function render() {
     sb.from('s_protocollo').select('*').order('id', { ascending: false }).limit(6),
     sb.from('tecnici').select('tecnico_id').eq('attivo', true),
   ]);
+
+  /* le visite ESEGUITE dai tecnici (gestionale): la chiusura arriva qui,
+     poi la segreteria decide se e a chi comunicare (deciso 01/09/2026) */
+  let eseguiti = [];
+  const praticaDi = {};
+  try {
+    const { data } = await sb.from('incarichi')
+      .select('id, tipo_richiesta, impresa, comune, tecnico_nome, visita_id, eseguito_il, data_richiesta')
+      .eq('stato', 'eseguito').order('eseguito_il', { ascending: false }).limit(30);
+    eseguiti = data || [];
+    const ids = eseguiti.map((r) => r.id);
+    if (ids.length) {
+      for (const [tab, vista] of [['s_segnalazioni', 'segnalazioni'], ['s_visite_richieste', 'visite'],
+        ['s_conferenze_cantiere', 'conferenze'], ['s_consulenze', 'consulenze']]) {
+        const { data: pr } = await sb.from(tab).select('id, incarico_id').in('incarico_id', ids);
+        for (const r of pr || []) praticaDi[r.incarico_id] = { vista, id: r.id };
+      }
+    }
+  } catch { /* senza accesso agli incarichi la card resta vuota */ }
   /* contano solo i documenti dei tecnici ATTIVI: gli altri sono storia */
   const attivi = new Set((tecAttivi || []).map((t) => t.tecnico_id));
   const docTec = (docTecTutti || []).filter((d) => attivi.has(d.tecnico_id));
@@ -118,6 +137,16 @@ export async function render() {
               <span class="hint">${esc(p.stato)}${['da_richiedere', 'richiesta'].includes(p.aut_stato) ? ' · dal Direttore' : ''}</span></div>`).join('')
           : '<p class="hint">Nessuna segnalazione aperta.</p>',
         vai('segnalazioni', 'Apri le segnalazioni'))}
+
+      ${card('🔧 Visite eseguite dai tecnici', eseguiti.length,
+        eseguiti.length
+          ? eseguiti.slice(0, 6).map((r) => {
+              const pr = praticaDi[r.id];
+              return `<div class="hm-riga" ${pr ? `data-vista="${pr.vista}" data-id="${pr.id}"` : 'data-goto="visite"'}><span>🔧</span>
+                <span><strong>inc. ${r.id}</strong> — ${esc(r.impresa || r.comune || '?')}${r.visita_id ? ` · verbale ${esc(String(r.visita_id))}` : ''} <span class="hint">(${esc(r.tecnico_nome || '')})</span></span>
+                <span class="hint">${r.eseguito_il ? dataIt(String(r.eseguito_il).slice(0, 10)) : ''}</span></div>`;
+            }).join('') + '<p class="hint" style="margin-top:6px">Eseguite nel gestionale, in attesa della chiusura della segreteria — da qui si decide se e a chi comunicare l\'esito.</p>'
+          : '<p class="hint">Nessuna visita eseguita in attesa di chiusura.</p>')}
 
       ${card('🦺 Pratiche RLST aperte', (rlst || []).length,
         (rlst || []).length

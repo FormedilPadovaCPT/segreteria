@@ -394,6 +394,7 @@ export async function apriPratica(id) {
       ${p.aut_stato === 'approvata' ? `
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn btn-primary" id="vs-conferma">📧 Mail di conferma all'impresa</button>
+        ${!p.incarico_id ? `<button class="btn btn-ghost" id="vs-incarico">📌 Crea l'incarico al tecnico (gestionale)</button>` : `<span class="dt-cella dt-ok" style="padding:4px 10px">incarico n° ${p.incarico_id} nel gestionale</span>`}
       </div>` : ''}` : `
       <p class="hint" style="margin:0 0 10px">La visita richiesta da un'impresa comporta una spesa:
         non è lavorabile finché il Direttore non autorizza.</p>
@@ -443,6 +444,16 @@ export async function apriPratica(id) {
   $('#vs-respingi')?.addEventListener('click', (ev) => decidiDaApp(p, 'respinta', ev.currentTarget));
   $('#vs-cartacea')?.addEventListener('click', () => registraCartacea(p));
   $('#vs-conferma')?.addEventListener('click', () => mailConferma(p));
+  $('#vs-incarico')?.addEventListener('click', async (ev) => {
+    /* per le autorizzazioni registrate a posteriori, che non passano dal gancio automatico */
+    const email = $('#vs-tecnico')?.value || p.tecnico_assegnato || p.tecnico_proposto;
+    attendi(ev.currentTarget, true);
+    const { creaIncaricoDaPratica } = await import('./incarico-tecnico.js');
+    await creaIncaricoDaPratica({ tabella: 's_visite_richieste', pratica: p, ...campiIncarico(p, email) });
+    attendi(ev.currentTarget, false);
+    await render();
+    apriPratica(p.id);
+  });
   $('#vs-protin')?.addEventListener('click', () => protocollaIn(p));
 }
 
