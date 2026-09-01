@@ -122,7 +122,8 @@ export async function render() {
     <div class="table-wrap">
       <table class="tbl">
         <thead><tr><th>N°</th><th>Data</th><th>Cantiere</th><th>Committente</th><th>Inizio lavori</th><th>Tecnico</th><th>Protocollo</th><th>Stato</th></tr></thead>
-        <tbody>${righe || '<tr><td colspan="8" class="empty">Nessuna notifica con questo filtro.</td></tr>'}</tbody>
+        <tbody>${righe || `<tr><td colspan="8" class="empty">Nessuna notifica con questo filtro.${filtro !== 'chiuse' && pratiche.some((x) => ['chiusa', 'scartata'].includes(x.stato))
+          ? ` Le ${pratiche.filter((x) => ['chiusa', 'scartata'].includes(x.stato)).length} storiche (DNL comprese) sono sotto «Chiuse».` : ''}</td></tr>`}</tbody>
       </table>
     </div>
     <p class="hint" style="margin-top:10px">
