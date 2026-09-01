@@ -353,10 +353,11 @@ La preghiamo di trasmettere alla Segreteria copia dei documenti rinnovati (o le 
 Restiamo a disposizione per ogni chiarimento.`;
 }
 
-/* Niente allegati → mailto: Outlook si apre subito in composizione. */
+/* Bozza .eml come tutto il resto dell'app: il mailto: dipendeva dal
+   gestore di posta di Chrome e poteva non fare nulla, in silenzio. */
 async function scaricaAvviso(t, voci) {
-  const { apriMailto } = await import('./eml.js');
-  apriMailto({
+  const { scaricaEml } = await import('./eml.js');
+  scaricaEml({
     to: t.email || '',
     oggetto: 'Avviso scadenza documenti — ' + t.nome,
     corpo: `${testoAvviso(t, voci)}
@@ -365,6 +366,7 @@ La Segreteria — ${ENTE.area}
 ${ENTE.nome} — ${ENTE.sotto}
 ${ENTE.indirizzo} — tel. ${ENTE.tel}
 ${ENTE.email} — ${ENTE.web}`,
+    nomeFile: `avviso-scadenze-${(t.nome || 'tecnico').replace(/[^\w]+/g, '-')}.eml`,
   });
-  toast('Outlook si apre con l\'avviso: rileggi e premi Invia. Poi protocollalo in uscita.', 'ok');
+  toast('Bozza dell\'avviso scaricata: aprila (Outlook parte in composizione) e premi Invia. Poi protocollala in uscita.', 'ok');
 }
