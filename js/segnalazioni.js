@@ -205,8 +205,14 @@ export async function render() {
 /* lo storico Access: sola consultazione, con ricerca */
 async function renderStorico(host) {
   if (!storico) {
-    const { data } = await sb.from('s_servizi_storico').select('*').order('id', { ascending: false });
-    storico = data || [];
+    /* a blocchi: 1.078 righe contro il tetto di 1.000 per chiamata */
+    storico = [];
+    for (let da = 0; ; da += 1000) {
+      const { data } = await sb.from('s_servizi_storico').select('*')
+        .order('id', { ascending: false }).range(da, da + 999);
+      storico.push(...(data || []));
+      if (!data || data.length < 1000) break;
+    }
   }
   const q = cercaStorico.toLowerCase();
   const filtrate = q

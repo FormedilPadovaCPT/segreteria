@@ -123,6 +123,7 @@ export async function render() {
           `<button class="seg-btn ${filtro === v ? 'is-active' : ''}" data-val="${v}">${l}</button>`).join('')}
       </div>
       <div style="display:flex;gap:6px">
+        <button class="btn btn-ghost btn-sm" id="cf-storico">📜 Storico Access</button>
         <button class="btn btn-ghost btn-sm" id="cf-importa">⟳ Importa adesso dal foglio</button>
         <button class="btn btn-primary btn-sm" id="cf-nuova">+ Nuova richiesta</button>
       </div>
@@ -152,6 +153,11 @@ export async function render() {
     if (n) render();
   });
   $('#cf-nuova').addEventListener('click', nuovaRichiesta);
+  $('#cf-storico').addEventListener('click', async () => {
+    const { apriStoricoServizi } = await import('./servizi-storico.js');
+    apriStoricoServizi(host, { titolo: 'Conferenze e informazione in cantiere — storico (Access)',
+      filtra: (r) => /conferenza|formazione\/informazione in cantiere/i.test(r.tipologia || ''), indietro: render });
+  });
   host.querySelectorAll('tbody tr[data-id]').forEach((tr) =>
     tr.addEventListener('click', () => apriPratica(Number(tr.dataset.id))));
 }
