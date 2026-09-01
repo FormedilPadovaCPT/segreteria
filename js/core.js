@@ -103,6 +103,7 @@ export function mostraVista(nome) {
 
 /* ── drawer ───────────────────────────────────────────────── */
 export function apriDrawer(titolo, direzione, html) {
+  $('#drawer').classList.remove('drawer-xl');   /* la scheda larga la ri-chiede chi la vuole */
   const head = $('#drawer-head');
   head.className = `drawer-head dir-${direzione || ''}`;
   $('#drawer-badge').className = `badge badge-${(direzione || '').toLowerCase()}`;

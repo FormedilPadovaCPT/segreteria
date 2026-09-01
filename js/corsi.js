@@ -390,6 +390,7 @@ export async function apriCorso(id) {
       ${c.riconosciuto_regione ? 'Corso riconosciuto: il logo Regione va sull\'attestato (img/logo-regione.png).' : 'Il logo Regione NON va su questo attestato (corso non riconosciuto).'}
       La lettera di incarico si genera dalla riga dell'incarico (protocollo OUT nel registro unico).</p>
   `);
+  $('#drawer').classList.add('drawer-xl');   /* scheda larga: qui vivono tabelle vere */
 
   /* ── eventi ── */
   $('#co-dati').addEventListener('click', () => formCorso(c));
