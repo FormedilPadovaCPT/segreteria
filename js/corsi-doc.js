@@ -41,32 +41,54 @@ export function scaricaPdf(byte, nome) {
 const orario = (t) => (t ? String(t).slice(0, 5) : '');
 const fascia = (dalle, alle) => [orario(dalle), orario(alle)].filter(Boolean).join('–');
 
-/* riquadro etichetta sopra / valore sotto, come la scheda degli attestati */
-function cella(c, x, w, etichetta, valore, hMin = 30) {
-  const pg = c.stato.pagina;
-  pg.drawText(etichetta, { x: x + 4, y: c.stato.y - 10, size: 7, font: c.font, color: c.grigio });
-  const righe = spezza(c, String(valore ?? '—'), w - 8, c.bold, 9);
-  let y = c.stato.y - 21;
-  for (const r of righe.slice(0, 3)) {
-    pg.drawText(r, { x: x + 4, y, size: 9, font: c.bold, color: c.nero });
-    y -= 11;
+/* ── GRIGLIA CONTINUA in stile modello storico: le celle di una
+      riga hanno tutte la stessa altezza e condividono i bordi.
+      cella = { l: etichetta, v: valore, peso, dim?, centro? } ── */
+function tabella(c, righe) {
+  const largoTot = DX - SX;
+  for (const riga of righe) {
+    const tot = riga.reduce((s, x) => s + (x.peso || 1), 0);
+    const misure = riga.map((x) => largoTot * ((x.peso || 1) / tot));
+    /* prima si misura l'altezza necessaria a tutta la riga */
+    const testi = riga.map((x, i) => spezza(c, String(x.v ?? '—'), misure[i] - 10, c.bold, x.dim || 9.5));
+    const h = Math.max(...riga.map((x, i) => 14 + testi[i].length * ((x.dim || 9.5) + 2.5) + 5));
+    if (c.stato.y - h < 90) c.nuovaPagina();
+    let x0 = SX;
+    riga.forEach((cella, i) => {
+      const pg = c.stato.pagina;
+      pg.drawRectangle({ x: x0, y: c.stato.y - h, width: misure[i], height: h, borderWidth: 0.8, borderColor: c.grigio });
+      pg.drawText(cella.l, { x: x0 + 5, y: c.stato.y - 11, size: 7, font: c.font, color: c.grigio });
+      const dim = cella.dim || 9.5;
+      let y = c.stato.y - 14 - dim;
+      for (const r of testi[i]) {
+        const xTxt = cella.centro ? x0 + (misure[i] - c.bold.widthOfTextAtSize(r, dim)) / 2 : x0 + 5;
+        pg.drawText(r, { x: xTxt, y, size: dim, font: c.bold, color: c.nero });
+        y -= dim + 2.5;
+      }
+      x0 += misure[i];
+    });
+    c.stato.y -= h;   /* nessuno spazio fra le righe: griglia continua */
   }
-  const h = Math.max(hMin, 21 + righe.slice(0, 3).length * 11 + 3);
-  pg.drawRectangle({ x, y: c.stato.y - h, width: w, height: h, borderWidth: 0.7, borderColor: c.grigio });
-  return h;
 }
-function rigaCelle(c, celle) {
-  const tot = celle.reduce((s, [, peso]) => s + peso, 0);
-  let x = SX;
-  let hMax = 30;
-  const misure = celle.map(([_, peso]) => (DX - SX) * (peso / tot));
-  celle.forEach(([contenuto], i) => {
-    const h = cella(c, x, misure[i], contenuto[0], contenuto[1]);
-    hMax = Math.max(hMax, h);
-    x += misure[i];
-  });
-  c.stato.y -= hMax;
+
+/* testo centrato con a capo */
+function centrato(c, testo, f, dim, colore) {
+  for (const r of spezza(c, testo, DX - SX - 20, f, dim)) {
+    c.serve(dim + 6);
+    c.stato.pagina.drawText(r, { x: SX + (DX - SX - f.widthOfTextAtSize(r, dim)) / 2, y: c.stato.y, size: dim, font: f, color: colore });
+    c.stato.y -= dim + 4;
+  }
 }
+
+/* cornice arancione doppia + piè «Stampato a Padova il» su ogni pagina */
+function cornice(c, dataStampa) {
+  for (const pg of c.doc.getPages()) {
+    pg.drawRectangle({ x: 14, y: 14, width: 567, height: 814, borderWidth: 3, borderColor: c.arancio });
+    pg.drawRectangle({ x: 21, y: 21, width: 553, height: 800, borderWidth: 0.8, borderColor: c.arancio });
+    pg.drawText(`Stampato a Padova il ${dataIt(dataStampa) || ''}`, { x: 30, y: 26, size: 6.5, font: c.italic, color: c.grigio });
+  }
+}
+
 function spezza(c, testo, largo, f, dim) {
   const parole = String(testo).split(/\s+/).filter(Boolean);
   const righe = [];
@@ -80,30 +102,45 @@ function spezza(c, testo, largo, f, dim) {
   return righe;
 }
 
-/* pagina 2 (o coda): argomenti trattati */
+/* pagina 2: argomenti trattati — banda arancio del titolo, banda
+   verde per ogni giornata, riga «Totale crediti», come il modello */
 function argomentiTrattati(c, corso, giornate, interventi) {
+  const verde = c.verde;
   c.nuovaPagina();
-  c.scrivi('Argomenti trattati', c.bold, 12, c.arancio);
-  c.stato.y -= 6;
+  c.stato.y = 795;
+  const banda = (testo, colore, colTxt, bold = true) => {
+    c.serve(20);
+    c.stato.pagina.drawRectangle({ x: SX, y: c.stato.y - 5, width: DX - SX, height: 16, color: colore });
+    const f = bold ? c.bold : c.font;
+    c.stato.pagina.drawText(testo, { x: SX + (bold ? (DX - SX - f.widthOfTextAtSize(testo, 10)) / 2 : 6), y: c.stato.y - 1, size: 10, font: f, color: colTxt });
+    c.stato.y -= 20;
+  };
+  banda('Argomenti trattati', c.arancio, c.bianco);
   let crediti = 0;
   const stampaIntervento = (it) => {
-    c.serve(30);
-    c.scrivi(`${fascia(it.dalle, it.alle) || '—'}  ·  ${it.qualita === 'docente' ? 'Docente' : it.qualita}  ${it.nominativo}${it.crediti ? `  ·  crediti ${it.crediti}` : ''}`, c.font, 9.5, c.nero, 8);
-    if (it.materia) c.scrivi(`Materia: ${it.materia}`, c.italic, 9, c.grigio, 8);
-    if (it.argomenti) c.scrivi(it.argomenti, c.font, 9, c.nero, 8);
+    c.serve(34);
+    const y0 = c.stato.y;
+    c.stato.pagina.drawText(`Dalle ${orario(it.dalle) || '—'}  Alle ${orario(it.alle) || '—'}`, { x: SX + 4, y: y0, size: 9, font: c.font, color: c.grigio });
+    c.stato.pagina.drawText(`${it.qualita === 'docente' ? 'Docente' : it.qualita.charAt(0).toUpperCase() + it.qualita.slice(1)}  ${it.nominativo}`, { x: SX + 130, y: y0, size: 9.5, font: c.bold, color: c.nero });
+    const cred = `Crediti formativi  ${it.crediti ?? 0}`;
+    c.stato.pagina.drawText(cred, { x: DX - 6 - c.italic.widthOfTextAtSize(cred, 8.5), y: y0, size: 8.5, font: c.italic, color: c.grigio });
+    c.stato.y -= 13;
+    if (it.materia) c.scrivi(`Materia   ${it.materia}`, c.font, 9, c.grigio, 4);
+    if (it.argomenti) c.scrivi(it.argomenti, c.italic, 9, c.nero, 4);
     crediti += Number(it.crediti || 0);
-    c.stato.y -= 3;
+    c.stato.y -= 4;
   };
   for (const g of giornate) {
-    c.serve(24);
-    c.scrivi(`Lezione del ${dataIt(g.data)}${g.aula ? ` — ${g.aula}` : ''}${g.sede && g.sede !== corso.sede ? ` — ${g.sede}` : ''}`, c.bold, 10);
+    banda(`Data Lezione   ${dataIt(g.data)}${g.aula ? `   —   ${g.aula}` : ''}`, verde, c.bianco, false);
     interventi.filter((x) => x.giornata_id === g.id).forEach(stampaIntervento);
-    c.stato.y -= 4;
+    c.stato.y -= 2;
   }
-  const orfani = interventi.filter((x) => !x.giornata_id || !giornate.some((g) => g.id === x.giornata_id));
-  orfani.forEach(stampaIntervento);
-  c.stato.y -= 4;
-  c.scrivi(`Totale crediti formativi: ${crediti}`, c.bold, 10);
+  interventi.filter((x) => !x.giornata_id || !giornate.some((g) => g.id === x.giornata_id)).forEach(stampaIntervento);
+  c.serve(20);
+  const tot = `Totale crediti   ${crediti}`;
+  c.stato.pagina.drawRectangle({ x: DX - 150, y: c.stato.y - 5, width: 150, height: 16, color: c.grigioChiaro });
+  c.stato.pagina.drawText(tot, { x: DX - 145, y: c.stato.y - 1, size: 9.5, font: c.italic, color: c.nero });
+  c.stato.y -= 22;
 }
 
 /* ── 1. ATTESTATO ──
@@ -134,73 +171,75 @@ export async function pdfAttestato(corso, iscritto, anagrafica, giornate, interv
     try { cambiaRiga = disegnaLogo(await c.doc.embedPng(byte).catch(() => c.doc.embedJpg(byte))); } catch { /* ignora */ }
   }
   if (cambiaRiga) c.stato.y -= 34;
-
-  c.scrivi('ATTESTATO', c.bold, 15, c.arancio);
   c.stato.y -= 4;
 
-  rigaCelle(c, [[['Titolo del corso', corso.titolo], 2], [['Sede', corso.sede || '—'], 1]]);
-  rigaCelle(c, [
-    [['Anno formativo', corso.anno_formativo || '—'], 1],
-    [['Data inizio', dataIt(corso.data_inizio) || '—'], 1],
-    [['Data fine', dataIt(corso.data_fine || corso.data_inizio) || '—'], 1],
-  ]);
+  /* ── la griglia continua del modello storico ── */
   const oreTot = corso.durata_ore ?? '—';
   const oreFreq = iscritto.ore_frequentate ?? oreTot;
   const perc = iscritto.perc_frequenza != null ? `${Math.round(iscritto.perc_frequenza)}%` : '100%';
-  rigaCelle(c, [
-    [['Totale ore corso', oreTot], 1],
-    [['Tot. ore frequentate', oreFreq], 1],
-    [['% di frequenza del corsista', perc], 1],
-    [['% minima di frequenza', `${corso.perc_freq_min ?? 90}%`], 1],
+  tabella(c, [
+    [{ l: 'Titolo del corso', v: corso.titolo, peso: 2, dim: 10.5 }, { l: 'Sede', v: corso.sede || '—', peso: 1 }],
+    [{ l: 'Anno formativo', v: corso.anno_formativo || '—', centro: true },
+     { l: 'Data inizio', v: dataIt(corso.data_inizio) || '—', centro: true },
+     { l: 'Data fine', v: dataIt(corso.data_fine || corso.data_inizio) || '—', centro: true }],
+    [{ l: 'Totale ore corso', v: oreTot, centro: true },
+     { l: 'Tot. ore frequentate', v: oreFreq, centro: true },
+     { l: '% di frequenza del corsista', v: perc, centro: true },
+     { l: '% minima di frequenza', v: `${corso.perc_freq_min ?? 90}%`, centro: true }],
+    [{ l: 'Tipologia di corso', v: corso.tipo === 'conferenza_cantiere' ? 'Conferenza di Cantiere' : (corso.modalita ? { aula: 'Corso in aula', cantiere: 'Corso in cantiere', impresa: 'Corso in impresa', videoconferenza: 'Corso in videoconferenza', mista: 'Corso in modalità mista' }[corso.modalita] : 'Corso'), peso: 1 },
+     { l: 'Settore ATECO', v: corso.ateco_txt || '—', peso: 2 }],
+    [{ l: 'Il presente certificato è valido per', v: corso.validita_txt || 'Informazione', peso: 1 }],
   ]);
-  rigaCelle(c, [[['Tipologia di corso', corso.tipo === 'conferenza_cantiere' ? 'Conferenza di Cantiere' : (corso.modalita ? { aula: 'Corso in aula', cantiere: 'Corso in cantiere', impresa: 'Corso in impresa', videoconferenza: 'Corso in videoconferenza', mista: 'Corso in modalità mista' }[corso.modalita] : 'Corso')], 1],
-    [['Settore ATECO', corso.ateco_txt || '—'], 1]]);
-  rigaCelle(c, [[['Il presente certificato è valido per', corso.validita_txt || 'Informazione'], 1]]);
-  c.stato.y -= 10;
+  c.stato.y -= 16;
 
   const certificazione = {
     partecipazione: `Si certifica la partecipazione a ${corso.titolo} per il corsista:`,
     frequenza: 'Si certifica la regolare frequenza per il corsista:',
     frequenza_verifica: 'Si certifica la regolare frequenza e il superamento con esito positivo della verifica finale di apprendimento per il corsista:',
   }[corso.tipo_attestato || 'frequenza'];
-  c.scrivi(certificazione, c.bold, 10.5);
-  c.stato.y -= 6;
+  centrato(c, certificazione, c.bold, 11.5, c.nero);
+  c.stato.y -= 8;
 
-  rigaCelle(c, [[['Nome e cognome', iscritto.nominativo], 2], [['Codice fiscale', iscritto.cf || '—'], 1]]);
+  const righeCorsista = [
+    [{ l: 'Nome e cognome', v: iscritto.nominativo, peso: 2, dim: 15 }, { l: 'Codice fiscale', v: iscritto.cf || '—', peso: 1 }],
+  ];
   if (anagrafica?.nato_luogo || anagrafica?.nato_il) {
-    rigaCelle(c, [
-      [['Luogo di nascita', anagrafica.nato_luogo || '—'], 2],
-      [['Data di nascita', anagrafica.nato_il ? dataIt(anagrafica.nato_il) : '—'], 1],
+    righeCorsista.push([
+      { l: 'Luogo di nascita', v: anagrafica.nato_luogo || '—', peso: 2 },
+      { l: 'Data di nascita', v: anagrafica.nato_il ? dataIt(anagrafica.nato_il) : '—', peso: 1 },
     ]);
   }
-  if (corso.tipo_attestato === 'partecipazione') {
-    rigaCelle(c, [[['In qualità di', iscritto.ruolo || '—'], 1], [['Ruolo aziendale', iscritto.mansione || '—'], 1]]);
-  } else {
-    rigaCelle(c, [
-      [['Ragione sociale', iscritto.impresa_txt || '—'], 2],
-      [['In qualità di', iscritto.ruolo || '—'], 1],
-      [['Ruolo aziendale', iscritto.mansione || '—'], 1],
-    ]);
-  }
+  righeCorsista.push(corso.tipo_attestato === 'partecipazione'
+    ? [{ l: 'In qualità di', v: iscritto.ruolo || '—' }, { l: 'Ruolo aziendale', v: iscritto.mansione || '—' }]
+    : [{ l: 'Ragione sociale', v: iscritto.impresa_txt || '—', peso: 2 },
+       { l: 'In qualità di', v: iscritto.ruolo || '—', peso: 1 },
+       { l: 'Ruolo aziendale', v: iscritto.mansione || '—', peso: 1 }]);
+  tabella(c, righeCorsista);
+  c.stato.y -= 22;
 
-  /* firma del responsabile del corso */
-  c.serve(96);
-  const yF = c.stato.y - 8;
-  pg().drawText('Timbro e firma del responsabile del corso', { x: 330, y: yF, size: 9, font: c.font, color: c.grigio });
-  pg().drawText(`(${ctx.firmaNome || 'Il responsabile del progetto formativo'})`, { x: 330, y: yF - 12, size: 9.5, font: c.bold, color: c.nero });
+  /* ── firma centrata in basso, come il modello ── */
+  c.serve(110);
+  const centro = SX + (DX - SX) / 2;
+  const yF = c.stato.y;
+  const t1 = 'Timbro e firma del responsabile del corso';
+  pg().drawText(t1, { x: centro - c.font.widthOfTextAtSize(t1, 9.5) / 2, y: yF, size: 9.5, font: c.font, color: c.nero });
+  const t2 = `(${ctx.firmaNome || 'Il responsabile del progetto formativo'})`;
+  pg().drawText(t2, { x: centro - c.bold.widthOfTextAtSize(t2, 10) / 2, y: yF - 14, size: 10, font: c.bold, color: c.nero });
   if (ctx.firmaByte) {
     try {
       let img;
       try { img = await c.doc.embedPng(ctx.firmaByte); } catch { img = await c.doc.embedJpg(ctx.firmaByte); }
-      const w = 130, h = Math.min((img.height / img.width) * w, 60);
-      pg().drawImage(img, { x: 340, y: yF - 16 - h, width: w, height: h });
+      const w = 150, h = Math.min((img.height / img.width) * w, 75);
+      pg().drawImage(img, { x: centro - w / 2, y: yF - 22 - h, width: w, height: h });
     } catch { /* si firma a mano */ }
   }
   pg().drawText(`Rilasciato a Padova il ${dataIt(ctx.dataRilascio) || dataIt(new Date().toISOString().slice(0, 10))}`,
-    { x: SX, y: yF - 12, size: 9, font: c.font, color: c.nero });
-  pg().drawText(`Verifica integrità documento — ${nTxt}`, { x: SX, y: yF - 26, size: 7, font: c.font, color: c.grigio });
+    { x: SX, y: yF - 14, size: 9, font: c.font, color: c.nero });
+  pg().drawText('Verifica integrità documento', { x: SX, y: yF - 28, size: 7.5, font: c.font, color: c.grigio });
+  pg().drawText(nTxt, { x: SX, y: yF - 38, size: 8, font: c.bold, color: c.nero });
 
   argomentiTrattati(c, corso, giornate, interventi);
+  cornice(c, ctx.dataRilascio || new Date().toISOString().slice(0, 10));
   return salva(c.doc);
 }
 

@@ -137,7 +137,9 @@ export async function apriCarta() {
     stato.y = Math.min(yEt, yv) - 5;
   };
 
-  return { doc, stato, font, bold, italic, arancio, grigio, nero, bianco, scrivi, campo, serve, nuovaPagina };
+  const verde = rgb(0.55, 0.71, 0.13);          /* la banda verde degli attestati storici */
+  const grigioChiaro = rgb(0.93, 0.93, 0.93);
+  return { doc, stato, font, bold, italic, arancio, grigio, nero, bianco, verde, grigioChiaro, scrivi, campo, serve, nuovaPagina };
 }
 
 const salva = async (doc) => new Uint8Array(await doc.save());
