@@ -92,6 +92,20 @@ const nomeTecnico = (email) => {
   return t ? [t.tecnico_cognome, t.titolo, t.tecnico_nome].filter(Boolean).join(' ') : (email || '');
 };
 
+/* i campi dell'incarico al tecnico (gestionale visite) per questa pratica */
+function campiIncarico(p, email) {
+  return {
+    tipologia: 'Sopralluogo urgente in Cantiere',
+    tecnicoEmail: email, tecnicoNome: nomeTecnico(email),
+    richiedente: [p.notificante, p.segnalante_tipo ? `(${p.segnalante_tipo})` : ''].filter(Boolean).join(' '),
+    testo: [p.motivo, p.stato_lavori ? `Stato lavori: ${p.stato_lavori}` : null,
+      p.imprese_presenti ? `Imprese presenti: ${p.imprese_presenti}` : null].filter(Boolean).join('\n'),
+    impresa: p.imprese_presenti || null, impresaId: p.impresa_id,
+    indirizzo: p.ind_cantiere, comune: p.comune_cantiere,
+    oggetto: 'Visita su segnalazione', mezzo: p.fonte,
+  };
+}
+
 const normComune = (s) => String(s || '').toUpperCase().replace(/\(.*$/, '').replace(/\s+/g, ' ').trim();
 function tecnicoDiZona(comune) {
   const c = normComune(comune);
@@ -595,6 +609,11 @@ async function decidiDaApp(p, esito, btn) {
       updated_at: new Date().toISOString(),
     }).eq('id', p.id);
     if (error) throw new Error(error.message);
+    if (esito === 'approvata') {
+      const { creaIncaricoDaPratica } = await import('./incarico-tecnico.js');
+      await creaIncaricoDaPratica({ tabella: 's_segnalazioni', pratica: p,
+        ...campiIncarico(p, $('#sg-tecnico')?.value || p.tecnico_assegnato || p.tecnico_proposto) });
+    }
     toast(`Autorizzazione ${esito} registrata: il documento col visto è su Drive.`, 'ok');
     await render();
     apriPratica(p.id);
@@ -638,6 +657,11 @@ function registraCartacea(p) {
     }).eq('id', p.id);
     attendi(ev.currentTarget, false);
     if (error) return toast('Registrazione non riuscita: ' + error.message, 'err');
+    if (esito === 'approvata') {
+      const { creaIncaricoDaPratica } = await import('./incarico-tecnico.js');
+      await creaIncaricoDaPratica({ tabella: 's_segnalazioni', pratica: p,
+        ...campiIncarico(p, p.tecnico_assegnato || p.tecnico_proposto) });
+    }
     toast('Esito registrato.', 'ok');
     await render();
     apriPratica(p.id);

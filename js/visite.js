@@ -81,6 +81,23 @@ const nomeTecnico = (email) => {
   return t ? [t.tecnico_cognome, t.titolo, t.tecnico_nome].filter(Boolean).join(' ') : (email || '');
 };
 
+/* i campi dell'incarico al tecnico (gestionale visite) per questa pratica */
+function campiIncarico(p, email) {
+  const cc = cantieriDi(p);
+  return {
+    tipologia: p.tipo_richiesta === 'serie' ? 'Serie di visite' : 'Sopralluogo in Cantiere - Visita singola',
+    tecnicoEmail: email, tecnicoNome: nomeTecnico(email),
+    richiedente: [[p.rl_titolo, p.rl_nome, p.rl_cognome].filter(Boolean).join(' '), p.ragione_sociale].filter(Boolean).join(' — '),
+    testo: p.note_modulo,
+    impresa: p.ragione_sociale, impresaId: p.impresa_id,
+    indirizzo: cc[0]?.indirizzo || null, comune: cc[0]?.comune || null,
+    oggetto: p.tipo_richiesta === 'serie' ? `Serie di visite (${cc.length || '?'} cantieri)` : `Visita richiesta dall'impresa`,
+    referente: [p.ref_titolo, p.ref_nome, p.ref_cognome].filter(Boolean).join(' ') || null,
+    cellReferente: p.ref_tel || null,
+    mezzo: p.fonte, visitePreviste: cc.length > 1 ? cc.length : null,
+  };
+}
+
 /* vince la zona più specifica (stessa regola dell'import v10) */
 const normComune = (s) => String(s || '').toUpperCase().replace(/\(.*$/, '').replace(/\s+/g, ' ').trim();
 function tecnicoDiZona(comune) {
@@ -540,6 +557,11 @@ async function decidiDaApp(p, esito, btn) {
       aggiornato_da: state.email, updated_at: new Date().toISOString(),
     }).eq('id', p.id);
     if (error) throw new Error(error.message);
+    if (esito === 'approvata') {
+      const { creaIncaricoDaPratica } = await import('./incarico-tecnico.js');
+      await creaIncaricoDaPratica({ tabella: 's_visite_richieste', pratica: p,
+        ...campiIncarico(p, $('#vs-tecnico')?.value || p.tecnico_assegnato || p.tecnico_proposto) });
+    }
     toast(`Autorizzazione ${esito} registrata: il documento col visto è su Drive.`, 'ok');
     await render();
     apriPratica(p.id);
@@ -574,6 +596,11 @@ function registraCartacea(p) {
     }).eq('id', p.id);
     attendi(ev.currentTarget, false);
     if (error) return toast('Registrazione non riuscita: ' + error.message, 'err');
+    if (esito === 'approvata') {
+      const { creaIncaricoDaPratica } = await import('./incarico-tecnico.js');
+      await creaIncaricoDaPratica({ tabella: 's_visite_richieste', pratica: p,
+        ...campiIncarico(p, p.tecnico_assegnato || p.tecnico_proposto) });
+    }
     toast('Esito registrato.', 'ok');
     await render();
     apriPratica(p.id);

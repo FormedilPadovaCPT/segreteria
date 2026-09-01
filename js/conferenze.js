@@ -73,6 +73,21 @@ const nomeTecnico = (email) => {
   return t ? [t.tecnico_cognome, t.titolo, t.tecnico_nome].filter(Boolean).join(' ') : (email || '');
 };
 
+/* i campi dell'incarico al tecnico (gestionale visite) per questa pratica */
+function campiIncarico(p, email) {
+  return {
+    tipologia: 'Conferenza di Cantiere',
+    tecnicoEmail: email, tecnicoNome: nomeTecnico(email),
+    richiedente: [[p.rl_titolo, p.rl_nome, p.rl_cognome].filter(Boolean).join(' '), p.ragione_sociale].filter(Boolean).join(' — '),
+    testo: p.note_modulo,
+    impresa: p.ragione_sociale, impresaId: p.impresa_id,
+    indirizzo: p.ind_cantiere, comune: p.comune_cantiere,
+    oggetto: `Conferenza di cantiere${p.argomenti ? `: ${p.argomenti}` : ''}`,
+    referente: [p.ref_titolo, p.ref_nome, p.ref_cognome].filter(Boolean).join(' ') || null,
+    cellReferente: p.ref_tel || null, mezzo: p.fonte,
+  };
+}
+
 /* ══════════ elenco ══════════ */
 
 export async function render() {
@@ -497,6 +512,11 @@ async function decidiDaApp(p, esito, btn) {
       aggiornato_da: state.email, updated_at: new Date().toISOString(),
     }).eq('id', p.id);
     if (error) throw new Error(error.message);
+    if (esito === 'approvata') {
+      const { creaIncaricoDaPratica } = await import('./incarico-tecnico.js');
+      await creaIncaricoDaPratica({ tabella: 's_conferenze_cantiere', pratica: p,
+        ...campiIncarico(p, $('#cf-tecnico')?.value || p.tecnico_assegnato || p.tecnico_proposto) });
+    }
     toast(`Autorizzazione ${esito} registrata: il documento col visto è su Drive.`, 'ok');
     await render();
     apriPratica(p.id);
@@ -531,6 +551,11 @@ function registraCartacea(p) {
     }).eq('id', p.id);
     attendi(ev.currentTarget, false);
     if (error) return toast('Registrazione non riuscita: ' + error.message, 'err');
+    if (esito === 'approvata') {
+      const { creaIncaricoDaPratica } = await import('./incarico-tecnico.js');
+      await creaIncaricoDaPratica({ tabella: 's_conferenze_cantiere', pratica: p,
+        ...campiIncarico(p, p.tecnico_assegnato || p.tecnico_proposto) });
+    }
     toast('Esito registrato.', 'ok');
     await render();
     apriPratica(p.id);
