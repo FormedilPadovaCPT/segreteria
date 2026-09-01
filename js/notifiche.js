@@ -279,6 +279,7 @@ export async function apriPratica(id) {
       ${!p.protocollo_in_id ? '<button class="btn btn-ghost" id="nt-protin">📥 Protocolla la notifica (IN)</button>' : ''}
       <button class="btn btn-primary" id="nt-grazie">📧 Ringraziamento a chi ha segnalato</button>
       ${!p.protocollo_out_id ? '<button class="btn btn-ghost" id="nt-riscontro">📄 Riscontro completo (lettera OUT)</button>' : ''}
+      <button class="btn btn-ghost" id="nt-anteprima">👁 Lettera in anteprima (senza protocollare)</button>
     </div>
     <p class="hint" style="margin-top:6px">${p.riscontro_inviato_il
       ? `Riscontro già preparato il ${dataIt(p.riscontro_inviato_il.slice(0, 10))}.`
@@ -311,6 +312,7 @@ export async function apriPratica(id) {
   $('#nt-protin')?.addEventListener('click', () => protocollaIn(p));
   $('#nt-grazie')?.addEventListener('click', () => mailGrazie(p));
   $('#nt-riscontro')?.addEventListener('click', (e) => riscontroCompleto(p, e.currentTarget));
+  $('#nt-anteprima')?.addEventListener('click', (e) => anteprimaLettera(p, e.currentTarget));
 }
 
 async function protocollaIn(p) {
@@ -420,6 +422,46 @@ function corpoRiscontroNotifica(p, ISTITUZIONALE) {
     "l'attività di prevenzione del nostro Ente.");
   par.push('Distinti saluti.');
   return par;
+}
+
+/* ── ANTEPRIMA della lettera SENZA protocollare (chiesto dall'utente
+      01/09/2026, per rivedere le DNL storiche già chiuse): stessa
+      lettera del riscontro, ma solo scaricata in locale — niente
+      registro, niente Drive, niente mail. Per le storiche stampa il
+      numero della SERIE STORICA (es. 40/2018.dnl); se la pratica ha
+      già un protocollo OUT usa quello; altrimenti esce come bozza. ── */
+async function anteprimaLettera(p, btn) {
+  attendi(btn, true, 'Genero…');
+  try {
+    const { ISTITUZIONALE, generaLetteraPdf } = await import('./rlst-lettera.js');
+    const paragrafi = corpoRiscontroNotifica(p, ISTITUZIONALE);
+    const dataCom = p.data_com || (p.timestamp_modulo || '').slice(0, 10) || null;
+    const oggettoRiga = `Vostra ${p.fonte === 'dnl_access' ? 'denuncia di nuovo lavoro' : 'comunicazione di apertura cantiere'}${dataCom ? ` del ${dataIt(dataCom)}` : ''}.`;
+
+    const protVero = p.protocollo_out_id ? protDi[p.protocollo_out_id] : null;
+    const protocollo = protVero || { codice: p.prot_dnl || 'BOZZA-SENZA-PROTOCOLLO' };
+
+    const byte = await generaLetteraPdf({
+      ragione_sociale: p.ragione_sociale || committenteDi(p) || [p.seg_nome, p.seg_cognome].filter(Boolean).join(' '),
+      email: p.email,
+      telefono: p.telefono,
+      alla_ca_riga: [p.seg_titolo, p.seg_nome, p.seg_cognome].filter(Boolean).length
+        ? `Alla c.a. ${[p.seg_titolo, p.seg_nome, p.seg_cognome].filter(Boolean).join(' ')}` : '',
+    }, protocollo, paragrafi, oggettoRiga);
+
+    const { scaricaPdf } = await import('./corsi-doc.js');
+    const nome = p.prot_dnl
+      ? `Riscontro_DNL_${p.prot_dnl.replace(/[/.]/g, '-')}.pdf`
+      : `anteprima-riscontro-notifica-${p.progressivo ?? `m${p.id}`}.pdf`;
+    scaricaPdf(byte, nome);
+    toast(protVero ? 'Lettera rigenerata col protocollo già assegnato.'
+      : p.prot_dnl ? `Lettera ricostruita con la serie storica ${p.prot_dnl} — solo anteprima, niente registro.`
+      : 'Anteprima scaricata: per la lettera vera usa «Riscontro completo», che protocolla.', 'ok');
+  } catch (e) {
+    toast(e.message, 'err');
+  } finally {
+    attendi(btn, false);
+  }
 }
 
 async function riscontroCompleto(p, btn) {
