@@ -10,8 +10,9 @@
    ============================================================ */
 import { createClient } from 'npm:@supabase/supabase-js@2'
 
+/* v2 (01/09/2026): riusata per le 40 DNL storiche → s_notifiche_cantiere */
 const AMMESSE = ['s_progetti_formativi', 's_corsi', 's_corsi_giornate', 's_corsi_interventi',
-  's_corsi_incarichi', 's_corsi_iscritti', 's_corsi_presenze']
+  's_corsi_incarichi', 's_corsi_iscritti', 's_corsi_presenze', 's_notifiche_cantiere']
 
 Deno.serve(async (req) => {
   const json = (o: unknown, status = 200) =>

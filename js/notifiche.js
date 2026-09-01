@@ -242,7 +242,10 @@ export async function apriPratica(id) {
     </div>
 
     <hr style="margin:14px 0;border:0;border-top:1px solid var(--bordo)">
-    ${campo('Arrivata', [p.fonte, p.data_com ? dataIt(p.data_com) : p.timestamp_modulo ? dataIt(p.timestamp_modulo.slice(0, 10)) : null].filter(Boolean).join(' — '))}
+    ${campo('Arrivata', [p.fonte === 'dnl_access' ? 'DNL storica (Access)' : p.fonte, p.data_com ? dataIt(p.data_com) : p.timestamp_modulo ? dataIt(p.timestamp_modulo.slice(0, 10)) : null].filter(Boolean).join(' — '))}
+    ${campo('Prot. DNL storica', p.prot_dnl)}
+    ${campo('Inviata/ricevuta al CPT', p.data_invio_cpt ? dataIt(p.data_invio_cpt) : null)}
+    ${campo("Natura dell'opera", p.natura_opera)}
     ${campo('Chi comunica', [[p.ragione_sociale, [p.seg_titolo, p.seg_nome, p.seg_cognome].filter(Boolean).join(' ')].filter(Boolean).join(' — '), p.telefono, p.email].filter(Boolean).join(' · '))}
     ${campo('Cantiere', [p.ind_cantiere, p.comune_cantiere].filter(Boolean).join(', '))}
     ${campo('Lavori', [p.data_inizio ? `dal ${dataIt(p.data_inizio)}` : null, p.data_fine ? `al ${dataIt(p.data_fine)}` : null, p.durata_gg ? `${p.durata_gg} gg` : null].filter(Boolean).join(' '))}
@@ -250,8 +253,8 @@ export async function apriPratica(id) {
     ${campo('Presenze', [p.max_lavoratori ? `max ${p.max_lavoratori} lavoratori` : null, p.n_imprese ? `${p.n_imprese} imprese` : null, p.n_autonomi ? `${p.n_autonomi} autonomi` : null].filter(Boolean).join(' — '))}
     ${campo('Committente', [committenteDi(p), p.comm_piva ? `P.IVA ${p.comm_piva}` : p.comm_cf2 || p.comm_cf, p.comm_indirizzo || p.comm_ind2, p.comm_tel || p.comm_tel2, p.comm_email].filter(Boolean).join(' — '))}
     ${campo('Responsabile dei lavori', [[p.rl_titolo, p.rl_nome, p.rl_cognome].filter(Boolean).join(' '), p.rl_cf, [p.rl_indirizzo, p.rl_comune].filter(Boolean).join(', '), p.rl_note].filter(Boolean).join(' — '))}
-    ${(Array.isArray(p.figure) && p.figure.length) ? `<div class="dt-doc-riga"><strong>Altre figure professionali:</strong><br>${p.figure.map((f) =>
-      esc(['· ' + (f.ruolo || 'ruolo n.d.'), [f.titolo, f.nome, f.cognome].filter(Boolean).join(' '), f.cf, f.email, f.telefono].filter(Boolean).join(' — '))).join('<br>')}</div>` : ''}
+    ${(Array.isArray(p.figure) && p.figure.length) ? `<div class="dt-doc-riga"><strong>Figure professionali:</strong><br>${p.figure.map((f) =>
+      esc(['· ' + (f.ruolo || 'ruolo n.d.'), f.nominativo || [f.titolo, f.nome, f.cognome].filter(Boolean).join(' '), f.cf, f.email, f.telefono].filter(Boolean).join(' — '))).join('<br>')}</div>` : ''}
     ${(Array.isArray(p.imprese) && p.imprese.length) ? `<div class="dt-doc-riga"><strong>Imprese previste in cantiere:</strong><br>${p.imprese.map((i) =>
       esc(['· ' + (i.ruolo || 'ruolo n.d.'), i.ragione_sociale, i.piva ? `P.IVA ${i.piva}` : null, i.cod_cassa ? `Cassa Edile ${i.cod_cassa}` : null, [i.indirizzo, i.comune].filter(Boolean).join(', '), i.email].filter(Boolean).join(' — '))).join('<br>')}</div>` : ''}
     ${campo('Note', p.note_cantiere)}
@@ -398,7 +401,7 @@ function corpoRiscontroNotifica(p, ISTITUZIONALE) {
   const rl = [p.rl_titolo, p.rl_nome, p.rl_cognome].filter(Boolean).join(' ');
   if (rl) persone.push(`- Responsabile dei lavori: ${rl}${p.rl_cf ? ` — CF ${p.rl_cf}` : ''}`);
   for (const f of (Array.isArray(p.figure) ? p.figure : [])) {
-    persone.push(`- ${f.ruolo || 'Figura professionale'}: ${[f.titolo, f.nome, f.cognome].filter(Boolean).join(' ')}${f.cf ? ` — CF ${f.cf}` : ''}`);
+    persone.push(`- ${f.ruolo || 'Figura professionale'}: ${f.nominativo || [f.titolo, f.nome, f.cognome].filter(Boolean).join(' ')}${f.cf ? ` — CF ${f.cf}` : ''}`);
   }
   if (persone.length) { par.push('Riepilogo soggetti — persone fisiche:'); par.push(...persone); }
 
