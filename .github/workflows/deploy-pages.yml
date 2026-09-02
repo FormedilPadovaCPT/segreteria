@@ -52,7 +52,7 @@ jobs:
         run: |
           set -e
           mkdir -p _site
-          cp index.html _site/
+          cp index.html sw.js _site/
           cp -r css js img _site/
           touch _site/.nojekyll
 
