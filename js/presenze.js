@@ -9,9 +9,10 @@
      note), con la chiusura di fine mese: foglio REGP in PDF,
      deposito in fogli_presenze/ e bozza .eml all'Amministrazione
      (Patrizia) — l'invio resta a una persona da Outlook.
-   - BANCA ORE: i movimenti (ore supplementari, recuperi, ferie,
-     permessi…) con pagato/recuperato/chiuso, saldo delle partite
-     aperte per causale.
+   - BANCA ORE: un conto solo (regola dell'utente 03/09/2026):
+     le supplementari NON pagate sono il versamento, i recuperi il
+     prelievo, saldo = differenza; le altre causali sono conteggi
+     propri. Movimenti con pagato/recuperato/chiuso.
    - FERIE E PERMESSI: le richieste col nulla osta del Direttore.
      Due strade PER PRATICA (scelta utente 03/09/2026): telaio
      «Autorizza dall'app» (PDF + mail col link #ferie-<id>, visto
@@ -61,6 +62,26 @@ const hm2min = (t) => {
   const m = String(t || '').match(/^(\d{1,2})[:.](\d{2})$/);
   return m ? Number(m[1]) * 60 + Number(m[2]) : null;
 };
+/* Saldo della banca ore dalle partite aperte: supplementari non pagate
+   (da recuperare) meno recuperi; le pagate a parte; le altre causali
+   (ferie, permessi, malattia…) sono conteggi propri, non banca ore. */
+function calcolaBanca(aperte) {
+  const r = { supplementari: 0, recuperi: 0, pagate: 0, saldo: 0, altre: {} };
+  for (const e of aperte) {
+    const c = String(e.causale || '').toLowerCase();
+    if (/suppl|straord/.test(c)) {
+      if (e.pagato) r.pagate += e.ore_min || 0;
+      else r.supplementari += e.ore_min || 0;
+    } else if (/recupero/.test(c)) {
+      r.recuperi += e.ore_min || 0;
+    } else {
+      r.altre[e.causale] = (r.altre[e.causale] || 0) + (e.ore_min || 0);
+    }
+  }
+  r.saldo = r.supplementari - r.recuperi;
+  return r;
+}
+
 const totDaOrari = (e1, u1, e2, u2) => {
   let tot = 0;
   const a = hm2min(e1); const b = hm2min(u1);
@@ -286,11 +307,14 @@ async function chiudiMese(btn, conMail) {
     const perCausale = {};
     for (const e of extra) perCausale[e.causale] = (perCausale[e.causale] || 0) + (e.ore_min || 0);
     const riepilogo = Object.entries(perCausale).map(([c, m]) => `- ${c}: ${mm2hm(m)}`).join('\n');
-    const { data: aperte } = await sb.from('s_presenze_extra').select('causale, ore_min')
+    const { data: aperte } = await sb.from('s_presenze_extra').select('causale, ore_min, pagato')
       .eq('dipendente', dipendente).eq('chiuso', false);
-    const perAperte = {};
-    for (const e of aperte || []) perAperte[e.causale] = (perAperte[e.causale] || 0) + (e.ore_min || 0);
-    const bancaTxt = Object.entries(perAperte).map(([c, m]) => `- ${c}: ${mm2hm(m)}`).join('\n');
+    const banca = calcolaBanca(aperte || []);
+    const bancaTxt = [
+      `- Saldo banca ore da recuperare: ${mm2hm(banca.saldo)} (${mm2hm(banca.supplementari)} supplementari - ${mm2hm(banca.recuperi)} recuperi)`,
+      banca.pagate ? `- Ore supplementari segnate pagate, in attesa di chiusura: ${mm2hm(banca.pagate)}` : null,
+      ...Object.entries(banca.altre).map(([c, m]) => `- ${c}: ${mm2hm(m)} aperte`),
+    ].filter(Boolean).join('\n');
 
     scaricaEml({
       to: amm?.email || 'amministrazione@formedilpadova.it',
@@ -300,7 +324,7 @@ async function chiudiMese(btn, conMail) {
 in allegato il foglio di rilevazione presenze di ${dipendente} per il mese di ${MESI[mese - 1]} ${anno}.
 
 Ore lavorate nel mese: ${mm2hm(totMese)}.
-${riepilogo ? `\nMovimenti del mese (straordinari, permessi, recuperi):\n${riepilogo}\n` : ''}${bancaTxt ? `\nBanca ore — partite ancora aperte:\n${bancaTxt}\n` : ''}
+${riepilogo ? `\nMovimenti del mese (straordinari, permessi, recuperi):\n${riepilogo}\n` : ''}${bancaTxt ? `\nBanca ore e conteggi aperti:\n${bancaTxt}\n` : ''}
 Il foglio è anche depositato in archivio (personale/fogli_presenze).
 
 Cordiali saluti.
@@ -330,16 +354,22 @@ async function renderBanca(hostArg) {
   const { data: righe } = await q;
   const movimenti = righe || [];
 
-  const { data: aperteTutte } = await sb.from('s_presenze_extra').select('causale, ore_min')
+  const { data: aperteTutte } = await sb.from('s_presenze_extra').select('causale, ore_min, pagato')
     .eq('dipendente', dipendente).eq('chiuso', false);
-  const perAperte = {};
-  for (const e of aperteTutte || []) perAperte[e.causale] = (perAperte[e.causale] || 0) + (e.ore_min || 0);
+  /* LA BANCA ORE È UN CONTO SOLO (regola dell'utente, 03/09/2026):
+     le ore supplementari NON pagate sono il versamento, i recuperi il
+     prelievo, il saldo è la differenza. Le supplementari segnate pagate
+     non vanno recuperate: restano solo in attesa di chiusura. */
+  const saldoDi = calcolaBanca(aperteTutte || []);
 
   host.innerHTML = `
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
-      ${Object.entries(perAperte).map(([c, m]) =>
-        `<span class="dt-cella dt-senzadata" style="padding:4px 10px">${esc(c)}: <strong>${mm2hm(m)}</strong> aperte</span>`).join('') ||
-        '<span class="dt-cella dt-ok" style="padding:4px 10px">Nessuna partita aperta.</span>'}
+      <span class="dt-cella ${saldoDi.saldo > 0 ? 'dt-senzadata' : 'dt-ok'}" style="padding:4px 10px">
+        ⏱ Banca ore: <strong>${mm2hm(saldoDi.saldo)}</strong> da recuperare
+        <span class="hint">(${mm2hm(saldoDi.supplementari)} supplementari − ${mm2hm(saldoDi.recuperi)} recuperi)</span></span>
+      ${saldoDi.pagate ? `<span class="dt-cella dt-ok" style="padding:4px 10px">💶 ${mm2hm(saldoDi.pagate)} supplementari segnate pagate, da chiudere</span>` : ''}
+      ${Object.entries(saldoDi.altre).map(([c, m]) =>
+        `<span class="dt-cella dt-senzadata" style="padding:4px 10px">${esc(c)}: <strong>${mm2hm(m)}</strong> aperte</span>`).join('')}
     </div>
     <div class="dt-barra">
       <div class="seg" id="pz-fb">
@@ -361,9 +391,10 @@ async function renderBanca(hostArg) {
         </tr>`).join('') || '<tr><td colspan="5" class="empty">Nessun movimento con questo filtro.</td></tr>'}</tbody>
       </table>
     </div>
-    <p class="hint" style="margin-top:8px">La banca ore è la tabella «Straordinari_Recuperi» di Access
-      (storico dal 2009 importato). Una partita si CHIUDE quando è stata pagata o recuperata:
-      il saldo in alto conta solo le aperte.</p>`;
+    <p class="hint" style="margin-top:8px">La banca ore è un conto solo: le ore supplementari NON pagate sono il versamento,
+      i recuperi il prelievo, il saldo è la differenza. Le supplementari segnate pagate non vanno
+      recuperate e aspettano solo la chiusura. Le altre causali (ferie, permessi, malattia…) sono
+      conteggi propri. Storico Access dal 2009 importato; una partita si CHIUDE quando è saldata.</p>`;
 
   $('#pz-fb').addEventListener('click', (e) => {
     const b = e.target.closest('[data-val]');
