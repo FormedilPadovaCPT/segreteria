@@ -183,6 +183,13 @@ async function vaiA(vista) {
     return mod.persona.render();
   }
 
+  if (vista === 'presenze') {
+    mostraVista('presenze');
+    $('#presenze-host').innerHTML = '<p class="empty">Un istante…</p>';
+    mod.presenze = mod.presenze || await import('./presenze.js');
+    return mod.presenze.render();
+  }
+
   if (vista === 'nomine') {
     mostraVista('nomine');
     $('#nomine-host').innerHTML = '<p class="empty">Un istante…</p>';
@@ -258,10 +265,10 @@ try {
 
       /* link profondo dalle mail: #segnalazione-<id>, #consulenza-<id>,
          #visita-<id> o #conferenza-<id> apre la pratica */
-      const hashPratica = location.hash.match(/^#(segnalazione|consulenza|visita|conferenza|attestazione)-(\d+)$/);
+      const hashPratica = location.hash.match(/^#(segnalazione|consulenza|visita|conferenza|attestazione|ferie)-(\d+)$/);
       const apriDaHash = async () => {
         if (!hashPratica) return;
-        const vista = { segnalazione: 'segnalazioni', consulenza: 'consulenze', visita: 'visite', conferenza: 'conferenze', attestazione: 'attestazioni' }[hashPratica[1]];
+        const vista = { segnalazione: 'segnalazioni', consulenza: 'consulenze', visita: 'visite', conferenza: 'conferenze', attestazione: 'attestazioni', ferie: 'presenze' }[hashPratica[1]];
         await vaiA(vista);
         await mod[vista]?.apriPratica?.(Number(hashPratica[2]));
       };
@@ -271,7 +278,7 @@ try {
            viste sono comunque chiuse dalle policy del database */
         $('#topbar-sub').textContent = 'Autorizzazioni — Direzione';
         $$('.nav-item').forEach((b) => {
-          if (!['segnalazioni', 'consulenze', 'visite', 'conferenze', 'attestazioni'].includes(b.dataset.view)) b.style.display = 'none';
+          if (!['segnalazioni', 'consulenze', 'visite', 'conferenze', 'attestazioni', 'presenze'].includes(b.dataset.view)) b.style.display = 'none';
         });
         if (hashPratica) await apriDaHash();
         else await vaiA('segnalazioni');

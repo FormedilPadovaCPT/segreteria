@@ -92,6 +92,7 @@ export function mostraVista(nome) {
     corsi: '#view-corsi',
     persone: '#view-persone',
     nomine: '#view-nomine',
+    presenze: '#view-presenze',
     statistiche: '#view-statistiche',
   };
   $$('.view').forEach((v) => v.classList.add('hidden'));
