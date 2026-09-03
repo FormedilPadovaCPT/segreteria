@@ -177,7 +177,7 @@ async function scheda(host) {
       <p class="hint" style="margin:0 0 8px">
         Sono le nomine ad agganciare la persona alle imprese: quando cambia ditta se ne
         aggiunge una nuova e la vecchia si chiude con la data — degli spostamenti resta traccia.
-        La maschera per gestirle arriverà a parte.
+        Clicca una riga per aprire la nomina.
       </p>
       ${nomine.length ? `
       <div class="table-wrap"><table class="tbl">
@@ -187,7 +187,7 @@ async function scheda(host) {
           <th style="width:150px">Mansione</th><th>Note</th>
         </tr></thead>
         <tbody>${nomine.map((n) => `
-          <tr ${n.impresa_id ? `data-imp="${esc(n.impresa_id)}" style="cursor:pointer" title="Apri la scheda impresa"` : ''}
+          <tr data-nomina="${esc(n.access_id)}" style="cursor:pointer" title="Apri la nomina"
               class="${inCorso(n) ? '' : 'dt-riga-storico'}">
             <td>${dataIt(n.data_inizio)}</td>
             <td>${n.data_fine ? dataIt(n.data_fine) : '<span class="pill pill-prima">in corso</span>'}</td>
@@ -247,6 +247,14 @@ async function scheda(host) {
     tr.addEventListener('click', async () => {
       const mod = await import('./imprese.js');
       mod.apriScheda(tr.dataset.imp);
+    }));
+
+  /* la riga di una nomina apre la nomina, non l'impresa: la scheda
+     impresa fa già così (imprese.js) — qui era rimasta indietro */
+  host.querySelectorAll('tr[data-nomina]').forEach((tr) =>
+    tr.addEventListener('click', async () => {
+      const mod = await import('./nomine.js');
+      mod.apriNomina(Number(tr.dataset.nomina));
     }));
 
   $('#pe-salva').addEventListener('click', async (ev) => {
