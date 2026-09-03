@@ -110,8 +110,7 @@ export function firmaHtml() {
 <td width="250" valign="top" style="width:250px;padding:0 20px 0 0;">
 <img src="cid:${LOGO_FIRMA_CID}" width="${LOGO_FIRMA_LARGHEZZA}" height="${LOGO_FIRMA_ALTEZZA}" alt="Formedil Padova — Scuola Costruzioni Giuseppe Jappelli" style="display:block;width:${LOGO_FIRMA_LARGHEZZA}px;height:${LOGO_FIRMA_ALTEZZA}px;border:0;outline:none;text-decoration:none;">
 </td>
-<td width="3" bgcolor="${ARANCIO}" style="width:3px;background-color:${ARANCIO};font-size:0;line-height:0;">&nbsp;</td>
-<td width="279" valign="top" style="width:279px;padding:0 0 0 20px;${cella(`font-size:14px;line-height:20px;mso-line-height-rule:exactly;color:${GRIGIO};`)}">
+<td width="279" valign="top" style="width:279px;border-left:3px solid ${ARANCIO};padding:0 0 0 20px;${cella(`font-size:14px;line-height:20px;mso-line-height-rule:exactly;color:${GRIGIO};`)}">
 <div style="font-size:19px;line-height:24px;mso-line-height-rule:exactly;font-weight:600;color:${SCURO};">${esc(d.nome)}</div>
 <div style="padding-top:2px;font-size:11px;line-height:16px;mso-line-height-rule:exactly;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:${ARANCIO};">${esc(d.area)}</div>
 <div style="padding-top:1px;font-size:11px;line-height:16px;mso-line-height-rule:exactly;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:${GRIGIO};">${esc(d.ente)}</div>
