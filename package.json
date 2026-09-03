@@ -4,6 +4,8 @@
   "type": "module",
   "description": "App Segreteria Formedil Padova. Sito statico senza passaggio di compilazione: i file in js/ sono moduli ES caricati dal browser. Questo package.json NON serve a costruire niente e non viene pubblicato (il workflow copia solo index.html, css, js, img): dichiara soltanto che i file .js sono moduli, cosi' anche Node li legge come tali senza doverlo dedurre dalla sintassi. Serve agli strumenti in strumenti/, che importano gli stessi file della webapp.",
   "scripts": {
-    "timbra": "node strumenti/timbra.mjs"
+    "timbra": "node strumenti/timbra.mjs",
+    "firma-sync": "node strumenti/verifica-firma.mjs --sincronizza",
+    "verifica-firma": "node strumenti/verifica-firma.mjs"
   }
 }

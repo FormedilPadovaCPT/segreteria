@@ -16,7 +16,6 @@
    ============================================================ */
 
 import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, mostraVista, apriDrawer, chiudiDrawer } from './core.js';
-import { ENTE } from './config.js';
 
 let requisiti = [];   // catalogo
 let documenti = [];   // tutte le righe s_doc_tecnico
@@ -362,10 +361,7 @@ async function scaricaAvviso(t, voci) {
     oggetto: 'Avviso scadenza documenti — ' + t.nome,
     corpo: `${testoAvviso(t, voci)}
 
-La Segreteria — ${ENTE.area}
-${ENTE.nome} — ${ENTE.sotto}
-${ENTE.indirizzo} — tel. ${ENTE.tel}
-${ENTE.email} — ${ENTE.web}`,
+Distinti saluti.`,
     nomeFile: `avviso-scadenze-${(t.nome || 'tecnico').replace(/[^\w]+/g, '-')}.eml`,
   });
   toast('Bozza dell\'avviso scaricata: aprila (Outlook parte in composizione) e premi Invia. Poi protocollala in uscita.', 'ok');

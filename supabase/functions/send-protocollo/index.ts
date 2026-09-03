@@ -28,6 +28,14 @@
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
+// ⚠️ firma.js e firma-logo.js sono COPIE di js/firma.js e js/firma-logo.js
+// della webapp (Deno non legge fuori dalla cartella della funzione al
+// deploy). Non si modificano qui: `npm run firma-sync` le rigenera, e
+// strumenti/verifica-firma.mjs fallisce se divergono. Da qui arrivano la
+// firma HTML col logo (cid:) e la composizione MIME: una firma sola per
+// le bozze dell'app e per le mail del protocollo.
+// @ts-ignore modulo JS condiviso con la webapp, senza tipi
+import { componiEml, firmaHtml } from './firma.js'
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -74,11 +82,6 @@ function uint8ToBase64(bytes: Uint8Array): string {
 }
 const utf8ToBase64 = (s: string) => uint8ToBase64(new TextEncoder().encode(s))
 const toB64Url = (b: string) => b.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
-function wrap(b64: string, w = 76): string {
-  const out: string[] = []
-  for (let i = 0; i < b64.length; i += w) out.push(b64.slice(i, i + w))
-  return out.join('\r\n')
-}
 const esc = (s: unknown) => String(s ?? '')
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 const dataIt = (iso?: string | null) => {
@@ -89,34 +92,10 @@ const dataIt = (iso?: string | null) => {
 const codiceDi = (p: Record<string, unknown>) => (p.codice as string)
   || (p.esercizio ? `Prot_${p.esercizio}_${String(p.numero).padStart(4, '0')}` : `${p.numero}`)
 
-/* ── il piede istituzionale, uguale a quello della maschera Access ── */
-const PIEDE = `
-<p style="margin:18px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#000">
-  LA SEGRETERIA<br>AREA SICUREZZA E SALUTE<br>Renato Squizzato<br>
-  <i style="font-size:11px">Tel. 049-761168 int.4</i>
-</p>
-<p style="margin:16px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#4D6582;line-height:1.55">
-  <b>FORMEDIL PADOVA</b><br>
-  ENTE UNICO PER LA FORMAZIONE E LA SICUREZZA PER IL SETTORE DELL'EDILIZIA ED AFFINI DELLA PROVINCIA DI PADOVA<br>
-  <i>Via Basilicata, 10 — 35127 Padova (PD)<br>
-  Tel. +39 049761168<br>
-  <a href="mailto:cpt@formedilpadova.it" style="color:#4D6582">cpt@formedilpadova.it</a></i>
-</p>
-<p style="margin:14px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:11.5px;color:#4D6582;line-height:1.6">
-  <b>Orari uff. AREA SICUREZZA E SALUTE</b><br>
-  <i style="color:#8E8E9C">
-  Lunedì dalle 09:00 alle 13:00 e dalle 14:00 alle 16:00<br>
-  Martedì dalle 09:00 alle 13:00 e dalle 14:00 alle 18:00<br>
-  Mercoledì dalle 09:00 alle 13:00 e dalle 14:00 alle 18:00<br>
-  Giovedì dalle 09:00 alle 13:00 e dalle 14:00 alle 18:00</i>
-</p>
-<p style="margin:14px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:9px;color:#2A2A2E;line-height:1.5;font-style:italic">
-  NOTE SULLA PRIVACY ai sensi del Regolamento europeo sulla Protezione dei dati personali n. 679/2016 («GDPR»).
-  Ai sensi degli artt. 13 e 14 Le comunichiamo che il Suo indirizzo si trova nella mailing list di FORMEDIL PADOVA.
-  Sperando che le nostre comunicazioni siano gradite, Le assicuriamo che i Suoi dati saranno trattati con estrema
-  riservatezza, senza essere divulgati in alcun modo. Ha il diritto di richiedere la modifica o la cancellazione dei
-  Suoi dati inviando richiesta a cpt@formedilpadova.it; riceverà una mail di conferma cancellazione.
-</p>`
+/* ── il piede: la firma dell'ufficio, la stessa delle bozze dell'app
+      (fino al 03/09/2026 era una copia in testo del piede della maschera
+      Access, senza logo) ── */
+const PIEDE = `<div style="height:10px;line-height:10px;font-size:0;">&nbsp;</div>\n${firmaHtml()}`
 
 /* ── avviso al mittente: la lettera della vecchia maschera ── */
 function htmlAvviso(p: Record<string, unknown>, messaggio: string): string {
@@ -200,7 +179,7 @@ serve(async (req) => {
     if (error || !p) throw new Error('Protocollo non trovato: ' + (error?.message || ''))
 
     /* allegato: da Drive, non dal bucket */
-    let allegatoB64 = ''
+    let allegatoByte: Uint8Array | null = null
     let allegatoNome = ''
     let allegatoMime = 'application/pdf'
     if (driveFileId) {
@@ -214,7 +193,7 @@ serve(async (req) => {
       const bin = await fetch(`https://www.googleapis.com/drive/v3/files/${driveFileId}?alt=media`,
         { headers: { Authorization: `Bearer ${tokDrive}` } })
       if (!bin.ok) throw new Error('Allegato non scaricabile: ' + (await bin.text()).slice(0, 200))
-      allegatoB64 = uint8ToBase64(new Uint8Array(await bin.arrayBuffer()))
+      allegatoByte = new Uint8Array(await bin.arrayBuffer())
     }
 
     const cod = codiceDi(p)
@@ -226,40 +205,20 @@ serve(async (req) => {
       ? htmlAvviso(p, messaggio || '')
       : htmlInoltra(p, messaggio || '', allegatoNome)
 
-    const boundary = `----=_P_${Date.now()}`
     const da = bozza ? MITTENTE_UFFICIALE : MITTENTE
-    const parti = [
-      'MIME-Version: 1.0',
-      // e' questa riga che fa aprire il file come bozza, non come
-      // messaggio ricevuto
-      ...(bozza ? ['X-Unsent: 1'] : []),
-      `From: Formedil Padova - Area Sicurezza e Salute <${da}>`,
-      `To: ${toList.join(', ')}`,
-      ...(cc?.length ? [`Cc: ${(Array.isArray(cc) ? cc : [cc]).join(', ')}`] : []),
-      `Subject: =?UTF-8?B?${toB64Url(utf8ToBase64(soggetto))}?=`,
-      `Content-Type: multipart/mixed; boundary="${boundary}"`,
-      '',
-      `--${boundary}`,
-      'Content-Type: text/html; charset=UTF-8',
-      'Content-Transfer-Encoding: base64',
-      '',
-      wrap(utf8ToBase64(html)),
-      '',
-    ]
-    if (allegatoB64) {
-      parti.push(
-        `--${boundary}`,
-        `Content-Type: ${allegatoMime}`,
-        `Content-Disposition: attachment; filename="${allegatoNome}"`,
-        'Content-Transfer-Encoding: base64',
-        '',
-        wrap(allegatoB64),
-        '',
-      )
-    }
-    parti.push(`--${boundary}--`)
-
-    const mime = parti.join('\r\n')
+    /* Lo stesso compositore delle bozze dell'app: testo + HTML con logo
+       inline + allegati. Con azione 'bozza' porta «X-Unsent: 1», che fa
+       aprire il file in composizione e non come messaggio ricevuto. */
+    const mime: string = componiEml({
+      from: `Formedil Padova - Area Sicurezza e Salute <${da}>`,
+      to: toList.join(', '),
+      cc: Array.isArray(cc) ? cc : (cc ? [cc] : []),
+      oggetto: soggetto,
+      corpo: '',
+      html,
+      allegati: allegatoByte ? [{ nome: allegatoNome, byte: allegatoByte, mime: allegatoMime }] : [],
+      unsent: bozza,
+    })
 
     /* La strada normale: non si spedisce, si consegna il messaggio
        pronto. Outlook lo apre in composizione, con l'allegato gia'
