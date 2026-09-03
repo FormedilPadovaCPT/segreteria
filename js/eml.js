@@ -15,6 +15,7 @@
    ============================================================ */
 
 import { componiEml, FIRMA_SEGRETERIA } from './firma.js';
+import { toast } from './core.js';
 
 export { FIRMA_SEGRETERIA };
 
@@ -40,6 +41,48 @@ export function apriMailto({ to = '', cc = [], oggetto = '', corpo = '' }) {
 export function scaricaEml({ to = '', cc = [], oggetto, corpo, allegati = [], nomeFile = 'bozza.eml', firma = true }) {
   const eml = componiEml({ to, cc, oggetto, corpo, allegati, firma, unsent: true });
   scaricaTesto(eml, nomeFile);
+}
+
+/* La mail «da doppio clic»: oggetto con data e ora, cc alla Direzione,
+   corpo da completare — nata in persona.js per i campi email della
+   persona, generalizzata il 03/09/2026 perché la stessa comodità serve
+   in OGNI campo mail del gestionale (impresa, nomina, referente corso…),
+   non solo lì. `chi` è il nome da mettere in oggetto e nel saluto: la
+   persona, l'impresa, il referente — quel che ha senso nel contesto. */
+export function bozzaMailRapida(indirizzo, chi) {
+  const nome = chi || indirizzo;
+  const ora = new Date();
+  const zeri = (n) => String(n).padStart(2, '0');
+  const quando = `${zeri(ora.getDate())}/${zeri(ora.getMonth() + 1)}/${ora.getFullYear()} ${zeri(ora.getHours())}:${zeri(ora.getMinutes())}:${zeri(ora.getSeconds())}`;
+  scaricaEml({
+    to: indirizzo,
+    cc: ['direzione@formedilpadova.it'],
+    oggetto: `FORMEDIL PADOVA - Area Sicurezza e Salute - Invio - del ${quando} - ${nome}.`,
+    corpo: `Gent.le ${nome},
+buongiorno,
+
+
+
+Distinti saluti.`,
+    nomeFile: `mail-${(indirizzo.split('@')[0] || 'destinatario')}.eml`,
+  });
+  toast(`Bozza scaricata per ${indirizzo}: aprila (Outlook parte in composizione) e premi Invia.`, 'ok');
+}
+
+/* Attacca il doppio clic a tutti i campi mail di una maschera in un
+   colpo solo. Un campo si marca con `data-mail="1"` sull'<input>; il
+   nome da usare in oggetto/saluto sta in `data-mail-chi` (facoltativo,
+   altrimenti si usa l'indirizzo stesso). Va richiamata ogni volta che
+   la maschera si ridisegna, come gli altri addEventListener. */
+export function collegaDoppioClickMail(host) {
+  host.querySelectorAll('input[data-mail]').forEach((inp) => {
+    if (!inp.title) inp.title = 'Doppio clic per scrivere una mail';
+    inp.addEventListener('dblclick', () => {
+      const a = inp.value.trim();
+      if (!a) return toast('Campo email vuoto.', 'err');
+      bozzaMailRapida(a, inp.dataset.mailChi || '');
+    });
+  });
 }
 
 function scaricaTesto(eml, nomeFile) {

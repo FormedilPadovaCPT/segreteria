@@ -11,6 +11,7 @@
    ============================================================ */
 
 import { sb, state, $, $$, esc, dataIt, toast, attendi, mostraVista, apriDrawer } from './core.js';
+import { collegaDoppioClickMail } from './eml.js';
 
 let scheda = null;          // ultimo JSON caricato
 let schedaTab = 'anagrafica';
@@ -480,12 +481,16 @@ const CAMPI = [
 
 function tabAnagrafica() {
   const i = scheda.impresa;
-  const campo = ([k, etichetta, cls, bloccato]) => `
+  const campo = ([k, etichetta, cls, bloccato]) => {
+    const email = /email/i.test(k) || k === 'pec';
+    return `
     <div class="field ${cls || ''}">
       <label for="ia-${k}">${esc(etichetta)}</label>
       <input type="text" id="ia-${k}" data-campo="${k}" value="${esc(i[k] ?? '')}"
+             ${email ? `data-mail="1" data-mail-chi="${esc(i.impresa_nome)}"` : ''}
              ${bloccato ? 'readonly class="readonly"' : ''}>
     </div>`;
+  };
 
   return `
     ${CAMPI.map(([titolo, griglia, campi]) => `
@@ -535,6 +540,8 @@ function tabAnagrafica() {
 }
 
 function agganciaAnagrafica() {
+  collegaDoppioClickMail($('#imp-tab-host'));
+
   $('#ia-salva')?.addEventListener('click', async (e) => {
     const dati = {};
     $$('[data-campo]').forEach((el) => {

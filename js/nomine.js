@@ -14,6 +14,7 @@
    ============================================================ */
 
 import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer } from './core.js';
+import { collegaDoppioClickMail } from './eml.js';
 
 let nomine = [];
 let ruoli = [];
@@ -198,7 +199,7 @@ function formNomina(n) {
       <div id="fn-impresa-esiti"></div></div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
       <div class="field"><label>Mansione</label><input type="text" id="fn-mansione" value="${esc(d.mansione || '')}"></div>
-      <div class="field"><label>Email del ruolo</label><input type="text" id="fn-email" value="${esc(d.email_ruolo || '')}"></div>
+      <div class="field"><label>Email del ruolo</label><input type="text" id="fn-email" data-mail="1" data-mail-chi="${esc(d.persona_txt || '')}" value="${esc(d.email_ruolo || '')}"></div>
       <div class="field"><label>Inizio incarico</label><input type="date" id="fn-inizio" value="${d.data_inizio || ''}"></div>
       <div class="field"><label>Fine nomina</label><input type="date" id="fn-fine" value="${d.data_fine || ''}"></div>
     </div>
@@ -209,6 +210,8 @@ function formNomina(n) {
     </div>
     ${nuova ? '' : `<p class="hint" style="margin-top:10px">Registrata il ${dataIt(d.data_reg) || '—'}. Per un avvicendamento non modificare: chiudi questa e registrane una nuova.</p>`}
   `);
+
+  collegaDoppioClickMail($('#drawer-body'));
 
   /* il select dei ruoli si riempie dal vivo (la lista è già caricata) */
   $('#fn-ruolo').innerHTML = '<option value="">—</option>' +

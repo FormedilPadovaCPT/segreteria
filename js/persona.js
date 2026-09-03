@@ -19,7 +19,7 @@
    ============================================================ */
 
 import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, mostraVista } from './core.js';
-import { scaricaEml, FIRMA_SEGRETERIA } from './eml.js';
+import { collegaDoppioClickMail } from './eml.js';
 
 let corrente = null;   // persona aperta (null = ricerca)
 
@@ -158,7 +158,7 @@ async function scheda(host) {
           ${campi.map(([k, l, tipo]) => `
             <div class="field ${tipo === 'span2' ? 'span2' : ''}"><label for="pe-${k}">${l}</label>
               <input type="${tipo === 'date' ? 'date' : 'text'}" id="pe-${k}" data-campo="${k}"
-                     ${tipo === 'email' ? 'data-mail="1" title="Doppio clic per scrivere una mail"' : ''}
+                     ${tipo === 'email' ? `data-mail="1" data-mail-chi="${esc(nomePersona(p))}"` : ''}
                      value="${esc(p[k] ?? '')}"></div>`).join('')}
         </div>
       </div>`).join('')}
@@ -236,12 +236,7 @@ async function scheda(host) {
 
   /* doppio clic su una mail → bozza Outlook già strutturata,
      come il doppio clic della maschera Access */
-  host.querySelectorAll('input[data-mail]').forEach((inp) =>
-    inp.addEventListener('dblclick', () => {
-      const a = inp.value.trim();
-      if (!a) return toast('Campo email vuoto.', 'err');
-      bozzaMailPersona(p, a);
-    }));
+  collegaDoppioClickMail(host);
 
   host.querySelectorAll('tr[data-imp]').forEach((tr) =>
     tr.addEventListener('click', async () => {
@@ -290,34 +285,6 @@ async function scheda(host) {
     Object.assign(corrente, agg);
     render();
   });
-}
-
-/* La mail «da doppio clic», ricalcata su quella che generava Access:
-   oggetto con data e ora, cc alla Direzione, corpo da completare.
-   Prima era un mailto:, ma se Chrome non ha Outlook come gestore
-   della posta il mailto non fa NULLA, in silenzio (successo il
-   01/09/2026). Ora è la stessa bozza .eml di tutto il resto
-   dell'app: si scarica e Outlook la apre in composizione, sempre. */
-function bozzaMailPersona(p, indirizzo) {
-  const chi = nomePersona(p) || indirizzo;
-  const ora = new Date();
-  const zeri = (n) => String(n).padStart(2, '0');
-  const quando = `${zeri(ora.getDate())}/${zeri(ora.getMonth() + 1)}/${ora.getFullYear()} ${zeri(ora.getHours())}:${zeri(ora.getMinutes())}:${zeri(ora.getSeconds())}`;
-  scaricaEml({
-    to: indirizzo,
-    cc: ['direzione@formedilpadova.it'],
-    oggetto: `FORMEDIL PADOVA - Area Sicurezza e Salute - Invio - del ${quando} - ${chi}.`,
-    corpo: `Gent.le ${chi},
-buongiorno,
-
-
-
-Distinti saluti.
-
-${FIRMA_SEGRETERIA}`,
-    nomeFile: `mail-${(indirizzo.split('@')[0] || 'persona')}.eml`,
-  });
-  toast(`Bozza scaricata per ${indirizzo}: aprila (Outlook parte in composizione) e premi Invia.`, 'ok');
 }
 
 /* Crea una persona coi dati già noti e restituisce il suo id.

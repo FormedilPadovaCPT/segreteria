@@ -21,7 +21,7 @@
 
 import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo } from './core.js';
 import { risolviCartella, caricaByte, leggiByte } from './drive.js';
-import { scaricaEml, FIRMA_SEGRETERIA } from './eml.js';
+import { scaricaEml, FIRMA_SEGRETERIA, collegaDoppioClickMail } from './eml.js';
 
 let corsi = [];
 let progetti = [];
@@ -173,13 +173,15 @@ function formCorso(c, prefill = {}) {
       <input id="fc-normativa" value="${esc(v.normativa || 'D.Lgs. 09 aprile 2008 n. 81 (Testo Unico Sicurezza)')}"></div>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
       <div class="field"><label>Referente</label><input id="fc-refnome" value="${esc(v.referente_nome || '')}"></div>
-      <div class="field"><label>Email referente</label><input id="fc-refemail" value="${esc(v.referente_email || '')}"></div>
+      <div class="field"><label>Email referente</label><input id="fc-refemail" data-mail="1" data-mail-chi="${esc(v.referente_nome || '')}" value="${esc(v.referente_email || '')}"></div>
       <div class="field"><label>Tel. referente</label><input id="fc-reftel" value="${esc(v.referente_tel || '')}"></div>
     </div>
     <div class="field"><label>Note</label><textarea id="fc-note" rows="2">${esc(v.note || '')}</textarea></div>
     <p class="hint" style="margin:6px 0">Responsabile del progetto formativo: <strong>${esc(conf.responsabile_formativo_nome || '—')}</strong>
       · rappresentante legale: <strong>${esc(conf.presidente_nome || '—')}</strong> (si congelano sul corso alla creazione).</p>
     <button class="btn btn-primary" id="fc-salva" style="margin-top:8px">${c ? 'Salva' : 'Crea il corso'}</button>`);
+
+  collegaDoppioClickMail($('#drawer-body'));
 
   $('#fc-salva').addEventListener('click', async (ev) => {
     const titolo = $('#fc-titolo').value.trim();
@@ -817,8 +819,10 @@ function formIscritto(c, i) {
           `<option value="${k}" ${(i?.esito || 'in_attesa') === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
       <div class="field"><label>Valutazione test</label><input id="fp-val" value="${esc(i?.valutazione || '')}" placeholder="es. 28/30"></div>
     </div>
-    <div class="field"><label>Email (per l'invio dell'attestato)</label><input id="fp-email" value="${esc(i?.email_iscrizione || '')}"></div>
+    <div class="field"><label>Email (per l'invio dell'attestato)</label><input id="fp-email" data-mail="1" data-mail-chi="${esc(i?.nominativo || '')}" value="${esc(i?.email_iscrizione || '')}"></div>
     <button class="btn btn-primary" id="fp-salva" style="margin-top:10px" ${i ? '' : 'disabled'}>${i ? 'Salva' : 'Iscrivi'}</button>`);
+
+  collegaDoppioClickMail($('#drawer-body'));
 
   let personaId = i?.persona_id || null;
   let impresaId = i?.impresa_id || null;
@@ -829,6 +833,7 @@ function formIscritto(c, i) {
       $('#fp-nome').value = [p.cognome, p.titolo, p.nome].filter(Boolean).join(' ');
       $('#fp-cf').value = p.cf || '';
       $('#fp-email').value = $('#fp-email').value || p.email || '';
+      $('#fp-email').dataset.mailChi = $('#fp-nome').value;
       $('#fp-salva').disabled = false;
       $('#fp-risultati').innerHTML = '<p class="hint">agganciato all\'anagrafica ✓</p>';
       // impresa dal rapporto attivo alla data del corso
