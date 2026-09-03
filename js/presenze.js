@@ -409,15 +409,30 @@ async function renderBanca(hostArg) {
     tr.addEventListener('click', () => formMovimento(movimenti.find((e) => e.id === Number(tr.dataset.id)))));
 }
 
-function formMovimento(e) {
+async function formMovimento(e) {
+  /* tendina VERA delle causali: quelle di base più tutte quelle già usate
+     nello storico (i progetti SPISAL/CAM, GSuite, 104/92…), con in fondo
+     «Altra causale…» per il testo libero (regola delle maschere: la
+     tendina si deve aprire e mostrare le voci, non un datalist muto) */
+  const { data: usate } = await sb.from('s_presenze_extra').select('causale').limit(3000);
+  const altre = [...new Set((usate || []).map((r) => r.causale).filter(Boolean))]
+    .filter((c) => !CAUSALI_BASE.includes(c)).sort((a, b) => a.localeCompare(b));
+  const causali = [...CAUSALI_BASE, ...altre];
+  const corrente = e?.causale || 'Ore supplementari';
+  const inLista = causali.includes(corrente);
+
   apriDrawer(e ? `Movimento del ${dataIt(e.data)}` : 'Registra movimento banca ore', '', `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
       <div class="field"><label>Data *</label><input type="date" id="mv-data" value="${e ? e.data : oggiIso()}"></div>
       <div class="field"><label>Ore (hh:mm) *</label><input id="mv-ore" placeholder="01:30" value="${e ? mm2hm(e.ore_min).padStart(5, '0') : ''}"></div>
     </div>
     <div class="field"><label>Causale *</label>
-      <input id="mv-causale" list="mv-causali" value="${esc(e?.causale || 'Ore supplementari')}">
-      <datalist id="mv-causali">${CAUSALI_BASE.map((c) => `<option>${c}</option>`).join('')}</datalist></div>
+      <select id="mv-causale-sel">
+        ${causali.map((c) => `<option value="${esc(c)}" ${c === corrente ? 'selected' : ''}>${esc(c)}</option>`).join('')}
+        <option value="__altra__" ${!inLista ? 'selected' : ''}>Altra causale…</option>
+      </select></div>
+    <div class="field ${inLista ? 'hidden' : ''}" id="mv-causale-libera-box"><label>Causale (testo libero)</label>
+      <input id="mv-causale-libera" value="${inLista ? '' : esc(corrente)}" placeholder="es. Progettazione SPISAL (2027 …)"></div>
     <div class="field"><label>Note</label><input id="mv-note" value="${esc(e?.note || '')}"></div>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:6px">
       <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="mv-pagato" ${e?.pagato ? 'checked' : ''}> Pagata</label>
@@ -434,9 +449,13 @@ function formMovimento(e) {
       <button class="btn btn-primary" id="mv-salva">Salva</button>
     </div>`);
 
+  $('#mv-causale-sel').addEventListener('change', () => {
+    $('#mv-causale-libera-box').classList.toggle('hidden', $('#mv-causale-sel').value !== '__altra__');
+  });
   $('#mv-salva').addEventListener('click', async (ev) => {
     const oreMin = hm2min($('#mv-ore').value.trim());
-    const causale = $('#mv-causale').value.trim();
+    const sel = $('#mv-causale-sel').value;
+    const causale = (sel === '__altra__' ? $('#mv-causale-libera').value : sel).trim();
     if (!$('#mv-data').value || oreMin == null || !causale) return toast('Servono data, ore (hh:mm) e causale.', 'err');
     attendi(ev.currentTarget, true);
     const dati = {
