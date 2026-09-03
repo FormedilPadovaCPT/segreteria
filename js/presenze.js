@@ -62,9 +62,12 @@ const hm2min = (t) => {
   const m = String(t || '').match(/^(\d{1,2})[:.](\d{2})$/);
   return m ? Number(m[1]) * 60 + Number(m[2]) : null;
 };
-/* Saldo della banca ore dalle partite aperte: supplementari non pagate
-   (da recuperare) meno recuperi; le pagate a parte; le altre causali
-   (ferie, permessi, malattia…) sono conteggi propri, non banca ore. */
+/* I DUE BINARI (regola dell'utente, 03/09/2026):
+   - supplementare DA RECUPERARE (pagato=false) -> BANCA ORE (versamento);
+   - supplementare DA PAGARE/PAGATA (pagato=true) -> circuito ORDINARIO
+     (busta paga), fuori dalla banca ore;
+   - RECUPERO = prelievo dalla banca ore: NON scala i permessi del
+     contratto (quelli sono la causale «Permesso», conteggio proprio). */
 function calcolaBanca(aperte) {
   const r = { supplementari: 0, recuperi: 0, pagate: 0, saldo: 0, altre: {} };
   for (const e of aperte) {
@@ -312,7 +315,7 @@ async function chiudiMese(btn, conMail) {
     const banca = calcolaBanca(aperte || []);
     const bancaTxt = [
       `- Saldo banca ore da recuperare: ${mm2hm(banca.saldo)} (${mm2hm(banca.supplementari)} supplementari - ${mm2hm(banca.recuperi)} recuperi)`,
-      banca.pagate ? `- Ore supplementari segnate pagate, in attesa di chiusura: ${mm2hm(banca.pagate)}` : null,
+      banca.pagate ? `- Ore supplementari da pagare/pagate (circuito ordinario, fuori banca ore): ${mm2hm(banca.pagate)}` : null,
       ...Object.entries(banca.altre).map(([c, m]) => `- ${c}: ${mm2hm(m)} aperte`),
     ].filter(Boolean).join('\n');
 
@@ -367,7 +370,7 @@ async function renderBanca(hostArg) {
       <span class="dt-cella ${saldoDi.saldo > 0 ? 'dt-senzadata' : 'dt-ok'}" style="padding:4px 10px">
         ⏱ Banca ore: <strong>${mm2hm(saldoDi.saldo)}</strong> da recuperare
         <span class="hint">(${mm2hm(saldoDi.supplementari)} supplementari − ${mm2hm(saldoDi.recuperi)} recuperi)</span></span>
-      ${saldoDi.pagate ? `<span class="dt-cella dt-ok" style="padding:4px 10px">💶 ${mm2hm(saldoDi.pagate)} supplementari segnate pagate, da chiudere</span>` : ''}
+      ${saldoDi.pagate ? `<span class="dt-cella dt-ok" style="padding:4px 10px">💶 ${mm2hm(saldoDi.pagate)} supplementari da pagare/pagate (ordinario, fuori banca ore)</span>` : ''}
       ${Object.entries(saldoDi.altre).map(([c, m]) =>
         `<span class="dt-cella dt-senzadata" style="padding:4px 10px">${esc(c)}: <strong>${mm2hm(m)}</strong> aperte</span>`).join('')}
     </div>
@@ -391,10 +394,11 @@ async function renderBanca(hostArg) {
         </tr>`).join('') || '<tr><td colspan="5" class="empty">Nessun movimento con questo filtro.</td></tr>'}</tbody>
       </table>
     </div>
-    <p class="hint" style="margin-top:8px">La banca ore è un conto solo: le ore supplementari NON pagate sono il versamento,
-      i recuperi il prelievo, il saldo è la differenza. Le supplementari segnate pagate non vanno
-      recuperate e aspettano solo la chiusura. Le altre causali (ferie, permessi, malattia…) sono
-      conteggi propri. Storico Access dal 2009 importato; una partita si CHIUDE quando è saldata.</p>`;
+    <p class="hint" style="margin-top:8px">Due binari: la supplementare <strong>da recuperare</strong> va in banca ore, quella
+      <strong>da pagare/pagata</strong> sta nel circuito ordinario (busta paga). Il recupero preleva
+      dalla banca ore e <strong>non scala i permessi del contratto</strong> (quelli sono la causale
+      «Permesso»). Saldo banca ore = supplementari da recuperare − recuperi. Una partita si CHIUDE
+      quando è saldata. Storico Access dal 2009 importato.</p>`;
 
   $('#pz-fb').addEventListener('click', (e) => {
     const b = e.target.closest('[data-val]');
@@ -422,6 +426,9 @@ function formMovimento(e) {
     </div>
     <div class="field" style="margin-top:6px"><label>Recuperata in data</label>
       <input type="date" id="mv-recdata" value="${e?.recuperato_il || ''}"></div>
+    <p class="hint" style="margin-top:6px">Supplementare: <strong>Pagata</strong> = circuito ordinario
+      (busta paga); non pagata = banca ore, da recuperare. Il <strong>Recupero</strong> preleva dalla
+      banca ore e non scala i permessi del contratto.</p>
     <div style="display:flex;gap:8px;justify-content:space-between;margin-top:12px">
       <div>${e ? '<button class="btn btn-ghost" id="mv-elimina">🗑 Elimina</button>' : ''}</div>
       <button class="btn btn-primary" id="mv-salva">Salva</button>
@@ -523,13 +530,15 @@ function formRichiesta() {
       <div class="field"><label>Alle ore</label><input type="time" id="fr-alle"></div>
       <div class="field"><label>Totale ore</label><input type="number" step="0.5" id="fr-ore" placeholder="es. 8"></div>
       <div class="field"><label>Monte ore</label>
-        <select id="fr-monte"><option value="ferie">Ferie</option><option value="permessi">Permessi retribuiti</option></select></div>
+        <select id="fr-monte"><option value="ferie">Ferie</option><option value="permessi">Permessi retribuiti</option><option value="banca_ore">Banca ore (recupero)</option></select></div>
     </div>
     <div class="field" style="margin-top:8px"><label>Note (facoltative)</label><input id="fr-motivo"></div>
     <button class="btn btn-primary" id="fr-crea" style="margin-top:10px">Crea la richiesta</button>`);
 
   $('#fr-tipo').addEventListener('change', () => {
-    $('#fr-monte').value = $('#fr-tipo').value === 'permesso' ? 'permessi' : 'ferie';
+    const t = $('#fr-tipo').value;
+    /* il recupero attinge alla BANCA ORE, mai ai monti del contratto */
+    $('#fr-monte').value = t === 'permesso' ? 'permessi' : t === 'recupero' ? 'banca_ore' : 'ferie';
   });
   $('#fr-crea').addEventListener('click', async (ev) => {
     if (!$('#fr-da').value) return toast('Serve la data di inizio.', 'err');
@@ -575,7 +584,7 @@ export async function apriRichiesta(id) {
     </div>
     <div class="dt-doc-riga"><strong>Periodo:</strong> ${dataIt(r.data_inizio)}${r.data_fine && r.data_fine !== r.data_inizio ? ' → ' + dataIt(r.data_fine) : ''}
       ${r.ora_dalle ? ` — dalle ${hm(r.ora_dalle)} alle ${hm(r.ora_alle)}` : ''}</div>
-    <div class="dt-doc-riga"><strong>Ore richieste:</strong> ${r.ore ?? '—'} — monte ${esc(r.monte || 'ferie')}</div>
+    <div class="dt-doc-riga"><strong>Ore richieste:</strong> ${r.ore ?? '—'} — monte ${esc(r.monte === 'banca_ore' ? 'banca ore' : (r.monte || 'ferie'))}</div>
     ${r.motivo ? `<div class="dt-doc-riga"><strong>Note:</strong> ${esc(r.motivo)}</div>` : ''}
     ${r.aut_note ? `<div class="dt-doc-riga"><strong>Note del Direttore:</strong> ${esc(r.aut_note)}</div>` : ''}
 
