@@ -200,6 +200,10 @@ export async function pdfRiepilogo(inc, prot, d) {
   c.campo('Mese di riferimento', `${MESI[inc.mese - 1]} ${inc.anno}`);
   c.campo('Cantieri assegnati', `${inc.cantieri_assegnati ?? 0}${inc.altro ? `  —  Altro: ${inc.altro}` : ''}`);
   c.campo('Cantieri visitati', String(d.cantieriVisitati ?? 0));
+  /* il riepilogo elenca le attivita' ancora senza fattura, non «quelle del
+     mese»: se ne arrivano da mesi precedenti va detto, altrimenti il
+     tecnico trova righe con date che non tornano col titolo */
+  if (d.arretrate) c.campo('Attivita di mesi precedenti', `${d.arretrate} — non ancora coperte da una fattura`);
   c.stato.y -= 6;
 
   const visite = d.prestazioni.filter((p) => String(p.tipo).startsWith('visita_'));

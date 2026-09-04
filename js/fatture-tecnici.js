@@ -151,6 +151,15 @@ async function renderMese(hostArg) {
     sb.from('s_fatture_tecnici').select('id, incarico_mensile_id, numero, stato, importo').not('incarico_mensile_id', 'is', null),
   ]);
   incarichiMese = inc || [];
+  /* quante prestazioni del mese sono ancora senza fattura: un mese puo'
+     essere pagato da piu' fatture, e finche' ne resta di aperta il mese
+     non e' chiuso davvero */
+  const aperteDi = {};
+  if (incarichiMese.length) {
+    const { data: ap } = await sb.from('s_prestazioni').select('incarico_mensile_id')
+      .in('incarico_mensile_id', incarichiMese.map((x) => x.id)).is('fattura_id', null);
+    for (const r of ap || []) aperteDi[r.incarico_mensile_id] = (aperteDi[r.incarico_mensile_id] || 0) + 1;
+  }
   const visite = {};
   for (const v of vs || []) {
     const r = (visite[v.tecnico_id] = visite[v.tecnico_id] || { n: 0, rlst: 0 });
@@ -172,7 +181,7 @@ async function renderMese(hostArg) {
       <td>${i ? `n° ${i.id} · ${dataIt(i.data_lettera)}${i.lettera_protocollo_id ? ' · 📤' : ''}` : '<span class="hint">—</span>'}</td>
       <td>${i ? `${i.cantieri_assegnati ?? 0}${i.seconde_visite ? ` +${i.seconde_visite} 2ª` : ''}${i.altro ? ` +${i.altro} altro` : ''}` : '—'}</td>
       <td><strong>${v.n}</strong> <span class="hint">RLST ${pct}%</span></td>
-      <td>${i ? pill(STATI_INC, i.stato) : '<span class="hint">senza incarico</span>'}${i?.totale_lordo ? ` <span class="hint">${euro(i.totale_lordo)}</span>` : ''}</td>
+      <td>${i ? pill(STATI_INC, i.stato) : '<span class="hint">senza incarico</span>'}${i?.totale_lordo ? ` <span class="hint">${euro(i.totale_lordo)}</span>` : ''}${i && fatt.length && aperteDi[i.id] ? ` <span class="dt-cella dt-senzadata" style="padding:0 5px" title="Prestazioni del mese non ancora coperte da una fattura">${aperteDi[i.id]} da fatturare</span>` : ''}</td>
       <td>${fatt.length ? fatt.map((f) => `${esc(f.numero || '?')} ${pill(STATI_FATT, f.stato)}`).join('<br>') : '<span class="hint">—</span>'}</td>
       <td style="white-space:nowrap">
         <button class="btn btn-ghost btn-sm" data-az="lettera" title="Lettera di incarico del mese">✉️</button>
@@ -431,7 +440,28 @@ async function chiudiMese(t, inc) {
   $('#drawer').classList.add('drawer-xl');
   const { data: calc, error } = await sb.rpc('s_prestazioni_calcola', { p_tecnico: t.tecnico_id, p_anno: anno, p_mese: mese });
   if (error) return toast('Calcolo non riuscito: ' + error.message, 'err');
-  const righe = (calc || []).map((r, k) => ({ ...r, k, sel: !r.fattura_id, gia: !!r.prestazione_id }));
+
+  /* ARRETRATE — il riepilogo che va al tecnico deve elencare le attivita'
+     svolte che NON hanno ancora un aggancio a una fattura, non «quelle del
+     mese»: se una fattura precedente ne aveva coperta solo una parte, il
+     resto va rimesso in conto adesso, altrimenti non verrebbe pagato mai.
+     Restano attribuite al loro mese vero (non si spostano): entrano solo
+     nel riepilogo e nel suo totale. */
+  const { da: daMese } = meseRange(anno, mese);
+  const { data: arr } = await sb.from('s_prestazioni')
+    .select('*').eq('tecnico_id', t.tecnico_id).is('fattura_id', null)
+    .lt('data', daMese).order('data');
+  const arretrate = (arr || []).map((r) => ({
+    prestazione_id: r.id, arretrata: true,
+    sorgente: `arretrata ${MESI[(r.mese || 1) - 1]} ${r.anno}`,
+    data: r.data, tipo: r.tipo, descrizione: r.descrizione, quantita: r.quantita,
+    unita: r.unita, tariffa_codice: r.tariffa_codice, tariffa_unitaria: r.tariffa_unitaria,
+    importo: r.importo, visita_id: r.visita_id, visita_stage_id: r.visita_stage_id,
+    incarico_id: r.incarico_id, corso_incarico_id: r.corso_incarico_id,
+    a_pratica_id: r.a_pratica_id, progetto_id: r.progetto_id, fattura_id: null,
+  }));
+
+  const righe = [...arretrate, ...(calc || [])].map((r, k) => ({ ...r, k, sel: !r.fattura_id, gia: !!r.prestazione_id }));
   const fisc = fiscDi(t.tecnico_id, meseRange(anno, mese).a);
 
   const disegna = () => {
@@ -442,6 +472,9 @@ async function chiudiMese(t, inc) {
     $('#drawer-body').innerHTML = `
       <p class="hint" style="margin:0 0 8px">Spunta le prestazioni da mettere nel riepilogo. Le righe già fatturate restano fuori; quelle già congelate
         (da una chiusura precedente o dall'import Access) si aggiornano al mese. Quantità e tariffa si possono correggere qui.</p>
+      ${arretrate.length ? `<div class="dt-doc-riga" style="margin-bottom:8px"><strong>${arretrate.length} attività di mesi precedenti</strong>
+        non ancora coperte da una fattura: sono in testa all'elenco e restano attribuite al loro mese, ma entrano in questo riepilogo
+        — altrimenti non verrebbero pagate. Togli la spunta se non devono andarci.</div>` : ''}
       <div class="table-wrap"><table class="tbl" style="min-width:0">
         <thead><tr><th></th><th>Fonte</th><th>Data</th><th>Tipo</th><th>Descrizione</th><th>Q.tà</th><th>Tariffa</th><th>Netto</th><th>Stato</th></tr></thead>
         <tbody>${righe.map((r) => `<tr data-k="${r.k}" ${r.fattura_id ? 'style="opacity:.55"' : ''}>
@@ -509,6 +542,7 @@ function datiRiepilogo(t, sel, fisc, note) {
     prestazioni: sel.map((r) => ({ ...r, impresa: r.impresa || (r.descrizione || '').split(' — ')[0] })),
     fisc, rlstPct: visite.length ? Math.round((nRlst / visite.length) * 100) : 0, rlstMinimo: Number(conf.rlst_minimo_pct || 20),
     totNetto: tot, totLordo: lordoDi(tot, fisc), cantieriVisitati: cantieri.size || visite.length, note,
+    arretrate: sel.filter((r) => r.arretrata).length,
   };
 }
 
@@ -544,8 +578,11 @@ async function congelaEInvia(t, inc, anno, mese, sel, fisc, note, btn) {
       if (error) throw new Error('Prestazioni non salvate: ' + error.message);
     }
     for (const r of sel.filter((x) => x.prestazione_id)) {
-      await sb.from('s_prestazioni').update({ incarico_mensile_id: incarico.id, tipo: r.tipo, quantita: r.quantita ?? 1,
-        tariffa_unitaria: r.tariffa_unitaria, importo: r.importo }).eq('id', r.prestazione_id);
+      /* un'arretrata resta del suo mese: spostarla qui falserebbe sia il
+         conteggio delle visite di quel mese sia quello di questo */
+      const d = { tipo: r.tipo, quantita: r.quantita ?? 1, tariffa_unitaria: r.tariffa_unitaria, importo: r.importo };
+      if (!r.arretrata) d.incarico_mensile_id = incarico.id;
+      await sb.from('s_prestazioni').update(d).eq('id', r.prestazione_id);
     }
 
     /* protocollo OUT del riepilogo */
@@ -588,7 +625,7 @@ async function congelaEInvia(t, inc, anno, mese, sel, fisc, note, btn) {
 
 in allegato il riepilogo delle attività da fatturare per il mese di ${MESI[mese - 1]} ${anno} (${codiceProtocollo(prot)}):
 ${Object.entries(perTipo).map(([k, n]) => `- ${TIPI_PRESTAZIONE[k] || k}: ${n}`).join('\n')}
-
+${sel.filter((r) => r.arretrata).length ? `\nComprende ${sel.filter((r) => r.arretrata).length} attività di mesi precedenti non ancora fatturate.\n` : ''}
 Totale netto ${euro(tot)} — totale oneri e IVA inclusi ${euro(lordo)}${fisc ? ` (${fisc.regime || 'ordinario'}: cassa ${fisc.cassa_pct}%${fisc.iva_pct ? `, IVA ${fisc.iva_pct}%` : ', IVA non dovuta'})` : ''}.
 ${visite.length ? `Visite con RLST: ${Math.round((visite.filter((r) => r.rlst).length / visite.length) * 100)}% (minimo ${conf.rlst_minimo_pct || 20}%).` : ''}
 ${note ? `\n${note}\n` : ''}
@@ -680,12 +717,18 @@ async function formFattura(f, prefill = {}) {
       <div class="field"><label>Cantieri fatturati</label><input type="number" id="ff-cant" value="${f?.cantieri_fatturati ?? ''}"></div>
     </div>
     <div class="field" style="margin-top:8px"><label>Note (descrizione in fattura, anomalie)</label><textarea id="ff-note" rows="2">${esc(f?.note || '')}</textarea></div>
+    ${f ? '' : `<label class="field" style="display:flex;gap:8px;align-items:flex-start;margin-top:8px">
+      <input type="checkbox" id="ff-auto" checked style="margin-top:3px">
+      <span>Aggancia subito <strong>tutte</strong> le prestazioni aperte del mese scelto.<br>
+        <span class="hint">Toglila se la fattura ne copre solo una parte, o se copre anche altri mesi:
+        le prestazioni si scelgono poi una per una dal dettaglio, con «🔗 Aggancia prestazioni aperte».</span></span></label>`}
     <div style="display:flex;gap:8px;justify-content:space-between;margin-top:12px">
       <div>${f ? '<button class="btn btn-ghost" id="ff-annulla">🗑 Annulla la fattura</button>' : ''}</div>
-      <button class="btn btn-primary" id="ff-salva">💾 ${f ? 'Salva' : 'Registra e aggancia le prestazioni del mese'}</button>
+      <button class="btn btn-primary" id="ff-salva">💾 ${f ? 'Salva' : 'Registra la fattura'}</button>
     </div>
-    <p class="hint" style="margin-top:8px">Alla registrazione le prestazioni congelate del mese scelto (ancora senza fattura) si agganciano da sole
-      a questa fattura: è il posto unico in cui si segna «con quale fattura è stata pagata». Poi dal dettaglio: protocollo IN, verifica, approvazione.</p>`);
+    <p class="hint" style="margin-top:8px">La prestazione è il posto unico in cui si segna «con quale fattura è stata pagata»:
+      una fattura può pagare prestazioni di più mesi, e un mese può essere pagato da più fatture.
+      Poi dal dettaglio: protocollo IN, verifica, approvazione.</p>`);
 
   $('#ff-t').addEventListener('change', () => formFattura(f, { ...prefill, tecnico_id: $('#ff-t').value }));
   $('#ff-salva').addEventListener('click', async (ev) => {
@@ -710,12 +753,12 @@ async function formFattura(f, prefill = {}) {
         const { data, error } = await sb.from('s_fatture_tecnici').insert({ ...d, stato: 'ricevuta', creato_da: state.email }).select('*').single();
         if (error) throw new Error(error.message);
         riga = data;
-        if (riga.incarico_mensile_id) {
+        if (riga.incarico_mensile_id && $('#ff-auto')?.checked) {
           const { data: agg } = await sb.from('s_prestazioni').update({ fattura_id: riga.id })
             .eq('incarico_mensile_id', riga.incarico_mensile_id).is('fattura_id', null).select('id');
-          await sb.from('s_incarichi_mensili').update({ stato: 'fatturato', aggiornato_da: state.email, updated_at: new Date().toISOString() }).eq('id', riga.incarico_mensile_id);
+          await chiudiSeTuttoFatturato(riga.incarico_mensile_id);
           toast(`Fattura n° ${riga.id} registrata: ${(agg || []).length} prestazioni agganciate.`, 'ok');
-        } else toast(`Fattura n° ${riga.id} registrata (senza mese: aggancia le prestazioni dal dettaglio).`, 'ok');
+        } else toast(`Fattura n° ${riga.id} registrata. Ora aggancia le prestazioni che paga, dal dettaglio.`, 'ok');
       }
       await renderFatture();
       dettaglioFattura(riga.id);
@@ -770,7 +813,9 @@ export async function dettaglioFattura(id) {
 
   $('#drawer-body').querySelector('[data-inc]')?.addEventListener('click', () => dettaglioIncarico(inc, t));
   $('#df-prot')?.addEventListener('click', () => protocollaFattura(f, inc, t));
-  $('#df-aggancia')?.addEventListener('click', () => agganciaPrestazioni(f));
+  /* il netto gia' collegato entra nel conto della maschera: cosi' lo
+     scarto che si vede mentre si spunta e' quello vero della fattura */
+  $('#df-aggancia')?.addEventListener('click', () => agganciaPrestazioni({ ...f, __nettoGia: netto }));
   $('#df-verif')?.addEventListener('click', async () => {
     await sb.from('s_fatture_tecnici').update({ stato: 'verificata', verificata_da: state.email, verificata_il: oggiIso(), aggiornato_da: state.email, updated_at: new Date().toISOString() }).eq('id', f.id);
     toast('Fattura verificata.', 'ok'); await renderFatture(); dettaglioFattura(f.id);
@@ -817,22 +862,70 @@ async function protocollaFattura(f, inc, t) {
   toast('Maschera IN precompilata: allega il PDF della fattura e salva — il numero si collega da solo.', 'ok');
 }
 
+/* Un mese si dichiara «fatturato» solo quando NON resta piu' niente
+   di aperto: una fattura puo' pagarne solo una parte (e' successo
+   davvero, nello storico Access — la 799 di De Marco copriva anche
+   agosto), e marcarlo fatturato a meta' farebbe sparire dal quadro
+   le prestazioni ancora da pagare. */
+async function chiudiSeTuttoFatturato(incaricoId) {
+  if (!incaricoId) return false;
+  const { count } = await sb.from('s_prestazioni')
+    .select('id', { count: 'exact', head: true })
+    .eq('incarico_mensile_id', incaricoId).is('fattura_id', null);
+  if (count) return false;
+  await sb.from('s_incarichi_mensili')
+    .update({ stato: 'fatturato', aggiornato_da: state.email, updated_at: new Date().toISOString() })
+    .eq('id', incaricoId);
+  return true;
+}
+
 async function agganciaPrestazioni(f) {
   const { data: aperte } = await sb.from('s_prestazioni').select('*').eq('tecnico_id', f.tecnico_id).is('fattura_id', null).order('data', { ascending: false }).limit(300);
   const righe = aperte || [];
   apriDrawer(`Aggancia prestazioni — fattura n° ${f.id} (${esc(f.numero || '')})`, 'IN', `
-    <p class="hint" style="margin:0 0 8px">Prestazioni di ${esc(f.tecnico_nome || '')} ancora senza fattura. Spunta quelle pagate da questa fattura.</p>
+    <p class="hint" style="margin:0 0 8px">Prestazioni di ${esc(f.tecnico_nome || '')} ancora senza fattura, <strong>di qualunque mese</strong>.
+      Spunta quelle pagate da questa fattura: una fattura puo' coprire piu' mesi, o solo una parte di un mese.</p>
+    <div class="dt-doc-riga" id="ap-conto" style="margin-bottom:8px"></div>
     <div class="table-wrap"><table class="tbl" style="min-width:0">
       <thead><tr><th></th><th>Data</th><th>Tipo</th><th>Descrizione</th><th>Netto</th><th>Mese</th></tr></thead>
       <tbody>${righe.map((p) => `<tr><td><input type="checkbox" data-p="${p.id}" ${p.incarico_mensile_id && p.incarico_mensile_id === f.incarico_mensile_id ? 'checked' : ''}></td>
         <td>${dataIt(p.data)}</td><td>${esc(TIPI_PRESTAZIONE[p.tipo] || p.tipo)}</td><td>${esc((p.descrizione || '').slice(0, 60))}</td>
         <td><strong>${euro(p.importo)}</strong></td><td class="hint">${p.incarico_mensile_id ? `n° ${p.incarico_mensile_id}` : ''}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">Nessuna prestazione aperta per questo tecnico.</td></tr>'}</tbody></table></div>
     <button class="btn btn-primary" id="ap-ok" style="margin-top:10px">🔗 Aggancia le selezionate</button>`);
+  /* mentre si spunta, il conto: netto selezionato -> lordo atteso,
+     confrontato con l'importo della fattura. E' il modo di accorgersi
+     che ne manca qualcuna, o che se ne sono spuntate troppe. */
+  const fiscF = fiscDi(f.tecnico_id, f.data_fattura || f.data_ricevimento);
+  const gia = Number(f.__nettoGia || 0);
+  const conta = () => {
+    const scelti = [...$('#drawer-body').querySelectorAll('input[data-p]:checked')]
+      .map((i) => righe.find((p) => p.id === Number(i.dataset.p))).filter(Boolean);
+    const netto = gia + scelti.reduce((s, p) => s + Number(p.importo || 0), 0);
+    const atteso = lordoDi(netto, fiscF);
+    const scarto = Math.round((Number(f.importo || 0) - atteso) * 100) / 100;
+    const box = $('#ap-conto');
+    if (box) {
+      box.innerHTML = `<strong>${scelti.length} selezionate</strong> — con le gia' collegate: netto ${euro(netto)}
+        → atteso ${euro(atteso)} · fattura ${euro(f.importo)}
+        ${Math.abs(scarto) < 0.02
+          ? '<span class="dt-cella dt-ok" style="padding:0 6px">torna</span>'
+          : `<span class="dt-cella dt-senzadata" style="padding:0 6px">${scarto > 0 ? 'mancano' : 'in più'} ${euro(Math.abs(scarto))}</span>`}`;
+    }
+  };
+  $('#drawer-body').addEventListener('change', (e) => { if (e.target.matches('input[data-p]')) conta(); });
+  conta();
+
   $('#ap-ok').addEventListener('click', async (ev) => {
     const ids = [...$('#drawer-body').querySelectorAll('input[data-p]:checked')].map((i) => Number(i.dataset.p));
     if (!ids.length) return toast('Niente selezionato.', 'err');
     attendi(ev.currentTarget, true);
     const { error } = await sb.from('s_prestazioni').update({ fattura_id: f.id }).in('id', ids);
+    if (!error) {
+      /* i mesi toccati si chiudono solo se non resta niente di aperto */
+      const mesi = [...new Set(righe.filter((p) => ids.includes(p.id))
+        .map((p) => p.incarico_mensile_id).filter(Boolean))];
+      for (const m of mesi) await chiudiSeTuttoFatturato(m);
+    }
     attendi(ev.currentTarget, false);
     if (error) return toast(error.message, 'err');
     toast(`${ids.length} prestazioni agganciate alla fattura n° ${f.id}.`, 'ok');
