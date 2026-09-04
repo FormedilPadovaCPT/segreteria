@@ -973,17 +973,99 @@ function vistaProgetti() {
         <td>${esc(p.ente_finanziatore || '—')}</td>
         <td>${p.finanziamento != null ? `€ ${p.finanziamento}` : '—'}</td>
         <td>${esc(p.stato)}</td>
-        <td><a href="#" data-mod-p="${p.id}">modifica</a></td>
+        <td><a href="#" data-mod-p="${p.id}">modifica</a> ·
+            <a href="#" data-rend-p="${p.id}">📊 rendicontazione</a></td>
       </tr>`).join('') || '<tr><td colspan="6" class="empty">Nessun progetto.</td></tr>'}</tbody>
     </table></div>
     <button class="btn btn-primary btn-sm" id="pg-nuovo" style="margin-top:8px">+ Nuovo progetto</button>
-    <p class="hint" style="margin-top:8px">I corsi si collegano al progetto dalla loro scheda; i contatori per la
-      rendicontazione si leggono dai corsi collegati (per i progetti SPISAL vale il periodo delle sanzioni).</p>`);
+    <p class="hint" style="margin-top:8px">I corsi si collegano al progetto dalla loro scheda; le prestazioni dei
+      tecnici dal campo progetto della prestazione. La rendicontazione somma le due cose — attivita dei tecnici e
+      docenze — come il report del vecchio gestionale (per i progetti SPISAL vale il periodo delle sanzioni).</p>`);
   $('#pg-nuovo').addEventListener('click', () => formProgetto(null));
   $('#drawer-body').querySelectorAll('[data-mod-p]').forEach((a) => a.addEventListener('click', (e) => {
     e.preventDefault();
     formProgetto(progetti.find((p) => p.id === Number(a.dataset.modP)));
   }));
+  $('#drawer-body').querySelectorAll('[data-rend-p]').forEach((a) => a.addEventListener('click', (e) => {
+    e.preventDefault();
+    rendicontazione(progetti.find((p) => p.id === Number(a.dataset.rendP)));
+  }));
+}
+
+/* ── rendicontazione di un progetto ──
+   Due popolazioni distinte, come nel report Access: le prestazioni
+   dei tecnici (s_prestazioni.progetto_id) e le docenze dei corsi
+   collegati (s_corsi_incarichi). Non si sommano a occhio: il
+   quadro le tiene separate e somma in fondo. */
+async function rendicontazione(p) {
+  if (!p) return;
+  apriDrawer(`Rendicontazione — ${p.desc_breve || p.titolo.slice(0, 40)}`, '',
+    '<p class="hint">Raccolgo prestazioni e docenze…</p>');
+
+  const corsiDelProgetto = corsi.filter((c) => c.progetto_id === p.id);
+  const ids = corsiDelProgetto.map((c) => c.id);
+  const [{ data: prest }, { data: inc }, { data: fisc }, { data: tec }] = await Promise.all([
+    sb.from('s_prestazioni')
+      .select('*, s_fatture_tecnici(numero)')
+      .eq('progetto_id', p.id).order('data'),
+    ids.length
+      ? sb.from('s_corsi_incarichi').select('*').in('corso_id', ids).order('corso_id')
+      : Promise.resolve({ data: [] }),
+    sb.from('s_tecnici_fiscale').select('*'),
+    sb.from('tecnici').select('tecnico_id, tecnico_cognome'),
+  ]);
+
+  const prestazioni = (prest || []).map((r) => ({
+    ...r,
+    fattura_numero: r.s_fatture_tecnici?.numero || null,
+    /* la nota porta davanti la provenienza Access («Access T_Soft id»,
+       «Access 0T id»): in stampa serve quello che ha scritto il
+       tecnico, non l'id della riga da cui e' stata importata */
+    nota_breve: String(r.note || '').split('; ').filter((s) => s
+      && !/^Access /.test(s) && !/^fattura Access/.test(s) && !/^doc: /.test(s)).join('; ') || null,
+  }));
+  const incarichi = inc || [];
+
+  const somma = (arr, campo) => arr.reduce((t, x) => t + Number(x[campo] || 0), 0);
+  const nettoP = somma(prestazioni, 'importo');
+  const nettoD = somma(incarichi, 'corrispettivo');
+  const perTipo = {};
+  for (const r of prestazioni) perTipo[r.tipo] = (perTipo[r.tipo] || 0) + 1;
+  const eur = (n) => (Number(n) || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  apriDrawer(`Rendicontazione — ${p.desc_breve || p.titolo.slice(0, 40)}`, '', `
+    <p style="margin:0 0 10px"><strong>${esc(p.titolo)}</strong><br>
+      <span class="hint">${[p.delibera_num ? `delibera ${esc(p.delibera_num)}` : null,
+        p.anno_sanzioni ? `sanzioni ${esc(p.anno_sanzioni)}` : null,
+        p.ente_finanziatore ? esc(p.ente_finanziatore) : null].filter(Boolean).join(' · ')}</span></p>
+    <div class="table-wrap"><table class="tbl">
+      <tbody>
+        <tr><td>Attivita dei tecnici</td><td>${prestazioni.length} prestazioni</td>
+            <td style="text-align:right"><strong>€ ${eur(nettoP)}</strong></td></tr>
+        <tr><td>Docenze (lettere di incarico)</td><td>${incarichi.length} su ${corsiDelProgetto.length} corsi</td>
+            <td style="text-align:right"><strong>€ ${eur(nettoD)}</strong></td></tr>
+        <tr><td colspan="2"><strong>Totale imponibile</strong></td>
+            <td style="text-align:right"><strong>€ ${eur(nettoP + nettoD)}</strong></td></tr>
+        ${p.finanziamento ? `<tr><td colspan="2">Finanziamento ammesso</td>
+            <td style="text-align:right">€ ${eur(p.finanziamento)}</td></tr>` : ''}
+      </tbody>
+    </table></div>
+    <p class="hint" style="margin-top:8px">${Object.entries(perTipo)
+      .map(([k, n]) => `${esc(k.replace(/_/g, ' '))}: ${n}`).join(' · ') || 'Nessuna prestazione collegata.'}</p>
+    <button class="btn btn-primary" id="rd-pdf" style="margin-top:10px">📄 Rendicontazione in PDF</button>
+    <p class="hint" style="margin-top:8px">Il PDF ricalca il report del vecchio gestionale: prima le attivita dei
+      tecnici riga per riga con la fattura che le ha pagate, poi le docenze raggruppate per corso, e in fondo il
+      costo complessivo lordo (cassa e IVA secondo il regime di ciascun tecnico alla data).</p>`);
+
+  $('#rd-pdf').addEventListener('click', async (ev) => {
+    attendi(ev.currentTarget, true);
+    try {
+      const { pdfRendicontazione } = await import('./rendicontazione-doc.js');
+      const { scaricaPdf } = await import('./corsi-doc.js');
+      const byte = await pdfRendicontazione(p, prestazioni, corsiDelProgetto, incarichi, fisc || [], tec || []);
+      scaricaPdf(byte, `rendicontazione-progetto-${p.id}.pdf`);
+    } catch (e) { toast(e.message, 'err'); } finally { attendi(ev.currentTarget, false); }
+  });
 }
 
 function formProgetto(p) {
