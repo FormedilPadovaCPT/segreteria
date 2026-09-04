@@ -44,6 +44,36 @@ export async function render() {
     sb.from('tecnici').select('tecnico_id').eq('attivo', true),
   ]);
 
+  /* ── stato del canale del portale servizi (04/09/2026) ───────────────
+     Un foglio senza righe nuove e' ambiguo: puo' voler dire che non ha
+     scritto nessuno, o che il tubo e' rotto. Nell'incidente di agosto il
+     deployment Apps Script era morto da cinque settimane e in ufficio non
+     si poteva sapere. Il battito giornaliero toglie l'ambiguita'. */
+  let canale = null;
+  try {
+    const [{ data: cfg }, { count: senzaRiscontro }] = await Promise.all([
+      sb.from('s_config').select('chiave, valore').in('chiave', ['portale_battito_al', 'portale_battito_ore']),
+      /* «senza riscontro» = copia arrivata allo specchio e mai confermata
+         dal backend dopo un quarto d'ora: la richiesta e' partita ma sul
+         foglio non c'e'. Si calcola qui, non serve nessun lavoro batch. */
+      sb.from('s_portale_ricezioni').select('id', { count: 'exact', head: true })
+        .is('sul_foglio', null)
+        .lte('ricevuto_at', new Date(Date.now() - 15 * 60000).toISOString()),
+    ]);
+    const c = Object.fromEntries((cfg || []).map((r) => [r.chiave, r.valore]));
+    const battito = c.portale_battito_al ? new Date(c.portale_battito_al) : null;
+    const limite = Number(c.portale_battito_ore || 36);
+    const ore = battito && !isNaN(battito) ? (Date.now() - battito.getTime()) / 3600000 : null;
+    canale = {
+      battito, ore, limite,
+      senzaRiscontro: senzaRiscontro || 0,
+      muto: ore === null || ore > limite,
+    };
+  } catch (e) {
+    /* la tabella o le chiavi non ci sono ancora: si tace, non si inventa */
+    console.warn('stato canale portale non disponibile:', e.message);
+  }
+
   /* le visite ESEGUITE dai tecnici (gestionale): la chiusura arriva qui,
      poi la segreteria decide se e a chi comunicare (deciso 01/09/2026) */
   let eseguiti = [];
@@ -134,7 +164,32 @@ export async function render() {
 
   const vai = (vista, etichetta) => `<button class="btn btn-ghost btn-sm hm-vai" data-goto="${vista}">${etichetta} →</button>`;
 
+  /* Il banner compare SOLO quando c'e' qualcosa che non va: un cruscotto
+     che urla sempre non lo guarda piu' nessuno. Lo stato normale sta nella
+     card in fondo. */
+  const bannerCanale = (() => {
+    if (!canale) return '';
+    const guai = [];
+    if (canale.muto) {
+      guai.push(canale.battito
+        ? `il portale non dà segno di vita da ${Math.round(canale.ore)} ore (ultimo battito ${dataIt(canale.battito.toISOString().slice(0, 10))})`
+        : 'non risulta nessun battito del portale');
+    }
+    if (canale.senzaRiscontro) {
+      guai.push(`${canale.senzaRiscontro} richiest${canale.senzaRiscontro === 1 ? 'a' : 'e'} risultano partite dal portale ma non sono arrivate al foglio`);
+    }
+    if (!guai.length) return '';
+    return `<div class="hm-allarme">
+      <strong>⚠️ Canale del portale servizi da controllare</strong><br>
+      ${esc(guai.join('; '))}.<br>
+      <span class="hint">I moduli inviati dalle imprese potrebbero non arrivare. Controllare il workflow
+      «Battito portale servizi» su GitHub e, se serve, ripubblicare il deployment Apps Script
+      (Gestisci deployment → <em>modifica</em> quello esistente, mai crearne uno nuovo).</span>
+    </div>`;
+  })();
+
   host.innerHTML = `
+    ${bannerCanale}
     <div class="hm-griglia">
 
       ${card('⏳ In attesa del Direttore', daAutorizzare.length,
@@ -186,6 +241,18 @@ export async function render() {
                 <span class="hint">${r.eseguito_il ? dataIt(String(r.eseguito_il).slice(0, 10)) : ''}</span></div>`;
             }).join('') + '<p class="hint" style="margin-top:6px">Eseguite nel gestionale, in attesa della chiusura della segreteria — da qui si decide se e a chi comunicare l\'esito.</p>'
           : '<p class="hint">Nessuna visita eseguita in attesa di chiusura.</p>')}
+
+      ${card('📡 Canale portale servizi', canale && !canale.muto && !canale.senzaRiscontro ? '✓' : '!',
+        !canale
+          ? '<p class="hint">Stato non disponibile: il controllo del canale parte con l\'import delle 6:30.</p>'
+          : `<div class="hm-riga"><span>${canale.muto ? '🔴' : '🟢'}</span>
+               <span>Ultimo battito del portale</span>
+               <span class="hint">${canale.battito ? dataIt(canale.battito.toISOString().slice(0, 10)) + ' · ' + Math.round(canale.ore) + ' ore fa' : 'mai'}</span></div>
+             <div class="hm-riga"><span>${canale.senzaRiscontro ? '🔴' : '🟢'}</span>
+               <span>Richieste partite ma non arrivate al foglio</span>
+               <span class="hm-mini">${canale.senzaRiscontro}</span></div>
+             <p class="hint" style="margin-top:6px">Il battito lo scrive ogni notte un controllo automatico e lo rilegge
+             l'import delle 6:30: serve a distinguere «nessuno ha inviato» da «il canale è rotto».</p>`)}
 
       ${card('🦺 Pratiche RLST aperte', (rlst || []).length,
         (rlst || []).length
