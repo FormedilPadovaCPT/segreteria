@@ -288,6 +288,13 @@ function nuovaRichiesta() {
       </div>
       <div class="hint" id="nv-ogg-conto" style="margin-top:4px">nessuno spuntato</div></div>
 
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
+      <div class="field"><label>Ore previste</label><input type="number" step="0.5" min="0" id="nv-ore"></div>
+      <div class="field"><label>Corrispettivo €</label><input type="number" step="0.01" min="0" id="nv-corr"></div>
+    </div>
+    <p class="hint" style="margin:-4px 0 8px">La spesa va messa qui: è il dato su cui il Direttore autorizza,
+      e finisce nel foglio della richiesta di autorizzazione.</p>
+
     <div class="field"><label>Note (preferenze sul tecnico, dettagli della telefonata…)</label><textarea id="nv-note" rows="3"></textarea></div>
     <button class="btn btn-primary" id="nv-crea" style="margin-top:10px">Crea la pratica</button>`);
 
@@ -369,6 +376,8 @@ function nuovaRichiesta() {
       ref_nome: $('#nv-refnome').value.trim() || null,
       ref_tel: $('#nv-reftel').value.trim() || null,
       note_modulo: $('#nv-note').value.trim() || null,
+      ore: $('#nv-ore').value ? Number($('#nv-ore').value) : null,
+      corrispettivo: $('#nv-corr').value ? Number($('#nv-corr').value) : null,
       impresa_id: impresaId,
       persona_id: personaScelta?.persona_id || null,
       esito_ceiv: esito,
@@ -573,6 +582,15 @@ function campiVisita(p) {
     ['Legale rappr.', [[p.rl_titolo, p.rl_nome, p.rl_cognome].filter(Boolean).join(' '), p.telefono, p.cellulare, p.email].filter(Boolean).join(' — ')],
     ...righeCantieri,
     ['Referente sopralluogo', [[p.ref_titolo, p.ref_nome, p.ref_cognome].filter(Boolean).join(' '), p.ref_tel].filter(Boolean).join(' — ')],
+    /* Il Direttore autorizza una SPESA: se non vede l'importo non ha
+       l'elemento su cui decidere. Quando non è stato indicato lo si
+       dichiara, invece di lasciare la riga muta. */
+    ['Spesa prevista', [
+      p.ore != null ? `${p.ore} ore` : null,
+      p.corrispettivo != null
+        ? `€ ${Number(p.corrispettivo).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+        : null,
+    ].filter(Boolean).join(' — ') || 'non indicata'],
     ['Note', p.note_modulo],
   ];
 }

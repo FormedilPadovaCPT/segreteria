@@ -420,6 +420,14 @@ function campiConferenza(p) {
     ['Legale rappr.', [[p.rl_titolo, p.rl_nome, p.rl_cognome].filter(Boolean).join(' '), p.telefono, p.cellulare, p.email].filter(Boolean).join(' — ')],
     ['Cantiere', [p.ind_cantiere, p.comune_cantiere].filter(Boolean).join(', ')],
     ['Referente in cantiere', [[p.ref_titolo, p.ref_nome, p.ref_cognome].filter(Boolean).join(' '), p.ref_tel].filter(Boolean).join(' — ')],
+    /* Il Direttore autorizza una SPESA: senza l'importo non ha
+       l'elemento su cui decidere (mancava, 04/09/2026). */
+    ['Spesa prevista', [
+      p.ore != null ? `${p.ore} ore` : null,
+      p.corrispettivo != null
+        ? `€ ${Number(p.corrispettivo).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+        : null,
+    ].filter(Boolean).join(' — ') || 'non indicata'],
     ['Note', p.note_modulo],
   ];
 }
