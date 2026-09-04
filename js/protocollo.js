@@ -19,6 +19,10 @@ import { CARTELLE_VAULT } from './cartelle-vault.js';
 const f = { direzione: '', testo: '', anno: '', tipo: '', ufficio: '' };
 let pagina = 0;
 let totale = 0;
+/* ordinamento del registro: lo chiede il server, perché l'elenco è paginato.
+   Indice di colonna dell'intestazione → colonna di s_protocollo. */
+const COLONNE_ORDINE = ['numero', null, 'data_prot', 'impresa_nome', 'oggetto', 'tipo_doc_txt', 'mezzo', null];
+let ordine = { col: 'data_prot', asc: false };
 let cartelleNote = [];
 let referentiNoti = [];
 let assegnatiNoti = [];
@@ -73,6 +77,17 @@ export async function init() {
   $('#tb-registro').addEventListener('click', (e) => {
     const tr = e.target.closest('tr[data-id]');
     if (tr) apriDettaglio(Number(tr.dataset.id));
+  });
+
+  /* clic sull'intestazione (js/ordina.js): qui l'elenco è paginato,
+     quindi non si riordina la pagina ma si richiede l'ordine al server */
+  $('#tbl-registro').addEventListener('ordina-colonna', (e) => {
+    const col = COLONNE_ORDINE[e.detail.idx];
+    if (!col) return;
+    e.preventDefault();
+    ordine = { col, asc: e.detail.dir === 1 };
+    pagina = 0;
+    caricaElenco();
   });
 
   /* azioni dentro al drawer */
@@ -133,10 +148,10 @@ async function caricaElenco() {
   }
 
   const da = pagina * PAGE_SIZE;
-  const { data, count, error } = await q
-    .order('data_prot', { ascending: false, nullsFirst: false })
-    .order('numero', { ascending: false })
-    .range(da, da + PAGE_SIZE - 1);
+  q = q.order(ordine.col, { ascending: ordine.asc, nullsFirst: false });
+  if (ordine.col !== 'data_prot') q = q.order('data_prot', { ascending: false, nullsFirst: false });
+  if (ordine.col !== 'numero') q = q.order('numero', { ascending: false });
+  const { data, count, error } = await q.range(da, da + PAGE_SIZE - 1);
 
   if (error) {
     tb.innerHTML = `<tr><td colspan="8" class="empty">Errore di lettura: ${esc(error.message)}</td></tr>`;

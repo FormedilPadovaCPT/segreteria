@@ -130,6 +130,12 @@ textarea{resize:vertical;min-height:80px;line-height:1.5}
   background:var(--grigio-chiaro);color:var(--grigio);text-align:left;font-size:11px;
   text-transform:uppercase;letter-spacing:.6px;padding:10px;border-bottom:1px solid var(--bordo);white-space:nowrap;
 }
+/* intestazioni ordinabili (js/ordina.js): clic = crescente, secondo clic = decrescente */
+.tbl thead th.ordinabile{cursor:pointer;user-select:none}
+.tbl thead th.ordinabile:hover{color:var(--arancio)}
+.tbl thead th.ordinabile::after{content:"⇅";margin-left:5px;opacity:.28;font-size:10px}
+.tbl thead th.ord-asc::after{content:"▲";opacity:1;color:var(--arancio)}
+.tbl thead th.ord-desc::after{content:"▼";opacity:1;color:var(--arancio)}
 .tbl tbody td{padding:9px 10px;border-bottom:1px solid #f0f1f4;vertical-align:top}
 .tbl tbody tr{cursor:pointer}
 .tbl tbody tr:hover{background:var(--arancio-chiaro)}

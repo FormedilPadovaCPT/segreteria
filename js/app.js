@@ -7,6 +7,7 @@
    ============================================================ */
 
 import { sb, state, $, $$, esc, toast, attendi, mostraVista, chiudiDrawer } from './core.js';
+import './ordina.js';   // ordinamento per colonna di tutte le tabelle .tbl (solo effetto collaterale)
 
 /* ── accesso ──────────────────────────────────────────────── */
 async function accedi() {

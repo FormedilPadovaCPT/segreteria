@@ -26,6 +26,7 @@ del gestionale visite e della webapp asseverazione, sulle tabelle `s_*`.
 | `js/spazio.js` | Ricerca dello spazio bianco sui pixel, condivisa con gli strumenti |
 | `js/timbro.js` | Lato browser del timbro: librerie, storage, scelta impaginazione |
 | `js/comune.js` | Funzioni pure condivise: codice del protocollo, date, escape |
+| `js/ordina.js` | Ordinamento per colonna di tutte le tabelle `.tbl`: clic sull'intestazione, date e importi come numeri, scelta ricordata al ridisegno; il registro (paginato) intercetta l'evento `ordina-colonna` e riordina dal server |
 | `js/mail.js` | Avviso di protocollazione |
 | `js/imprese.js` | Ricerca e scheda impresa con le sue sottoschede |
 | `js/statistiche.js` | Numeri e distribuzioni del registro |
