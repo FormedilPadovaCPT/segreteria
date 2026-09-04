@@ -1007,7 +1007,19 @@ async function rendicontazione(p) {
     nota_breve: String(r.note || '').split('; ').filter((s) => s
       && !/^Access /.test(s) && !/^fattura Access/.test(s) && !/^doc: /.test(s)).join('; ') || null,
   }));
+  /* il numero di protocollo della lettera non e' sulla riga: protocollo_out_id
+     punta a s_protocollo (nessuna FK dichiarata, quindi niente embed) e sul
+     report va il NUMERO del registro, non l'id della riga. */
   const incarichi = inc || [];
+  const protIds = [...new Set(incarichi.map((i) => i.protocollo_out_id).filter(Boolean))];
+  if (protIds.length) {
+    const { data: prot } = await sb.from('s_protocollo')
+      .select('id, numero, direzione, esercizio, codice').in('id', protIds);
+    const di = Object.fromEntries((prot || []).map((x) => [x.id, x]));
+    for (const i of incarichi) {
+      i.protocollo_numero = i.protocollo_out_id ? codiceProtocollo(di[i.protocollo_out_id]) || null : null;
+    }
+  }
 
   const somma = (arr, campo) => arr.reduce((t, x) => t + Number(x[campo] || 0), 0);
   const nettoP = somma(prestazioni, 'importo');

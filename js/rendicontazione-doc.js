@@ -203,8 +203,9 @@ export async function pdfRendicontazione(progetto, prestazioni, corsi, incarichi
         i.tariffa_oraria != null ? euro(i.tariffa_oraria) : '',
         i.ore != null ? String(i.ore).replace('.00', '') : '',
         tronca(c.font, i.nominativo, 7.5, 150),
-        tronca(c.font, i.protocollo_numero
-          || (i.protocollo_out_id ? String(i.protocollo_out_id) : '—'), 7.5, 78),
+        /* mai l'id della riga di s_protocollo al posto del numero:
+           sul report va quello che e' scritto sulla lettera */
+        tronca(c.font, i.protocollo_numero || '—', 7.5, 78),
         euro(i.corrispettivo), euro(lordo), i.fattura_num || '',
       ]);
     }
