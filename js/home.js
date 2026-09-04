@@ -47,13 +47,22 @@ export async function render() {
   /* le visite ESEGUITE dai tecnici (gestionale): la chiusura arriva qui,
      poi la segreteria decide se e a chi comunicare (deciso 01/09/2026) */
   let eseguiti = [];
+  let rifiutati = [];
   const praticaDi = {};
   try {
     const { data } = await sb.from('incarichi')
       .select('id, tipo_richiesta, impresa, comune, tecnico_nome, visita_id, eseguito_il, data_richiesta')
       .eq('stato', 'eseguito').order('eseguito_il', { ascending: false }).limit(30);
     eseguiti = data || [];
-    const ids = eseguiti.map((r) => r.id);
+    /* il tecnico che non puo' prendere una visita lo dichiara motivando
+       (04/09/2026): il rifiuto vive nel gestionale, ma a doverci fare
+       qualcosa e' la segreteria, quindi si vede qui */
+    const { data: rif } = await sb.from('incarichi')
+      .select('id, tipo_richiesta, impresa, comune, indirizzo, tecnico_nome, rifiutato_il, rifiuto_motivo')
+      .not('rifiutato_il', 'is', null).eq('stato', 'aperto')
+      .order('rifiutato_il', { ascending: false });
+    rifiutati = rif || [];
+    const ids = [...eseguiti.map((r) => r.id), ...rifiutati.map((r) => r.id)];
     if (ids.length) {
       for (const [tab, vista] of [['s_segnalazioni', 'segnalazioni'], ['s_visite_richieste', 'visite'],
         ['s_conferenze_cantiere', 'conferenze'], ['s_consulenze', 'consulenze']]) {
@@ -132,6 +141,21 @@ export async function render() {
         daAutorizzare.length
           ? daAutorizzare.slice(0, 8).map(rigaPratica).join('') + (daAutorizzare.length > 8 ? `<p class="hint">…e altre ${daAutorizzare.length - 8}.</p>` : '')
           : '<p class="hint">Nessuna pratica da autorizzare.</p>')}
+
+      ${card('✋ Incarichi rifiutati dal tecnico', rifiutati.length,
+        rifiutati.length
+          ? rifiutati.slice(0, 6).map((r) => {
+              const pr = praticaDi[r.id];
+              return `<div class="hm-riga">
+                <span>✋</span>
+                <span>${pr ? `<a href="#" data-vista-inc="${pr.vista}" data-id-inc="${pr.id}"><strong>inc. ${r.id}</strong></a>` : `<strong>inc. ${r.id}</strong>`}
+                  — ${esc(r.impresa || r.comune || r.indirizzo || '?')}
+                  <span class="hint">(${esc(r.tecnico_nome || '')})</span>
+                  ${r.rifiuto_motivo ? `<br><span class="hint">«${esc(r.rifiuto_motivo)}»</span>` : ''}</span>
+                <button class="btn btn-ghost btn-sm" data-riassegna="${r.id}">Riassegna</button>
+              </div>`;
+            }).join('') + '<p class="hint" style="margin-top:6px">Il tecnico ha dichiarato di non essere disponibile: riassegnando, l\'incarico torna «da vedere» per il nuovo.</p>'
+          : '<p class="hint">Nessun incarico rifiutato.</p>')}
 
       ${card('✅ Autorizzate — da eseguire', daEseguire.length,
         daEseguire.length
@@ -220,8 +244,45 @@ export async function render() {
 
   host.querySelectorAll('.hm-riga[data-vista]').forEach((r) =>
     r.addEventListener('click', () => apriPratica(r.dataset.vista, Number(r.dataset.id))));
+  host.querySelectorAll('[data-vista-inc]').forEach((a) =>
+    a.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      apriPratica(a.dataset.vistaInc, Number(a.dataset.idInc));
+    }));
+  host.querySelectorAll('[data-riassegna]').forEach((b) =>
+    b.addEventListener('click', async (ev) => {
+      ev.stopPropagation();
+      if (await riassegnaIncarico(Number(b.dataset.riassegna))) render();
+    }));
   host.querySelectorAll('[data-vista-corso]').forEach((r) =>
     r.addEventListener('click', async () => {
       document.dispatchEvent(new CustomEvent('apri-pratica', { detail: { vista: 'corsi', id: Number(r.dataset.vistaCorso) } }));
     }));
+}
+
+/* ── RIASSEGNARE UN INCARICO RIFIUTATO (04/09/2026) ──
+   Si azzera tutto quel che il tecnico precedente aveva dichiarato:
+   il nuovo deve poter prendere visione, accettare o rifiutare a sua
+   volta, altrimenti erediterebbe un rifiuto che non e' suo. */
+export async function riassegnaIncarico(id) {
+  const { data: tec } = await sb.from('tecnici')
+    .select('tecnico_nome, tecnico_cognome, email').eq('attivo', true)
+    .not('email', 'is', null).order('tecnico_cognome');
+  const lista = (tec || []).filter((x) => x.email);
+  if (!lista.length) { alert('Nessun tecnico attivo con email in anagrafica.'); return false; }
+  const scelta = prompt(`A chi riassegno l'incarico n° ${id}?\n\n`
+    + lista.map((x, i) => `${i + 1}) ${[x.tecnico_nome, x.tecnico_cognome].filter(Boolean).join(' ')}`).join('\n')
+    + '\n\nScrivi il numero:');
+  if (scelta === null) return false;
+  const x = lista[parseInt(scelta, 10) - 1];
+  if (!x) { alert('Numero non valido.'); return false; }
+  const nome = [x.tecnico_nome, x.tecnico_cognome].filter(Boolean).join(' ');
+  const { error } = await sb.from('incarichi').update({
+    tecnico_email: x.email, tecnico_nome: nome,
+    rifiutato_il: null, rifiutato_da: null, rifiuto_motivo: null,
+    accettato_il: null, accettato_da: null,
+    presa_visione_il: null, presa_visione_da: null,
+  }).eq('id', id);
+  if (error) { alert('Riassegnazione non riuscita: ' + error.message); return false; }
+  return true;
 }

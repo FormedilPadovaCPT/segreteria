@@ -18,7 +18,7 @@ import { sb, state, toast } from './core.js';
 
 export async function creaIncaricoDaPratica({ tabella, pratica, tipologia, tecnicoEmail, tecnicoNome,
   richiedente, testo, impresa, impresaId, indirizzo, comune, oggetto, referente, cellReferente,
-  mezzo, visitePreviste }) {
+  mezzo, visitePreviste, cantiereId }) {
   if (!tecnicoEmail) { toast('Incarico non creato: manca il tecnico assegnato.', 'err'); return null; }
   if (pratica.incarico_id) return pratica.incarico_id;   /* già creato */
 
@@ -46,6 +46,10 @@ export async function creaIncaricoDaPratica({ tabella, pratica, tipologia, tecni
     impresa_id: impresaId || null,
     indirizzo: indirizzo || null,
     comune: comune || null,
+    /* se la pratica sa gia' quale cantiere e' (segnalazioni e notifiche
+       hanno cantiere_id), il tecnico non deve ricercarlo: accettando
+       l'incarico se lo ritrova nella visita — chiesto il 04/09/2026 */
+    cantiere_id: cantiereId || pratica.cantiere_id || null,
     oggetto: oggetto || null,
     referente: referente || null,
     cell_referente: cellReferente || null,
