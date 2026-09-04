@@ -358,9 +358,14 @@ export async function apriPratica(id) {
           `<option value="${t.email}" ${p.tecnico_assegnato === t.email ? 'selected' : ''}>${esc(nomeTecnico(t.email))}</option>`).join('')}</select></div>
       <div class="field"><label>Data intervento</label>
         <input type="date" id="cn-dataint" value="${p.data_intervento || ''}"></div>
-      <div class="field"><label>Ore (facoltativo)</label>
+      <div class="field"><label>Spesa</label>
+        <select id="cn-spesa">
+          <option value="ordinaria" ${p.spesa_ordinaria === false ? '' : 'selected'}>Ordinaria — nessun costo in più</option>
+          <option value="corrispettivo" ${p.spesa_ordinaria === false ? 'selected' : ''}>A corrispettivo</option>
+        </select></div>
+      <div class="field"><label>Ore</label>
         <input type="number" step="0.5" id="cn-ore" value="${p.ore ?? ''}"></div>
-      <div class="field"><label>Corrispettivo € (facoltativo)</label>
+      <div class="field"><label>Corrispettivo €</label>
         <input type="number" step="0.01" id="cn-corr" value="${p.corrispettivo ?? ''}"></div>` : ''}
     </div>
     ${uscita ? `<div class="field" style="margin-top:8px"><label>Esito intervento</label>
@@ -425,6 +430,7 @@ export async function apriPratica(id) {
       agg.data_intervento = $('#cn-dataint')?.value || null;
       agg.ore = $('#cn-ore')?.value ? Number($('#cn-ore').value) : null;
       agg.corrispettivo = $('#cn-corr')?.value ? Number($('#cn-corr').value) : null;
+      if ($('#cn-spesa')) agg.spesa_ordinaria = $('#cn-spesa').value === 'ordinaria';
       agg.esito_intervento = $('#cn-esitoint')?.value.trim() || null;
     }
     if (agg.risposta && !p.risposta_da) agg.risposta_da = state.email;
@@ -533,14 +539,18 @@ function campiConsulenza(p) {
     ['Referente', [[p.rl_titolo, p.rl_nome, p.rl_cognome].filter(Boolean).join(' '), p.telefono, p.cellulare, p.email].filter(Boolean).join(' — ')],
     ['Quesito', p.quesito],
     ['Temi', p.tipi_consulenza],
-    /* Il Direttore autorizza una SPESA: senza l'importo non ha
-       l'elemento su cui decidere (mancava, 04/09/2026). */
-    ['Spesa prevista', [
-      p.ore != null ? `${p.ore} ore` : null,
-      p.corrispettivo != null
-        ? `€ ${Number(p.corrispettivo).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-        : null,
-    ].filter(Boolean).join(' — ') || 'non indicata'],
+    /* Il Direttore autorizza una SPESA, e deve vederla. Ma «senza importo»
+       non vuol dire «dato mancante»: vuol dire ORDINARIA — la prestazione
+       rientra fra le visite gia' assegnate al tecnico per il mese, quindi
+       e' gia' pagata. Sono due cose diverse e il foglio le distingue. */
+    ['Spesa prevista', p.spesa_ordinaria === false
+      ? ([
+          p.ore != null ? `${p.ore} ore` : null,
+          p.corrispettivo != null
+            ? `€ ${Number(p.corrispettivo).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+            : null,
+        ].filter(Boolean).join(' — ') || 'a corrispettivo, importo da definire')
+      : `ordinaria — rientra nelle visite già assegnate al tecnico per il mese`],
     ['Note', p.note_modulo],
   ];
 }

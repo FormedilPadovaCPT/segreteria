@@ -325,9 +325,14 @@ export async function apriPratica(id) {
         <input type="date" id="cf-data" value="${p.data_conferenza || ''}"></div>
       <div class="field"><label>N° partecipanti</label>
         <input type="number" id="cf-npart" value="${p.n_partecipanti ?? ''}"></div>
-      <div class="field"><label>Ore (facoltativo)</label>
+      <div class="field"><label>Spesa</label>
+        <select id="cf-spesa">
+          <option value="ordinaria" ${p.spesa_ordinaria === false ? '' : 'selected'}>Ordinaria — nessun costo in più</option>
+          <option value="corrispettivo" ${p.spesa_ordinaria === false ? 'selected' : ''}>A corrispettivo</option>
+        </select></div>
+      <div class="field"><label>Ore</label>
         <input type="number" step="0.5" id="cf-ore" value="${p.ore ?? ''}"></div>
-      <div class="field"><label>Corrispettivo € (facoltativo)</label>
+      <div class="field"><label>Corrispettivo €</label>
         <input type="number" step="0.01" id="cf-corr" value="${p.corrispettivo ?? ''}"></div>
     </div>
     <div class="field" style="margin-top:8px"><label>Argomenti trattati</label>
@@ -386,6 +391,7 @@ export async function apriPratica(id) {
       n_partecipanti: $('#cf-npart').value ? Number($('#cf-npart').value) : null,
       ore: $('#cf-ore').value ? Number($('#cf-ore').value) : null,
       corrispettivo: $('#cf-corr').value ? Number($('#cf-corr').value) : null,
+      spesa_ordinaria: $('#cf-spesa') ? $('#cf-spesa').value === 'ordinaria' : true,
       argomenti: $('#cf-argomenti').value.trim() || null,
       esito: $('#cf-esito').value.trim() || null,
       note_ufficio: $('#cf-note').value.trim() || null,
@@ -420,14 +426,18 @@ function campiConferenza(p) {
     ['Legale rappr.', [[p.rl_titolo, p.rl_nome, p.rl_cognome].filter(Boolean).join(' '), p.telefono, p.cellulare, p.email].filter(Boolean).join(' — ')],
     ['Cantiere', [p.ind_cantiere, p.comune_cantiere].filter(Boolean).join(', ')],
     ['Referente in cantiere', [[p.ref_titolo, p.ref_nome, p.ref_cognome].filter(Boolean).join(' '), p.ref_tel].filter(Boolean).join(' — ')],
-    /* Il Direttore autorizza una SPESA: senza l'importo non ha
-       l'elemento su cui decidere (mancava, 04/09/2026). */
-    ['Spesa prevista', [
-      p.ore != null ? `${p.ore} ore` : null,
-      p.corrispettivo != null
-        ? `€ ${Number(p.corrispettivo).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-        : null,
-    ].filter(Boolean).join(' — ') || 'non indicata'],
+    /* Il Direttore autorizza una SPESA, e deve vederla. Ma «senza importo»
+       non vuol dire «dato mancante»: vuol dire ORDINARIA — la prestazione
+       rientra fra le visite gia' assegnate al tecnico per il mese, quindi
+       e' gia' pagata. Sono due cose diverse e il foglio le distingue. */
+    ['Spesa prevista', p.spesa_ordinaria === false
+      ? ([
+          p.ore != null ? `${p.ore} ore` : null,
+          p.corrispettivo != null
+            ? `€ ${Number(p.corrispettivo).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+            : null,
+        ].filter(Boolean).join(' — ') || 'a corrispettivo, importo da definire')
+      : `ordinaria — rientra nelle visite già assegnate al tecnico per il mese`],
     ['Note', p.note_modulo],
   ];
 }

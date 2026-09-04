@@ -288,12 +288,17 @@ function nuovaRichiesta() {
       </div>
       <div class="hint" id="nv-ogg-conto" style="margin-top:4px">nessuno spuntato</div></div>
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">
+    <div class="field" style="margin-top:10px"><label>Spesa</label>
+      <select id="nv-spesa">
+        <option value="ordinaria" selected>Ordinaria — rientra nelle visite già assegnate al tecnico</option>
+        <option value="corrispettivo">A corrispettivo — la prestazione si paga a parte</option>
+      </select></div>
+    <div id="nv-spesa-campi" style="display:none;grid-template-columns:1fr 1fr;gap:10px">
       <div class="field"><label>Ore previste</label><input type="number" step="0.5" min="0" id="nv-ore"></div>
       <div class="field"><label>Corrispettivo €</label><input type="number" step="0.01" min="0" id="nv-corr"></div>
     </div>
-    <p class="hint" style="margin:-4px 0 8px">La spesa va messa qui: è il dato su cui il Direttore autorizza,
-      e finisce nel foglio della richiesta di autorizzazione.</p>
+    <p class="hint" style="margin:4px 0 8px">È il dato su cui il Direttore autorizza, e finisce nel foglio della richiesta:
+      «ordinaria» gli dice che la prestazione è già coperta dal monte visite del mese e non costa in più.</p>
 
     <div class="field"><label>Note (preferenze sul tecnico, dettagli della telefonata…)</label><textarea id="nv-note" rows="3"></textarea></div>
     <button class="btn btn-primary" id="nv-crea" style="margin-top:10px">Crea la pratica</button>`);
@@ -315,6 +320,13 @@ function nuovaRichiesta() {
     $('#nv-refnome').value = nomePersona(p);
     if (!$('#nv-reftel').value) $('#nv-reftel').value = p.telefono || p.telefono2 || '';
     $('#nv-per-risultati').innerHTML = `<p class="hint">agganciato all'anagrafica ✓ ${esc(nomePersona(p))}</p>`;
+  });
+
+  /* i campi importo servono solo se c'e' un corrispettivo */
+  $('#nv-spesa').addEventListener('change', (e) => {
+    const aCorr = e.target.value === 'corrispettivo';
+    $('#nv-spesa-campi').style.display = aCorr ? 'grid' : 'none';
+    if (!aCorr) { $('#nv-ore').value = ''; $('#nv-corr').value = ''; }
   });
 
   /* ── oggetti: filtro e contatore ── */
@@ -376,6 +388,7 @@ function nuovaRichiesta() {
       ref_nome: $('#nv-refnome').value.trim() || null,
       ref_tel: $('#nv-reftel').value.trim() || null,
       note_modulo: $('#nv-note').value.trim() || null,
+      spesa_ordinaria: $('#nv-spesa').value === 'ordinaria',
       ore: $('#nv-ore').value ? Number($('#nv-ore').value) : null,
       corrispettivo: $('#nv-corr').value ? Number($('#nv-corr').value) : null,
       impresa_id: impresaId,
@@ -477,9 +490,14 @@ export async function apriPratica(id) {
       <div class="field"><label>Tecnico assegnato</label>
         <select id="vs-tecnico"><option value="">—</option>${tecnici.map((t) =>
           `<option value="${t.email}" ${(p.tecnico_assegnato || p.tecnico_proposto) === t.email ? 'selected' : ''}>${esc(nomeTecnico(t.email))}</option>`).join('')}</select></div>
-      <div class="field"><label>Ore (facoltativo)</label>
+      <div class="field"><label>Spesa</label>
+        <select id="vs-spesa">
+          <option value="ordinaria" ${p.spesa_ordinaria === false ? '' : 'selected'}>Ordinaria — già nelle visite del mese</option>
+          <option value="corrispettivo" ${p.spesa_ordinaria === false ? 'selected' : ''}>A corrispettivo</option>
+        </select></div>
+      <div class="field"><label>Ore</label>
         <input type="number" step="0.5" id="vs-ore" value="${p.ore ?? ''}"></div>
-      <div class="field"><label>Corrispettivo € (facoltativo)</label>
+      <div class="field"><label>Corrispettivo €</label>
         <input type="number" step="0.01" id="vs-corr" value="${p.corrispettivo ?? ''}"></div>
     </div>
     <div class="field" style="margin-top:8px"><label>Note dell'ufficio</label>
@@ -530,6 +548,7 @@ export async function apriPratica(id) {
     const { error } = await sb.from('s_visite_richieste').update({
       stato: $('#vs-stato').value,
       tecnico_assegnato: $('#vs-tecnico').value || null,
+      spesa_ordinaria: $('#vs-spesa').value === 'ordinaria',
       ore: $('#vs-ore').value ? Number($('#vs-ore').value) : null,
       corrispettivo: $('#vs-corr').value ? Number($('#vs-corr').value) : null,
       note_ufficio: $('#vs-note').value.trim() || null,
@@ -582,15 +601,18 @@ function campiVisita(p) {
     ['Legale rappr.', [[p.rl_titolo, p.rl_nome, p.rl_cognome].filter(Boolean).join(' '), p.telefono, p.cellulare, p.email].filter(Boolean).join(' — ')],
     ...righeCantieri,
     ['Referente sopralluogo', [[p.ref_titolo, p.ref_nome, p.ref_cognome].filter(Boolean).join(' '), p.ref_tel].filter(Boolean).join(' — ')],
-    /* Il Direttore autorizza una SPESA: se non vede l'importo non ha
-       l'elemento su cui decidere. Quando non è stato indicato lo si
-       dichiara, invece di lasciare la riga muta. */
-    ['Spesa prevista', [
-      p.ore != null ? `${p.ore} ore` : null,
-      p.corrispettivo != null
-        ? `€ ${Number(p.corrispettivo).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-        : null,
-    ].filter(Boolean).join(' — ') || 'non indicata'],
+    /* Il Direttore autorizza una SPESA, e deve vederla. Ma «senza importo»
+       non vuol dire «dato mancante»: vuol dire ORDINARIA — la prestazione
+       rientra fra le visite gia' assegnate al tecnico per il mese, quindi
+       e' gia' pagata. Sono due cose diverse e il foglio le distingue. */
+    ['Spesa prevista', p.spesa_ordinaria === false
+      ? ([
+          p.ore != null ? `${p.ore} ore` : null,
+          p.corrispettivo != null
+            ? `€ ${Number(p.corrispettivo).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+            : null,
+        ].filter(Boolean).join(' — ') || 'a corrispettivo, importo da definire')
+      : `ordinaria — rientra nelle visite già assegnate al tecnico per il mese`],
     ['Note', p.note_modulo],
   ];
 }
