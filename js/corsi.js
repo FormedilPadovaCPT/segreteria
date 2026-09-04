@@ -22,6 +22,9 @@
 import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo } from './core.js';
 import { risolviCartella, caricaByte, leggiByte } from './drive.js';
 import { scaricaEml, FIRMA_SEGRETERIA, collegaDoppioClickMail } from './eml.js';
+/* la ricerca in anagrafica sta in un posto solo: la usa anche la
+   maschera manuale delle richieste di visita */
+import { collegaRicercaPersone } from './ricerca-anagrafica.js';
 
 let corsi = [];
 let progetti = [];
@@ -940,26 +943,6 @@ async function calcolaFrequenze(c, giornate, iscritti, pres) {
 }
 
 /* ── ricerca condivisa in anagrafica persone ── */
-function collegaRicercaPersone(inputSel, boxSel, onScelta) {
-  let timer = null;
-  $(inputSel).addEventListener('input', (e) => {
-    clearTimeout(timer);
-    const q = e.target.value.trim();
-    if (q.length < 2) { $(boxSel).innerHTML = ''; return; }
-    timer = setTimeout(async () => {
-      const { data } = await sb.from('persone')
-        .select('persona_id, cognome, nome, titolo, cf, email')
-        .or(`cognome.ilike.%${q}%,nome.ilike.%${q}%,cf.ilike.%${q}%`)
-        .order('cognome').limit(8);
-      $(boxSel).innerHTML = (data || []).map((p) =>
-        `<button class="btn btn-ghost btn-sm" style="display:block;width:100%;text-align:left;margin-top:4px" data-pid="${p.persona_id}">
-          ${esc([p.cognome, p.nome].filter(Boolean).join(' '))} <span class="hint">${esc(p.cf || p.email || '')}</span>
-        </button>`).join('') || '<p class="hint">Nessuna persona trovata: creala prima in Persone (le anagrafiche si verificano prima di iscrivere).</p>';
-      $(boxSel).querySelectorAll('[data-pid]').forEach((b) =>
-        b.addEventListener('click', () => onScelta((data || []).find((p) => String(p.persona_id) === b.dataset.pid))));
-    }, 250);
-  });
-}
 
 /* ══════════ progetti finanziati ══════════ */
 
