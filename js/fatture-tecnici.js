@@ -215,6 +215,19 @@ async function comuniDi(t) {
   return (data || []).map((r) => r.comune_nome);
 }
 
+// L'area/zona non e' del tecnico ma del PERIODO: cambia quando l'ente ridisegna
+// le zone (Caon: 32 fino al 2020, 43, 46, poi 52 dall'agosto 2022). Si propone
+// quindi l'ultima assegnata in ordine di tempo, che e' quella in vigore.
+async function ultimaArea(t) {
+  const { data } = await sb.from('s_incarichi_mensili')
+    .select('area_zona, anno, mese')
+    .eq('tecnico_id', t.tecnico_id)
+    .not('area_zona', 'is', null)
+    .order('anno', { ascending: false }).order('mese', { ascending: false })
+    .limit(1);
+  return data?.[0]?.area_zona ?? null;
+}
+
 function formIncarico(t, i) {
   const [anno, mese] = cursore.split('-').map(Number);
   apriDrawer(i ? `Incarico n° ${i.id} — ${nomeTec(t)} — ${MESI[mese - 1]} ${anno}` : `Nuovo incarico — ${nomeTec(t)} — ${MESI[mese - 1]} ${anno}`, 'OUT', `
@@ -242,6 +255,7 @@ function formIncarico(t, i) {
       ${i?.lettera_protocollo_id ? `<br><strong>Già protocollata</strong>${i.lettera_drive_url ? ` · <a href="${esc(i.lettera_drive_url)}" target="_blank" rel="noopener">documento su Drive</a>` : ''}${i.lettera_mail_at ? ` · bozza mail del ${dataIt(i.lettera_mail_at.slice(0, 10))}` : ''}` : ''}</p>`);
 
   if (!i) comuniDi(t).then((cc) => { const el = $('#fi-comuni'); if (el && !el.value) el.value = cc.join(', '); });
+  if (!i?.area_zona) ultimaArea(t).then((a) => { const el = $('#fi-area'); if (el && !el.value && a != null) el.value = a; });
 
   const leggi = () => ({
     tecnico_id: t.tecnico_id, tecnico_nome: nomeTec(t), tecnico_email: t.email, anno, mese,
