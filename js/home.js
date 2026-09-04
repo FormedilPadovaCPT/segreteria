@@ -62,6 +62,21 @@ export async function render() {
       }
     }
   } catch { /* senza accesso agli incarichi la card resta vuota */ }
+  /* incarichi mensili e fatture dei tecnici: i mesi passati ancora aperti,
+     le fatture da verificare/approvare, quelle approvate senza mandato */
+  let ftMesiAperti = [], ftDaLavorare = [], ftDaMandato = 0, ftStandby = 0;
+  try {
+    const meseCorr = oggi.slice(0, 7);
+    const [{ data: im }, { data: ft }] = await Promise.all([
+      sb.from('s_incarichi_mensili').select('id, tecnico_nome, anno, mese, stato').eq('stato', 'aperto').order('anno').order('mese').limit(200),
+      sb.from('s_fatture_tecnici').select('id, tecnico_nome, numero, importo, stato, data_ricevimento').in('stato', ['ricevuta', 'verificata', 'approvata', 'standby']).order('id', { ascending: false }).limit(100),
+    ]);
+    ftMesiAperti = (im || []).filter((i) => `${i.anno}-${String(i.mese).padStart(2, '0')}` < meseCorr);
+    ftDaLavorare = (ft || []).filter((f) => ['ricevuta', 'verificata'].includes(f.stato));
+    ftDaMandato = (ft || []).filter((f) => f.stato === 'approvata').length;
+    ftStandby = (ft || []).filter((f) => f.stato === 'standby').length;
+  } catch { /* senza accesso il riquadro resta vuoto */ }
+
   /* contano solo i documenti dei tecnici ATTIVI: gli altri sono storia */
   const attivi = new Set((tecAttivi || []).map((t) => t.tecnico_id));
   const docTec = (docTecTutti || []).filter((d) => attivi.has(d.tecnico_id));
@@ -178,6 +193,20 @@ export async function render() {
               <span class="hint">${esc(c.stato)}${c.data_inizio ? ` · ${dataIt(c.data_inizio)}` : ''}</span></div>`).join('')
           : '<p class="hint">Nessun corso aperto.</p>',
         vai('corsi', 'Apri i corsi'))}
+
+      ${card('💶 Incarichi e fatture tecnici', ftMesiAperti.length + ftDaLavorare.length + ftDaMandato + ftStandby, `
+        ${ftMesiAperti.slice(0, 4).map((i) => `
+          <div class="hm-riga" data-goto="fatture-tecnici"><span>📅</span>
+            <span>Mese da chiudere: <strong>${esc(i.tecnico_nome || '?')}</strong> — ${['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic'][i.mese - 1]} ${i.anno}</span>
+            <span class="hint">incarico n° ${i.id}</span></div>`).join('')}
+        ${ftMesiAperti.length > 4 ? `<p class="hint">…e altri ${ftMesiAperti.length - 4} mesi aperti.</p>` : ''}
+        ${ftDaLavorare.slice(0, 4).map((f) => `
+          <div class="hm-riga" data-vista="fatture-tecnici" data-id="${f.id}"><span>🧾</span>
+            <span><strong>${esc(f.tecnico_nome || '?')}</strong> — fattura n° ${esc(f.numero || '?')} · ${Number(f.importo || 0).toLocaleString('it-IT', { minimumFractionDigits: 2 })} €</span>
+            <span class="hint">${esc(f.stato)}</span></div>`).join('')}
+        <div class="hm-riga" data-goto="fatture-tecnici"><span>✅</span><span>Approvate dal coordinatore, da mettere in mandato</span><span class="hm-mini">${ftDaMandato}</span></div>
+        ${ftStandby ? `<div class="hm-riga" data-goto="fatture-tecnici"><span>⏸</span><span>In stand-by (anomalia da risolvere col tecnico)</span><span class="hm-mini">${ftStandby}</span></div>` : ''}`,
+        vai('fatture-tecnici', 'Apri incarichi e fatture'))}
 
       ${card('📚 Ultimi protocolli', '', `
         ${(prot || []).map((r) => `

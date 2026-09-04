@@ -29,6 +29,9 @@ del gestionale visite e della webapp asseverazione, sulle tabelle `s_*`.
 | `js/mail.js` | Avviso di protocollazione |
 | `js/imprese.js` | Ricerca e scheda impresa con le sue sottoschede |
 | `js/statistiche.js` | Numeri e distribuzioni del registro |
+| `js/fatture-tecnici.js` | Incarichi mensili ai tecnici, chiusura del mese, fatture, mandati, prestazioni (la fattura che ha pagato ogni visita) |
+| `js/fatture-tecnici-doc.js` | I tre PDF: lettera di incarico, riepilogo attività da fatturare, mandato di pagamento |
+| `supabase/sql/2026_09_04_fatture_tecnici.sql` | Tabelle `s_tariffe`, `s_tecnici_fiscale`, `s_incarichi_mensili`, `s_fatture_tecnici`, `s_prestazioni`, `s_mandati_pagamento`, `s_visite_stage` e funzioni `s_prestazioni_calcola`, `s_fattura_decisione` |
 
 | `strumenti/timbra.mjs` | Timbra un PDF da riga di comando, con lo stesso timbro |
 

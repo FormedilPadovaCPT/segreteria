@@ -190,6 +190,13 @@ async function vaiA(vista) {
     return mod.presenze.render();
   }
 
+  if (vista === 'fatture-tecnici') {
+    mostraVista('fatture-tecnici');
+    $('#fatture-tecnici-host').innerHTML = '<p class="empty">Un istante…</p>';
+    mod['fatture-tecnici'] = mod['fatture-tecnici'] || await import('./fatture-tecnici.js');
+    return mod['fatture-tecnici'].render();
+  }
+
   if (vista === 'nomine') {
     mostraVista('nomine');
     $('#nomine-host').innerHTML = '<p class="empty">Un istante…</p>';
@@ -265,10 +272,10 @@ try {
 
       /* link profondo dalle mail: #segnalazione-<id>, #consulenza-<id>,
          #visita-<id> o #conferenza-<id> apre la pratica */
-      const hashPratica = location.hash.match(/^#(segnalazione|consulenza|visita|conferenza|attestazione|ferie)-(\d+)$/);
+      const hashPratica = location.hash.match(/^#(segnalazione|consulenza|visita|conferenza|attestazione|ferie|fattura)-(\d+)$/);
       const apriDaHash = async () => {
         if (!hashPratica) return;
-        const vista = { segnalazione: 'segnalazioni', consulenza: 'consulenze', visita: 'visite', conferenza: 'conferenze', attestazione: 'attestazioni', ferie: 'presenze' }[hashPratica[1]];
+        const vista = { segnalazione: 'segnalazioni', consulenza: 'consulenze', visita: 'visite', conferenza: 'conferenze', attestazione: 'attestazioni', ferie: 'presenze', fattura: 'fatture-tecnici' }[hashPratica[1]];
         await vaiA(vista);
         await mod[vista]?.apriPratica?.(Number(hashPratica[2]));
       };
