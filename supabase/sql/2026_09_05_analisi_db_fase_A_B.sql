@@ -46,3 +46,8 @@ begin
     execute format('create index if not exists %I on %s (%s)', v_idx, r.tab, v_cols);
   end loop;
 end $$;
+
+-- le funzioni trigger non devono essere chiamabili via RPC (advisor authenticated_security_definer_function_executable);
+-- provato in transazione: con EXECUTE revocato un tecnico salva ancora la checklist (il trigger scatta lo stesso)
+revoke execute on function public.trg_checklist_ipc_stmt() from authenticated, anon, public;
+revoke execute on function public.a_tg_audit_change() from authenticated, anon, public;
