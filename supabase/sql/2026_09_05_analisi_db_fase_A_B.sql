@@ -51,3 +51,29 @@ end $$;
 -- provato in transazione: con EXECUTE revocato un tecnico salva ancora la checklist (il trigger scatta lo stesso)
 revoke execute on function public.trg_checklist_ipc_stmt() from authenticated, anon, public;
 revoke execute on function public.a_tg_audit_change() from authenticated, anon, public;
+
+-- Fase D, parte leggera (05/09/2026 sera) ---------------------------------
+-- F10: le copie denormalizzate dichiarano che cosa sono (SNAPSHOT / COPIA DI COMODO / com'era scritto nella fonte)
+comment on column public.s_incarichi_mensili.tecnico_nome  is 'SNAPSHOT al momento della lettera di incarico: non ricalcolare da tecnici.';
+comment on column public.s_incarichi_mensili.tecnico_email is 'SNAPSHOT al momento della lettera di incarico: non ricalcolare da tecnici.';
+comment on column public.s_fatture_tecnici.tecnico_nome    is 'SNAPSHOT: intestazione della fattura come ricevuta. Fa fede il documento, non tecnici.';
+comment on column public.s_prestazioni.tecnico_nome        is 'COPIA DI COMODO: fa fede tecnici (join su tecnico_id). Può essere ricalcolata.';
+comment on column public.incarichi.tecnico_nome            is 'COPIA DI COMODO: fa fede tecnici (join su tecnico_id). Può essere ricalcolata.';
+comment on column public.incarichi.tecnico_email           is 'COPIA DI COMODO: fa fede tecnici.email. Può essere ricalcolata.';
+comment on column public.segnalazioni_cantiere.tecnico_nome is 'COPIA DI COMODO: fa fede tecnici. Può essere ricalcolata.';
+comment on column public.s_protocollo.impresa_nome         is 'SNAPSHOT: nome dell''impresa com''era scritto sul documento protocollato (regola d''oro 7). Non ricalcolare.';
+comment on column public.s_attestazioni_dm132.ragione_sociale  is 'SNAPSHOT al momento della richiesta: l''impresa può cambiare nome (regola d''oro 7). Fa fede imprese per l''anagrafica corrente.';
+comment on column public.s_conferenze_cantiere.ragione_sociale is 'SNAPSHOT al momento della richiesta: l''impresa può cambiare nome (regola d''oro 7). Fa fede imprese per l''anagrafica corrente.';
+comment on column public.s_consulenze.ragione_sociale          is 'SNAPSHOT al momento della richiesta: l''impresa può cambiare nome (regola d''oro 7). Fa fede imprese per l''anagrafica corrente.';
+comment on column public.s_notifiche_cantiere.ragione_sociale  is 'SNAPSHOT al momento della comunicazione (regola d''oro 7). Fa fede imprese per l''anagrafica corrente.';
+comment on column public.s_rls_anagrafe.ragione_sociale        is 'SNAPSHOT al momento della comunicazione (regola d''oro 7). Fa fede imprese per l''anagrafica corrente.';
+comment on column public.s_rlst_pratiche.ragione_sociale       is 'SNAPSHOT al momento della richiesta (regola d''oro 7). Fa fede imprese per l''anagrafica corrente.';
+comment on column public.s_visite_richieste.ragione_sociale    is 'SNAPSHOT al momento della richiesta (regola d''oro 7). Fa fede imprese per l''anagrafica corrente.';
+comment on column public.s_portale_ricezioni.ragione_sociale   is 'DATO GREZZO come compilato nel modulo del portale: non è l''anagrafica.';
+comment on column public.s_nomine.persona_txt   is 'NOMINATIVO COM''ERA SCRITTO nella fonte (storico Access): si conserva anche quando persona_id è valorizzato.';
+comment on column public.s_nomine.impresa_txt   is 'NOME COM''ERA SCRITTO nella fonte (storico Access): si conserva anche quando impresa_id è valorizzato.';
+comment on column public.s_corsi.impresa_txt    is 'NOME COM''ERA SCRITTO nella fonte: si conserva anche quando impresa_id è valorizzato.';
+comment on column public.s_corsi_iscritti.impresa_txt is 'SNAPSHOT: impresa dell''iscritto al momento del corso (regola d''oro 7, deciso 01/09/2026). L''attestato mostra questa, non l''impresa attuale.';
+comment on column public.s_doc_tecnico.persona_txt is 'NOMINATIVO COM''ERA SCRITTO nella fonte: si conserva anche quando tecnico_id è valorizzato.';
+-- F8: a_pratica congelata, nessuna colonna nuova
+comment on table public.a_pratica is 'CONGELATA il 05/09/2026 (analisi DB): 125 colonne, 25 mai valorizzate. Nessuna colonna nuova: le prossime cose vanno in tabelle figlie 1:1 (es. a_pratica_commissione, a_pratica_rdv) lette con select(''*, a_pratica_rdv(*)'').';
