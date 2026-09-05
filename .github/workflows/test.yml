@@ -23,7 +23,7 @@ jobs:
           node-version: '22'
 
       - name: Test delle funzioni pure
-        run: node --test test/
+        run: node --test "test/**/*.test.mjs"
 
       - name: Dipendenze degli strumenti (pdf-lib, canvas)
         working-directory: strumenti
