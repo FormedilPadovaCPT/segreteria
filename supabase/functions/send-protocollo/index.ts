@@ -49,30 +49,8 @@ const MITTENTE = 'cptpd@did.formedilpadova.it'
 // configurato in Outlook: e' quello che va sulla bozza.
 const MITTENTE_UFFICIALE = 'cpt@formedilpadova.it'
 
-async function getToken(sa: Record<string, string>, scope: string): Promise<string> {
-  const now = Math.floor(Date.now() / 1000)
-  const b64 = (obj: unknown) =>
-    btoa(JSON.stringify(obj)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
-  const signingInput = `${b64({ alg: 'RS256', typ: 'JWT' })}.${b64({
-    iss: sa.client_email, sub: MITTENTE, scope,
-    aud: 'https://oauth2.googleapis.com/token', iat: now, exp: now + 3600,
-  })}`
-  const pemBody = sa.private_key
-    .replace('-----BEGIN PRIVATE KEY-----', '').replace('-----END PRIVATE KEY-----', '').replace(/\s/g, '')
-  const binKey = Uint8Array.from(atob(pemBody), (c) => c.charCodeAt(0))
-  const key = await crypto.subtle.importKey('pkcs8', binKey.buffer,
-    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign'])
-  const sig = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', key, new TextEncoder().encode(signingInput))
-  const sigB64 = btoa(String.fromCharCode(...new Uint8Array(sig)))
-    .replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
-  const res = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: `grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=${signingInput}.${sigB64}`,
-  })
-  const d = await res.json()
-  if (!d.access_token) throw new Error('Token Google non ottenuto: ' + JSON.stringify(d))
-  return d.access_token
-}
+import { getToken } from '../_shared/google.ts'
+// (audit 05/09/2026: il token Google viene dal modulo condiviso, non piu' copiato qui)
 
 function uint8ToBase64(bytes: Uint8Array): string {
   let bin = ''

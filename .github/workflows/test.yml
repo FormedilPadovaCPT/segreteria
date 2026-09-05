@@ -1,0 +1,36 @@
+name: Test
+
+# Gira a ogni push e ogni pull request: le funzioni pure (protocollo, esercizio,
+# lordo, importo in lettere) con node --test, e i due controlli gia' esistenti sul
+# disegno del timbro e sull'allineamento della firma.
+# I test sul database (tests-db/*.sql) li lancia il workflow "Test database" del
+# repo gestionale-visite, che ha la stringa di connessione.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Test delle funzioni pure
+        run: node --test test/
+
+      - name: Dipendenze degli strumenti (pdf-lib, canvas)
+        working-directory: strumenti
+        run: npm ci --no-audit --no-fund
+
+      - name: Il timbro sta dentro la sua cornice
+        run: node strumenti/verifica-timbro.mjs
+
+      - name: La firma della posta e' allineata con l'asseverazione
+        run: node strumenti/verifica-firma.mjs

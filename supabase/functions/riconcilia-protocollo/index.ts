@@ -36,39 +36,8 @@ const CORS = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-async function getAccessToken(sa: Record<string, string>): Promise<string> {
-  const now = Math.floor(Date.now() / 1000)
-  const b64 = (obj: unknown) =>
-    btoa(JSON.stringify(obj)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
-  const payload = {
-    iss: sa.client_email,
-    sub: 'cptpd@did.formedilpadova.it',
-    scope: 'https://www.googleapis.com/auth/drive',
-    aud: 'https://oauth2.googleapis.com/token',
-    iat: now, exp: now + 3600,
-  }
-  const signingInput = `${b64({ alg: 'RS256', typ: 'JWT' })}.${b64(payload)}`
-  const pemBody = sa.private_key
-    .replace('-----BEGIN PRIVATE KEY-----', '')
-    .replace('-----END PRIVATE KEY-----', '')
-    .replace(/\s/g, '')
-  const binaryKey = Uint8Array.from(atob(pemBody), (c) => c.charCodeAt(0))
-  const cryptoKey = await crypto.subtle.importKey(
-    'pkcs8', binaryKey.buffer, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign'])
-  const sig = await crypto.subtle.sign(
-    'RSASSA-PKCS1-v1_5', cryptoKey, new TextEncoder().encode(signingInput))
-  const sigB64 = btoa(String.fromCharCode(...new Uint8Array(sig)))
-    .replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
-  const res = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: 'grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion='
-      + `${signingInput}.${sigB64}`,
-  })
-  const d = await res.json()
-  if (!d.access_token) throw new Error('Token Google non ottenuto: ' + JSON.stringify(d))
-  return d.access_token
-}
+import { getAccessToken } from '../_shared/google.ts'
+// (audit 05/09/2026: il token Google viene dal modulo condiviso, non piu' copiato qui)
 
 const esc = (s: string) => s.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
 

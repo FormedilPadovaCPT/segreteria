@@ -51,44 +51,11 @@ export const TIPO_ACCESSO = {
   9: 'stage / ASL', 10: 'asseverazione',
 };
 
-export const euro = (n) => (Number(n) || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-/* Lordo = netto x (1 + cassa) x (1 + IVA): 100 x 1,04 x 1,22 = 126,88 */
-export function lordoDi(netto, fisc) {
-  const cassa = Number(fisc?.cassa_pct ?? 4) / 100;
-  const iva = Number(fisc?.iva_pct ?? 22) / 100;
-  return Math.round(Number(netto || 0) * (1 + cassa) * (1 + iva) * 100) / 100;
-}
-
-/* Importo in lettere, come sulla stampa Access:
-   3538,08 -> «tremilacinquecentotrentotto/08» */
-export function inLettere(n) {
-  const unita = ['', 'uno', 'due', 'tre', 'quattro', 'cinque', 'sei', 'sette', 'otto', 'nove', 'dieci', 'undici',
-    'dodici', 'tredici', 'quattordici', 'quindici', 'sedici', 'diciassette', 'diciotto', 'diciannove'];
-  const decine = ['', '', 'venti', 'trenta', 'quaranta', 'cinquanta', 'sessanta', 'settanta', 'ottanta', 'novanta'];
-  const cento = (x) => {
-    if (x < 20) return unita[x];
-    const d = Math.floor(x / 10); const u = x % 10;
-    let s = decine[d];
-    if (u === 1 || u === 8) s = s.slice(0, -1);
-    return s + unita[u];
-  };
-  const tre = (x) => {
-    const c = Math.floor(x / 100); const r = x % 100;
-    let s = c === 0 ? '' : c === 1 ? 'cento' : unita[c] + 'cento';
-    if (c > 0 && r >= 80 && r < 90) s = s.slice(0, -1);
-    return s + cento(r);
-  };
-  const intero = Math.floor(Math.abs(Number(n) || 0));
-  const cent = Math.round((Math.abs(Number(n) || 0) - intero) * 100);
-  let s = '';
-  const mil = Math.floor(intero / 1000000); const mig = Math.floor((intero % 1000000) / 1000); const res = intero % 1000;
-  if (mil) s += mil === 1 ? 'unmilione' : tre(mil) + 'milioni';
-  if (mig) s += mig === 1 ? 'mille' : tre(mig) + 'mila';
-  s += tre(res);
-  if (!s) s = 'zero';
-  return `${s}/${String(cent).padStart(2, '0')}`;
-}
+/* euro, lordoDi e inLettere vivono in comune.js dal 05/09/2026 (cosi' Node li
+   prova senza pdf-lib); da qui si ri-esportano perche' fatture-tecnici.js e
+   rendicontazione-doc.js continuino a trovarli dov'erano. */
+import { euro, lordoDi, inLettere } from './comune.js';
+export { euro, lordoDi, inLettere };
 
 const salva = async (doc) => new Uint8Array(await doc.save());
 
