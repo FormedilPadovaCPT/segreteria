@@ -29,7 +29,7 @@
 
 import { ENTE, COLORI } from './config.js';
 import { pdfLib } from './cdn.js';
-import { dataIt, siglaProtocollo, testoPdf } from './comune.js';
+import { dataIt, siglaProtocollo, testoPdf, oggiIso } from './comune.js';
 
 const A4 = [595.28, 841.89];
 const SX = 57;
@@ -376,5 +376,101 @@ export async function pdfRiscontro(p, prot, tipo) {
   c.stato.pagina.drawText('FORMEDIL PADOVA', { x: 380, y: c.stato.y + 4, size: 10, font: c.bold, color: c.nero });
   c.stato.pagina.drawText(ENTE.area.toUpperCase(), { x: 380, y: c.stato.y - 8, size: 8.5, font: c.font, color: c.grigio });
   c.stato.pagina.drawText('La Segreteria', { x: 380, y: c.stato.y - 22, size: 10, font: c.italic, color: c.nero });
+  return salva(c.doc);
+}
+
+/* ── 4. RIEPILOGO della NOTIFICA di apertura cantiere ──
+   E' il documento che si protocolla IN. Il portale servizi non ha
+   mai prodotto un PDF per la notifica (nessun modello): il riepilogo
+   lo genera l'app dai dati della riga al momento del protocollo, e
+   nasce gia' nella cartella giusta col numero nel nome — scelta
+   dell'utente del 06/09/2026, coerente con la rimozione del PDF
+   delle segnalazioni dal portale. Riporta cio' che e' stato
+   comunicato, com'e' stato comunicato: e' un documento RICEVUTO,
+   non una lettera dell'ente, quindi niente firma e niente timbro. */
+export async function pdfRiepilogoNotifica(p) {
+  const c = await apriCarta();
+  const n = p.progressivo ?? `m${p.id}`;
+  const provenienza = p.fonte === 'modulo' ? 'ricevuta dal portale servizi'
+    : p.fonte === 'dnl_access' ? 'dallo storico DNL del gestionale Access'
+    : p.fonte ? `arrivata per ${p.fonte}` : '';
+  c.scrivi('Comunicazione di apertura cantiere', c.bold, 15, c.nero);
+  c.scrivi(`Notifica n° ${n}${provenienza ? ` — ${provenienza}` : ''}${p.prot_dnl ? ` — Prot. DNL ${p.prot_dnl}` : ''}`, c.font, 9, c.grigio);
+  c.stato.y -= 6;
+
+  /* un titolo di sezione non resta mai solo in fondo alla pagina:
+     si pretende spazio anche per la prima riga che segue */
+  const sezione = (t) => { c.serve(64); c.stato.y -= 4; c.scrivi(t, c.bold, 10.5, c.arancio); c.stato.y -= 2; };
+  const nomeDi = (t, nm, cg) => [t, nm, cg].filter(Boolean).join(' ');
+  const dataCom = p.data_com || (p.timestamp_modulo || '').slice(0, 10);
+
+  sezione('Chi comunica');
+  c.campo('Data comunicazione', dataCom ? dataIt(dataCom) : null);
+  c.campo('Ragione sociale', p.ragione_sociale);
+  c.campo('Persona', nomeDi(p.seg_titolo, p.seg_nome, p.seg_cognome));
+  c.campo('Codice fiscale', p.seg_cf);
+  c.campo('E-mail', p.email);
+  c.campo('Telefono', p.telefono);
+
+  sezione('Cantiere');
+  c.campo('Indirizzo', p.ind_cantiere);
+  c.campo('Comune', p.comune_cantiere);
+  c.campo("Natura dell'opera", p.natura_opera);
+  c.campo('Note sul cantiere', p.note_cantiere);
+  c.campo('Inizio lavori presunto', p.data_inizio ? dataIt(p.data_inizio) : null);
+  c.campo('Fine lavori presunta', p.data_fine ? dataIt(p.data_fine) : null);
+  c.campo('Importo lavori (IVA esclusa)', p.importo ? `€ ${p.importo}` : null);
+  c.campo('Durata presunta', p.durata_gg ? `${p.durata_gg} giorni` : null);
+  c.campo('Max lavoratori in cantiere', p.max_lavoratori);
+  c.campo('Imprese previste', p.n_imprese);
+  c.campo('Lavoratori autonomi previsti', p.n_autonomi);
+
+  const commG = [p.comm_ragione_sociale, p.comm_piva, p.comm_cf, p.comm_indirizzo, p.comm_tel, p.comm_email].some(Boolean);
+  const commP = [p.comm_titolo, p.comm_nome, p.comm_cognome, p.comm_cf2, p.comm_ind2, p.comm_com2, p.comm_tel2].some(Boolean);
+  if (commG || commP) {
+    sezione(`Committente${p.comm_tipo ? ` (persona ${p.comm_tipo})` : ''}`);
+    c.campo('Ragione sociale', p.comm_ragione_sociale);
+    c.campo('Partita IVA', p.comm_piva);
+    c.campo('Codice fiscale', p.comm_cf);
+    c.campo('Indirizzo', p.comm_indirizzo);
+    c.campo('Telefono', p.comm_tel);
+    c.campo('E-mail', p.comm_email);
+    c.campo('Nominativo', nomeDi(p.comm_titolo, p.comm_nome, p.comm_cognome));
+    c.campo('Codice fiscale', p.comm_cf2);
+    c.campo('Indirizzo', [p.comm_ind2, p.comm_com2].filter(Boolean).join(', '));
+    c.campo('Telefono', p.comm_tel2);
+  }
+
+  if ([p.rl_nome, p.rl_cognome, p.rl_cf].some(Boolean)) {
+    sezione('Responsabile dei lavori');
+    c.campo('Nominativo', nomeDi(p.rl_titolo, p.rl_nome, p.rl_cognome));
+    c.campo('Codice fiscale', p.rl_cf);
+    c.campo('Indirizzo', [p.rl_indirizzo, p.rl_comune].filter(Boolean).join(', '));
+    c.campo('Note', p.rl_note);
+  }
+
+  const figure = Array.isArray(p.figure) ? p.figure : [];
+  if (figure.length) {
+    sezione('Altre figure professionali');
+    for (const f of figure) {
+      c.campo(f.ruolo || 'Figura', [f.nominativo || nomeDi(f.titolo, f.nome, f.cognome), f.cf ? `CF ${f.cf}` : '', f.email, f.telefono]
+        .filter(Boolean).join(' — '));
+    }
+  }
+  const imprese = Array.isArray(p.imprese) ? p.imprese : [];
+  if (imprese.length) {
+    sezione('Imprese previste in cantiere');
+    for (const i of imprese) {
+      c.campo(i.ruolo || 'Impresa', [i.ragione_sociale, i.piva ? `P.IVA ${i.piva}` : (i.cf ? `CF ${i.cf}` : ''),
+        i.cod_cassa ? `Cassa Edile ${i.cod_cassa}` : '', [i.indirizzo, i.comune].filter(Boolean).join(', '), i.email]
+        .filter(Boolean).join(' — '));
+    }
+  }
+
+  c.stato.y -= 4;
+  c.campo('Privacy', p.privacy);
+  c.stato.y -= 10;
+  c.serve(30);
+  c.scrivi(`Riepilogo generato dall'app Segreteria il ${dataIt(oggiIso())} dai dati ${p.fonte === 'modulo' ? 'ricevuti dal portale servizi' : 'registrati'}${p.timestamp_modulo ? ` il ${dataIt(p.timestamp_modulo.slice(0, 10))}` : ''}: riporta la comunicazione così com'è stata trasmessa. Documento ricevuto, protocollato in entrata.`, c.font, 7.5, c.grigio);
   return salva(c.doc);
 }

@@ -31,6 +31,8 @@ const STATI = {
 const FONTI = ['telefono', 'email', 'pec', 'altro'];
 const PERCORSO_VAULT = '2_AREE/Servizi_CPT/richieste/Segnalazione Cantieri al CPT';
 const TIPO_DOC_NOTIF = 57;   // s_tipo_doc «Notifica cantiere»
+const slug = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  .replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
 
 async function carica() {
   const [{ data: p }, { data: t }, { data: z }] = await Promise.all([
@@ -234,7 +236,7 @@ export async function apriPratica(id) {
       <span class="dt-quadro-req">Protocollo IN</span>
       <span class="dt-quadro-stato">${p.protocollo_in_id
         ? `<strong>${esc(protDi[p.protocollo_in_id] ? codiceProtocollo(protDi[p.protocollo_in_id]) : 'protocollata')}</strong>${protDi[p.protocollo_in_id] ? ` · <a href="#" data-apri-prot="${p.protocollo_in_id}">apri nel registro</a>` : ''}`
-        : 'da protocollare (il PDF di riepilogo del modulo è il documento)'}</span>
+        : 'da protocollare (il riepilogo PDF si genera da solo al protocollo, col numero nel nome)'}</span>
     </div>
     <div class="dt-quadro-riga">
       <span class="dt-dot ${p.cantiere_id ? 'dt-ok' : 'dt-senzadata'}"></span>
@@ -281,6 +283,7 @@ export async function apriPratica(id) {
       <button class="btn btn-primary" id="nt-grazie">📧 Ringraziamento a chi ha segnalato</button>
       ${!p.protocollo_out_id ? '<button class="btn btn-ghost" id="nt-riscontro">📄 Riscontro completo (lettera OUT)</button>' : ''}
       <button class="btn btn-ghost" id="nt-anteprima">👁 Lettera in anteprima (senza protocollare)</button>
+      <button class="btn btn-ghost" id="nt-riepilogo">📋 Riepilogo della notifica (PDF)</button>
     </div>
     <p class="hint" style="margin-top:6px">${p.riscontro_inviato_il
       ? `Riscontro già preparato il ${dataIt(p.riscontro_inviato_il.slice(0, 10))}.`
@@ -311,6 +314,15 @@ export async function apriPratica(id) {
   });
 
   $('#nt-protin')?.addEventListener('click', () => protocollaIn(p));
+  $('#nt-riepilogo')?.addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    attendi(btn, true, 'Preparo…');
+    try {
+      const { pdfRiepilogoNotifica } = await import('./segnalazioni-doc.js');
+      const { scaricaPdf } = await import('./corsi-doc.js');
+      scaricaPdf(await pdfRiepilogoNotifica(p), `riepilogo-notifica-${p.progressivo ?? `m${p.id}`}.pdf`);
+    } catch (err) { toast(err.message, 'err'); } finally { attendi(btn, false); }
+  });
   $('#nt-grazie')?.addEventListener('click', () => mailGrazie(p));
   $('#nt-riscontro')?.addEventListener('click', (e) => riscontroCompleto(p, e.currentTarget));
   $('#nt-anteprima')?.addEventListener('click', (e) => anteprimaLettera(p, e.currentTarget));
@@ -340,8 +352,46 @@ async function protocollaIn(p) {
     }).eq('id', p.id);
     if (error) throw new Error(error.message);
     toast(`Protocollo ${codiceProtocollo(nuovo)} collegato alla notifica n° ${p.progressivo ?? `m${p.id}`}.`, 'ok');
+    await depositaRiepilogo(p, nuovo);
   });
-  toast('Maschera IN precompilata: allega il PDF di riepilogo e salva — il numero si collega da solo.', 'ok');
+  toast('Maschera IN precompilata: salva e il riepilogo PDF della notifica nasce da solo, col numero nel nome. Se hai il documento originale (PEC, lettera) allegalo pure: resta lui il principale.', 'ok');
+}
+
+/* ── il documento del protocollo IN: il riepilogo generato dall'app ──
+   Il portale non produce un PDF per la notifica (deciso dall'utente il
+   06/09/2026: il riepilogo lo fa l'app, come per le segnalazioni). Nasce
+   nella cartella del vault della pratica, col numero di protocollo nel
+   nome (lo aggiunge la funzione di caricamento) — regola «il numero
+   deve stare nel nome prima che l'umano lo cerchi». Se nella maschera
+   era stato allegato un originale, quello resta il principale e il
+   riepilogo si aggiunge come secondo documento. */
+async function depositaRiepilogo(p, nuovo) {
+  try {
+    const { pdfRiepilogoNotifica } = await import('./segnalazioni-doc.js');
+    const byte = await pdfRiepilogoNotifica(p);
+    const cart = await risolviCartella(PERCORSO_VAULT);
+    if (!cart.id) throw new Error(`Cartella «${PERCORSO_VAULT}» non trovata su Drive`);
+    const dataCom = p.data_com || (p.timestamp_modulo || '').slice(0, 10) || oggiIso();
+    const chi = p.ragione_sociale || committenteDi(p) || [p.seg_cognome, p.seg_nome].filter(Boolean).join(' ') || 'notificante';
+    const dove = [p.ind_cantiere, p.comune_cantiere].filter(Boolean).join(' ') || 'cantiere';
+    const nomeFile = `${dataCom.replace(/-/g, '_')}_NOTIF_${slug(chi)}_${slug(dove)}.pdf`;
+    const su = await caricaByte(nuovo, nomeFile, byte, 'application/pdf', cart.id);
+
+    const { count } = await sb.from('s_prot_allegati').select('id', { count: 'exact', head: true }).eq('protocollo_id', nuovo.id);
+    const principale = !count;
+    const { error } = await sb.from('s_prot_allegati').insert({
+      protocollo_id: nuovo.id, nome: su.file_name || nomeFile, mime: 'application/pdf',
+      dimensione: byte.length, principale, created_by: state.email,
+      drive_file_id: su.drive_file_id, drive_url: su.drive_url,
+    });
+    if (error) throw new Error(error.message);
+    if (principale) {
+      await sb.from('s_protocollo').update({ drive_file_id: su.drive_file_id, drive_url: su.drive_url }).eq('id', nuovo.id);
+    }
+    toast(`Riepilogo della notifica depositato nel vault: ${su.file_name || nomeFile}`, 'ok');
+  } catch (e) {
+    toast('Protocollo collegato, ma il riepilogo PDF non è stato depositato: ' + e.message, 'err');
+  }
 }
 
 async function mailGrazie(p) {
