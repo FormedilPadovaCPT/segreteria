@@ -279,7 +279,12 @@ try {
       /* link profondo dalle mail: #segnalazione-<id>, #consulenza-<id>,
          #visita-<id> o #conferenza-<id> apre la pratica */
       const hashPratica = location.hash.match(/^#(segnalazione|consulenza|visita|conferenza|attestazione|ferie|fattura)-(\d+)$/);
+      /* #vista-<nome> apre una vista senza pratica: e' il link della mail
+         interna del portale servizi, che parte PRIMA dell'import delle 6:30
+         e quindi non ha ancora un id di pratica da puntare (06/09/2026) */
+      const hashVista = location.hash.match(/^#vista-([a-z-]+)$/);
       const apriDaHash = async () => {
+        if (hashVista) { await vaiA(hashVista[1]); return; }
         if (!hashPratica) return;
         const vista = { segnalazione: 'segnalazioni', consulenza: 'consulenze', visita: 'visite', conferenza: 'conferenze', attestazione: 'attestazioni', ferie: 'presenze', fattura: 'fatture-tecnici' }[hashPratica[1]];
         await vaiA(vista);
@@ -293,13 +298,13 @@ try {
         $$('.nav-item').forEach((b) => {
           if (!['segnalazioni', 'consulenze', 'visite', 'conferenze', 'attestazioni', 'presenze'].includes(b.dataset.view)) b.style.display = 'none';
         });
-        if (hashPratica) await apriDaHash();
+        if (hashPratica || hashVista) await apriDaHash();
         else await vaiA('segnalazioni');
       } else {
         mod.protocollo = await import('./protocollo.js');
         await mod.protocollo.init();
         /* la prima pagina è il CRUSCOTTO, non il registro (deciso 01/09/2026) */
-        if (hashPratica) await apriDaHash();
+        if (hashPratica || hashVista) await apriDaHash();
         else await vaiA('home');
       }
     }
