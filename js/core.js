@@ -94,6 +94,7 @@ export function mostraVista(nome) {
     nomine: '#view-nomine',
     presenze: '#view-presenze',
     'fatture-tecnici': '#view-fatture-tecnici',
+    comunicazione: '#view-comunicazione',
     statistiche: '#view-statistiche',
   };
   $$('.view').forEach((v) => v.classList.add('hidden'));

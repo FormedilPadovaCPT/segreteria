@@ -198,6 +198,11 @@ async function vaiA(vista) {
     return mod['fatture-tecnici'].render();
   }
 
+  if (vista === 'comunicazione') {
+    mostraVista('comunicazione');
+    mod.comunicazione = mod.comunicazione || await import('./comunicazione.js');
+    return mod.comunicazione.render();
+  }
   if (vista === 'nomine') {
     mostraVista('nomine');
     $('#nomine-host').innerHTML = '<p class="empty">Un istante…</p>';

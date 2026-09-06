@@ -33,6 +33,44 @@ del gestionale visite e della webapp asseverazione, sulle tabelle `s_*`.
 | `js/fatture-tecnici.js` | Incarichi mensili ai tecnici, chiusura del mese, fatture, mandati, prestazioni (la fattura che ha pagato ogni visita) |
 | `js/fatture-tecnici-doc.js` | I tre PDF: lettera di incarico, riepilogo attività da fatturare, mandato di pagamento |
 | `supabase/sql/2026_09_04_fatture_tecnici.sql` | Tabelle `s_tariffe`, `s_tecnici_fiscale`, `s_incarichi_mensili`, `s_fatture_tecnici`, `s_prestazioni`, `s_mandati_pagamento`, `s_visite_stage` e funzioni `s_prestazioni_calcola`, `s_fattura_decisione` |
+| `js/comunicazione.js` | La coda della **redazione automatica social** dell'Area: bozze scritte dalla routine cloud, ritocco, approvazione, scarto con motivo, pubblicazione su Telegram e app servizi, kit `.eml` per l'agenzia |
+| `supabase/functions/redazione-social/` | La porta della routine (materia prima e consegna bozze, con parola d'ordine) e della persona (pubblica su Telegram / app, con JWT segreteria) |
+| `supabase/sql/2026_09_06_redazione_social.sql` | Tabella `s_post`, funzione `s_redazione_materia` (solo aggregati), chiavi `redazione_token`, `redazione_linee`, `telegram_canale` |
+
+## La redazione automatica social (06/09/2026)
+
+Ogni **lunedì alle 6 (ora di Roma)** una *routine* di Claude Code nel cloud
+(`Redazione social Area Sicurezza e Salute`, gestibile da
+https://claude.ai/code/routines) fa tre cose: **ricerca** (aggregati delle
+visite, circolari protocollate, corsi, campagne, rassegna esterna da
+PuntoSicuro e web), **proposte**, **bozze di post già pronte** per Telegram,
+app servizi, LinkedIn e Instagram/Facebook. Le scrive in `s_post` con stato
+`bozza`. Non pubblica mai niente.
+
+La routine non ha accesso né al PC né al vault: parla col database **solo**
+attraverso la funzione `redazione-social`, con la parola d'ordine
+`s_config.redazione_token` (stesso disegno di `riconcilia_token`: la chiave
+anon sta in un repository pubblico). La materia prima è **solo aggregati**:
+nessun nome di impresa, cantiere o persona arriva alla routine.
+
+Nella vista **📣 Comunicazione** la segreteria rilegge, ritocca, approva o
+scarta con un motivo (che la routine rilegge al giro dopo), e scrive le
+«indicazioni per la prossima redazione» (`s_config.redazione_linee`).
+Pubblicare è un atto della persona, come il timbro:
+- **Telegram** parte da qui col bot (secret `TELEGRAM_BOT_TOKEN`; il bot deve
+  essere amministratore del canale in `s_config.telegram_canale`);
+- **app servizi** inserisce la notizia nella tabella `notizie` dell'altro
+  progetto Supabase (secret `NOTIZIE_SERVICE_KEY`);
+- **LinkedIn / Instagram / Facebook** li pubblica l'agenzia: parte un kit in
+  bozza `.eml`, l'invio resta a una persona, e l'uscita si segna a mano.
+
+Finché i due secret non sono impostati, i bottoni rispondono con un errore
+chiaro e si pubblica a mano, segnando poi il post come uscito.
+
+Regole fisse (stanno nel prompt della routine e nella pagina): mai nomi di
+imprese, cantieri, persone; solo aggregati col perimetro dichiarato; ogni
+affermazione normativa cita la norma; i contenuti tecnici li valida il
+coordinatore.
 
 | `strumenti/timbra.mjs` | Timbra un PDF da riga di comando, con lo stesso timbro |
 
