@@ -393,7 +393,7 @@ export async function apriPratica(id) {
       <span class="dt-quadro-req">Protocollo IN</span>
       <span class="dt-quadro-stato">${p.protocollo_in_id
         ? `<strong>${esc(protDi[p.protocollo_in_id] ? codiceProtocollo(protDi[p.protocollo_in_id]) : 'protocollata')}</strong>${!state.soloDirettore && protDi[p.protocollo_in_id] ? ` · <a href="#" data-apri-prot="${p.protocollo_in_id}">apri nel registro</a>` : ''}`
-        : 'da protocollare (il PDF di riepilogo del modulo è il documento)'}</span>
+        : 'da protocollare (dal 06/09/2026 il portale non produce più il PDF: il documento è la mail ricevuta, o quello arrivato per altra via)'}</span>
     </div>
     ${p.protocollo_out_id ? `
     <div class="dt-quadro-riga">
@@ -695,7 +695,7 @@ async function protocollaIn(p) {
     if (error) throw new Error(error.message);
     toast(`Protocollo ${codiceProtocollo(nuovo)} collegato alla segnalazione n° ${p.progressivo ?? `m${p.id}`}.`, 'ok');
   });
-  toast('Maschera IN precompilata: allega il PDF di riepilogo del modulo e salva — il numero si collega da solo alla pratica.', 'ok');
+  toast('Maschera IN precompilata: allega la mail ricevuta dal portale (in PDF) o il documento arrivato, e salva — il numero si collega da solo alla pratica.', 'ok');
 }
 
 /* ── riscontro al segnalante: protocollo OUT + lettera + Drive + mail ── */
