@@ -124,10 +124,15 @@ export async function pdfLetteraIncarico(inc, prot, d) {
       c.serve(14);
       const y = c.stato.y;
       const t = (s, x, f = c.font) => c.stato.pagina.drawText(taglia(f, 7.8, testoPdf(String(s ?? '')), larg[x]), { x, y, size: 7.8, font: f, color: c.nero });
-      t(r.nr_verbale, SX + 4); t(dataIt(r.data_visita), SX + 62); t(r.ritorno ? dataIt(r.ritorno) : '—', SX + 122, c.bold);
+      t(r.nr_verbale, SX + 4); t(dataIt(r.data_visita), SX + 62);
+      t(r.ritorno ? dataIt(r.ritorno) + (r.calcolata ? ' *' : '') : '—', SX + 122, c.bold);
       t(r.impresa || '', SX + 178); t(r.comune || '', SX + 370); t(r.ipc || '', DX - 28, c.bold);
       c.stato.pagina.drawLine({ start: { x: SX, y: y - 4 }, end: { x: DX, y: y - 4 }, thickness: 0.4, color: c.grigioChiaro });
       c.stato.y -= 12.5;
+    }
+    if (d.ncAperte.some((r) => r.calcolata)) {
+      c.stato.y -= 2;
+      c.scrivi('* data calcolata con la regola Formedil (n. accesso + IPC); senza asterisco è la data di ritorno indicata dal tecnico sul verbale.', c.italic, 7.5, c.grigio);
     }
   } else {
     c.scrivi('Nessun cantiere con ritorno previsto.', c.italic, 9, c.grigio);

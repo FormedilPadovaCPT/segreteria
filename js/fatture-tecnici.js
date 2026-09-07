@@ -300,19 +300,79 @@ function formIncarico(t, i) {
   $('#fi-invia')?.addEventListener('click', (ev) => inviaLettera(t, { ...i, ...leggi() }, ev.currentTarget));
 }
 
+/* Stessa regola dello scadenzario del gestionale visite (calcRientroFormedil):
+   e' l'esito dell'ULTIMA visita del cantiere (n. accesso + IPC) a dire se serve
+   un rientro e quando. data_ritorno, quando c'e', decide solo il QUANDO. */
+function rientroFormedil(dataVisita, acc, ipc) {
+  const n = +acc || 1;
+  const i = ipc || 'NR';
+  let giorni = null;
+  if (n === 1) giorni = i === 'ALTO' ? 3 : (i === 'MEDIO' || i === 'BASSO') ? 22 : null;
+  else if (n === 2) giorni = i === 'ALTO' ? 3 : i === 'MEDIO' ? 22 : null;
+  else giorni = i === 'ALTO' ? 3 : null;
+  if (!giorni || !dataVisita) return null;
+  const d = new Date(dataVisita); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + giorni);
+  return d;
+}
+const isoData = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+/* TUTTE le visite, paginate come nello scadenzario del gestionale: l'ultima visita di
+   un cantiere puo' essere di un altro tecnico (che l'ha gia' richiuso), e un taglio a
+   tempo nasconderebbe proprio i cantieri vecchi mai richiamati. Sono ~2.300 righe. */
+async function tutteLeVisite() {
+  const PAGE = 1000;
+  let out = [];
+  for (let off = 0; ; off += PAGE) {
+    const { data, error } = await sb.from('visite')
+      .select('visita_id, nr_verbale, data_visita, data_ritorno, ipc, acc_cant, tecnico_id, cantiere_id, impresa_id, impresa_rl_nome')
+      .or('elimina.is.null,elimina.neq.1')
+      .order('data_visita', { ascending: false }).range(off, off + PAGE - 1);
+    if (error) { console.error('tutteLeVisite', error); break; }
+    if (!data || !data.length) break;
+    out = out.concat(data);
+    if (data.length < PAGE) break;
+  }
+  return out;
+}
+
 /* cantieri con ritorno previsto e richieste in attesa, dal gestionale */
 async function datiLettera(t, inc) {
-  const da = new Date(); da.setMonth(da.getMonth() - 24);
-  const [{ data: vs }, { data: rq }] = await Promise.all([
-    sb.from('visite').select('visita_id, nr_verbale, data_visita, data_ritorno, ipc, acc_cant, cantiere_id, impresa_id, impresa_rl_nome')
-      .eq('tecnico_id', t.tecnico_id).gte('data_visita', da.toISOString().slice(0, 10)).or('elimina.is.null,elimina.neq.1')
-      .order('data_visita', { ascending: false }).limit(1500),
-    sb.from('incarichi').select('id, data_richiesta, tipologia_richiesta, tipo_richiesta, impresa, comune')
-      .ilike('tecnico_email', t.email || '—').eq('stato', 'aperto').order('data_richiesta'),
+  const cognome = (t.tecnico_cognome || '').trim().toLowerCase();
+  const [vs, { data: rqAll }] = await Promise.all([
+    tutteLeVisite(),
+    sb.from('incarichi').select('id, data_richiesta, tipologia_richiesta, tipo_richiesta, impresa, comune, tecnico_email, tecnico_nome')
+      .eq('stato', 'aperto').order('data_richiesta'),
   ]);
+  /* lo storico importato da Access ha solo tecnico_nome ("De Marco Arch. Nicola"),
+     senza email: filtrando sulla sola email le richieste sparivano */
+  const email = (t.email || '').trim().toLowerCase();
+  const rq = (rqAll || []).filter((r) => {
+    const e = (r.tecnico_email || '').trim().toLowerCase();
+    if (e) return email && e === email;
+    return cognome && (r.tecnico_nome || '').toLowerCase().includes(cognome);
+  });
+
+  /* ultima visita di ogni cantiere (vs e' gia' ordinato per data decrescente);
+     resta al tecnico solo il cantiere la cui ultima visita e' sua */
   const ultima = {};
   for (const v of vs || []) if (v.cantiere_id && !ultima[v.cantiere_id]) ultima[v.cantiere_id] = v;
-  const candidate = Object.values(ultima).filter((v) => v.data_ritorno);
+  const suoi = Object.values(ultima).filter((v) => v.tecnico_id === t.tecnico_id);
+  const oggi = new Date(); oggi.setHours(0, 0, 0, 0);
+  const limite = new Date(oggi); limite.setDate(limite.getDate() + 60);
+
+  const candidate = [];
+  for (const v of suoi) {
+    const calc = rientroFormedil(v.data_visita, v.acc_cant, v.ipc);
+    if (!calc) continue; // esito da archiviazione: nessun rientro dovuto
+    let dr = calc, calcolata = true;
+    if (v.data_ritorno) { dr = new Date(v.data_ritorno); dr.setHours(0, 0, 0, 0); calcolata = false; }
+    const ipc = v.ipc || 'NR';
+    const scaduto = dr <= oggi;
+    if (scaduto && ipc === 'NR') continue;      // come nello scadenzario
+    if (!scaduto && dr > limite) continue;      // oltre 60 giorni: pianificazione futura
+    candidate.push({ ...v, dr, calcolata, scaduto });
+  }
+
   const ids = [...new Set(candidate.map((v) => v.cantiere_id))];
   const impIds = [...new Set(candidate.map((v) => v.impresa_id).filter(Boolean))];
   const [{ data: cc }, { data: ii }] = await Promise.all([
@@ -323,12 +383,13 @@ async function datiLettera(t, inc) {
   const imp = Object.fromEntries((ii || []).map((c) => [c.impresa_id, c.impresa_nome]));
   const ncAperte = candidate
     .filter((v) => !cant[v.cantiere_id]?.cantiere_chiuso)
-    .map((v) => ({ nr_verbale: (v.nr_verbale || '').replace(/^CPT\//, ''), data_visita: v.data_visita, ritorno: v.data_ritorno, ipc: v.ipc,
+    .map((v) => ({ nr_verbale: (v.nr_verbale || '').replace(/^CPT\//, ''), data_visita: v.data_visita, ritorno: isoData(v.dr),
+      calcolata: v.calcolata, scaduto: v.scaduto, ipc: v.ipc,
       impresa: imp[v.impresa_id] || v.impresa_rl_nome || cant[v.cantiere_id]?.cantiere_etichetta || '', comune: cant[v.cantiere_id]?.comune_nome || '' }))
     .sort((a, b) => String(a.ritorno).localeCompare(String(b.ritorno)));
   return {
     tecnico: nomeTec(t), comuni: inc.comuni?.length ? inc.comuni : await comuniDi(t),
-    ncAperte, richieste: rq || [], testo: conf.incarico_visite_testo || '', coordinatore: conf.coordinatore_nome || '',
+    ncAperte, richieste: rq, testo: conf.incarico_visite_testo || '', coordinatore: conf.coordinatore_nome || '',
   };
 }
 
