@@ -23,7 +23,7 @@
    ============================================================ */
 
 import { apriCarta } from './segnalazioni-doc.js';
-import { dataIt, siglaProtocollo, testoPdf } from './comune.js';
+import { dataIt, siglaProtocollo, spezza, taglia, testoPdf } from './comune.js';
 import { ENTE } from './config.js';
 
 const SX = 57;
@@ -84,6 +84,12 @@ function intestaTabella(c, colonne) {
   c.stato.pagina.drawRectangle({ x: SX, y: y0 - 4, width: DX - SX, height: 13, color: c.grigioChiaro });
   for (const [label, x] of colonne) c.stato.pagina.drawText(label, { x, y: y0, size: 7.4, font: c.bold, color: c.grigio });
   c.stato.y = y0 - 14;
+  /* Quanto e' larga ogni colonna lo dice la colonna dopo (l'ultima
+     arriva al margine): e' la misura con cui si taglia il testo delle
+     celle, al posto di un numero di caratteri buttato li'. */
+  const larghezze = {};
+  colonne.forEach(([, x], i) => { larghezze[x] = (i + 1 < colonne.length ? colonne[i + 1][1] : DX) - x - 4; });
+  return larghezze;
 }
 
 function firmaSegreteria(c, prot) {
@@ -113,13 +119,13 @@ export async function pdfLetteraIncarico(inc, prot, d) {
   /* cantieri con ritorno previsto (dallo scadenzario del gestionale) */
   bandaTitolo(c, `CANTIERI CON RITORNO PREVISTO DA RICHIUDERE (${d.ncAperte?.length || 0})`);
   if (d.ncAperte?.length) {
-    intestaTabella(c, [['Verbale', SX + 4], ['Ultima visita', SX + 62], ['Ritorno', SX + 122], ['Impresa', SX + 178], ['Comune', SX + 370], ['IPC', DX - 28]]);
+    const larg = intestaTabella(c, [['Verbale', SX + 4], ['Ultima visita', SX + 62], ['Ritorno', SX + 122], ['Impresa', SX + 178], ['Comune', SX + 370], ['IPC', DX - 28]]);
     for (const r of d.ncAperte) {
       c.serve(14);
       const y = c.stato.y;
-      const t = (s, x, w, f = c.font) => c.stato.pagina.drawText(testoPdf(String(s ?? '')).slice(0, w), { x, y, size: 7.8, font: f, color: c.nero });
-      t(r.nr_verbale, SX + 4, 14); t(dataIt(r.data_visita), SX + 62, 12); t(r.ritorno ? dataIt(r.ritorno) : '—', SX + 122, 12, c.bold);
-      t(r.impresa || '', SX + 178, 40); t(r.comune || '', SX + 370, 26); t(r.ipc || '', DX - 28, 4, c.bold);
+      const t = (s, x, f = c.font) => c.stato.pagina.drawText(taglia(f, 7.8, testoPdf(String(s ?? '')), larg[x]), { x, y, size: 7.8, font: f, color: c.nero });
+      t(r.nr_verbale, SX + 4); t(dataIt(r.data_visita), SX + 62); t(r.ritorno ? dataIt(r.ritorno) : '—', SX + 122, c.bold);
+      t(r.impresa || '', SX + 178); t(r.comune || '', SX + 370); t(r.ipc || '', DX - 28, c.bold);
       c.stato.pagina.drawLine({ start: { x: SX, y: y - 4 }, end: { x: DX, y: y - 4 }, thickness: 0.4, color: c.grigioChiaro });
       c.stato.y -= 12.5;
     }
@@ -131,13 +137,13 @@ export async function pdfLetteraIncarico(inc, prot, d) {
   /* richieste in attesa (incarichi aperti del gestionale) */
   bandaTitolo(c, `RICHIESTE IN ATTESA — SERIE DI VISITE, RICHIESTE DA IMPRESA, STAGE, SEGNALAZIONI (${d.richieste?.length || 0})`);
   if (d.richieste?.length) {
-    intestaTabella(c, [['N°', SX + 4], ['Data', SX + 40], ['Tipologia', SX + 100], ['Impresa', SX + 250], ['Comune', SX + 400]]);
+    const larg = intestaTabella(c, [['N°', SX + 4], ['Data', SX + 40], ['Tipologia', SX + 100], ['Impresa', SX + 250], ['Comune', SX + 400]]);
     for (const r of d.richieste) {
       c.serve(14);
       const y = c.stato.y;
-      const t = (s, x, w, f = c.font) => c.stato.pagina.drawText(testoPdf(String(s ?? '')).slice(0, w), { x, y, size: 7.8, font: f, color: c.nero });
-      t(r.id, SX + 4, 6, c.bold); t(dataIt(r.data_richiesta), SX + 40, 12); t(r.tipologia_richiesta || r.tipo_richiesta || '', SX + 100, 34);
-      t(r.impresa || '', SX + 250, 32); t(r.comune || '', SX + 400, 22);
+      const t = (s, x, f = c.font) => c.stato.pagina.drawText(taglia(f, 7.8, testoPdf(String(s ?? '')), larg[x]), { x, y, size: 7.8, font: f, color: c.nero });
+      t(r.id, SX + 4, c.bold); t(dataIt(r.data_richiesta), SX + 40); t(r.tipologia_richiesta || r.tipo_richiesta || '', SX + 100);
+      t(r.impresa || '', SX + 250); t(r.comune || '', SX + 400);
       c.stato.pagina.drawLine({ start: { x: SX, y: y - 4 }, end: { x: DX, y: y - 4 }, thickness: 0.4, color: c.grigioChiaro });
       c.stato.y -= 12.5;
     }
@@ -205,17 +211,17 @@ export async function pdfRiepilogo(inc, prot, d) {
       c.serve(26);
       c.stato.pagina.drawText(testoPdf(`${rr.length} ${TIPO_ACCESSO[acc] || (acc ? `tipo ${acc}` : 'visita')}`), { x: SX + 14, y: c.stato.y, size: 8, font: c.italic, color: c.grigio });
       c.stato.y -= 12;
-      intestaTabella(c, [['Data', SX + 4], ['Impresa', SX + 56], ['Stage', SX + 262], ['Accesso n°', SX + 296], ['Verbale n°', SX + 350], ['RLST', SX + 404], ['Importo', DX - 42]]);
+      const larg = intestaTabella(c, [['Data', SX + 4], ['Impresa', SX + 56], ['Stage', SX + 262], ['Accesso n°', SX + 296], ['Verbale n°', SX + 350], ['RLST', SX + 404], ['Importo', DX - 42]]);
       for (const p of rr) {
         c.serve(14);
         const y = c.stato.y;
-        const t = (s, x, w, f = c.font) => c.stato.pagina.drawText(testoPdf(String(s ?? '')).slice(0, w), { x, y, size: 7.8, font: f, color: c.nero });
-        t(dataIt(p.data), SX + 4, 12);
-        t(p.impresa || p.descrizione || '', SX + 56, 42);
-        t(p.stage ? 'Sì' : 'No', SX + 262, 3);
-        t(p.accesso_n ?? '', SX + 296, 6);
-        t((p.nr_verbale || '').replace(/^CPT\/\d\d_\d\d\//, ''), SX + 350, 12, c.bold);
-        t(p.rlst ? 'Sì' : 'No', SX + 404, 3);
+        const t = (s, x, f = c.font) => c.stato.pagina.drawText(taglia(f, 7.8, testoPdf(String(s ?? '')), larg[x]), { x, y, size: 7.8, font: f, color: c.nero });
+        t(dataIt(p.data), SX + 4);
+        t(p.impresa || p.descrizione || '', SX + 56);
+        t(p.stage ? 'Sì' : 'No', SX + 262);
+        t(p.accesso_n ?? '', SX + 296);
+        t((p.nr_verbale || '').replace(/^CPT\/\d\d_\d\d\//, ''), SX + 350, c.bold);
+        t(p.rlst ? 'Sì' : 'No', SX + 404);
         c.stato.pagina.drawText(euro(p.importo), { x: DX - 4 - c.font.widthOfTextAtSize(euro(p.importo), 7.8), y, size: 7.8, font: c.font, color: c.nero });
         c.stato.pagina.drawLine({ start: { x: SX, y: y - 4 }, end: { x: DX, y: y - 4 }, thickness: 0.4, color: c.grigioChiaro });
         c.stato.y -= 12.5;
@@ -242,15 +248,15 @@ export async function pdfRiepilogo(inc, prot, d) {
     bandaTitolo(c, 'RIEPILOGO DA LETTERE DI INCARICO — FORMAZIONE, SERVIZI, ASSEVERAZIONI');
     c.scrivi('In fattura indicare: "Consulenza professionale per Progetto (TITOLO) - (N° ore) attività di docenza" oppure la voce del servizio reso.', c.font, 8.5, c.nero);
     c.stato.y -= 4;
-    intestaTabella(c, [['Data', SX + 4], ['Tipo', SX + 52], ['Descrizione', SX + 126], ['Q.tà', SX + 322], ['Tariffa', SX + 364], ['Netto', SX + 410], ['Lordo', DX - 40]]);
+    const larg = intestaTabella(c, [['Data', SX + 4], ['Tipo', SX + 52], ['Descrizione', SX + 126], ['Q.tà', SX + 322], ['Tariffa', SX + 364], ['Netto', SX + 410], ['Lordo', DX - 40]]);
     let totAltre = 0;
     for (const p of altre) {
       c.serve(14);
       const y = c.stato.y;
-      const t = (s, x, w, f = c.font) => c.stato.pagina.drawText(testoPdf(String(s ?? '')).slice(0, w), { x, y, size: 7.8, font: f, color: c.nero });
-      t(dataIt(p.data), SX + 4, 12); t(TIPI_PRESTAZIONE[p.tipo] || p.tipo, SX + 52, 16); t(p.descrizione || '', SX + 126, 42);
-      t(`${p.quantita ?? 1} ${p.unita || ''}`, SX + 322, 9); t(p.tariffa_unitaria != null ? euro(p.tariffa_unitaria) : '—', SX + 364, 9);
-      t(euro(p.importo), SX + 410, 10, c.bold);
+      const t = (s, x, f = c.font) => c.stato.pagina.drawText(taglia(f, 7.8, testoPdf(String(s ?? '')), larg[x]), { x, y, size: 7.8, font: f, color: c.nero });
+      t(dataIt(p.data), SX + 4); t(TIPI_PRESTAZIONE[p.tipo] || p.tipo, SX + 52); t(p.descrizione || '', SX + 126);
+      t(`${p.quantita ?? 1} ${p.unita || ''}`, SX + 322); t(p.tariffa_unitaria != null ? euro(p.tariffa_unitaria) : '—', SX + 364);
+      t(euro(p.importo), SX + 410, c.bold);
       c.stato.pagina.drawText(euro(lordoDi(p.importo, d.fisc)), { x: DX - 4 - c.font.widthOfTextAtSize(euro(lordoDi(p.importo, d.fisc)), 7.8), y, size: 7.8, font: c.font, color: c.nero });
       totAltre += Number(p.importo || 0);
       c.stato.pagina.drawLine({ start: { x: SX, y: y - 4 }, end: { x: DX, y: y - 4 }, thickness: 0.4, color: c.grigioChiaro });
@@ -298,25 +304,30 @@ export async function pdfMandato(mandato, fatture) {
   let totale = 0;
   for (const [tecnico, ff] of Object.entries(perTecnico)) {
     bandaTitolo(c, tecnico.toUpperCase());
-    intestaTabella(c, [['Mese di rif.', SX + 4], ['Assegnazione', SX + 78], ['Assegnati', SX + 148], ['Visitati', SX + 200], ['Ricevimento', SX + 246], ['Approvazione', SX + 312], ['N° fattura', SX + 380], ['Importo', DX - 52]]);
+    const larg = intestaTabella(c, [['Mese di rif.', SX + 4], ['Assegnazione', SX + 78], ['Assegnati', SX + 148], ['Visitati', SX + 200], ['Ricevimento', SX + 246], ['Approvazione', SX + 312], ['N° fattura', SX + 380], ['Importo', DX - 52]]);
     let totT = 0;
     for (const f of ff) {
-      c.serve(26);
+      /* La dicitura della fattura va a capo invece di essere tagliata a
+         meta' parola: e' quella che dice all'Amministrazione a che cosa
+         si riferisce l'importo. Oltre tre righe si taglia, coi puntini. */
+      const nota = f.note ? spezza(c.italic, 7, testoPdf(String(f.note)), DX - SX - 8, 3) : [];
+      c.serve(26 + (nota.length ? (nota.length - 1) * 9 : 0));
       const y = c.stato.y;
       const inc = f.incarico;
-      const t = (s, x, w, f2 = c.font) => c.stato.pagina.drawText(testoPdf(String(s ?? '')).slice(0, w), { x, y, size: 7.8, font: f2, color: c.nero });
-      t(inc ? `${MESI[inc.mese - 1]} ${inc.anno}` : '—', SX + 4, 16);
-      t(inc?.data_lettera ? dataIt(inc.data_lettera) : '—', SX + 78, 12);
-      t(inc?.cantieri_assegnati ?? '—', SX + 148, 6);
-      t(f.cantieri_visitati ?? f.cantieri_fatturati ?? '—', SX + 200, 6);
-      t(f.data_ricevimento ? dataIt(f.data_ricevimento) : '—', SX + 246, 12);
-      t(f.approvata_il ? dataIt(f.approvata_il) : '—', SX + 312, 12);
-      t(f.numero || '—', SX + 380, 12, c.bold);
+      const t = (s, x, f2 = c.font) => c.stato.pagina.drawText(taglia(f2, 7.8, testoPdf(String(s ?? '')), larg[x]), { x, y, size: 7.8, font: f2, color: c.nero });
+      t(inc ? `${MESI[inc.mese - 1]} ${inc.anno}` : '—', SX + 4);
+      t(inc?.data_lettera ? dataIt(inc.data_lettera) : '—', SX + 78);
+      t(inc?.cantieri_assegnati ?? '—', SX + 148);
+      t(f.cantieri_visitati ?? f.cantieri_fatturati ?? '—', SX + 200);
+      t(f.data_ricevimento ? dataIt(f.data_ricevimento) : '—', SX + 246);
+      t(f.approvata_il ? dataIt(f.approvata_il) : '—', SX + 312);
+      t(f.numero || '—', SX + 380, c.bold);
       const imp = euro(f.importo);
       c.stato.pagina.drawText(imp, { x: DX - 6 - c.bold.widthOfTextAtSize(imp, 8.2), y, size: 8.2, font: c.bold, color: c.nero });
-      if (f.note) c.stato.pagina.drawText(testoPdf(String(f.note)).slice(0, 110), { x: SX + 4, y: y - 10, size: 7, font: c.italic, color: c.grigio });
-      c.stato.pagina.drawLine({ start: { x: SX, y: y - 15 }, end: { x: DX, y: y - 15 }, thickness: 0.4, color: c.grigioChiaro });
-      c.stato.y -= 24;
+      nota.forEach((riga, i) => c.stato.pagina.drawText(riga, { x: SX + 4, y: y - 10 - i * 9, size: 7, font: c.italic, color: c.grigio }));
+      const yRiga = y - 15 - (nota.length ? (nota.length - 1) * 9 : 0);
+      c.stato.pagina.drawLine({ start: { x: SX, y: yRiga }, end: { x: DX, y: yRiga }, thickness: 0.4, color: c.grigioChiaro });
+      c.stato.y = yRiga - 9;
       totT += Number(f.importo || 0);
     }
     c.serve(14);

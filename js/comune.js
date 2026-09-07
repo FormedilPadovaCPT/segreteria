@@ -28,6 +28,9 @@ const PDF_TRADUZIONI = {
   '→': '->', '←': '<-', '↔': '<->', '⇒': '=>',
   ' ': ' ', '​': '', '️': '', '✓': 'v', '✔': 'v',
   '●': '-', '▪': '-', '◦': '-', '─': '-', '═': '=',
+  /* nelle note dell'ufficio capita l'avviso: meglio un punto esclamativo
+     che un «?», che sembra un dubbio invece di un richiamo */
+  '⚠': '(!)', '❗': '(!)', '⭐': '*',
 };
 const PDF_AMMESSI = new Set('€‚ƒ„…†‡ˆ‰Š‹ŒŽ'
   + '‘’“”•–—˜™š›œžŸ');
@@ -87,6 +90,56 @@ export function esercizioDi(iso) {
 export const euro = (n) => (Number(n) || 0).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 /* Lordo = netto x (1 + cassa) x (1 + IVA): 100 x 1,04 x 1,22 = 126,88 */
+/* ── Testo dentro a una colonna di tabella ──
+   Nelle stampe il testo si taglia sulla LARGHEZZA vera della colonna,
+   misurata col font, non contando i caratteri: «i» e «M» non sono
+   larghe uguali, e un numero fisso di caratteri o lascia mezza colonna
+   vuota o sborda. Contando si spezzavano anche le parole a meta'
+   («13 prime vis», «rivalsa INP» sul mandato n. 1 del 07/09/2026).
+   `font` e' un font di pdf-lib: qui serve solo il suo
+   `widthOfTextAtSize`, cosi' queste due funzioni restano pure e Node
+   le prova senza tirarsi dietro pdf-lib. */
+export function taglia(font, size, testo, larghezza) {
+  const s = String(testo ?? '');
+  if (!s || larghezza <= 0) return '';
+  if (font.widthOfTextAtSize(s, size) <= larghezza) return s;
+  const punti = '...';
+  const utile = larghezza - font.widthOfTextAtSize(punti, size);
+  if (utile <= 0) return '';
+  let t = s;
+  while (t && font.widthOfTextAtSize(t, size) > utile) t = t.slice(0, -1);
+  /* si torna indietro fino allo spazio, per non troncare una parola a
+     meta'; ma solo se non si butta via mezzo contenuto della cella. */
+  const spazio = t.lastIndexOf(' ');
+  if (spazio > 0 && spazio >= t.length * 0.6) t = t.slice(0, spazio);
+  return t.replace(/[\s.,;:-]+$/, '') + punti;
+}
+
+/* Lo stesso testo mandato a capo su piu' righe, per le note che in una
+   riga sola non ci stanno. Oltre `maxRighe` si taglia, con i puntini
+   che dicono che il testo continua. */
+export function spezza(font, size, testo, larghezza, maxRighe = 2) {
+  const parole = String(testo ?? '').split(/\s+/).filter(Boolean);
+  if (!parole.length || larghezza <= 0) return [];
+  const righe = [];
+  let r = '';
+  for (const parola of parole) {
+    const prova = r ? `${r} ${parola}` : parola;
+    if (font.widthOfTextAtSize(prova, size) <= larghezza) { r = prova; continue; }
+    if (r) righe.push(r);
+    /* una parola sola piu' larga della colonna (un link, un codice):
+       si taglia lei, altrimenti sborderebbe */
+    if (font.widthOfTextAtSize(parola, size) > larghezza) { righe.push(taglia(font, size, parola, larghezza)); r = ''; }
+    else r = parola;
+  }
+  if (r) righe.push(r);
+  if (righe.length <= maxRighe) return righe;
+  const tenute = righe.slice(0, maxRighe);
+  const resto = righe.slice(maxRighe - 1).join(' ');
+  tenute[maxRighe - 1] = taglia(font, size, resto, larghezza);
+  return tenute;
+}
+
 export function lordoDi(netto, fisc) {
   const cassa = Number(fisc?.cassa_pct ?? 4) / 100;
   const iva = Number(fisc?.iva_pct ?? 22) / 100;

@@ -983,18 +983,29 @@ async function emettiMandato(sel, btn) {
 
     const { data: m, error } = await sb.from('s_mandati_pagamento').insert({ data: oggiIso(), totale, note: `${sel.length} fatture: ${[...new Set(fatture.map((f) => f.tecnico_nome))].join(', ')}`, creato_da: state.email }).select('*').single();
     if (error) throw new Error(error.message);
-    const { pdfMandato } = await import('./fatture-tecnici-doc.js');
-    const byte = await pdfMandato(m, fatture);
-    const esercizio = esercizioDi(oggiIso());
-    const nomeFile = `${oggiIso().replace(/-/g, '_')}_PAG_Formedil-Padova_mandato-pagamento-tecnici-n${m.id}.pdf`;
-    const base = await risolviCartella(CARTELLA_FATTURE);
-    if (!base.id) throw new Error('Cartella fatture/tecnici non trovata su Drive');
-    const sub = await creaCartella(base.id, `ES_20${esercizio.replace('-', '-20')}`);
-    const { data: su, error: errUp } = await sb.functions.invoke('allegati-protocollo', {
-      body: { action: 'upload', filename: nomeFile, mime_type: 'application/pdf', base64: b64(byte), parent_id: sub.id || base.id },
-    });
-    if (errUp || su?.error) throw new Error('Deposito su Drive non riuscito: ' + (su?.error || errUp.message));
-    await sb.from('s_mandati_pagamento').update({ drive_file_id: su.drive_file_id, drive_url: su.drive_url, mail_at: new Date().toISOString() }).eq('id', m.id);
+    /* Il numero del mandato finisce stampato sul PDF e nell'oggetto della
+       mail, quindi si prende PRIMA di preparare il documento. Se poi il
+       deposito non riesce, la riga si toglie subito: un mandato senza
+       documento non e' un mandato, e il numero non va bruciato. */
+    let byte, su, nomeFile;
+    try {
+      const { pdfMandato } = await import('./fatture-tecnici-doc.js');
+      byte = await pdfMandato(m, fatture);
+      const esercizio = esercizioDi(oggiIso());
+      nomeFile = `${oggiIso().replace(/-/g, '_')}_PAG_Formedil-Padova_mandato-pagamento-tecnici-n${m.id}.pdf`;
+      const base = await risolviCartella(CARTELLA_FATTURE);
+      if (!base.id) throw new Error('Cartella fatture/tecnici non trovata su Drive');
+      const sub = await creaCartella(base.id, `ES_20${esercizio.replace('-', '-20')}`);
+      const { data: caricato, error: errUp } = await sb.functions.invoke('allegati-protocollo', {
+        body: { action: 'upload', filename: nomeFile, mime_type: 'application/pdf', base64: b64(byte), parent_id: sub.id || base.id },
+      });
+      if (errUp || caricato?.error) throw new Error('Deposito su Drive non riuscito: ' + (caricato?.error || errUp.message));
+      su = caricato;
+      await sb.from('s_mandati_pagamento').update({ drive_file_id: su.drive_file_id, drive_url: su.drive_url, mail_at: new Date().toISOString() }).eq('id', m.id);
+    } catch (e) {
+      await sb.from('s_mandati_pagamento').delete().eq('id', m.id);
+      throw e;
+    }
     await sb.from('s_fatture_tecnici').update({ stato: 'mandato', mandato_id: m.id, mandato_data: oggiIso(), aggiornato_da: state.email, updated_at: new Date().toISOString() }).in('id', ids);
     if (incIds.length) await sb.from('s_incarichi_mensili').update({ stato: 'pagato', aggiornato_da: state.email, updated_at: new Date().toISOString() }).in('id', incIds);
 

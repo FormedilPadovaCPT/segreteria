@@ -24,6 +24,7 @@
 //   { action:'dove',     drive_file_id }
 //   { action:'sfoglia',  parent_id? , cerca? }   → naviga le cartelle
 //   { action:'cartella', percorso }               → risolve '2_AREE/Enti/...' in un id
+//   { action:'crea_cartella', parent_id, nome }   → crea o ritrova una sottocartella
 //   { action:'agganci',  codice }                 → i file che portano il protocollo nel nome
 //   { action:'delete',   drive_file_id }          → cestino, non cancella
 //
@@ -246,6 +247,22 @@ serve(async (req) => {
            fallire: meglio partire vicini che ripartire dalla radice. */
         mancante,
       }), { headers: { 'Content-Type': 'application/json', ...CORS } })
+    }
+
+    /* Crea (o ritrova) una sottocartella. IDEMPOTENTE: se c'e' gia' la
+       restituisce, non ne fa nascere una seconda con lo stesso nome —
+       le cartelle di deposito (ES_2026-2027, 2026-09, NN_IMPRESA) le
+       chiede lo stesso flusso a ogni giro. */
+    if (action === 'crea_cartella') {
+      const nome = pulito(String(body.nome || ''))
+      const parent = String(body.parent_id || '').trim()
+      if (!nome) throw new Error('nome della cartella mancante')
+      if (!parent) throw new Error('parent_id mancante')
+      let id = await findFolder(token, nome, parent)
+      const creata = !id
+      if (!id) id = await createFolder(token, nome, parent)
+      return new Response(JSON.stringify({ ok: true, id, nome, creata }),
+        { headers: { 'Content-Type': 'application/json', ...CORS } })
     }
 
     /* I documenti che portano gia' il codice del protocollo nel NOME.
