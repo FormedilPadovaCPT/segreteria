@@ -199,7 +199,8 @@ select jsonb_build_object(
 );
 $$;
 
-revoke all on function public.s_redazione_materia(int) from public;
+-- corretto il 07/09/2026: senza «anon» il grant di default di Supabase resta (vedi 2026_09_07_revoke_anon_redazione_social.sql)
+revoke all on function public.s_redazione_materia(int) from public, anon;
 grant execute on function public.s_redazione_materia(int) to authenticated, service_role;
 
 -- 07/09/2026: i calendari Google letti dalla redazione (eventi pubblici dei prossimi 60 giorni)
