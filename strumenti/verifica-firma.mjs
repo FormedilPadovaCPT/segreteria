@@ -13,6 +13,7 @@
    Esce con errore se un controllo fallisce.
    ============================================================ */
 import { readFileSync, writeFileSync, copyFileSync, existsSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -20,7 +21,12 @@ const qui = dirname(fileURLToPath(import.meta.url));
 const radice = join(qui, '..');
 const sincronizza = process.argv.includes('--sincronizza');
 
-const COPIE = ['firma.js', 'firma-logo.js'].map((f) => ({
+/* ⚠️ firma-logo.js NON è più fra le copie, ed è voluto: nella funzione
+   il logo non è incorporato ma si scarica dal sito e si verifica con lo
+   SHA-256. Il perché sta in supabase/functions/send-protocollo/firma-logo.js
+   — la stringa base64 di 18.688 caratteri si era troncata nel passaggio
+   di distribuzione, e la mail usciva senza logo senza dire niente. */
+const COPIE = ['firma.js'].map((f) => ({
   orig: join(radice, 'js', f),
   copia: join(radice, 'supabase', 'functions', 'send-protocollo', f),
   nome: f,
@@ -40,6 +46,26 @@ for (const c of COPIE) {
 
 const { componiEml, FIRMA_SEGRETERIA, LOGO_FIRMA_CID, paginaHtml, testoInHtml, senzaFirma } = await import('../js/firma.js');
 const { LOGO_FIRMA_B64, LOGO_FIRMA_MIME } = await import('../js/firma-logo.js');
+
+/* Il logo dell'app e quello che la funzione scarica devono essere lo
+   stesso file: qui si controlla che la base64 incorporata decodifichi,
+   che sia img/logo-firma.jpg e che l'impronta scritta nella funzione
+   sia quella giusta. È il controllo che mancava. */
+{
+  const jpg = readFileSync(join(radice, 'img', 'logo-firma.jpg'));
+  const daModulo = Buffer.from(LOGO_FIRMA_B64, 'base64');
+  if (LOGO_FIRMA_B64.length % 4) ko(`js/firma-logo.js: base64 di lunghezza impossibile (${LOGO_FIRMA_B64.length} caratteri) — è troncata`);
+  else if (!daModulo.equals(jpg)) ko('js/firma-logo.js non corrisponde a img/logo-firma.jpg — rigenerare con: base64 -w0 img/logo-firma.jpg');
+  else ok(`logo incorporato = img/logo-firma.jpg (${jpg.length} byte)`);
+
+  const attesa = createHash('sha256').update(jpg).digest('hex');
+  const sorgenteFunzione = readFileSync(join(radice, 'supabase', 'functions', 'send-protocollo', 'firma-logo.js'), 'utf8');
+  if (!sorgenteFunzione.includes(attesa)) ko(`send-protocollo/firma-logo.js: LOGO_SHA256 non è l'impronta di img/logo-firma.jpg (${attesa})`);
+  else ok('send-protocollo/firma-logo.js: impronta del logo aggiornata');
+  const lunga = sorgenteFunzione.match(/['"`][A-Za-z0-9+/=]{500,}['"`]/);
+  if (lunga) ko('send-protocollo/firma-logo.js contiene di nuovo una stringa lunga: non deve, si tronca al deploy');
+  else ok('send-protocollo/firma-logo.js: nessuna stringa lunga da ricopiare al deploy');
+}
 
 const corpo = `Gent.le Sig. Rossi,
 buongiorno,

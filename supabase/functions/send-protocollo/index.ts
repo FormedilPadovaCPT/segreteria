@@ -28,14 +28,20 @@
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
-// ⚠️ firma.js e firma-logo.js sono COPIE di js/firma.js e js/firma-logo.js
-// della webapp (Deno non legge fuori dalla cartella della funzione al
-// deploy). Non si modificano qui: `npm run firma-sync` le rigenera, e
-// strumenti/verifica-firma.mjs fallisce se divergono. Da qui arrivano la
-// firma HTML col logo (cid:) e la composizione MIME: una firma sola per
-// le bozze dell'app e per le mail del protocollo.
+// ⚠️ firma.js e' una COPIA di js/firma.js della webapp (Deno non legge
+// fuori dalla cartella della funzione al deploy). Non si modifica qui:
+// `npm run firma-sync` la rigenera, e strumenti/verifica-firma.mjs
+// fallisce se divergono. Da qui arrivano la firma HTML col logo (cid:)
+// e la composizione MIME: una firma sola per le bozze dell'app e per le
+// mail del protocollo.
+// ⚠️ firma-logo.js invece NON e' una copia: qui il logo non e'
+// incorporato ma si scarica dal sito e si verifica con lo SHA-256.
+// Il perche' e' scritto in quel file: la stringa base64 del logo si e'
+// gia' troncata una volta nel passaggio di distribuzione.
 // @ts-ignore modulo JS condiviso con la webapp, senza tipi
 import { componiEml, firmaHtml } from './firma.js'
+// @ts-ignore modulo JS condiviso con la webapp, senza tipi
+import { caricaLogo } from './firma-logo.js'
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -179,9 +185,17 @@ serve(async (req) => {
       ? `FORMEDIL PADOVA -AREA SICUREZZA E SALUTE- Notifica avvenuta registrazione protocollo - Prot. ${cod} del ${dataIt(p.data_prot)}`
       : `FORMEDIL PADOVA -AREA SICUREZZA E SALUTE- Prot. ${cod} del ${dataIt(p.data_prot)} - ${p.oggetto || ''}`)
 
-    const html = quale === 'avviso'
+    /* Il logo arriva dal sito e si controlla con lo SHA-256 (vedi
+       firma-logo.js): se non e' quello giusto si toglie l'immagine
+       dalla firma, invece di allegare un'immagine rotta. */
+    const logo = await caricaLogo()
+    let html = quale === 'avviso'
       ? htmlAvviso(p, messaggio || '')
       : htmlInoltra(p, messaggio || '', allegatoNome)
+    if (!logo.ok) {
+      console.error('send-protocollo: logo non caricato —', logo.motivo)
+      html = html.replace(/<img[^>]*cid:logo-formedil-padova@segreteria[^>]*>/g, '')
+    }
 
     const da = bozza ? MITTENTE_UFFICIALE : MITTENTE
     /* Lo stesso compositore delle bozze dell'app: testo + HTML con logo
@@ -205,6 +219,7 @@ serve(async (req) => {
       const nomeFile = `Prot_${cod}_${quale}.eml`.replace(/[\\/:*?"<>|]/g, '-')
       return new Response(JSON.stringify({
         ok: true, bozza: true, eml: utf8ToBase64(mime), nomeFile,
+        logo: logo.ok ? undefined : `senza logo: ${logo.motivo}`,
         da, a: toList.join(', '), oggetto: soggetto,
       }), { headers: { 'Content-Type': 'application/json', ...CORS } })
     }
