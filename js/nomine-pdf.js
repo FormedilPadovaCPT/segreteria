@@ -15,7 +15,7 @@
 
 import { ENTE, COLORI } from './config.js';
 import { pdfLib } from './cdn.js';
-import { dataIt, oggiIso } from './comune.js';
+import { dataIt, oggiIso, taglia } from './comune.js';
 
 const A4 = [595.28, 841.89];
 const SX = 57, DX = 538;
@@ -149,21 +149,21 @@ export async function elencoNomine(ruolo, righe) {
       if (y < 90) break;
       pagina.drawLine({ start: { x: SX, y: y + 4 }, end: { x: DX, y: y + 4 }, thickness: .4, color: grigio });
       pagina.drawText(r.data_reg ? dataIt(r.data_reg) : '', { x: SX, y: y - 8, size: 8.5, font, color: nero });
-      pagina.drawText(r.nominativo.slice(0, 30), { x: SX + 65, y: y - 8, size: 9, font: bold, color: nero });
+      pagina.drawText(taglia(bold, 9, r.nominativo, 250 - (SX + 65) - 4), { x: SX + 65, y: y - 8, size: 9, font: bold, color: nero });
       if (r.cf) pagina.drawText(r.cf, { x: SX + 65, y: y - 19, size: 7.5, font, color: grigio });
       /* inizio (verde) e fine (rosa) come nel report Access */
       pagina.drawRectangle({ x: 250, y: y - 14, width: 95, height: 13, color: verde });
       pagina.drawText(r.data_inizio ? dataIt(r.data_inizio) : '—', { x: 255, y: y - 11, size: 8.5, font, color: nero });
       pagina.drawRectangle({ x: 250, y: y - 30, width: 95, height: 13, color: rosa });
       pagina.drawText(r.data_fine ? dataIt(r.data_fine) : '', { x: 255, y: y - 27, size: 8.5, font, color: nero });
-      if (r.ente) pagina.drawText(r.ente.slice(0, 22), { x: 360, y: y - 8, size: 8, font, color: nero });
-      if (r.mansione) pagina.drawText(r.mansione.slice(0, 24), { x: 360, y: y - 20, size: 8.5, font: italic, color: nero });
+      if (r.ente) pagina.drawText(taglia(font, 8, r.ente, 455 - 360 - 4), { x: 360, y: y - 8, size: 8, font, color: nero });
+      if (r.mansione) pagina.drawText(taglia(italic, 8.5, r.mansione, 455 - 360 - 4), { x: 360, y: y - 20, size: 8.5, font: italic, color: nero });
       let yC = y - 8;
       for (const c of [r.email, r.cellulare, r.telefono].filter(Boolean).slice(0, 3)) {
-        pagina.drawText(String(c).slice(0, 32), { x: 455, y: yC, size: 7.5, font, color: nero });
+        pagina.drawText(taglia(font, 7.5, String(c), DX - 455), { x: 455, y: yC, size: 7.5, font, color: nero });
         yC -= 10;
       }
-      if (r.note) pagina.drawText(('Note: ' + r.note).slice(0, 110), { x: SX + 65, y: y - 42, size: 7, font: italic, color: grigio });
+      if (r.note) pagina.drawText(taglia(italic, 7, 'Note: ' + r.note, DX - (SX + 65)), { x: SX + 65, y: y - 42, size: 7, font: italic, color: grigio });
       y -= H;
     }
     piede(pagina, m, pg + 1, pagine);

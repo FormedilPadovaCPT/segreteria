@@ -29,7 +29,7 @@
 
 import { ENTE, COLORI } from './config.js';
 import { pdfLib } from './cdn.js';
-import { dataIt, siglaProtocollo, testoPdf, oggiIso } from './comune.js';
+import { dataIt, siglaProtocollo, spezza, taglia, testoPdf, oggiIso } from './comune.js';
 
 const A4 = [595.28, 841.89];
 const SX = 57;
@@ -245,7 +245,8 @@ export async function pdfAutorizzazioneCampi(campi, nomeTecnico, visto, firmaByt
   c.stato.pagina.drawText(`Padova, ${visto.data_ora}`, { x: SX + 12, y: y0 + h - 53, size: 9.5, font: c.font, color: c.nero });
   c.stato.pagina.drawText(`Approvazione registrata dall'app Segreteria — utente: ${visto.utente}`,
     { x: SX + 12, y: y0 + h - 68, size: 8, font: c.font, color: c.grigio });
-  if (visto.note) c.stato.pagina.drawText(`Note: ${String(visto.note).slice(0, 90)}`, { x: SX + 12, y: y0 + h - 82, size: 8, font: c.font, color: c.grigio });
+  /* la firma del Direttore sta a destra: la nota si ferma prima di finirci sotto */
+    if (visto.note) c.stato.pagina.drawText(taglia(c.font, 8, `Note: ${visto.note}`, DX - 140 - (SX + 12)), { x: SX + 12, y: y0 + h - 82, size: 8, font: c.font, color: c.grigio });
   if (firmaByte) {
     try {
       let img;
@@ -342,7 +343,10 @@ export async function pdfRiscontro(p, prot, tipo) {
   c.stato.pagina.drawText(`Prot. n°: ${siglaProtocollo(prot)}`, { x: SX, y: c.stato.y, size: 9.5, font: c.bold, color: c.nero });
   if (p.notificante) {
     const t = `Alla c.a. ${p.notificante}`;
-    c.stato.pagina.drawText(t.slice(0, 55), { x: 300, y: c.stato.y, size: 9.5, font: c.italic, color: c.nero });
+    /* il destinatario va a capo invece di essere tagliato: e' a lui che
+       il riscontro viene spedito */
+    spezza(c.italic, 9.5, testoPdf(t), DX - 300, 2)
+      .forEach((riga, i) => c.stato.pagina.drawText(riga, { x: 300, y: c.stato.y - i * 11, size: 9.5, font: c.italic, color: c.nero }));
   }
   c.stato.y -= 24;
 

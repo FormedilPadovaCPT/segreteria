@@ -19,7 +19,7 @@
    ============================================================ */
 
 import { apriCarta } from './segnalazioni-doc.js';
-import { dataIt } from './comune.js';
+import { dataIt, taglia } from './comune.js';
 
 const SX = 57;
 const DX = 538;
@@ -119,9 +119,9 @@ export async function pdfFoglioPresenze({ dipendente, anno, mese, presenze, extr
         if (p.note) {
           const nota = String(p.note);
           if (assenza(nota)) {
-            c.stato.pagina.drawText(nota.slice(0, 30), { x: B[6] + 6, y: c.stato.y, size: 8, font: c.bold, color: c.arancio });
+            c.stato.pagina.drawText(taglia(c.bold, 8, nota, DX - B[6] - 10), { x: B[6] + 6, y: c.stato.y, size: 8, font: c.bold, color: c.arancio });
           } else {
-            c.stato.pagina.drawText(nota.slice(0, 34), { x: B[6] + 6, y: c.stato.y, size: 7.4, font: c.italic, color: c.grigio });
+            c.stato.pagina.drawText(taglia(c.italic, 7.4, nota, DX - B[6] - 10), { x: B[6] + 6, y: c.stato.y, size: 7.4, font: c.italic, color: c.grigio });
           }
         }
         if (i === 0 && (p.tot_min || 0) > 0) giorniLavorati += 1;
@@ -169,7 +169,7 @@ export async function pdfFoglioPresenze({ dipendente, anno, mese, presenze, extr
           font: e.chiuso ? c.italic : c.bold, color: e.chiuso ? c.grigio : c.arancio });
         const flag = [e.pagato ? 'pagata' : null, e.recuperato ? `recuperata${e.recuperato_il ? ' il ' + dataIt(e.recuperato_il) : ''}` : null].filter(Boolean).join(', ');
         if (flag) c.stato.pagina.drawText(flag, { x: SX + 158, y: c.stato.y, size: 7.4, font: c.italic, color: c.grigio });
-        if (e.note) c.stato.pagina.drawText(String(e.note).slice(0, 52), { x: SX + 244, y: c.stato.y, size: 7.6, font: c.font, color: c.nero });
+        if (e.note) c.stato.pagina.drawText(taglia(c.font, 7.6, String(e.note), DX - (SX + 244) - 4), { x: SX + 244, y: c.stato.y, size: 7.6, font: c.font, color: c.nero });
         c.stato.pagina.drawLine({ start: { x: SX, y: c.stato.y - 4 }, end: { x: DX, y: c.stato.y - 4 }, thickness: 0.4, color: c.grigioChiaro });
         c.stato.y -= 13.5;
       }
@@ -249,7 +249,8 @@ export async function pdfRichiestaFerie(r, visto, firmaByte) {
     c.stato.pagina.drawText(`Padova, ${visto.data_ora}`, { x: SX + 12, y: y0 + h - 53, size: 9.5, font: c.font, color: c.nero });
     c.stato.pagina.drawText(`Approvazione registrata dall'app Segreteria — utente: ${visto.utente}`,
       { x: SX + 12, y: y0 + h - 67, size: 8, font: c.font, color: c.grigio });
-    if (visto.note) c.stato.pagina.drawText(`Note: ${String(visto.note).slice(0, 90)}`, { x: SX + 12, y: y0 + h - 80, size: 8, font: c.font, color: c.grigio });
+    /* la firma del Direttore sta a destra: la nota si ferma prima di finirci sotto */
+    if (visto.note) c.stato.pagina.drawText(taglia(c.font, 8, `Note: ${visto.note}`, DX - 140 - (SX + 12)), { x: SX + 12, y: y0 + h - 80, size: 8, font: c.font, color: c.grigio });
     if (firmaByte) {
       try {
         let img;

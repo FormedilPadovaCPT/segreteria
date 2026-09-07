@@ -23,7 +23,7 @@
    ============================================================ */
 
 import { apriCarta } from './segnalazioni-doc.js';
-import { dataIt, testoPdf } from './comune.js';
+import { dataIt, taglia, testoPdf } from './comune.js';
 import { qrGen } from './cdn.js';
 
 /* QR a vettore, come il timbro (nitido in stampa, niente bitmap) */
@@ -360,10 +360,10 @@ export async function pdfRegistro(corso, giornate, interventi, iscritti, conf) {
         c.stato.pagina.drawRectangle({ x, y: y0 - 26, width: w, height: 26, borderWidth: 0.6, borderColor: c.grigio });
         if (i === 0) c.stato.pagina.drawText(vals[0], { x: x + 3, y: y0 - 16, size: 8, font: c.font, color: c.nero });
         if (i === 1) {
-          c.stato.pagina.drawText(testoPdf(p.nominativo).slice(0, 38), { x: x + 3, y: y0 - 11, size: 8, font: c.bold, color: c.nero });
+          c.stato.pagina.drawText(taglia(c.bold, 8, testoPdf(p.nominativo), w - 6), { x: x + 3, y: y0 - 11, size: 8, font: c.bold, color: c.nero });
           if (p.cf) c.stato.pagina.drawText(testoPdf(p.cf), { x: x + 3, y: y0 - 21, size: 7, font: c.font, color: c.grigio });
         }
-        if (i === 2) c.stato.pagina.drawText(testoPdf(p.impresa_txt || '').slice(0, 30), { x: x + 3, y: y0 - 16, size: 7.5, font: c.font, color: c.nero });
+        if (i === 2) c.stato.pagina.drawText(taglia(c.font, 7.5, testoPdf(p.impresa_txt || ''), w - 6), { x: x + 3, y: y0 - 16, size: 7.5, font: c.font, color: c.nero });
         x += w;
       });
       c.stato.y -= 26;

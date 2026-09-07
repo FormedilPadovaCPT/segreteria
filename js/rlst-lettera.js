@@ -18,7 +18,7 @@
 
 import { ENTE, COLORI } from './config.js';
 import { pdfLib } from './cdn.js';
-import { dataIt, siglaProtocollo, testoPdf } from './comune.js';
+import { dataIt, siglaProtocollo, spezza, testoPdf } from './comune.js';
 
 /* ── testi ────────────────────────────────────────────────── */
 
@@ -179,8 +179,12 @@ export async function generaLetteraPdf(p, protocollo, paragrafi, oggettoRiga) {
   let yDest = y;
   for (const [testo, f, dim] of destinatario) {
     if (!testo) continue;
-    pagina.drawText(String(testo).slice(0, 60), { x: 300, y: yDest, size: dim, font: f, color: nero });
-    yDest -= dim + 3.5;
+    /* il destinatario va a capo, non si taglia: la lettera esce
+       dall'ufficio e il nome dell'impresa ci deve stare tutto */
+    for (const riga of spezza(f, dim, String(testo), DX - 300, 3)) {
+      pagina.drawText(riga, { x: 300, y: yDest, size: dim, font: f, color: nero });
+      yDest -= dim + 3.5;
+    }
   }
   y -= 14;
   const rigaSx = (t) => { pagina.drawText(t, { x: SX, y, size: 8.5, font, color: grigio }); y -= 12; };
