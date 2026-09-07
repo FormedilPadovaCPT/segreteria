@@ -201,3 +201,8 @@ $$;
 
 revoke all on function public.s_redazione_materia(int) from public;
 grant execute on function public.s_redazione_materia(int) to authenticated, service_role;
+
+-- 07/09/2026: i calendari Google letti dalla redazione (eventi pubblici dei prossimi 60 giorni)
+insert into public.s_config (chiave, valore, descrizione) values
+  ('redazione_calendari', 'c_ec5b2c076b35c3d0a8f2ca66fb6ba8fc1b502c9fed4dce653807edb93e26adf0@group.calendar.google.com, c_vv6fllsnnvgb9s7tgpttn9bjt8@group.calendar.google.com', 'Calendari Google letti dalla redazione social (id separati da virgola): eventi pubblici dei prossimi 60 giorni. Oggi «Convegni» e «Calendario corsi e attività - Scuola Edile CPT». L''agenda della segreteria resta fuori.')
+on conflict (chiave) do nothing;

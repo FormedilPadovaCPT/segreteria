@@ -67,6 +67,14 @@ Pubblicare è un atto della persona, come il timbro:
 Finché i due secret non sono impostati, i bottoni rispondono con un errore
 chiaro e si pubblica a mano, segnando poi il post come uscito.
 
+**Eventi dal calendario (07/09/2026).** La materia prima porta anche
+`eventi_calendario`: gli eventi dei prossimi 60 giorni dei calendari Google
+elencati in `s_config.redazione_calendari` (oggi «Convegni» e «Calendario
+corsi e attività»), letti dal service account dell'ente con la delega
+`calendar.readonly` aggiunta nella console Google Workspace. La routine non
+tocca Google: riceve titolo, date, luogo e le prime righe della descrizione.
+L'agenda della segreteria non è in elenco, di proposito.
+
 Regole fisse (stanno nel prompt della routine e nella pagina): mai nomi di
 imprese, cantieri, persone; solo aggregati col perimetro dichiarato; ogni
 affermazione normativa cita la norma; i contenuti tecnici li valida il

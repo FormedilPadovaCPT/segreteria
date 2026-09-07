@@ -35,6 +35,51 @@
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
+import { getToken } from '../_shared/google.ts'
+
+// Gli eventi pubblici dell'ufficio arrivano dai calendari Google elencati in
+// s_config.redazione_calendari (id separati da virgola), letti con il service
+// account dell'ente (delega domain-wide, scope calendar.readonly, aggiunta il
+// 07/09/2026). La routine NON tocca Google: riceve titolo, date, luogo e le
+// prime righe della descrizione. L'agenda interna della segreteria non è in
+// elenco, di proposito.
+const SCOPE_CALENDAR = 'https://www.googleapis.com/auth/calendar.readonly'
+
+async function eventiCalendario(admin: ReturnType<typeof createClient>, giorni = 60) {
+  const { data: cfg } = await admin.from('s_config').select('valore').eq('chiave', 'redazione_calendari').maybeSingle()
+  const ids = String(cfg?.valore || '').split(',').map((s: string) => s.trim()).filter(Boolean)
+  if (!ids.length) return { eventi: [], nota: 'nessun calendario configurato in s_config.redazione_calendari' }
+  const saRaw = Deno.env.get('GOOGLE_SERVICE_ACCOUNT_JSON')
+  if (!saRaw) return { eventi: [], nota: 'secret GOOGLE_SERVICE_ACCOUNT_JSON assente' }
+  let token: string
+  try { token = await getToken(JSON.parse(saRaw), SCOPE_CALENDAR) }
+  catch (e) { return { eventi: [], nota: 'token calendario non ottenuto: ' + String(e?.message || e) } }
+  const tMin = new Date().toISOString()
+  const tMax = new Date(Date.now() + giorni * 864e5).toISOString()
+  const eventi: Record<string, unknown>[] = []
+  const calendari: string[] = []
+  const errori: string[] = []
+  for (const id of ids) {
+    const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(id)}/events?singleEvents=true&orderBy=startTime&timeMin=${tMin}&timeMax=${tMax}&maxResults=40`
+    const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+    const d = await r.json().catch(() => ({}))
+    if (!r.ok || d.error) { errori.push(`${id}: ${d.error?.message || r.status}`); continue }
+    calendari.push(d.summary || id)
+    for (const e of d.items || []) {
+      if (e.status === 'cancelled') continue
+      eventi.push({
+        calendario: d.summary || id,
+        titolo: e.summary || '(senza titolo)',
+        inizio: e.start?.date || e.start?.dateTime || null,
+        fine: e.end?.date || e.end?.dateTime || null,
+        tutto_il_giorno: !!e.start?.date,
+        luogo: e.location || null,
+        descrizione: e.description ? String(e.description).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300) : null,
+      })
+    }
+  }
+  return { finestra_giorni: giorni, calendari, eventi, errori }
+}
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -74,7 +119,9 @@ serve(async (req) => {
         const mesi = Math.min(24, Math.max(3, Number(body.mesi) || 12))
         const { data, error } = await admin.rpc('s_redazione_materia', { p_mesi: mesi })
         if (error) return json({ error: error.message }, 500)
-        return json({ ok: true, materia: data })
+        const materia = (data && typeof data === 'object') ? { ...(data as Record<string, unknown>) } : { dati: data }
+        materia.eventi_calendario = await eventiCalendario(admin)
+        return json({ ok: true, materia })
       }
 
       /* op === 'bozze' — solo inserimenti, mai aggiornamenti */
