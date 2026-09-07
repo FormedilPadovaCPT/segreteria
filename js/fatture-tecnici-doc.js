@@ -107,8 +107,12 @@ function firmaSegreteria(c, prot) {
 export async function pdfLetteraIncarico(inc, prot, d) {
   const c = await apriCarta();
   testataTecnico(c, prot, d.tecnico, inc.area_zona, inc.data_lettera);
-  c.scrivi(`Oggetto: Comunicazione visite in cantiere — mese di ${MESI[inc.mese - 1]} ${inc.anno}.`, c.bold, 10.5, c.nero);
+  c.scrivi(`Oggetto: ${d.integrazione ? 'Integrazione alla c' : 'C'}omunicazione visite in cantiere — mese di ${MESI[inc.mese - 1]} ${inc.anno}.`, c.bold, 10.5, c.nero);
   c.stato.y -= 6;
+  if (d.integrazione) {
+    c.scrivi('La presente integra la comunicazione già trasmessa con lo stesso numero di protocollo: nella prima stesura gli elenchi dei cantieri con ritorno previsto e delle attività in sospeso non erano stati riportati per un errore dell\'applicazione. Restano invariati i cantieri assegnati e i comuni di competenza.', c.italic, 8.5, c.grigio);
+    c.stato.y -= 6;
+  }
 
   c.campo('Cantieri assegnati', String(inc.cantieri_assegnati ?? 0));
   if (inc.seconde_visite) c.campo('Seconde visite', String(inc.seconde_visite));
@@ -154,6 +158,23 @@ export async function pdfLetteraIncarico(inc, prot, d) {
     }
   } else {
     c.scrivi('Nessuna richiesta in attesa.', c.italic, 9, c.grigio);
+  }
+  c.stato.y -= 6;
+
+  /* altri incarichi in sospeso: docenze, conferenze, asseverazioni */
+  if (d.sospesi?.length) {
+    bandaTitolo(c, `ALTRI INCARICHI IN SOSPESO \u2014 DOCENZE, CONFERENZE, ASSEVERAZIONI (${d.sospesi.length})`);
+    const larg = intestaTabella(c, [['Attività', SX + 4], ['Riferimento', SX + 110], ['Oggetto', SX + 200], ['Data', SX + 400], ['Note', SX + 460]]);
+    for (const r of d.sospesi) {
+      c.serve(14);
+      const y = c.stato.y;
+      const t = (s, x, f = c.font) => c.stato.pagina.drawText(taglia(f, 7.8, testoPdf(String(s ?? '')), larg[x]), { x, y, size: 7.8, font: f, color: c.nero });
+      t(r.cosa || '', SX + 4, c.bold); t(r.rif || '', SX + 110); t(r.titolo || '', SX + 200);
+      t(r.data ? dataIt(r.data) : '\u2014', SX + 400); t(r.dettaglio || '', SX + 460);
+      c.stato.pagina.drawLine({ start: { x: SX, y: y - 4 }, end: { x: DX, y: y - 4 }, thickness: 0.4, color: c.grigioChiaro });
+      c.stato.y -= 12.5;
+    }
+    c.stato.y -= 2;
   }
   c.stato.y -= 8;
 

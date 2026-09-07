@@ -256,11 +256,12 @@ function formIncarico(t, i) {
       <button class="btn btn-primary" id="fi-salva">💾 Salva</button>
       <div style="display:flex;gap:6px;flex-wrap:wrap">
         <button class="btn btn-ghost" id="fi-pdf" ${i ? '' : 'disabled'}>📄 Anteprima PDF</button>
-        <button class="btn btn-primary" id="fi-invia" ${i ? '' : 'disabled'}>📤 Protocolla, deposita e prepara la mail</button>
+        <button class="btn btn-primary" id="fi-invia" ${i ? '' : 'disabled'}>📤 ${i?.lettera_protocollo_id ? 'Prepara integrazione (stesso protocollo)' : 'Protocolla, deposita e prepara la mail'}</button>
       </div>
     </div>
-    <p class="hint" style="margin-top:8px">La lettera porta comuni, cantieri con ritorno previsto (dallo scadenzario del gestionale),
-      richieste in attesa (incarichi aperti del tecnico) e il testo standard di s_config. Salva prima, poi protocolla.
+    <p class="hint" style="margin-top:8px">La lettera porta comuni, cantieri con ritorno previsto (stessa regola dello scadenzario del gestionale:
+      n° accesso + IPC, con la data del tecnico se c'è), richieste in attesa (incarichi aperti del tecnico, anche quelli storici senza email),
+      altri incarichi in sospeso (docenze, conferenze, asseverazioni) e il testo standard di s_config. Salva prima, poi protocolla.
       ${i?.lettera_protocollo_id ? `<br><strong>Già protocollata</strong>${i.lettera_drive_url ? ` · <a href="${esc(i.lettera_drive_url)}" target="_blank" rel="noopener">documento su Drive</a>` : ''}${i.lettera_mail_at ? ` · bozza mail del ${dataIt(i.lettera_mail_at.slice(0, 10))}` : ''}` : ''}</p>`);
 
   if (!i) comuniDi(t).then((cc) => { const el = $('#fi-comuni'); if (el && !el.value) el.value = cc.join(', '); });
@@ -335,13 +336,57 @@ async function tutteLeVisite() {
   return out;
 }
 
+/* Attivita' affidate al tecnico e non ancora concluse, oltre alle richieste di visita:
+   docenze e conferenze su corsi aperti, pratiche di asseverazione in corso.
+   Il legame e' per NOME ("Cognome Titolo Nome"), la forma con cui le due tabelle
+   registrano il tecnico. */
+async function sospesiDelTecnico(t) {
+  const cognome = (t.tecnico_cognome || '').trim().toLowerCase();
+  if (!cognome) return [];
+  const oggi = oggiIso();
+  const fuori = ['asseverata', 'diniego', 'archiviata'];
+  const [corsi, prat] = await Promise.all([
+    sb.from('s_corsi').select('id, titolo, tipo, stato, data_inizio, data_fine').or(`stato.neq.chiuso,data_fine.gte.${oggi}`),
+    sb.from('a_pratica').select('id, numero_protocollo, tipo, stato, impresa_id, data_incarico, tecnico_principale, tecnico_verificatore2, prossimo_asseveratore')
+      .not('stato', 'in', `(${fuori.join(',')})`),
+  ]).catch((e) => { console.error('sospesiDelTecnico', e); return [{ data: [] }, { data: [] }]; });
+
+  const out = [];
+  const idCorsi = (corsi?.data || []).map((c) => c.id);
+  if (idCorsi.length) {
+    const { data: inc } = await sb.from('s_corsi_incarichi').select('id, corso_id, nominativo, ore, corrispettivo, data_incarico').in('corso_id', idCorsi);
+    const perId = Object.fromEntries((corsi.data || []).map((c) => [c.id, c]));
+    for (const r of inc || []) {
+      if (!(r.nominativo || '').toLowerCase().includes(cognome)) continue;
+      const c = perId[r.corso_id] || {};
+      out.push({ cosa: c.tipo === 'conferenza' ? 'Conferenza di cantiere' : 'Docenza',
+        rif: `corso ${r.corso_id}`, titolo: c.titolo || '', data: c.data_inizio || r.data_incarico,
+        dettaglio: [r.ore ? `${r.ore} h` : '', c.data_fine && c.data_fine !== c.data_inizio ? `fino al ${c.data_fine}` : ''].filter(Boolean).join(' · ') });
+    }
+  }
+  const imprese = {};
+  const idImp = [...new Set((prat?.data || []).map((p) => p.impresa_id).filter(Boolean))];
+  if (idImp.length) {
+    const { data: ii } = await sb.from('imprese').select('impresa_id, impresa_nome').in('impresa_id', idImp);
+    (ii || []).forEach((i) => { imprese[i.impresa_id] = i.impresa_nome; });
+  }
+  for (const p of prat?.data || []) {
+    const chi = [p.tecnico_principale, p.tecnico_verificatore2, p.prossimo_asseveratore].filter(Boolean).join(' | ').toLowerCase();
+    if (!chi.includes(cognome)) continue;
+    out.push({ cosa: 'Asseverazione', rif: p.numero_protocollo || `pratica ${p.id}`,
+      titolo: imprese[p.impresa_id] || p.impresa_id || '', data: p.data_incarico, dettaglio: `stato: ${p.stato}` });
+  }
+  return out.sort((a, b) => String(a.data || '').localeCompare(String(b.data || '')));
+}
+
 /* cantieri con ritorno previsto e richieste in attesa, dal gestionale */
 async function datiLettera(t, inc) {
   const cognome = (t.tecnico_cognome || '').trim().toLowerCase();
-  const [vs, { data: rqAll }] = await Promise.all([
+  const [vs, { data: rqAll }, sospesi] = await Promise.all([
     tutteLeVisite(),
     sb.from('incarichi').select('id, data_richiesta, tipologia_richiesta, tipo_richiesta, impresa, comune, tecnico_email, tecnico_nome')
       .eq('stato', 'aperto').order('data_richiesta'),
+    sospesiDelTecnico(t),
   ]);
   /* lo storico importato da Access ha solo tecnico_nome ("De Marco Arch. Nicola"),
      senza email: filtrando sulla sola email le richieste sparivano */
@@ -389,40 +434,52 @@ async function datiLettera(t, inc) {
     .sort((a, b) => String(a.ritorno).localeCompare(String(b.ritorno)));
   return {
     tecnico: nomeTec(t), comuni: inc.comuni?.length ? inc.comuni : await comuniDi(t),
-    ncAperte, richieste: rq, testo: conf.incarico_visite_testo || '', coordinatore: conf.coordinatore_nome || '',
+    ncAperte, richieste: rq, sospesi, testo: conf.incarico_visite_testo || '', coordinatore: conf.coordinatore_nome || '',
   };
 }
 
 async function inviaLettera(t, inc, btn) {
   if (!inc.id) return toast('Salva prima l\'incarico.', 'err');
-  if (inc.lettera_protocollo_id && !confirm('La lettera è già protocollata. Ne preparo un\'altra con un nuovo numero?')) return;
-  attendi(btn, true, 'Protocollo e preparo…');
+  const integrazione = !!inc.lettera_protocollo_id;
+  if (integrazione && !confirm('La lettera è già protocollata.\n\nPreparo un\'INTEGRAZIONE con lo stesso numero di protocollo?\n(il numero non si consuma due volte per lo stesso documento)')) return;
+  attendi(btn, true, integrazione ? 'Preparo l\'integrazione…' : 'Protocollo e preparo…');
   try {
     const d = await datiLettera(t, inc);
-    const oggetto = `Comunicazione visite in cantiere — mese di ${MESI[inc.mese - 1]} ${inc.anno}`;
+    const oggetto = `${integrazione ? 'Integrazione alla c' : 'C'}omunicazione visite in cantiere — mese di ${MESI[inc.mese - 1]} ${inc.anno}`;
     const percorso = `${CARTELLA_INCARICHI}/${inc.anno}-${String(inc.mese).padStart(2, '0')}`;
-    const { data: prot, error: errP } = await sb.rpc('s_crea_protocollo', { p: {
+    /* l'integrazione viaggia sotto il protocollo gia' assegnato: si rilegge, non si ricrea */
+    const { data: prot, error: errP } = integrazione
+      ? await sb.from('s_protocollo').select('*').eq('id', inc.lettera_protocollo_id).single()
+      : await sb.rpc('s_crea_protocollo', { p: {
       direzione: 'OUT', data_prot: oggiIso(), data_doc: inc.data_lettera || oggiIso(),
       persona: nomeTec(t), oggetto,
       note: `Cantieri assegnati: ${inc.cantieri_assegnati ?? 0}${inc.seconde_visite ? `, seconde visite: ${inc.seconde_visite}` : ''}${inc.altro ? `, altro: ${inc.altro}` : ''}. Comuni: ${(d.comuni || []).join(', ')}.${inc.note ? `\n${inc.note}` : ''}`,
-      sintesi: `Incarico mensile n° ${inc.id} a ${nomeTec(t)}: ${d.ncAperte.length} cantieri con ritorno previsto, ${d.richieste.length} richieste in attesa.`,
+      sintesi: `Incarico mensile n° ${inc.id} a ${nomeTec(t)}: ${d.ncAperte.length} cantieri con ritorno previsto, ${d.richieste.length} richieste in attesa, ${d.sospesi.length} altri incarichi in sospeso.`,
       ufficio: 'Segreteria Area Sicurezza e Salute', mezzo: 'e-mail',
       tipo_doc_id: TIPO_DOC_LETTERA, tipo_doc_txt: 'Comunicazione visite mensili al tecnico', cartella: percorso,
     } });
-    if (errP) throw new Error('Protocollazione non riuscita: ' + errP.message);
+    if (errP) throw new Error((integrazione ? 'Protocollo di origine non leggibile: ' : 'Protocollazione non riuscita: ') + errP.message);
 
     const { pdfLetteraIncarico } = await import('./fatture-tecnici-doc.js');
-    const byte = await pdfLetteraIncarico(inc, prot, d);
-    const nomeFile = `${(inc.data_lettera || oggiIso()).replace(/-/g, '_')}_COMU_${fileTec(t)}_visite-cantiere-${MESI[inc.mese - 1]}-${inc.anno}.pdf`;
+    const byte = await pdfLetteraIncarico(inc, prot, { ...d, integrazione });
+    const nomeFile = `${(integrazione ? oggiIso() : (inc.data_lettera || oggiIso())).replace(/-/g, '_')}_COMU_${fileTec(t)}_visite-cantiere-${MESI[inc.mese - 1]}-${inc.anno}${integrazione ? '_integrazione' : ''}.pdf`;
     const base = await risolviCartella(CARTELLA_INCARICHI);
     if (!base.id) throw new Error('Cartella incarichi_visite non trovata su Drive');
     const sub = await creaCartella(base.id, `${inc.anno}-${String(inc.mese).padStart(2, '0')}`);
     const su = await caricaByte(prot, nomeFile, byte, 'application/pdf', sub.id || base.id);
     await sb.from('s_prot_allegati').insert({ protocollo_id: prot.id, nome: su.file_name || nomeFile, mime: 'application/pdf',
-      dimensione: byte.length, principale: true, created_by: state.email, drive_file_id: su.drive_file_id, drive_url: su.drive_url });
-    await sb.from('s_protocollo').update({ drive_file_id: su.drive_file_id, drive_url: su.drive_url }).eq('id', prot.id);
+      dimensione: byte.length, principale: !integrazione, created_by: state.email, drive_file_id: su.drive_file_id, drive_url: su.drive_url });
+    if (!integrazione) {
+      await sb.from('s_protocollo').update({ drive_file_id: su.drive_file_id, drive_url: su.drive_url }).eq('id', prot.id);
+    } else {
+      /* il documento principale resta la lettera di origine: qui si annota solo l'integrazione */
+      await sb.from('s_protocollo').update({
+        sintesi: `${prot.sintesi || ''}\nIntegrazione del ${dataIt(oggiIso())}: ${d.ncAperte.length} cantieri con ritorno previsto, ${d.richieste.length} richieste in attesa, ${d.sospesi.length} altri incarichi in sospeso (non riportati nella prima stesura).`.trim(),
+      }).eq('id', prot.id);
+    }
     await sb.from('s_incarichi_mensili').update({
-      lettera_protocollo_id: prot.id, lettera_drive_id: su.drive_file_id, lettera_drive_url: su.drive_url,
+      lettera_protocollo_id: prot.id,
+      ...(integrazione ? {} : { lettera_drive_id: su.drive_file_id, lettera_drive_url: su.drive_url }),
       lettera_mail_at: new Date().toISOString(), aggiornato_da: state.email, updated_at: new Date().toISOString(),
     }).eq('id', inc.id);
 
@@ -431,19 +488,23 @@ async function inviaLettera(t, inc, btn) {
       oggetto: `FORMEDIL PADOVA - Area Sicurezza e Salute - ${oggetto} - ${codiceProtocollo(prot)} - alla c.a. ${nomeTec(t)}`,
       corpo: `Gent.mo ${nomeTec(t)},
 
-in allegato la comunicazione delle visite in cantiere per il mese di ${MESI[inc.mese - 1]} ${inc.anno} (${codiceProtocollo(prot)}):
+${integrazione ? `a integrazione della comunicazione ${codiceProtocollo(prot)} già trasmessa, invio l'elenco completo: nella prima stesura i cantieri con ritorno previsto e le altre attività in sospeso non erano stati riportati per un errore dell'applicazione. Il numero di protocollo resta lo stesso.
+
+` : ''}in allegato la comunicazione delle visite in cantiere per il mese di ${MESI[inc.mese - 1]} ${inc.anno} (${codiceProtocollo(prot)}):
 cantieri assegnati ${inc.cantieri_assegnati ?? 0}${inc.seconde_visite ? `, seconde visite ${inc.seconde_visite}` : ''}${inc.altro ? `, altro ${inc.altro}` : ''}.
 Comuni di competenza: ${(d.comuni || []).join(', ') || '—'}.
-${d.ncAperte.length ? `\nCantieri con ritorno previsto da richiudere: ${d.ncAperte.length} (elenco in lettera).` : ''}${d.richieste.length ? `\nRichieste in attesa: ${d.richieste.length} (elenco in lettera).` : ''}
+${d.ncAperte.length ? `\nCantieri con ritorno previsto da richiudere: ${d.ncAperte.length} (elenco in lettera).` : ''}${d.richieste.length ? `\nRichieste in attesa: ${d.richieste.length} (elenco in lettera).` : ''}${d.sospesi.length ? `\nAltri incarichi in sospeso: ${d.sospesi.length} (elenco in lettera).` : ''}
 ${inc.note ? `\n${inc.note}\n` : ''}
 ${conf.incarico_visite_testo ? `${conf.incarico_visite_testo}\n` : ''}
 Cordiali saluti.
 
 ${FIRMA_SEGRETERIA}`,
       allegati: [{ nome: su.file_name || nomeFile, byte }],
-      nomeFile: `incarico-visite-${fileTec(t)}-${inc.anno}-${String(inc.mese).padStart(2, '0')}.eml`,
+      nomeFile: `incarico-visite-${fileTec(t)}-${inc.anno}-${String(inc.mese).padStart(2, '0')}${integrazione ? '-integrazione' : ''}.eml`,
     });
-    toast(`Lettera protocollata (${codiceProtocollo(prot)}) e depositata: bozza scaricata, aprila da Outlook e premi Invia.`, 'ok');
+    toast(integrazione
+      ? `Integrazione preparata sotto ${codiceProtocollo(prot)} (nessun numero nuovo): bozza scaricata, aprila da Outlook e premi Invia.`
+      : `Lettera protocollata (${codiceProtocollo(prot)}) e depositata: bozza scaricata, aprila da Outlook e premi Invia.`, 'ok');
     chiudiDrawer();
     await renderMese();
   } catch (e) { toast(e.message, 'err'); } finally { attendi(btn, false); }
