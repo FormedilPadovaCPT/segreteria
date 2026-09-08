@@ -44,6 +44,23 @@ export async function render() {
     sb.from('tecnici').select('tecnico_id').eq('attivo', true),
   ]);
 
+  /* ── posta e agenda (08/09/2026): quello che bacheca-giornata ha letto
+     alle 8 dalle caselle e dai calendari dell'ufficio. Solo intestazioni
+     e anteprima: la mail si apre in Gmail. ─────────────────────────── */
+  let bacheca = null;
+  try {
+    const [{ data: bMail }, { data: bEventi }, { data: bCfg }] = await Promise.all([
+      sb.from('s_bacheca_mail').select('casella, thread_id, gmail_id, mittente, mittente_email, oggetto, data, letta, ha_allegati, anteprima, punteggio, motivi, importante')
+        .eq('importante', true).order('data', { ascending: false }).limit(40),
+      sb.from('s_bacheca_eventi').select('calendario, casella, titolo, inizio, fine, tutto_il_giorno, luogo, link')
+        .gte('fine', new Date(Date.now() - 3600000).toISOString()).order('inizio').limit(30),
+      sb.from('s_config').select('chiave, valore').in('chiave', ['bacheca_al', 'bacheca_esito']),
+    ]);
+    const cfgB = Object.fromEntries((bCfg || []).map((r) => [r.chiave, r.valore]));
+    let esitoB = null; try { esitoB = cfgB.bacheca_esito ? JSON.parse(cfgB.bacheca_esito) : null; } catch { esitoB = null; }
+    bacheca = { mail: bMail || [], eventi: bEventi || [], al: cfgB.bacheca_al || null, esito: esitoB };
+  } catch { /* senza il ruolo segreteria la card non compare */ }
+
   /* ── stato del canale del portale servizi (04/09/2026) ───────────────
      Un foglio senza righe nuove e' ambiguo: puo' voler dire che non ha
      scritto nessuno, o che il tubo e' rotto. Nell'incidente di agosto il
@@ -188,9 +205,50 @@ export async function render() {
     </div>`;
   })();
 
+  /* la card «Posta e agenda»: gli eventi raggruppati per giorno, poi le mail
+     che le regole hanno segnato come importanti, in ordine di punteggio */
+  const cardBacheca = (() => {
+    if (!bacheca) return '';
+    const oraIt = (iso) => iso && iso.length > 10 ? new Date(iso).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }) : '';
+    const giornoIt = (iso) => new Date(iso.length > 10 ? iso : iso + 'T00:00:00').toLocaleDateString('it-IT', { weekday: 'short', day: '2-digit', month: '2-digit' });
+    const perGiorno = {};
+    for (const e of bacheca.eventi) { const g = String(e.inizio || '').slice(0, 10); (perGiorno[g] = perGiorno[g] || []).push(e); }
+    const eventiHtml = Object.keys(perGiorno).sort().map((g) => `
+      <div class="hint" style="margin-top:6px;font-weight:600">${esc(giornoIt(g))}</div>
+      ${perGiorno[g].map((e) => `
+        <div class="hm-riga" ${e.link ? `onclick="window.open('${esc(e.link)}','_blank','noopener')"` : ''}>
+          <span>${e.tutto_il_giorno ? '📌' : '🕒'}</span>
+          <span><strong>${esc(e.titolo || '')}</strong>${e.luogo ? ` <span class="hint">· ${esc(e.luogo)}</span>` : ''}
+            ${e.calendario && !/^primary/.test(e.calendario) ? `<span class="hint"> · ${esc(e.calendario)}</span>` : ''}</span>
+          <span class="hint">${e.tutto_il_giorno ? 'tutto il giorno' : oraIt(e.inizio) + (e.fine ? '–' + oraIt(e.fine) : '')}</span>
+        </div>`).join('')}`).join('');
+    const mail = [...bacheca.mail].sort((a, b) => (b.punteggio - a.punteggio) || String(b.data).localeCompare(String(a.data))).slice(0, 10);
+    const mailHtml = mail.map((m) => {
+      const link = `https://mail.google.com/mail/u/?authuser=${encodeURIComponent(m.casella)}#all/${encodeURIComponent(m.thread_id || m.gmail_id)}`;
+      return `
+      <div class="hm-riga" onclick="window.open('${link}','_blank','noopener')" title="${esc((m.motivi || []).join(', '))}">
+        <span>${m.letta ? '📨' : '📩'}</span>
+        <span><strong>${esc(m.oggetto || '')}</strong>${m.ha_allegati ? ' 📎' : ''}<br>
+          <span class="hint">${esc(m.mittente || m.mittente_email || '')}${m.anteprima ? ' — ' + esc(m.anteprima) : ''}</span></span>
+        <span class="hint">${m.data ? dataIt(String(m.data).slice(0, 10)) + ' ' + oraIt(m.data) : ''}<br><span class="hm-mini" title="punteggio">${m.punteggio}</span></span>
+      </div>`;
+    }).join('');
+    const nImp = bacheca.mail.length;
+    const alTesto = bacheca.al ? `${dataIt(bacheca.al.slice(0, 10))} ${oraIt(bacheca.al)}` : 'mai';
+    const errori = bacheca.esito?.errori?.length ? `<p class="hint" style="color:#b91c1c;margin-top:6px">⚠ Ultimo giro con avvisi: ${esc(bacheca.esito.errori.slice(0, 2).join('; '))}</p>` : '';
+    return card('📬 Posta e agenda della settimana', nImp, `
+      <div class="hint">Aggiornata alle ${esc(alTesto)}, dal lunedì al giovedì alle 8. Le mail si aprono in Gmail; l'app non risponde e non archivia.</div>
+      <div style="font-weight:600;margin-top:8px">📅 Agenda dei prossimi giorni</div>
+      ${eventiHtml || '<p class="hint">Nessun evento nei prossimi giorni.</p>'}
+      <div style="font-weight:600;margin-top:10px">✉️ Mail da guardare</div>
+      ${mailHtml || '<p class="hint">Nessuna mail segnata come importante nell\'ultimo giro.</p>'}
+      ${errori}`);
+  })();
+
   host.innerHTML = `
     ${bannerCanale}
     <div class="hm-griglia">
+      ${cardBacheca}
 
       ${card('⏳ In attesa del Direttore', daAutorizzare.length,
         daAutorizzare.length
