@@ -223,14 +223,18 @@ export async function render() {
           <span class="hint">${e.tutto_il_giorno ? 'tutto il giorno' : oraIt(e.inizio) + (e.fine ? '–' + oraIt(e.fine) : '')}</span>
         </div>`).join('')}`).join('');
     const mail = [...bacheca.mail].sort((a, b) => (b.punteggio - a.punteggio) || String(b.data).localeCompare(String(a.data))).slice(0, 10);
+    /* l'anteprima di Gmail arriva già con le entità HTML (&lt; &#39; …): si decodifica prima
+       di ri-escapare, altrimenti si legge «&lt;»; e va a capo, non è un'etichetta */
+    const deHtml = (s) => String(s || '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, '\'').replace(/&amp;/g, '&');
     const mailHtml = mail.map((m) => {
       const link = `https://mail.google.com/mail/u/?authuser=${encodeURIComponent(m.casella)}#all/${encodeURIComponent(m.thread_id || m.gmail_id)}`;
+      const anteprima = deHtml(m.anteprima).replace(/\s+/g, ' ').trim().slice(0, 140);
       return `
       <div class="hm-riga" onclick="window.open('${link}','_blank','noopener')" title="${esc((m.motivi || []).join(', '))}">
         <span>${m.letta ? '📨' : '📩'}</span>
-        <span><strong>${esc(m.oggetto || '')}</strong>${m.ha_allegati ? ' 📎' : ''}<br>
-          <span class="hint">${esc(m.mittente || m.mittente_email || '')}${m.anteprima ? ' — ' + esc(m.anteprima) : ''}</span></span>
-        <span class="hint">${m.data ? dataIt(String(m.data).slice(0, 10)) + ' ' + oraIt(m.data) : ''}<br><span class="hm-mini" title="punteggio">${m.punteggio}</span></span>
+        <span><strong>${esc(m.oggetto || '')}</strong>${m.ha_allegati ? ' 📎' : ''}
+          <span class="hint" style="display:block;white-space:normal;overflow:hidden;text-overflow:ellipsis">${esc(m.mittente || m.mittente_email || '')}${anteprima ? ' — ' + esc(anteprima) + (m.anteprima && m.anteprima.length > 140 ? '…' : '') : ''}</span></span>
+        <span class="hint" style="text-align:right">${m.data ? dataIt(String(m.data).slice(0, 10)) + '<br>' + oraIt(m.data) : ''} <span class="hm-mini" title="punteggio delle regole">· ${m.punteggio}</span></span>
       </div>`;
     }).join('');
     const nImp = bacheca.mail.length;
