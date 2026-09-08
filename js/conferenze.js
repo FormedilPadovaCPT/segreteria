@@ -401,6 +401,12 @@ export async function apriPratica(id) {
     attendi(ev.currentTarget, false);
     if (error) return toast('Salvataggio non riuscito: ' + error.message, 'err');
     toast('Pratica aggiornata.', 'ok');
+    /* tecnico cambiato con l'incarico già creato: riassegna e avvisa entrambi (08/09/2026) */
+    if (p.incarico_id && $('#cf-tecnico').value) {
+      const { riassegnaTecnico } = await import('./incarico-tecnico.js');
+      await riassegnaTecnico({ tabella: 's_conferenze_cantiere', pratica: p, nuovoEmail: $('#cf-tecnico').value,
+        noteAttuali: $('#cf-note').value.trim() || null });
+    }
     await render();
   });
 

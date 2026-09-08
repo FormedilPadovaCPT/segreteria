@@ -494,6 +494,13 @@ export async function apriPratica(id) {
     attendi(ev.currentTarget, false);
     if (error) return toast('Salvataggio non riuscito: ' + error.message, 'err');
     toast('Pratica aggiornata.', 'ok');
+    /* tecnico cambiato su una pratica che ha già l'incarico: si
+       riassegna nel gestionale e si avvisano entrambi (08/09/2026) */
+    if (p.incarico_id && $('#sg-tecnico').value) {
+      const { riassegnaTecnico } = await import('./incarico-tecnico.js');
+      await riassegnaTecnico({ tabella: 's_segnalazioni', pratica: p, nuovoEmail: $('#sg-tecnico').value,
+        noteAttuali: $('#sg-note').value.trim() || null });
+    }
     await render();
   });
 

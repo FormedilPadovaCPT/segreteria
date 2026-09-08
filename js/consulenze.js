@@ -438,6 +438,12 @@ export async function apriPratica(id) {
     attendi(ev.currentTarget, false);
     if (error) return toast('Salvataggio non riuscito: ' + error.message, 'err');
     toast('Pratica aggiornata.', 'ok');
+    /* tecnico cambiato con l'incarico già creato: riassegna e avvisa entrambi (08/09/2026) */
+    if (uscita && p.incarico_id && agg.tecnico_assegnato) {
+      const { riassegnaTecnico } = await import('./incarico-tecnico.js');
+      await riassegnaTecnico({ tabella: 's_consulenze', pratica: p, nuovoEmail: agg.tecnico_assegnato,
+        noteAttuali: agg.note_ufficio });
+    }
     await render();
   });
 

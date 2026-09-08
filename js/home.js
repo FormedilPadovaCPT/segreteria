@@ -319,7 +319,7 @@ export async function render() {
   host.querySelectorAll('[data-riassegna]').forEach((b) =>
     b.addEventListener('click', async (ev) => {
       ev.stopPropagation();
-      if (await riassegnaIncarico(Number(b.dataset.riassegna))) render();
+      if (await riassegnaIncarico(Number(b.dataset.riassegna), praticaDi[Number(b.dataset.riassegna)] || null)) render();
     }));
   host.querySelectorAll('[data-vista-corso]').forEach((r) =>
     r.addEventListener('click', async () => {
@@ -330,8 +330,12 @@ export async function render() {
 /* ── RIASSEGNARE UN INCARICO RIFIUTATO (04/09/2026) ──
    Si azzera tutto quel che il tecnico precedente aveva dichiarato:
    il nuovo deve poter prendere visione, accettare o rifiutare a sua
-   volta, altrimenti erediterebbe un rifiuto che non e' suo. */
-export async function riassegnaIncarico(id) {
+   volta, altrimenti erediterebbe un rifiuto che non e' suo.
+   Dall'08/09/2026 il lavoro lo fa `riassegnaTecnico` in
+   incarico-tecnico.js (lo stesso delle viste dei servizi): aggiorna
+   anche la pratica collegata, se si sa qual è, e prepara le due
+   bozze mail — avviso al precedente, assegnazione al nuovo. */
+export async function riassegnaIncarico(id, praticaRif = null) {
   const { data: tec } = await sb.from('tecnici')
     .select('tecnico_nome, tecnico_cognome, email').eq('attivo', true)
     .not('email', 'is', null).order('tecnico_cognome');
@@ -343,13 +347,17 @@ export async function riassegnaIncarico(id) {
   if (scelta === null) return false;
   const x = lista[parseInt(scelta, 10) - 1];
   if (!x) { alert('Numero non valido.'); return false; }
-  const nome = [x.tecnico_nome, x.tecnico_cognome].filter(Boolean).join(' ');
-  const { error } = await sb.from('incarichi').update({
-    tecnico_email: x.email, tecnico_nome: nome,
-    rifiutato_il: null, rifiutato_da: null, rifiuto_motivo: null,
-    accettato_il: null, accettato_da: null,
-    presa_visione_il: null, presa_visione_da: null,
-  }).eq('id', id);
-  if (error) { alert('Riassegnazione non riuscita: ' + error.message); return false; }
-  return true;
+
+  /* la pratica dei servizi collegata, per aggiornarla insieme */
+  const TABELLA = { segnalazioni: 's_segnalazioni', visite: 's_visite_richieste',
+    conferenze: 's_conferenze_cantiere', consulenze: 's_consulenze' };
+  let tabella = null, pratica = null;
+  if (praticaRif && TABELLA[praticaRif.vista]) {
+    tabella = TABELLA[praticaRif.vista];
+    const { data } = await sb.from(tabella).select('*').eq('id', praticaRif.id).maybeSingle();
+    pratica = data || null;
+    if (!pratica) tabella = null;
+  }
+  const { riassegnaTecnico } = await import('./incarico-tecnico.js');
+  return riassegnaTecnico({ incaricoId: id, tabella, pratica, nuovoEmail: x.email });
 }
