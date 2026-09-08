@@ -575,16 +575,52 @@ function tabAnagrafica() {
     <div class="form-actions">
       <span style="flex:1;font-size:12px;color:var(--testo-soft)">
         Ogni modifica viene registrata con data e autore. Il codice fiscale è la chiave con cui
-        l'impresa è collegata a visite, cantieri e protocolli: non si cambia da qui.
+        l'impresa è collegata a visite, cantieri e protocolli: non si scrive nel campo, si cambia
+        con «Cambia la chiave», che sposta anche tutti i collegamenti.
       </span>
+      <button class="btn btn-ghost" id="ia-cambia-chiave" title="Cambia il codice fiscale che fa da chiave, spostando visite, cantieri, pratiche e protocolli sul codice nuovo">🔑 Cambia la chiave</button>
       <button class="btn btn-primary" id="ia-salva">Salva le modifiche</button>
     </div>`;
+}
+
+/* ── Cambio della chiave (codice fiscale = impresa_id) ─────────
+   Dal 15/07/2026 la chiave delle imprese è il codice fiscale, ma le
+   imprese nate dagli import portano spesso la P.IVA. Cambiare la
+   chiave a mano voleva dire toccare 9 chiavi esterne e una ventina di
+   colonne senza vincolo: lo fa la funzione s_cambia_id_impresa sul
+   database, che scopre le tabelle dal catalogo e riferisce quante
+   righe ha spostato. Solo la segreteria. */
+function agganciaCambioChiave() {
+  $('#ia-cambia-chiave')?.addEventListener('click', async (e) => {
+    const attuale = scheda.impresa.impresa_id;
+    const nuovo = (window.prompt(
+      `Nuovo codice fiscale (chiave) per «${scheda.impresa.impresa_nome}».\n\n` +
+      `Codice attuale: ${attuale}\n` +
+      'Scrivi il codice fiscale (16 caratteri) o la partita IVA (11 cifre) che deve fare da chiave:', '') || '').trim().toUpperCase();
+    if (!nuovo) return;
+    if (nuovo === attuale) return toast('È lo stesso codice di adesso.', 'err');
+    if (!/^[0-9]{11}$/.test(nuovo) && !/^[A-Z0-9]{16}$/.test(nuovo)) return toast('Serve un codice fiscale di 16 caratteri o una partita IVA di 11 cifre.', 'err');
+    const motivo = (window.prompt('Motivo del cambio (resta scritto nelle note dell\'impresa e nello storico):', 'Chiave riportata al codice fiscale') || '').trim();
+    if (!window.confirm(
+      `Confermi il cambio di chiave?\n\n${attuale}  →  ${nuovo}\n\n` +
+      'Verranno spostate sul codice nuovo tutte le righe collegate (visite, presenze in cantiere, cantieri e pratiche di asseverazione, ' +
+      'protocolli, richieste dei servizi, corsi, persone, ATECO). Il codice vecchio resta come partita IVA se lo era. ' +
+      'Se qualcosa non torna, non viene cambiato nulla.')) return;
+    attendi(e.currentTarget, true, 'Cambio in corso…');
+    const { data, error } = await sb.rpc('s_cambia_id_impresa', { p_vecchio: attuale, p_nuovo: nuovo, p_motivo: motivo || null });
+    attendi(e.currentTarget, false);
+    if (error) return toast('Cambio non riuscito: ' + error.message, 'err');
+    const dettaglio = Object.entries(data?.toccate || {}).map(([k, v]) => `${k}: ${v}`).join(', ');
+    toast(`Chiave cambiata: ${data.vecchio} → ${data.nuovo}. Righe spostate: ${data.righe_spostate}${dettaglio ? ' (' + dettaglio + ')' : ''}.`, 'ok');
+    apriScheda(data.nuovo, 'anagrafica');
+  });
 }
 
 function agganciaAnagrafica() {
   collegaDoppioClickMail($('#imp-tab-host'));
   collegaAutocompletamento({ nome: '#ia-impresa_nome', comune: '#ia-comune', prov: '#ia-prov', cap: '#ia-cap', forma: '#ia-tipo_impresa' });
   agganciaAteco();
+  agganciaCambioChiave();
 
   $('#ia-salva')?.addEventListener('click', async (e) => {
     const dati = {};
