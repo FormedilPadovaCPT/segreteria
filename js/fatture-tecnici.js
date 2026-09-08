@@ -326,8 +326,11 @@ async function tutteLeVisite() {
   for (let off = 0; ; off += PAGE) {
     const { data, error } = await sb.from('visite')
       .select('visita_id, nr_verbale, data_visita, data_ritorno, ipc, acc_cant, tecnico_id, cantiere_id, impresa_id, impresa_rl_nome')
-      .or('elimina.is.null,elimina.neq.1')
-      .order('data_visita', { ascending: false }).range(off, off + PAGE - 1);
+      .eq('elimina', 0)
+      /* a parità di data (due verbali lo stesso giorno sullo stesso cantiere) vale il
+         numero di verbale più alto: senza questo spareggio ogni app sceglieva a caso e
+         le liste non coincidevano (08/09/2026, caso Caon: 0567/0568, 0796/0797/0799) */
+      .order('data_visita', { ascending: false }).order('nr_verbale', { ascending: false }).range(off, off + PAGE - 1);
     if (error) { console.error('tutteLeVisite', error); break; }
     if (!data || !data.length) break;
     out = out.concat(data);
