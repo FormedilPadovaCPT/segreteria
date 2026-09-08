@@ -57,7 +57,7 @@ function nuovaImpresa() {
         <div class="field"><label>Codice CEIV</label><input type="text" id="ni-ceiv"></div>
         <div class="field"><label>Telefono</label><input type="text" id="ni-tel"></div>
         <div class="field full"><label>Indirizzo</label><input type="text" id="ni-ind"></div>
-        <div class="field"><label>Comune</label><input type="text" id="ni-comune"></div>
+        <div class="field"><label>Comune</label><input type="text" id="ni-comune" list="ni-dl-comune" autocomplete="off"><datalist id="ni-dl-comune"></datalist></div>
         <div class="field"><label>Provincia</label><input type="text" id="ni-prov" maxlength="2" style="text-transform:uppercase"></div>
         <div class="field"><label>CAP</label><input type="text" id="ni-cap" maxlength="5"></div>
         <div class="field"><label>Forma giuridica</label><input type="text" id="ni-forma" placeholder="dedotta dal nome"></div>
@@ -71,6 +71,7 @@ function nuovaImpresa() {
     </div>`;
   $('#ni-annulla').addEventListener('click', render);
   collegaAutocompletamento({ nome: '#ni-nome', comune: '#ni-comune', prov: '#ni-prov', cap: '#ni-cap', forma: '#ni-forma' });
+  agganciaComuni('#ni-comune', '#ni-dl-comune');
   $('#ni-crea').addEventListener('click', async (ev) => {
     const nome = $('#ni-nome').value.trim();
     const id = $('#ni-id').value.trim().toUpperCase().replace(/\s/g, '');
@@ -196,6 +197,19 @@ export async function apriScheda(impresaId, tab = 'anagrafica') {
       scheda.ateco.forEach((a) => { a.desc = mappa[a.codice] || null; });
     }
   } catch { scheda.ateco = []; }
+
+  /* le certificazioni con date, ente e note (dal 08/09/2026: prima era
+     una spunta sola) e la lista dei tipi, condivisa col gestionale */
+  try {
+    const [{ data: cert }, { data: tipi }] = await Promise.all([
+      sb.from('imprese_certificazioni')
+        .select('id, certificazione, data_certificato, data_fine, data_rinnovo, ente, note, numero, regolamento, fonte')
+        .eq('impresa_id', impresaId).order('data_fine', { ascending: false, nullsFirst: false }),
+      sb.from('imprese_certificazioni_tipi').select('codice, etichetta, norma').eq('attivo', true).order('ordine'),
+    ]);
+    scheda.certificazioni_dett = cert || [];
+    scheda.cert_tipi = tipi || [];
+  } catch { scheda.certificazioni_dett = []; scheda.cert_tipi = []; }
 
   /* gli RLS comunicati dall'impresa (anagrafe CCPL 3/3/2022):
      compaiono fra le persone, accanto a dipendenti e nomine */
@@ -511,16 +525,81 @@ const CAMPI = [
   ]],
 ];
 
+/* ── Vocabolari delle tendine (08/09/2026, chiesti dall'utente) ──
+   Sono i valori già in uso nel database, letti prima di scriverli
+   qui: la tendina serve a non inventarne di nuovi, non a cambiare
+   quelli vecchi. Se una scheda porta un valore fuori lista (i codici
+   numerici dell'Access, una grafia diversa) la tendina lo mostra come
+   «(com'è scritto)» e lo tiene finché qualcuno non sceglie altro. */
+const CCNL_OPZIONI = ['Edilizia Industria', 'Edilizia Artigianato', 'Edilizia Piccola industria', 'Edilizia Cooperative',
+  'Metalmeccanico Industria', 'Metalmeccanico Artigianato', 'Installatori Impianti', 'Legno', 'Altro'];
+const OPZIONI = {
+  tipo_impresa: ['S.r.l.', 'S.r.l.s', 'S.r.l. Unipersonale', 'S.n.c.', 'S.A.S.', 'S.p.A.', 'S.coop.', 'Consorzio', 'Ditta Individuale'],
+  ruolo: ['IMPRESA Edile', 'IMPRESA NON EDILE', 'IMPRESA IMPIANTI', 'LAVORATORE AUTONOMO', 'CONSORZIO', 'ENTE', 'STUDIO',
+    'LIBERO PROFESSIONISTA', 'CONSULENTE DEL LAVORO', 'FORNITORE', 'COMMITTENTE PERS. GIU.', 'COMMITTENTE PERS. FIS. Privato',
+    'COMMITTENTE PERS. FIS. Pubblico', 'SINDACATO', 'STAMPA', 'MEDICO', 'SPISAL', 'IMPRENDITORE', 'DIPENDENTE',
+    'SCUOLA EDILE CPT Padova', 'Studente SCUOLA EDILE CPT Padova'],
+  tipologia_impresa: ['Industriale', 'Artigiana', 'Cooperativa', 'Commerciale', 'Lavoratore autonomo'],
+  tipo_iscrizione_ccia: ['Industriale', 'Artigiana', 'Cooperativa', 'Commerciale', 'Lavoratore autonomo', 'Altro'],
+  ccnl: CCNL_OPZIONI,
+  contratto_ccnl: CCNL_OPZIONI,
+  contratto_ccnl_altro: CCNL_OPZIONI,
+  cassa_edile: ['C.E.I.V.', 'EDILCASSA VENETO', 'CASSA EDILE BELLUNO', 'CASSA EDILE VENEZIA', 'CASSA EDILE VICENZA', 'Iscritta altra Cassa', 'ALTRO'],
+  stato_cassa: ['Attiva', 'Sospesa', 'Cessata', 'Non iscritta'],
+  rspp: [
+    ['il responsabile del servizio di prevenzione e protezione è il datore di lavoro', 'Il datore di lavoro'],
+    ['il responsabile del servizio di prevenzione e protezione è un dipendente dell\'impresa', 'Un dipendente dell\'impresa'],
+    ['il responsabile del servizio di prevenzione e protezione è un soggetto esterno all\'impresa', 'Un soggetto esterno all\'impresa'],
+  ],
+  ance: [['true', 'sì, associata ANCE Padova'], ['false', 'no']],
+};
+/* «Stato» qui è la nazione della sede: quasi sempre ITALIA */
+const STATI = ['ITALIA', 'ALBANIA', 'AUSTRIA', 'CROAZIA', 'FRANCIA', 'GERMANIA', 'MOLDAVIA', 'POLONIA', 'ROMANIA', 'SAN MARINO', 'SLOVENIA', 'SVIZZERA', 'UCRAINA'];
+
+/* Il comune si cerca fra i 10.000 di comuni_catastali mentre si scrive:
+   una tendina con tutti dentro non si userebbe. Il nome scelto arriva
+   pulito, e da lì provincia e CAP si riempiono da soli. */
+function agganciaComuni(inputSel, datalistSel) {
+  const inp = $(inputSel); const dl = $(datalistSel);
+  if (!inp || !dl) return;
+  let timer = null;
+  inp.addEventListener('input', () => {
+    clearTimeout(timer);
+    const q = inp.value.trim();
+    if (q.length < 2) { dl.innerHTML = ''; return; }
+    timer = setTimeout(async () => {
+      const { data } = await sb.from('comuni_catastali').select('nome, prov').ilike('nome', q + '%').order('nome').limit(15);
+      dl.innerHTML = (data || []).map((c) => `<option value="${esc(c.nome)}">${esc(c.prov)}</option>`).join('');
+    }, 200);
+  });
+}
+
 function tabAnagrafica() {
   const i = scheda.impresa;
   const campo = ([k, etichetta, cls, bloccato]) => {
     const email = /email/i.test(k) || k === 'pec';
+    const val = String(i[k] ?? '');
+    let controllo;
+    if (OPZIONI[k]) {
+      const opts = OPZIONI[k].map((o) => (Array.isArray(o) ? o : [o, o]));
+      const noto = val === '' || opts.some(([v]) => v === val);
+      controllo = `<select id="ia-${k}" data-campo="${k}">
+          <option value="">—</option>
+          ${noto ? '' : `<option value="${esc(val)}" selected>${esc(val)} (com'è scritto)</option>`}
+          ${opts.map(([v, l]) => `<option value="${esc(v)}" ${v === val ? 'selected' : ''}>${esc(l)}</option>`).join('')}
+        </select>`;
+    } else if (k === 'comune' || k === 'stato') {
+      controllo = `<input type="text" id="ia-${k}" data-campo="${k}" value="${esc(val)}" list="ia-dl-${k}" autocomplete="off">
+        <datalist id="ia-dl-${k}">${k === 'stato' ? STATI.map((s) => `<option value="${s}">`).join('') : ''}</datalist>`;
+    } else {
+      controllo = `<input type="text" id="ia-${k}" data-campo="${k}" value="${esc(val)}"
+             ${email ? `data-mail="1" data-mail-chi="${esc(i.impresa_nome)}"` : ''}
+             ${bloccato ? 'readonly class="readonly"' : ''}>`;
+    }
     return `
     <div class="field ${cls || ''}">
       <label for="ia-${k}">${esc(etichetta)}</label>
-      <input type="text" id="ia-${k}" data-campo="${k}" value="${esc(i[k] ?? '')}"
-             ${email ? `data-mail="1" data-mail-chi="${esc(i.impresa_nome)}"` : ''}
-             ${bloccato ? 'readonly class="readonly"' : ''}>
+      ${controllo}
     </div>`;
   };
 
@@ -565,11 +644,7 @@ function tabAnagrafica() {
 
     <div class="sez">
       <h3>Certificazioni</h3>
-      ${(scheda.certificazioni || []).length
-        ? `<ul style="margin:0;padding-left:18px;line-height:1.8">
-             ${scheda.certificazioni.map((c) => `<li>${esc(c.certificazione)}</li>`).join('')}
-           </ul>`
-        : '<p class="empty" style="padding:8px">Nessuna certificazione registrata.</p>'}
+      ${sezioneCertificazioni()}
     </div>
 
     <div class="form-actions">
@@ -616,11 +691,94 @@ function agganciaCambioChiave() {
   });
 }
 
+/* ── Certificazioni: tabella modificabile riga per riga ─────────
+   Tipo a tendina (imprese_certificazioni_tipi), data del certificato,
+   fine validità, ultimo rinnovo, ente, note. Ogni riga si salva da
+   sola col 💾; l'ultima riga, vuota, serve ad aggiungere. La fine
+   validità colora la cella: rosso se passata, ambra entro 90 giorni. */
+function sezioneCertificazioni() {
+  const righe = scheda.certificazioni_dett || [];
+  const tipi = scheda.cert_tipi || [];
+  const oggi = new Date().toISOString().slice(0, 10);
+  const fra90 = new Date(Date.now() + 90 * 86400000).toISOString().slice(0, 10);
+  const stileFine = (d) => !d ? '' : d < oggi ? 'background:#fde8e8' : d <= fra90 ? 'background:#fff3d6' : 'background:#e8f5e9';
+  const riga = (c) => {
+    const id = c ? c.id : 'nuova';
+    const cod = c ? String(c.certificazione ?? '') : '';
+    return `
+      <tr data-cert="${id}" ${c?.fonte ? `title="${esc(c.fonte)}"` : ''}>
+        <td><select data-cert-campo="certificazione">
+          <option value="">— tipo —</option>
+          ${tipi.map((t) => `<option value="${t.codice}" ${String(t.codice) === cod ? 'selected' : ''}>${esc(t.etichetta)}${t.norma ? ' · ' + esc(t.norma) : ''}</option>`).join('')}
+          ${cod && !tipi.some((t) => String(t.codice) === cod) ? `<option value="${esc(cod)}" selected>codice ${esc(cod)} (com'è scritto)</option>` : ''}
+        </select></td>
+        <td><input type="text" data-cert-campo="numero" value="${esc(c?.numero || '')}" placeholder="n° attestazione"></td>
+        <td><input type="date" data-cert-campo="data_certificato" value="${esc(c?.data_certificato || '')}"></td>
+        <td style="${stileFine(c?.data_fine)}"><input type="date" data-cert-campo="data_fine" value="${esc(c?.data_fine || '')}"></td>
+        <td><input type="date" data-cert-campo="data_rinnovo" value="${esc(c?.data_rinnovo || '')}"></td>
+        <td><input type="text" data-cert-campo="ente" value="${esc(c?.ente || '')}" placeholder="es. RINA, Bureau Veritas"></td>
+        <td><input type="text" data-cert-campo="regolamento" value="${esc(c?.regolamento || '')}" placeholder="es. D.P.R. 207/2010"></td>
+        <td><input type="text" data-cert-campo="note" value="${esc(c?.note || '')}"></td>
+        <td style="white-space:nowrap">
+          <button class="btn btn-ghost btn-sm" data-cert-salva="${id}" title="${c ? 'Salva le modifiche a questa riga' : 'Aggiungi la certificazione'}">${c ? '💾' : '+ Aggiungi'}</button>
+          ${c ? `<button class="btn btn-ghost btn-sm" data-cert-del="${id}" title="Togli questa certificazione">✕</button>` : ''}
+        </td>
+      </tr>`;
+  };
+  return `
+    <div class="table-wrap">
+      <table class="tbl">
+        <thead><tr>
+          <th style="min-width:220px">Tipo</th><th style="min-width:120px">N° attestazione</th><th style="width:140px">Data certificato</th>
+          <th style="width:140px">Fine validità</th><th style="width:140px">Ultimo rinnovo</th>
+          <th style="min-width:160px">Ente certificatore</th><th style="min-width:120px">Regolamento</th><th>Note</th><th style="width:90px"></th>
+        </tr></thead>
+        <tbody>${righe.map(riga).join('')}${riga(null)}</tbody>
+      </table>
+    </div>
+    <p class="hint" style="margin-top:6px">Gli stessi campi della tabella certificazioni di Access. Le date si leggono sul certificato, non si calcolano; la fine validità si colora: rosso se passata, ambra entro 90 giorni. L'asseverazione MOG ha anche il suo ciclo nella webapp asseverazione: qui se ne tiene solo nota.</p>`;
+}
+
+function agganciaCertificazioni() {
+  const host = $('#imp-tab-host'); if (!host) return;
+  const leggi = (tr) => {
+    const d = {};
+    tr.querySelectorAll('[data-cert-campo]').forEach((el) => { d[el.dataset.certCampo] = el.value.trim() || null; });
+    if (d.certificazione) d.certificazione = Number(d.certificazione);
+    return d;
+  };
+  host.querySelectorAll('[data-cert-salva]').forEach((b) => b.addEventListener('click', async (e) => {
+    const tr = b.closest('tr'); const d = leggi(tr);
+    if (!d.certificazione) return toast('Scegli il tipo di certificazione.', 'err');
+    if (d.data_certificato && d.data_fine && d.data_fine < d.data_certificato) return toast('La fine validità è prima della data del certificato.', 'err');
+    attendi(e.currentTarget, true);
+    const id = b.dataset.certSalva;
+    const { error } = id === 'nuova'
+      ? await sb.from('imprese_certificazioni').insert({ impresa_id: scheda.impresa.impresa_id, ...d, updated_by: state.email })
+      : await sb.from('imprese_certificazioni').update(d).eq('id', Number(id));
+    attendi(e.currentTarget, false);
+    if (error) return toast('Non salvato: ' + error.message, 'err');
+    toast(id === 'nuova' ? 'Certificazione aggiunta.' : 'Certificazione salvata.', 'ok');
+    apriScheda(scheda.impresa.impresa_id, 'anagrafica');
+  }));
+  host.querySelectorAll('[data-cert-del]').forEach((b) => b.addEventListener('click', async () => {
+    const c = (scheda.certificazioni_dett || []).find((x) => String(x.id) === b.dataset.certDel);
+    const tipo = (scheda.cert_tipi || []).find((t) => t.codice === c?.certificazione)?.etichetta || 'questa certificazione';
+    if (!confirm(`Togliere «${tipo}» dalla scheda dell'impresa?`)) return;
+    const { error } = await sb.from('imprese_certificazioni').delete().eq('id', Number(b.dataset.certDel));
+    if (error) return toast('Non tolta: ' + error.message, 'err');
+    toast('Certificazione tolta.', 'ok');
+    apriScheda(scheda.impresa.impresa_id, 'anagrafica');
+  }));
+}
+
 function agganciaAnagrafica() {
   collegaDoppioClickMail($('#imp-tab-host'));
   collegaAutocompletamento({ nome: '#ia-impresa_nome', comune: '#ia-comune', prov: '#ia-prov', cap: '#ia-cap', forma: '#ia-tipo_impresa' });
+  agganciaComuni('#ia-comune', '#ia-dl-comune');
   agganciaAteco();
   agganciaCambioChiave();
+  agganciaCertificazioni();
 
   $('#ia-salva')?.addEventListener('click', async (e) => {
     const dati = {};
