@@ -58,14 +58,19 @@ function nuovaImpresa() {
         <div class="field"><label>Telefono</label><input type="text" id="ni-tel"></div>
         <div class="field full"><label>Indirizzo</label><input type="text" id="ni-ind"></div>
         <div class="field"><label>Comune</label><input type="text" id="ni-comune"></div>
-        <div class="field"><label>Email</label><input type="text" id="ni-email"></div>
+        <div class="field"><label>Provincia</label><input type="text" id="ni-prov" maxlength="2" style="text-transform:uppercase"></div>
+        <div class="field"><label>CAP</label><input type="text" id="ni-cap" maxlength="5"></div>
+        <div class="field"><label>Forma giuridica</label><input type="text" id="ni-forma" placeholder="dedotta dal nome"></div>
+        <div class="field full"><label>Email</label><input type="text" id="ni-email"></div>
       </div>
+      <p class="hint" style="margin-top:6px">Provincia, CAP e forma giuridica si riempiono da soli dal comune e dalla ragione sociale, se vuoti: si possono correggere.</p>
       <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">
         <button class="btn btn-ghost" id="ni-annulla">Annulla</button>
         <button class="btn btn-primary" id="ni-crea">Crea e apri la scheda</button>
       </div>
     </div>`;
   $('#ni-annulla').addEventListener('click', render);
+  collegaAutocompletamento({ nome: '#ni-nome', comune: '#ni-comune', prov: '#ni-prov', cap: '#ni-cap', forma: '#ni-forma' });
   $('#ni-crea').addEventListener('click', async (ev) => {
     const nome = $('#ni-nome').value.trim();
     const id = $('#ni-id').value.trim().toUpperCase().replace(/\s/g, '');
@@ -84,6 +89,9 @@ function nuovaImpresa() {
       impresa_telefono: $('#ni-tel').value.trim() || null,
       indirizzo: $('#ni-ind').value.trim() || null,
       comune: $('#ni-comune').value.trim() || null,
+      prov: $('#ni-prov').value.trim().toUpperCase() || null,
+      cap: $('#ni-cap').value.trim() || null,
+      tipo_impresa: $('#ni-forma').value.trim() || null,
       impresa_email_ref: $('#ni-email').value.trim() || null,
       note_access: `Creata a mano dalla maschera Imprese (${state.email}, ${new Date().toISOString().slice(0, 10)})`,
     });
@@ -91,6 +99,30 @@ function nuovaImpresa() {
     if (error) return toast('Creazione non riuscita: ' + error.message, 'err');
     toast('Impresa creata.', 'ok');
     apriScheda(id);
+  });
+}
+
+/* Completamento automatico dell'anagrafica, lo stesso che fa il
+   trigger sul database (trg_imprese_completa_anagrafica) — qui si
+   mostra subito, mentre si scrive, così chi compila lo vede e può
+   correggerlo prima di salvare. Riempie SOLO i campi vuoti. */
+function collegaAutocompletamento(sel) {
+  const el = (k) => (sel[k] ? $(sel[k]) : null);
+  const vuoto = (e) => e && !e.value.trim();
+  el('comune')?.addEventListener('change', async () => {
+    const comune = el('comune').value.trim();
+    if (!comune || !(vuoto(el('cap')) || vuoto(el('prov')))) return;
+    const { data } = await sb.rpc('comune_cap_prov', { p_comune: comune });
+    const r = data?.[0];
+    if (!r) return;
+    if (vuoto(el('cap')) && r.cap) el('cap').value = r.cap;
+    if (vuoto(el('prov')) && r.prov) el('prov').value = r.prov;
+  });
+  el('nome')?.addEventListener('change', async () => {
+    const nome = el('nome').value.trim();
+    if (!nome || !vuoto(el('forma'))) return;
+    const { data } = await sb.rpc('forma_giuridica_da_nome', { p_nome: nome });
+    if (data) el('forma').value = data;
   });
 }
 
@@ -148,7 +180,7 @@ export async function apriScheda(impresaId, tab = 'anagrafica') {
      d'uno, con date diverse. */
   try {
     const { data: ateco } = await sb.from('imprese_ateco')
-      .select('codice, data_ateco').eq('impresa_id', impresaId)
+      .select('id, codice, data_ateco, fonte').eq('impresa_id', impresaId)
       .order('data_ateco', { ascending: false, nullsFirst: false });
     scheda.ateco = ateco || [];
     if (scheda.ateco.length) {
@@ -503,16 +535,26 @@ function tabAnagrafica() {
       <h3>Codici ATECO</h3>
       ${(scheda.ateco || []).length
         ? `<div>${scheda.ateco.map((a, idx) => `
-            <div class="dt-doc-riga" style="padding:4px 0;${idx === 0 ? 'font-weight:600' : ''}">
-              <code>${esc(a.codice)}</code>
-              ${a.desc ? `&mdash; ${esc(a.desc.descrizione)} <span style="color:var(--testo-soft);font-size:11px">(ATECO ${esc(a.desc.versione)})</span>` : ''}
+            <div class="dt-doc-riga" style="padding:4px 0;display:flex;gap:8px;align-items:center;${idx === 0 ? 'font-weight:600' : ''}">
+              <span style="flex:1"><code>${esc(a.codice)}</code>
+              ${a.desc ? `&mdash; ${esc(a.desc.descrizione)} <span style="color:var(--testo-soft);font-size:11px">(ATECO ${esc(a.desc.versione)})</span>` : ' <span style="color:var(--testo-soft);font-size:11px">(codice non in tabella ISTAT)</span>'}
               ${a.data_ateco ? `<span style="color:var(--testo-soft)"> &middot; dal ${esc(a.data_ateco.split('-').reverse().join('/'))}</span>` : ''}
+              ${a.fonte && !/access/i.test(a.fonte) ? `<span style="color:var(--testo-soft);font-size:11px"> &middot; ${esc(a.fonte)}</span>` : ''}</span>
+              <button class="btn btn-ghost btn-sm" data-ateco-del="${a.id}" title="Togli questo codice">✕</button>
             </div>`).join('')}
-           <p class="hint" style="margin-top:6px">Dalla tabella Access Atecoimprese; il più recente in grassetto. Descrizioni ISTAT.</p></div>`
+           <p class="hint" style="margin-top:6px">Il più recente in grassetto; lo storico viene dalla tabella Access Atecoimprese. Descrizioni ISTAT.</p></div>`
         : '<p class="hint">Nessun codice ATECO registrato per questa impresa.</p>'}
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+      <div class="grid-3" style="margin-top:8px;align-items:end">
+        <div class="field" style="grid-column:span 2"><label for="ia-ateco-cod">Aggiungi codice ATECO (2025) — cerca per codice o parola</label>
+          <input type="text" id="ia-ateco-cod" placeholder="es. 43.31 oppure «intonac»" autocomplete="off" list="ia-ateco-dl">
+          <datalist id="ia-ateco-dl"></datalist>
+          <div id="ia-ateco-desc" class="hint" style="min-height:16px"></div></div>
+        <div class="field"><label for="ia-ateco-data">Dal (facoltativo)</label><input type="date" id="ia-ateco-data"></div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;align-items:center">
+        <button class="btn btn-primary btn-sm" id="ia-ateco-add">+ Aggiungi codice</button>
         <button class="btn btn-ghost btn-sm" data-verifica="https://www.ufficiocamerale.it/trova-azienda">🔎 ufficiocamerale.it</button>
-        <span class="hint" style="align-self:center">il bottone copia la P.IVA: incollala nella ricerca</span>
+        <span class="hint" style="align-self:center">il bottone copia la P.IVA: incollala nella ricerca e riporta qui l'ATECO della visura</span>
       </div>
     </div>
 
@@ -541,6 +583,8 @@ function tabAnagrafica() {
 
 function agganciaAnagrafica() {
   collegaDoppioClickMail($('#imp-tab-host'));
+  collegaAutocompletamento({ nome: '#ia-impresa_nome', comune: '#ia-comune', prov: '#ia-prov', cap: '#ia-cap', forma: '#ia-tipo_impresa' });
+  agganciaAteco();
 
   $('#ia-salva')?.addEventListener('click', async (e) => {
     const dati = {};
@@ -563,6 +607,56 @@ function agganciaAnagrafica() {
     toast(`Salvato: ${data.modificati} ${data.modificati === 1 ? 'campo modificato' : 'campi modificati'}.`, 'ok');
     apriScheda(scheda.impresa.impresa_id, 'anagrafica');
   });
+}
+
+/* ── ATECO modificabile (imprese_ateco, policy is_segreteria) ──
+   La tabella ateco_codici ha la struttura ISTAT 2025 completa
+   (3.257 voci, caricata il 08/09/2026): la ricerca suggerisce per
+   codice o parola della descrizione; si può comunque scrivere un
+   codice non in tabella (resta segnato come tale). */
+function agganciaAteco() {
+  const inp = $('#ia-ateco-cod'); if (!inp) return;
+  const dl = $('#ia-ateco-dl'); const descBox = $('#ia-ateco-desc');
+  let timer = null; let ultimo = {};
+  inp.addEventListener('input', () => {
+    clearTimeout(timer);
+    const q = inp.value.trim();
+    descBox.textContent = ultimo[q] ? ultimo[q] : '';
+    if (q.length < 2) { dl.innerHTML = ''; return; }
+    timer = setTimeout(async () => {
+      const perCodice = /^[0-9.]+$/.test(q);
+      let ricerca = sb.from('ateco_codici').select('codice, descrizione').eq('versione', '2025').limit(20);
+      ricerca = perCodice ? ricerca.ilike('codice', q + '%').order('codice') : ricerca.ilike('descrizione', '%' + q + '%').order('codice');
+      const { data } = await ricerca;
+      ultimo = {};
+      dl.innerHTML = (data || []).map((r) => { ultimo[r.codice] = r.descrizione; return `<option value="${esc(r.codice)}">${esc(r.descrizione)}</option>`; }).join('');
+      if (ultimo[inp.value.trim()]) descBox.textContent = ultimo[inp.value.trim()];
+    }, 200);
+  });
+
+  $('#ia-ateco-add')?.addEventListener('click', async (e) => {
+    const codice = inp.value.trim();
+    if (!/^[0-9]{2}(\.[0-9]{1,2}){0,2}$/.test(codice)) return toast('Scrivi un codice ATECO nella forma 43, 43.31 o 43.31.00.', 'err');
+    const data_ateco = $('#ia-ateco-data').value || null;
+    attendi(e.currentTarget, true);
+    const { error } = await sb.from('imprese_ateco').insert({
+      impresa_id: scheda.impresa.impresa_id, codice, data_ateco, fonte: `segreteria (${state.email})`,
+    });
+    attendi(e.currentTarget, false);
+    if (error) return toast(/duplicate|unique/i.test(error.message) ? 'Questo codice, con questa data, c\'è già.' : 'Non salvato: ' + error.message, 'err');
+    toast('Codice ATECO aggiunto.', 'ok');
+    apriScheda(scheda.impresa.impresa_id, 'anagrafica');
+  });
+
+  $$('[data-ateco-del]').forEach((b) => b.addEventListener('click', async () => {
+    const riga = (scheda.ateco || []).find((a) => String(a.id) === b.dataset.atecoDel);
+    if (!riga) return;
+    if (!confirm(`Togliere il codice ATECO ${riga.codice} da questa impresa?${/access/i.test(riga.fonte || '') ? '\n\nAttenzione: viene dallo storico Access.' : ''}`)) return;
+    const { error } = await sb.from('imprese_ateco').delete().eq('id', riga.id);
+    if (error) return toast('Non tolto: ' + error.message, 'err');
+    toast('Codice ATECO tolto.', 'ok');
+    apriScheda(scheda.impresa.impresa_id, 'anagrafica');
+  }));
 }
 
 /* ── CANTIERI ─────────────────────────────────────────────── */
