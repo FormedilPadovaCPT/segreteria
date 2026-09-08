@@ -124,7 +124,7 @@ serve(async (req) => {
           if (!r.ok || m.error) { (esito.errori as string[]).push(`${casella} ${id}: ${m.error?.message || r.status}`); continue }
           const headers = m.payload?.headers
           const mitt = scomponiMittente(leggiHeader(headers, 'From'))
-          if (caselle.includes(mitt.email)) continue // scritta da una casella dell'ufficio: non è posta in arrivo
+          if (mitt.email === casella) continue // scritta dalla casella stessa: non è posta in arrivo (da un'altra casella dell'ufficio sì)
           const oggetto = leggiHeader(headers, 'Subject') || '(senza oggetto)'
           const labels: string[] = m.labelIds || []
           const nonLetta = labels.includes('UNREAD')

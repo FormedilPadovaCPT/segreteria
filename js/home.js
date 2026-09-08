@@ -10,7 +10,7 @@
    documenti tecnici) si dice «da controllare», non «scaduto».
    ============================================================ */
 
-import { sb, $, esc, dataIt, oggiIso, mostraVista, codiceProtocollo } from './core.js';
+import { sb, $, esc, dataIt, oggiIso, mostraVista, codiceProtocollo, toast } from './core.js';
 
 const SERVIZI = [
   { tab: 's_segnalazioni', vista: 'segnalazioni', nome: 'Segnalazione', icona: '🚨', chi: (p) => p.notificante },
@@ -237,7 +237,10 @@ export async function render() {
     const alTesto = bacheca.al ? `${dataIt(bacheca.al.slice(0, 10))} ${oraIt(bacheca.al)}` : 'mai';
     const errori = bacheca.esito?.errori?.length ? `<p class="hint" style="color:#b91c1c;margin-top:6px">⚠ Ultimo giro con avvisi: ${esc(bacheca.esito.errori.slice(0, 2).join('; '))}</p>` : '';
     return card('📬 Posta e agenda della settimana', nImp, `
-      <div class="hint">Aggiornata alle ${esc(alTesto)}, dal lunedì al giovedì alle 8. Le mail si aprono in Gmail; l'app non risponde e non archivia.</div>
+      <div class="hint" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <span>Aggiornata alle ${esc(alTesto)}, dal lunedì al giovedì alle 8. Le mail si aprono in Gmail; l'app non risponde e non archivia.</span>
+        <button class="btn btn-ghost btn-sm" id="hm-bacheca-aggiorna" title="Rilegge adesso posta e calendari">🔄 Aggiorna adesso</button>
+      </div>
       <div style="font-weight:600;margin-top:8px">📅 Agenda dei prossimi giorni</div>
       ${eventiHtml || '<p class="hint">Nessun evento nei prossimi giorni.</p>'}
       <div style="font-weight:600;margin-top:10px">✉️ Mail da guardare</div>
@@ -366,6 +369,17 @@ export async function render() {
     </div>
     <p class="hint" style="margin-top:12px">Il cruscotto conta le righe delle tabelle, non tiene una lista sua:
       un click porta sempre sulla pratica vera. Le pratiche chiuse e scartate non compaiono.</p>`;
+
+  /* «Aggiorna adesso» della card Posta e agenda: rilancia bacheca-giornata e ridisegna.
+     La funzione non onora input e scrive solo le sue tabelle: un clic in più non fa danni. */
+  host.querySelector('#hm-bacheca-aggiorna')?.addEventListener('click', async (ev) => {
+    const b = ev.currentTarget; b.disabled = true; b.textContent = '⏳ Leggo posta e agenda…';
+    const { data, error } = await sb.functions.invoke('bacheca-giornata', { body: {} });
+    if (error) { b.disabled = false; b.textContent = '🔄 Aggiorna adesso'; return toast('Aggiornamento non riuscito: ' + error.message, 'err'); }
+    const err = data?.errori?.length ? ` (${data.errori.length} avvisi)` : '';
+    toast(`Aggiornata: ${data?.scritte_mail ?? 0} mail, ${data?.scritti_eventi ?? 0} eventi${err}.`, 'ok');
+    render();
+  });
 
   host.querySelectorAll('.hm-riga[data-vista]').forEach((r) =>
     r.addEventListener('click', () => apriPratica(r.dataset.vista, Number(r.dataset.id))));
