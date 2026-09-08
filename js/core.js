@@ -46,7 +46,7 @@ export const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 /* Le funzioni pure stanno in comune.js e da qui si ri-esportano:
    chi importa da core.js continua a trovarle dov'erano. */
 export {
-  esc, dataIt, oggiIso,
+  esc, dataIt, leggiData, oggiIso,
   codiceProtocollo, siglaProtocollo, protocolloEsteso, esercizioDi,
 } from './comune.js';
 

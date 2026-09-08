@@ -19,6 +19,29 @@ export function dataIt(iso) {
   return g && m && a ? `${g}/${m}/${a}` : iso;
 }
 
+/* Il contrario: una data scritta o incollata come si trova
+   (12/03/2021, 12-03-2021, 12.03.2021, 2021-03-12, 12032021, 12/3/21)
+   → ISO «2021-03-12». Vuoto → null; non riconosciuta o inesistente
+   (31/02) → false, così chi chiama può fermarsi invece di salvare
+   un valore a caso. (08/09/2026: il campo «date» del browser non
+   accetta l'incolla, e in ufficio le date si copiano dai documenti.) */
+export function leggiData(testo) {
+  const s = String(testo || '').trim();
+  if (!s) return null;
+  let a, me, g;
+  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T\s].*)?$/);
+  if (m) { [, a, me, g] = m; }
+  else {
+    m = s.match(/^(\d{1,2})[\/.\-\s](\d{1,2})[\/.\-\s](\d{2,4})$/) || s.match(/^(\d{2})(\d{2})(\d{4})$/);
+    if (!m) return false;
+    [, g, me, a] = m;
+    if (a.length === 2) a = (Number(a) > 40 ? '19' : '20') + a;
+  }
+  const d = new Date(Date.UTC(+a, +me - 1, +g));
+  if (d.getUTCFullYear() !== +a || d.getUTCMonth() !== +me - 1 || d.getUTCDate() !== +g) return false;
+  return `${a}-${String(me).padStart(2, '0')}-${String(g).padStart(2, '0')}`;
+}
+
 /* I font standard dei PDF (Helvetica, codifica WinAnsi) non sanno
    scrivere i caratteri fuori dal Latin-1 + cp1252: un solo «□» in un
    testo faceva crollare l'intera generazione. Qui i caratteri noti

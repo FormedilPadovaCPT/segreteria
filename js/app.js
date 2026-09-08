@@ -6,7 +6,7 @@
    deve dipendere da lui, altrimenti l'import resta appeso.
    ============================================================ */
 
-import { sb, state, $, $$, esc, toast, attendi, mostraVista, chiudiDrawer } from './core.js';
+import { sb, state, $, $$, esc, toast, attendi, mostraVista, chiudiDrawer, leggiData } from './core.js';
 import './ordina.js';   // ordinamento per colonna di tutte le tabelle .tbl (solo effetto collaterale)
 
 /* ── accesso ──────────────────────────────────────────────── */
@@ -230,6 +230,23 @@ $('#menu-toggle').addEventListener('click', () => $('#sidebar').classList.toggle
 $('#drawer-close').addEventListener('click', chiudiDrawer);
 $('#drawer-bg').addEventListener('click', chiudiDrawer);
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') chiudiDrawer(); });
+
+/* Incollare una data in un campo «date» (08/09/2026, chiesto dall'utente).
+   Il browser ignora l'incolla su input[type=date]: qui si intercetta,
+   si legge «12/03/2021» (o 12-03-2021, 2021-03-12, 12032021) e si
+   scrive il valore nel campo, come se fosse stato digitato. Vale per
+   tutti i 33 campi data dell'app senza toccarli uno per uno. */
+document.addEventListener('paste', (e) => {
+  const el = e.target;
+  if (!(el instanceof HTMLInputElement) || el.type !== 'date') return;
+  const testo = (e.clipboardData || window.clipboardData)?.getData('text') || '';
+  const iso = leggiData(testo);
+  if (!iso) return;
+  e.preventDefault();
+  el.value = iso;
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+});
 
 $$('.nav-item').forEach((b) => b.addEventListener('click', () => vaiA(b.dataset.view)));
 document.addEventListener('click', (e) => {

@@ -10,7 +10,7 @@
      · azzurro  = risulta operante secondo CEIV/CNCE
    ============================================================ */
 
-import { sb, state, $, $$, esc, dataIt, toast, attendi, mostraVista, apriDrawer } from './core.js';
+import { sb, state, $, $$, esc, dataIt, leggiData, toast, attendi, mostraVista, apriDrawer } from './core.js';
 import { collegaDoppioClickMail } from './eml.js';
 
 let scheda = null;          // ultimo JSON caricato
@@ -556,6 +556,19 @@ const OPZIONI = {
 /* «Stato» qui è la nazione della sede: quasi sempre ITALIA */
 const STATI = ['ITALIA', 'ALBANIA', 'AUSTRIA', 'CROAZIA', 'FRANCIA', 'GERMANIA', 'MOLDAVIA', 'POLONIA', 'ROMANIA', 'SAN MARINO', 'SLOVENIA', 'SVIZZERA', 'UCRAINA'];
 
+/* ── Date che si possono incollare (08/09/2026, chiesto dall'utente) ──
+   Il campo «date» del browser accetta solo la digitazione o il
+   calendario: incollarci «12/03/2021» non fa nulla. Qui le date sono
+   campi di testo: si scrivono o si incollano come si trovano
+   (12/03/2021, 12-03-2021, 12.03.2021, 2021-03-12, 12032021) e si
+   convertono al salvataggio. Una data che non si capisce ferma il
+   salvataggio, non passa in silenzio. */
+function dataInput(attr, iso, extra = '') {
+  return `<input type="text" ${attr} value="${esc(dataIt(iso))}" placeholder="gg/mm/aaaa" inputmode="numeric" maxlength="10" style="width:105px" ${extra}>`;
+}
+/* la conversione testo → ISO è leggiData di comune.js (condivisa con
+   l'incolla sui campi «date» di tutta l'app, vedi app.js) */
+
 /* Il comune si cerca fra i 10.000 di comuni_catastali mentre si scrive:
    una tendina con tutti dentro non si userebbe. Il nome scelto arriva
    pulito, e da lì provincia e CAP si riempiono da soli. */
@@ -628,7 +641,7 @@ function tabAnagrafica() {
           <input type="text" id="ia-ateco-cod" placeholder="es. 43.31 oppure «intonac»" autocomplete="off" list="ia-ateco-dl">
           <datalist id="ia-ateco-dl"></datalist>
           <div id="ia-ateco-desc" class="hint" style="min-height:16px"></div></div>
-        <div class="field"><label for="ia-ateco-data">Dal (facoltativo)</label><input type="date" id="ia-ateco-data"></div>
+        <div class="field"><label for="ia-ateco-data">Dal (facoltativo)</label>${dataInput('id="ia-ateco-data"', '')}</div>
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;align-items:center">
         <button class="btn btn-primary btn-sm" id="ia-ateco-add">+ Aggiungi codice</button>
@@ -713,9 +726,9 @@ function sezioneCertificazioni() {
           ${cod && !tipi.some((t) => String(t.codice) === cod) ? `<option value="${esc(cod)}" selected>codice ${esc(cod)} (com'è scritto)</option>` : ''}
         </select></td>
         <td><input type="text" data-cert-campo="numero" value="${esc(c?.numero || '')}" placeholder="n° attestazione"></td>
-        <td><input type="date" data-cert-campo="data_certificato" value="${esc(c?.data_certificato || '')}"></td>
-        <td style="${stileFine(c?.data_fine)}"><input type="date" data-cert-campo="data_fine" value="${esc(c?.data_fine || '')}"></td>
-        <td><input type="date" data-cert-campo="data_rinnovo" value="${esc(c?.data_rinnovo || '')}"></td>
+        <td>${dataInput('data-cert-campo="data_certificato"', c?.data_certificato)}</td>
+        <td style="${stileFine(c?.data_fine)}">${dataInput('data-cert-campo="data_fine"', c?.data_fine)}</td>
+        <td>${dataInput('data-cert-campo="data_rinnovo"', c?.data_rinnovo)}</td>
         <td><input type="text" data-cert-campo="ente" value="${esc(c?.ente || '')}" placeholder="es. RINA, Bureau Veritas"></td>
         <td><input type="text" data-cert-campo="regolamento" value="${esc(c?.regolamento || '')}" placeholder="es. D.P.R. 207/2010"></td>
         <td><input type="text" data-cert-campo="note" value="${esc(c?.note || '')}"></td>
@@ -743,13 +756,17 @@ function agganciaCertificazioni() {
   const host = $('#imp-tab-host'); if (!host) return;
   const leggi = (tr) => {
     const d = {};
-    tr.querySelectorAll('[data-cert-campo]').forEach((el) => { d[el.dataset.certCampo] = el.value.trim() || null; });
+    tr.querySelectorAll('[data-cert-campo]').forEach((el) => {
+      const k = el.dataset.certCampo;
+      d[k] = /^data_/.test(k) ? leggiData(el.value) : (el.value.trim() || null);
+    });
     if (d.certificazione) d.certificazione = Number(d.certificazione);
     return d;
   };
   host.querySelectorAll('[data-cert-salva]').forEach((b) => b.addEventListener('click', async (e) => {
     const tr = b.closest('tr'); const d = leggi(tr);
     if (!d.certificazione) return toast('Scegli il tipo di certificazione.', 'err');
+    if ([d.data_certificato, d.data_fine, d.data_rinnovo].includes(false)) return toast('Una data non è riconosciuta: scrivila come gg/mm/aaaa.', 'err');
     if (d.data_certificato && d.data_fine && d.data_fine < d.data_certificato) return toast('La fine validità è prima della data del certificato.', 'err');
     attendi(e.currentTarget, true);
     const id = b.dataset.certSalva;
@@ -831,7 +848,8 @@ function agganciaAteco() {
   $('#ia-ateco-add')?.addEventListener('click', async (e) => {
     const codice = inp.value.trim();
     if (!/^[0-9]{2}(\.[0-9]{1,2}){0,2}$/.test(codice)) return toast('Scrivi un codice ATECO nella forma 43, 43.31 o 43.31.00.', 'err');
-    const data_ateco = $('#ia-ateco-data').value || null;
+    const data_ateco = leggiData($('#ia-ateco-data').value);
+    if (data_ateco === false) return toast('Data non riconosciuta: scrivila come gg/mm/aaaa.', 'err');
     attendi(e.currentTarget, true);
     const { error } = await sb.from('imprese_ateco').insert({
       impresa_id: scheda.impresa.impresa_id, codice, data_ateco, fonte: `segreteria (${state.email})`,
