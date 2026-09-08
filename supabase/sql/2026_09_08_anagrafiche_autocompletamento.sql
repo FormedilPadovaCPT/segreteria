@@ -346,3 +346,19 @@ grant execute on function public.comune_norm(text), public.comune_norm_base(text
 --   select content into s from http_get('https://raw.githubusercontent.com/FormedilPadovaCPT/segreteria/main/supabase/sql/2026_09_08_ateco_2025_seed.sql');
 --   execute s;
 -- end $$;
+
+-- ─── 8. correzioni e recupero dello storico (stesso giorno, ok dell'utente «a piccoli lotti») ─
+-- la sigla di provincia fra parentesi nel nome comune («Camposampiero (PD)») va tolta
+create or replace function public.comune_norm_base(p text)
+returns text language sql immutable as $$
+  select nullif(trim(regexp_replace(regexp_replace(public.comune_norm(p), '\s*\([A-Z]{2}\)\s*$', ''), '\s*-\s*Q\d.*$', '')), '');
+$$;
+-- Vigonovo e' in provincia di Venezia: la mappa dell'app diceva 35010, il CAP e' 30030; Motta e' ambiguo, tolto
+update public.comuni_cap set cap = '30030', fonte = 'corretto a mano 2026-09-08 (Vigonovo e'' VE: CAP 30030)' where nome = 'Vigonovo';
+delete from public.comuni_cap where nome = 'Motta';
+-- Recupero eseguito a lotti (hashtext(impresa_id) % N) via execute_sql, non ripetibile qui perche' passa dai trigger:
+--   persone: 267 → sesso dal nome (+ titolo se vuoto); restano 72 senza sesso (nomi ignoti o ambigui)
+--   imprese, forma giuridica: 11.631 dedotte dal nome (S.r.l. 7.050, S.n.c. 1.502, S.p.A. 842, S.r.l.s 835, S.A.S. 792,
+--     S.coop. 393, S.r.l. Unipersonale 110, Consorzio 101, Ditta Individuale 6); restano 8.837 senza forma (non deducibile)
+--   imprese, CAP/prov: da 1.760 a 836 senza CAP o provincia; mai scritto il CAP dove la provincia gia' presente
+--     non era quella del comune in tabella (6 casi lasciati com'erano)
