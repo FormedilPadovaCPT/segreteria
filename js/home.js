@@ -236,22 +236,24 @@ export async function render() {
     const nImp = bacheca.mail.length;
     const alTesto = bacheca.al ? `${dataIt(bacheca.al.slice(0, 10))} ${oraIt(bacheca.al)}` : 'mai';
     const errori = bacheca.esito?.errori?.length ? `<p class="hint" style="color:#b91c1c;margin-top:6px">⚠ Ultimo giro con avvisi: ${esc(bacheca.esito.errori.slice(0, 2).join('; '))}</p>` : '';
-    return card('📬 Posta e agenda della settimana', nImp, `
-      <div class="hint" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <span>Aggiornata alle ${esc(alTesto)}, dal lunedì al giovedì alle 8. Le mail si aprono in Gmail; l'app non risponde e non archivia.</span>
-        <button class="btn btn-ghost btn-sm" id="hm-bacheca-aggiorna" title="Rilegge adesso posta e calendari">🔄 Aggiorna adesso</button>
-      </div>
-      <div style="font-weight:600;margin-top:8px">📅 Agenda dei prossimi giorni</div>
-      ${eventiHtml || '<p class="hint">Nessun evento nei prossimi giorni.</p>'}
-      <div style="font-weight:600;margin-top:10px">✉️ Mail da guardare</div>
-      ${mailHtml || '<p class="hint">Nessuna mail segnata come importante nell\'ultimo giro.</p>'}
-      ${errori}`);
+    /* due card separate (chiesto dall'utente 08/09): agenda e posta, entrambe in coda al cruscotto;
+       il bottone rilegge tutte e due, quindi sta su entrambe */
+    const piede = `<div class="hint" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px">
+        <span>Aggiornata alle ${esc(alTesto)}, dal lunedì al giovedì alle 8.</span>
+        <button class="btn btn-ghost btn-sm hm-bacheca-aggiorna" title="Rilegge adesso posta e calendari">🔄 Aggiorna adesso</button>
+      </div>`;
+    const agenda = card('📅 Agenda della settimana', bacheca.eventi.length,
+      (eventiHtml || '<p class="hint">Nessun evento nei prossimi giorni.</p>') + piede);
+    const posta = card('✉️ Posta da guardare', nImp,
+      (mailHtml || '<p class="hint">Nessuna mail segnata come importante nell\'ultimo giro.</p>')
+      + '<p class="hint" style="margin-top:6px">Le mail si aprono in Gmail; l\'app non risponde e non archivia. Il numero a destra è il punteggio delle regole.</p>'
+      + errori + piede);
+    return { agenda, posta };
   })();
 
   host.innerHTML = `
     ${bannerCanale}
     <div class="hm-griglia">
-      ${cardBacheca}
 
       ${card('⏳ In attesa del Direttore', daAutorizzare.length,
         daAutorizzare.length
@@ -366,20 +368,21 @@ export async function render() {
             <span><strong>${esc(codiceProtocollo(r))}</strong> — ${esc((r.oggetto || '').slice(0, 60))}</span>
             <span class="hint">${dataIt(r.data_prot)}</span></div>`).join('')}`,
         vai('registro', 'Apri il registro'))}
+      ${cardBacheca ? cardBacheca.agenda + cardBacheca.posta : ''}
     </div>
     <p class="hint" style="margin-top:12px">Il cruscotto conta le righe delle tabelle, non tiene una lista sua:
       un click porta sempre sulla pratica vera. Le pratiche chiuse e scartate non compaiono.</p>`;
 
   /* «Aggiorna adesso» della card Posta e agenda: rilancia bacheca-giornata e ridisegna.
      La funzione non onora input e scrive solo le sue tabelle: un clic in più non fa danni. */
-  host.querySelector('#hm-bacheca-aggiorna')?.addEventListener('click', async (ev) => {
+  host.querySelectorAll('.hm-bacheca-aggiorna').forEach((btn) => btn.addEventListener('click', async (ev) => {
     const b = ev.currentTarget; b.disabled = true; b.textContent = '⏳ Leggo posta e agenda…';
     const { data, error } = await sb.functions.invoke('bacheca-giornata', { body: {} });
     if (error) { b.disabled = false; b.textContent = '🔄 Aggiorna adesso'; return toast('Aggiornamento non riuscito: ' + error.message, 'err'); }
     const err = data?.errori?.length ? ` (${data.errori.length} avvisi)` : '';
     toast(`Aggiornata: ${data?.scritte_mail ?? 0} mail, ${data?.scritti_eventi ?? 0} eventi${err}.`, 'ok');
     render();
-  });
+  }));
 
   host.querySelectorAll('.hm-riga[data-vista]').forEach((r) =>
     r.addEventListener('click', () => apriPratica(r.dataset.vista, Number(r.dataset.id))));
