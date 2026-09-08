@@ -623,6 +623,7 @@ function tabAnagrafica() {
         <div class="${griglia}">${campi.map(campo).join('')}</div>
       </div>`).join('')}
 
+    <div class="affiancate">
     <div class="sez">
       <h3>Codici ATECO</h3>
       ${(scheda.ateco || []).length
@@ -636,7 +637,7 @@ function tabAnagrafica() {
             </div>`).join('')}
            <p class="hint" style="margin-top:6px">Il più recente in grassetto; lo storico viene dalla tabella Access Atecoimprese. Descrizioni ISTAT.</p></div>`
         : '<p class="hint">Nessun codice ATECO registrato per questa impresa.</p>'}
-      <div class="grid-3" style="margin-top:8px;align-items:end">
+      <div class="grid-3" style="margin-top:8px;align-items:end;gap:10px 14px">
         <div class="field" style="grid-column:span 2"><label for="ia-ateco-cod">Aggiungi codice ATECO (2025) — cerca per codice o parola</label>
           <input type="text" id="ia-ateco-cod" placeholder="es. 43.31 oppure «intonac»" autocomplete="off" list="ia-ateco-dl">
           <datalist id="ia-ateco-dl"></datalist>
@@ -650,9 +651,10 @@ function tabAnagrafica() {
       </div>
     </div>
 
-    <div class="sez">
+    <div class="sez" style="display:flex;flex-direction:column">
       <h3>Note d'ufficio</h3>
-      <textarea id="ia-note_access" data-campo="note_access" style="min-height:110px">${esc(i.note_access ?? '')}</textarea>
+      <textarea id="ia-note_access" data-campo="note_access" style="min-height:110px;flex:1">${esc(i.note_access ?? '')}</textarea>
+    </div>
     </div>
 
     <div class="sez">
