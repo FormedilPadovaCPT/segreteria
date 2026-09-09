@@ -28,6 +28,7 @@ export const ENTE = {
   indirizzo: 'Via Basilicata 10 — 35127 Padova (PD)',
   tel: '049 761168',
   email: 'cpt@formedilpadova.it',
+  email2: 'cptpd@did.formedilpadova.it',
   web: 'www.formedilpadova.it',
 };
 

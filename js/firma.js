@@ -40,6 +40,7 @@ export const FIRMA_DATI = {
   telLink: '+39049761168',
   interno: 'int. 4',
   email: 'cpt@formedilpadova.it',
+  email2: 'cptpd@did.formedilpadova.it',
   sito: 'www.formedilpadova.it',
   sitoUrl: 'https://www.formedilpadova.it',
   serviziUrl: 'https://formedilpadovacpt.github.io/servizi/',
@@ -65,7 +66,7 @@ ${FIRMA_DATI.area} | ${FIRMA_DATI.ente.toUpperCase()}
 
 ${FIRMA_DATI.indirizzo.replace(' · ', '\n')}
 Tel. ${FIRMA_DATI.tel} (${FIRMA_DATI.interno})
-email: ${FIRMA_DATI.email}
+email: ${FIRMA_DATI.email} · ${FIRMA_DATI.email2}
 URL: ${FIRMA_DATI.sitoUrl}
 
 Orari uff. ${FIRMA_DATI.area}
@@ -116,7 +117,7 @@ export function firmaHtml() {
 <div style="padding-top:1px;font-size:11px;line-height:16px;mso-line-height-rule:exactly;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:${GRIGIO};">${esc(d.ente)}</div>
 <div style="padding-top:10px;font-size:13px;line-height:19px;mso-line-height-rule:exactly;color:${GRIGIO};">${esc(d.indirizzo)}</div>
 <div style="padding-top:4px;font-size:13px;line-height:19px;mso-line-height-rule:exactly;color:${GRIGIO};">Tel. <a href="tel:${esc(d.telLink)}" style="color:${GRIGIO};text-decoration:none;">${esc(d.tel)}</a> (${esc(d.interno).replace(' ', '&nbsp;')})</div>
-<div style="padding-top:4px;font-size:13px;line-height:19px;mso-line-height-rule:exactly;color:${GRIGIO};">email: <a href="mailto:${esc(d.email)}" style="color:${ARANCIO};text-decoration:none;font-weight:600;">${esc(d.email)}</a></div>
+<div style="padding-top:4px;font-size:13px;line-height:19px;mso-line-height-rule:exactly;color:${GRIGIO};">email: <a href="mailto:${esc(d.email)}" style="color:${ARANCIO};text-decoration:none;font-weight:600;">${esc(d.email)}</a> &middot; <a href="mailto:${esc(d.email2)}" style="color:${ARANCIO};text-decoration:none;font-weight:600;">${esc(d.email2)}</a></div>
 <div style="padding-top:4px;font-size:13px;line-height:19px;mso-line-height-rule:exactly;color:${GRIGIO};"><a href="${esc(d.sitoUrl)}" style="color:${ARANCIO};text-decoration:none;font-weight:600;">${esc(d.sito)}</a></div>
 </td>
 </tr>

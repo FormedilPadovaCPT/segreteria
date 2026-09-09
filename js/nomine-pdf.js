@@ -53,7 +53,7 @@ function intestazione(pagina, m) {
     ['Accreditamento Regione Veneto L.R. N. 19 del 09.08.02 cod. A0119', font, 6.5, grigio],
     ['CF 80006850285 - P IVA 02585760289 - CCIAA PD n. REA 294715', font, 6.5, grigio],
     [`${ENTE.indirizzo} — tel. ${ENTE.tel}`, font, 6.5, grigio],
-    [`${ENTE.email} — ${ENTE.web}`, font, 6.5, grigio],
+    [`${ENTE.email} — ${ENTE.email2} — ${ENTE.web}`, font, 6.5, grigio],
   ];
   let yDx = y;
   for (const [testo, f, dim, colore] of righe) {
