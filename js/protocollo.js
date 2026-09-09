@@ -291,7 +291,7 @@ export async function apriDettaglio(id) {
         : '<button class="btn btn-ghost btn-sm" data-az="annulla">Annulla protocollo</button>'}
     </div>
     <p style="font-size:11px;color:var(--testo-soft);margin-top:14px">
-      ${p.mail_inviata_at ? `${inn ? 'Avviso inviato' : 'Protocollato inviato da Gmail'} il ${dataIt(p.mail_inviata_at)} a ${esc(p.mail_destinatari || '')}.<br>` : ''}
+      ${p.mail_inviata_at ? `${inn ? 'Avviso inviato' : 'Protocollato inviato'} il ${dataIt(p.mail_inviata_at)} a ${esc(p.mail_destinatari || '')}.<br>` : ''}
       Inserito da ${esc(p.creato_da || 'archivio Access')}${p.created_at ? ` il ${dataIt(p.created_at)}` : ''}.
       Il numero di protocollo non è modificabile.
     </p>`;

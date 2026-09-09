@@ -25,9 +25,11 @@
    l'account ufficiale cpt@formedilpadova.it, e l'invio lo fa una
    persona. È quel che faceva la macro Access, che finiva con
    .Display e non con .Send, ed è lo stesso confine del timbro.
-   Per l'invio del protocollato c'è anche, A SCELTA, la strada Gmail:
-   parte subito da cptpd@did.formedilpadova.it (indirizzo istituzionale
-   a tutti gli effetti dal 09/09/2026), con Reply-To cpt@formedilpadova.it.
+   Per il protocollato c'è anche, A SCELTA, la strada Gmail: la bozza
+   nasce direttamente nelle Bozze della casella cptpd@did.formedilpadova.it
+   (indirizzo istituzionale a tutti gli effetti dal 09/09/2026, Reply-To
+   cpt@formedilpadova.it), si apre da Gmail, si ritocca e si invia a
+   mano. L'app non spedisce mai (scelta dell'utente, 09/09/2026).
    ============================================================ */
 
 import { sb, $, esc, dataIt, toast, attendi, codiceProtocollo } from './core.js';
@@ -154,8 +156,8 @@ export async function apriDialogoMail(p, modo = 'avviso') {
           <span><strong>Outlook</strong> — si scarica la bozza pronta, la rileggi e premi Invia tu (mittente <code>cpt@formedilpadova.it</code>)</span>
         </label>
         <label style="font-weight:400;display:flex;gap:8px;align-items:center;margin-top:6px">
-          <input type="radio" name="m-canale" value="invia" style="width:auto">
-          <span><strong>Gmail</strong> — parte subito da <code>cptpd@did.formedilpadova.it</code>, con risposte a <code>cpt@formedilpadova.it</code></span>
+          <input type="radio" name="m-canale" value="gmail" style="width:auto">
+          <span><strong>Gmail</strong> — la bozza nasce nelle Bozze di <code>cptpd@did.formedilpadova.it</code>: la apri da Gmail, la modifichi se serve e la invii tu (risposte a <code>cpt@formedilpadova.it</code>)</span>
         </label>
       </div>` : ''}
 
@@ -191,7 +193,7 @@ export async function apriDialogoMail(p, modo = 'avviso') {
 
   /* l'etichetta del bottone segue il canale scelto */
   bg.querySelectorAll('input[name="m-canale"]').forEach((r) => r.addEventListener('change', () => {
-    $('#m-invia', bg).textContent = r.value === 'invia' && r.checked ? '📤 Invia ora da Gmail' : '📧 Apri in Outlook';
+    $('#m-invia', bg).textContent = r.value === 'gmail' && r.checked ? '📝 Crea la bozza in Gmail' : '📧 Apri in Outlook';
   }));
 
   $('#m-invia', bg).addEventListener('click', async (ev) => {
@@ -200,20 +202,15 @@ export async function apriDialogoMail(p, modo = 'avviso') {
     const cc = $('#m-cc', bg).value.split(',').map((x) => x.trim()).filter(Boolean);
     const driveFileIds = [...bg.querySelectorAll('#m-att input:checked')].map((c) => c.value);
     const canale = bg.querySelector('input[name="m-canale"]:checked')?.value || 'bozza';
-    const invia = protocollato && canale === 'invia';
-
-    if (invia) {
-      const ok = confirm(`La mail parte ADESSO da Gmail (cptpd@did.formedilpadova.it), senza passare da Outlook.\n\nA: ${to.join(', ')}${cc.length ? `\nCc: ${cc.join(', ')}` : ''}\nAllegati: ${driveFileIds.length}\n\nConfermi?`);
-      if (!ok) return;
-    }
+    const gmail = protocollato && canale === 'gmail';
 
     const btn = ev.currentTarget;
-    attendi(btn, true, invia ? 'Invio…' : 'Preparo…');
+    attendi(btn, true, 'Preparo…');
     const { data, error } = await sb.functions.invoke('send-protocollo', {
       body: {
         protocolloId: p.id,
         modo,
-        azione: invia ? 'invia' : 'bozza',
+        azione: gmail ? 'bozza-gmail' : 'bozza',
         to,
         cc,
         messaggio: $('#m-msg', bg).value.trim(),
@@ -223,16 +220,17 @@ export async function apriDialogoMail(p, modo = 'avviso') {
     attendi(btn, false);
 
     if (error || data?.error) {
-      toast(`Non sono riuscito a ${invia ? 'inviare' : 'preparare'} la mail: ` + (data?.error || error?.message || 'risposta vuota'), 'err');
+      toast('Non sono riuscito a preparare la mail: ' + (data?.error || error?.message || 'risposta vuota'), 'err');
       return;
     }
 
-    if (invia) {
+    if (gmail) {
       chiudi();
-      toast(`Inviata da Gmail a ${to.join(', ')}${data?.allegati?.length ? ` con ${data.allegati.length} allegat${data.allegati.length === 1 ? 'o' : 'i'}` : ''}.`, 'ok');
-      /* il dettaglio si ridisegna: ora porta «inviato il … a …» */
-      const { apriDettaglio } = await import('./protocollo.js');
-      apriDettaglio(p.id);
+      /* La bozza e' nella casella: si apre Gmail su quella bozza. Da li'
+         si rilegge, si corregge e si preme Invia — l'app non ha spedito
+         niente. */
+      if (data?.url) window.open(data.url, '_blank', 'noopener');
+      toast(`Bozza creata nelle Bozze di ${data?.casella || 'cptpd@did.formedilpadova.it'}${data?.allegati?.length ? ` con ${data.allegati.length} allegat${data.allegati.length === 1 ? 'o' : 'i'}` : ''}: aprila da Gmail e premi Invia tu.`, 'ok');
       return;
     }
 

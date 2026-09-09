@@ -7,12 +7,16 @@
 // Invia a mano. È quel che faceva la macro Access, che finiva con
 // .Display e non con .Send — e lo stesso confine del timbro: la roba
 // che esce dall'ufficio la manda una persona.
-//   azione: 'bozza' (predefinito) → torna il .eml
-//   azione: 'invia'               → spedisce davvero, via Gmail API,
-//                                   da cptpd@did.formedilpadova.it
-//                                   (dal 09/09/2026 è un indirizzo
-//                                   istituzionale a tutti gli effetti,
-//                                   con Reply-To cpt@formedilpadova.it)
+//   azione: 'bozza' (predefinito) → torna il .eml per Outlook
+//   azione: 'bozza-gmail'         → crea la BOZZA nella casella Gmail
+//                                   cptpd@did.formedilpadova.it (dal
+//                                   09/09/2026 indirizzo istituzionale a
+//                                   tutti gli effetti, Reply-To cpt@):
+//                                   si apre da Gmail, si ritocca e si
+//                                   invia a mano. Non parte niente.
+//   azione: 'invia'               → spedisce davvero, via Gmail API.
+//                                   L'app NON la usa (scelta dell'utente
+//                                   09/09/2026): resta per un uso futuro.
 //
 //   modo: 'avviso'       → al MITTENTE di un protocollo in ENTRATA, per
 //                          dirgli che la sua comunicazione è stata
@@ -34,7 +38,7 @@
 // bucket Supabase: i documenti del protocollo non stanno più lì.
 //
 // Secret: GOOGLE_SERVICE_ACCOUNT_JSON
-// Scope della delega: gmail.send + drive
+// Scope della delega: gmail.send + gmail.compose (per le bozze) + drive
 // (drive PIENO e non drive.readonly: la delega di dominio autorizza
 //  stringhe esatte, e quella configurata per allegati-ass e' `drive`.
 //  Chiedere un ambito non delegato fa fallire il token.)
@@ -240,7 +244,8 @@ serve(async (req) => {
     if (!protocolloId) throw new Error('protocolloId mancante')
     const quale: 'avviso' | 'inoltra' | 'protocollato' =
       modo === 'avviso' ? 'avviso' : modo === 'protocollato' ? 'protocollato' : 'inoltra'
-    const bozza = azione !== 'invia'
+    const bozzaGmail = azione === 'bozza-gmail'
+    const bozza = azione !== 'invia' && !bozzaGmail
     const toList: string[] = Array.isArray(to) ? to : (to ? [to] : [])
     if (!toList.length) throw new Error('Nessun destinatario')
 
@@ -304,6 +309,8 @@ serve(async (req) => {
     }
 
     const da = bozza ? MITTENTE_UFFICIALE : MITTENTE
+    /* «email del …» nell'oggetto e' l'ora della bozza: chi la invia dopo
+       da Gmail puo' correggerla, come si correggeva in Outlook */
     /* Lo stesso compositore delle bozze dell'app: testo + HTML con logo
        inline + allegati. Con azione 'bozza' porta «X-Unsent: 1», che fa
        aprire il file in composizione e non come messaggio ricevuto. */
@@ -320,6 +327,34 @@ serve(async (req) => {
       allegati,
       unsent: bozza,
     })
+
+    /* La bozza in Gmail: il messaggio completo, allegati e firma compresi,
+       finisce nelle Bozze della casella cptpd@did. Lo scope gmail.compose
+       dev'essere delegato al service account, altrimenti il token viene
+       rifiutato ("unauthorized_client"). Niente mail_inviata_at: non e'
+       partito niente. */
+    if (bozzaGmail) {
+      const rawB = toB64Url(uint8ToBase64(new TextEncoder().encode(mime)))
+      let tokBozza: string
+      try {
+        tokBozza = await getToken(sa, 'https://www.googleapis.com/auth/gmail.compose')
+      } catch (e) {
+        throw new Error('Gmail non autorizza la creazione di bozze per il service account (serve lo scope gmail.compose nella delega a livello di dominio): ' + (e as Error).message)
+      }
+      const resB = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/drafts', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${tokBozza}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: { raw: rawB } }),
+      })
+      const outB = await resB.json()
+      if (!resB.ok || outB.error) throw new Error(outB.error?.message || JSON.stringify(outB))
+      return new Response(JSON.stringify({
+        ok: true, bozzaGmail: true, draftId: outB.id, messageId: outB.message?.id,
+        url: `https://mail.google.com/mail/u/${MITTENTE}/#drafts/${outB.message?.id || ''}`,
+        casella: MITTENTE, a: toList.join(', '), oggetto: soggetto, allegati: allegatoNomi,
+        logo: logo.ok ? undefined : `senza logo: ${logo.motivo}`,
+      }), { headers: { 'Content-Type': 'application/json', ...CORS } })
+    }
 
     /* La strada normale: non si spedisce, si consegna il messaggio
        pronto. Outlook lo apre in composizione, con l'allegato gia'
