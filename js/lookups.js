@@ -102,3 +102,30 @@ export const PERCHE_NIENTE_TIMBRO =
    nella storia del repository (fino al commit d27b428, file
    js/lettere.js) per quando si ricostruiranno al posto giusto.
    ────────────────────────────────────────────────────────── */
+
+/* ============================================================
+   TESTI PROPOSTI PER «INVIA PROTOCOLLATO»
+
+   La maschera propone il testo delle `note` del protocollo. Quando
+   sono vuote — ed è il caso normale dei documenti generati dalle app,
+   che le note non le compilano — chi manda si trovava un campo bianco
+   e scriveva il testo **dentro Outlook**: la mail usciva giusta, ma nel
+   registro restava «nessun testo». È successo col preventivo di VILNAI
+   (Prot. 2566-out del 09/09/2026), ed è la ragione di questo elenco.
+
+   Si accostano al `tipo_doc_id`. Il saluto iniziale e «Cordialmente» li
+   mette la mail: qui sta solo il corpo.
+   ============================================================ */
+export const TESTO_PROTOCOLLATO = {
+  /* 66 — Asseverazione Preventivo / contratto (5.D.2). Testo usato
+     davvero nell'invio a VILNAI del 09/09/2026. */
+  66: 'con la presente siamo a trasmettere il preventivo relativo alla richiesta di asseverazione, che potete trovare in allegato. In attesa di ricevere copia firmata per accettazione rimaniamo a disposizione per qualsiasi chiarimento o necessità di ulteriori dettagli.',
+};
+
+/** Il testo da proporre nella maschera: le note del protocollo, se ci
+ *  sono; altrimenti quello standard del tipo di documento. */
+export function testoProposto(p) {
+  const note = (p?.note || '').trim();
+  if (note) return note;
+  return TESTO_PROTOCOLLATO[p?.tipo_doc_id] || '';
+}

@@ -33,7 +33,7 @@
    ============================================================ */
 
 import { sb, $, esc, dataIt, toast, attendi, codiceProtocollo } from './core.js';
-import { RUBRICA_INTERNA, emailAssegnatario } from './lookups.js';
+import { RUBRICA_INTERNA, emailAssegnatario, testoProposto } from './lookups.js';
 
 /* Indirizzi già noti dell'impresa e delle persone del protocollo, per
    non riscriverli a mano: l'impresa (referente, seconda mail, PEC) e
@@ -144,8 +144,8 @@ export async function apriDialogoMail(p, modo = 'avviso') {
 
       <div class="field" style="margin-bottom:14px">
         <label for="m-msg">${protocollato ? 'Testo della comunicazione' : 'Il tuo testo (facoltativo)'}</label>
-        <textarea id="m-msg" ${protocollato ? 'rows="6"' : ''} placeholder="${avviso ? 'Righe da aggiungere prima dei saluti…' : protocollato ? 'Es. «vogliate trovare in allegato…»' : 'Es. «Ti giro questa, scade il 18 settembre»…'}">${protocollato ? esc(p.note || '') : ''}</textarea>
-        ${protocollato ? '<span class="hint">Proposto il testo registrato nelle note del protocollo. Saluto iniziale e «Cordialmente» li mette la mail.</span>' : ''}
+        <textarea id="m-msg" ${protocollato ? 'rows="6"' : ''} placeholder="${avviso ? 'Righe da aggiungere prima dei saluti…' : protocollato ? 'Es. «vogliate trovare in allegato…»' : 'Es. «Ti giro questa, scade il 18 settembre»…'}">${protocollato ? esc(testoProposto(p)) : ''}</textarea>
+        ${protocollato ? '<span class="hint">Proposto il testo delle note del protocollo, o quello standard del tipo di documento. Saluto iniziale e «Cordialmente» li mette la mail. <strong>Quello che scrivi qui resta nel protocollo</strong>: se poi lo cambi in Outlook, correggilo anche qui dal dettaglio.</span>' : ''}
       </div>
 
       ${protocollato ? `

@@ -294,6 +294,7 @@ export async function apriDettaglio(id) {
             ${m.inviata_at
               ? `<span class="tag" style="background:var(--ok-bg,#e6f4ea);color:var(--ok,#1e7b34)">inviata il ${dataIt(m.inviata_at)}</span>`
               : `<button class="btn btn-ghost btn-sm" data-az="segna-inviata" data-invio="${m.id}">L&rsquo;ho inviata</button>`}
+            <button class="btn btn-ghost btn-sm" data-az="correggi-testo" data-invio="${m.id}">✏️ Correggi il testo</button>
           </div>
           <div class="cell-sub" style="margin-top:4px">A ${esc((m.destinatari || []).join(', '))}${(m.cc || []).length ? ' · cc ' + esc(m.cc.join(', ')) : ''}</div>
           ${(m.allegati || []).length ? `<div class="cell-sub">Allegati: ${esc(m.allegati.join(' · '))}</div>` : ''}
@@ -303,6 +304,8 @@ export async function apriDettaglio(id) {
     <p class="hint" style="margin:6px 0 0">
       Qui resta <strong>quello che è stato scritto</strong>. La riga dice «preparata»: la mail la manda
       una persona da Outlook o da Gmail, e l&rsquo;app non sa quando è partita — «l&rsquo;ho inviata» serve a dirglielo.
+      ⚠️ Se il testo è stato <strong>completato o cambiato dentro Outlook</strong>, l&rsquo;app non può saperlo:
+      «Correggi il testo» serve a riportare qui quello che è davvero uscito.
     </p>` : '<p class="empty" style="padding:12px">Nessuna mail preparata da questo protocollo.</p>'}
 
     <div class="sect-title">Azioni</div>
@@ -450,6 +453,21 @@ async function gestisciAzioneDrawer(e) {
   /* «L'ho inviata»: l'app prepara la bozza ma non sa quando la persona
      preme Invia. Finché nessuno lo dice, la riga resta «preparata» — che
      è la verità, non una reticenza. */
+  /* Il testo si può correggere DOPO: chi manda spesso lo completa dentro
+     Outlook, e l'app non ha modo di accorgersene. Meglio un campo che si
+     corregge di un registro che dice il falso. */
+  if (az === 'correggi-testo') {
+    const id = Number(btn.dataset.invio);
+    const { data: riga } = await sb.from('s_prot_invii').select('testo').eq('id', id).maybeSingle();
+    const nuovo = prompt('Il testo davvero uscito con questa mail:', riga?.testo || '');
+    if (nuovo === null) return;
+    const { error } = await sb.from('s_prot_invii').update({ testo: nuovo.trim() || null }).eq('id', id);
+    if (error) { toast('Non riuscito: ' + error.message, 'err'); return; }
+    toast('Testo aggiornato.', 'ok');
+    apriDettaglio(p.id);
+    return;
+  }
+
   if (az === 'segna-inviata') {
     const { data: u } = await sb.auth.getUser();
     const { error } = await sb.from('s_prot_invii')
