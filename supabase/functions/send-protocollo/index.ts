@@ -59,6 +59,26 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
 import { componiEml, firmaHtml } from './firma.js'
 // @ts-ignore modulo JS condiviso con la webapp, senza tipi
 import { caricaLogo } from './firma-logo.js'
+// il timbro di protocollo in HTML da posta: stesso disegno del cartaceo
+// @ts-ignore modulo JS puro, senza tipi
+import { timbroHtml, timbroTesto, testoQrTimbro, FONT_MAIL } from './timbro-mail.js'
+// il QR del timbro: la stessa libreria del timbro sul cartaceo
+// (qrcode-generator), da esm.sh perche' Deno non ha node_modules
+// @ts-ignore modulo senza tipi
+import qrcode from 'https://esm.sh/qrcode-generator@1.4.4'
+
+const QR_CID = 'qr-protocollo@segreteria'
+
+/* Il QR come GIF, per l'immagine inline della mail: e' l'unico formato
+   che qrcode-generator sa scrivere da solo, e ai client di posta basta. */
+function qrGif(testo: string): Uint8Array {
+  const qr = qrcode(0, 'M')
+  qr.addData(testo)
+  qr.make()
+  const dataUrl: string = qr.createDataURL(4, 2)
+  const b64 = dataUrl.slice(dataUrl.indexOf(',') + 1)
+  return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
+}
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -142,16 +162,16 @@ function htmlAvviso(p: Record<string, unknown>, messaggio: string): string {
   const chi = (p.persona as string) || (p.impresa_nome as string) || ''
   return `<!DOCTYPE html><html><head><meta charset="UTF-8"></head>
 <body style="margin:0;padding:22px;background:#fff">
-<p style="font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#000;line-height:1.7;margin:0">
+<p style="font-family:${FONT_MAIL};font-size:14px;color:#000;line-height:1.6;margin:0">
   Gent.le ${esc(chi)},<br>buongiorno,
 </p>
-<p style="font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#000;line-height:1.7;margin:12px 0 0">
+<p style="font-family:${FONT_MAIL};font-size:14px;color:#000;line-height:1.6;margin:12px 0 0">
   si avvisa che la comunicazione da Lei inviataci con oggetto
   «${esc(p.oggetto)}» è stata protocollata con
   <b>n° Prot. ${esc(codiceDi(p))} del ${dataIt(p.data_prot as string)}</b>.
 </p>
-${messaggio ? `<p style="font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#000;line-height:1.7;margin:12px 0 0;white-space:pre-line">${esc(messaggio)}</p>` : ''}
-<p style="font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#000;margin:16px 0 0">Distinti saluti.</p>
+${messaggio ? `<p style="font-family:${FONT_MAIL};font-size:14px;color:#000;line-height:1.6;margin:12px 0 0;white-space:pre-line">${esc(messaggio)}</p>` : ''}
+<p style="font-family:${FONT_MAIL};font-size:14px;color:#000;margin:16px 0 0">Distinti saluti.</p>
 ${PIEDE}
 </body></html>`
 }
@@ -162,7 +182,7 @@ function htmlInoltra(p: Record<string, unknown>, messaggio: string, allegatoNomi
     ? `<tr><td style="padding:4px 12px 4px 0;color:#6b7280;white-space:nowrap;vertical-align:top">${et}</td><td style="padding:4px 0">${esc(v)}</td></tr>`
     : ''
   return `<!DOCTYPE html><html><head><meta charset="UTF-8"></head>
-<body style="margin:0;padding:0;background:#f4f4f4;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#333">
+<body style="margin:0;padding:0;background:#f4f4f4;font-family:${FONT_MAIL};font-size:14px;color:#333">
 <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f4;padding:20px 0"><tr><td align="center">
 <table width="620" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:6px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.1)">
   <tr><td style="background:#e7500f;padding:14px 24px">
@@ -203,19 +223,16 @@ function htmlInoltra(p: Record<string, unknown>, messaggio: string, allegatoNomi
       «Cordialmente» e la firma dell'ufficio ── */
 function htmlProtocollato(p: Record<string, unknown>, messaggio: string): string {
   const chi = (p.persona as string) || (p.alla_ca as string) || (p.impresa_nome as string) || ''
-  const th = 'padding:4px 12px;border:1px solid #9aa0a8;font-family:Arial,Helvetica,sans-serif;font-size:11px;font-weight:bold;color:#565c66;text-align:center'
-  const td = 'padding:4px 12px;border:1px solid #9aa0a8;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#1f2933;text-align:center'
+  /* in testa il timbro come sul cartaceo: banda arancione, numero, data,
+     QR e la griglia — vedi timbro-mail.js */
   return `<!DOCTYPE html><html><head><meta charset="UTF-8"></head>
 <body style="margin:0;padding:22px;background:#fff">
-<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:0 0 18px">
-  <tr><td style="${th}">Protocollo N°</td><td style="${th}">Del</td><td style="${th}">Ufficio</td></tr>
-  <tr><td style="${td};font-weight:bold;color:#e7500f">${esc(numeroVisibile(p))}</td><td style="${td}">${dataIt(p.data_prot as string)}</td><td style="${td};font-style:italic">${esc(p.ufficio || 'Segreteria Area Sicurezza e Salute')}</td></tr>
-</table>
-<p style="font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#000;line-height:1.7;margin:0">
+<div style="margin:0 0 20px">${timbroHtml(p, { qrSrc: `cid:${QR_CID}` })}</div>
+<p style="font-family:${FONT_MAIL};font-size:14px;color:#000;line-height:1.6;margin:0">
   Gent.le ${esc(chi)},<br>buongiorno,
 </p>
-${messaggio ? `<p style="font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#000;line-height:1.7;margin:12px 0 0;white-space:pre-line">${esc(messaggio)}</p>` : ''}
-<p style="font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#000;margin:16px 0 0">Cordialmente.</p>
+${messaggio ? `<p style="font-family:${FONT_MAIL};font-size:14px;color:#000;line-height:1.6;margin:12px 0 0;white-space:pre-line">${esc(messaggio)}</p>` : ''}
+<p style="font-family:${FONT_MAIL};font-size:14px;color:#000;margin:16px 0 0">Cordialmente.</p>
 ${PIEDE}
 </body></html>`
 }
@@ -223,7 +240,7 @@ ${PIEDE}
 function testoProtocollato(p: Record<string, unknown>, messaggio: string): string {
   const chi = (p.persona as string) || (p.alla_ca as string) || (p.impresa_nome as string) || ''
   return [
-    `Protocollo N° ${numeroVisibile(p)}   Del ${dataIt(p.data_prot as string)}   Ufficio ${p.ufficio || 'Segreteria Area Sicurezza e Salute'}`,
+    timbroTesto(p),
     '',
     `Gent.le ${chi},`,
     'buongiorno,',
@@ -325,6 +342,9 @@ serve(async (req) => {
       corpo: quale === 'protocollato' ? testoProtocollato(p, messaggio || '') : '',
       html,
       allegati,
+      inline: quale === 'protocollato'
+        ? [{ cid: QR_CID, mime: 'image/gif', nome: 'qr-protocollo.gif', byte: qrGif(testoQrTimbro(p)) }]
+        : [],
       unsent: bozza,
     })
 

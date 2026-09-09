@@ -224,6 +224,8 @@ export function senzaFirma(corpo) {
      unsent               — true: «X-Unsent: 1», Outlook la apre in bozza
      from                 — facoltativo (le bozze prendono l'account di Outlook)
      replyTo              — facoltativo: dove tornano le risposte, se diverso da from
+     inline               — facoltativo: altre immagini inline [{cid, mime, byte, nome?}]
+                            (es. il QR del timbro), referenziate nell'HTML come cid:…
    Struttura:
      multipart/mixed
        multipart/alternative
@@ -232,11 +234,12 @@ export function senzaFirma(corpo) {
            text/html
            image/jpeg (il logo, cid:)
        allegati…                                                       */
-export function componiEml({ from = '', replyTo = '', to = '', cc = [], oggetto = '', corpo = '', html = '', allegati = [], firma = true, unsent = true }) {
+export function componiEml({ from = '', replyTo = '', to = '', cc = [], oggetto = '', corpo = '', html = '', allegati = [], inline = [], firma = true, unsent = true }) {
   const testo = senzaFirma(corpo);
   const plain = firma ? `${testo}\n\n${FIRMA_SEGRETERIA}` : testo;
   const pagina = html || paginaHtml(testoInHtml(testo), { firma });
   const conLogo = pagina.includes(`cid:${LOGO_FIRMA_CID}`);
+  const immaginiInline = (inline || []).filter((i) => i && i.cid && i.byte && pagina.includes(`cid:${i.cid}`));
   const stampo = Date.now().toString(36);
   const B_MIX = `=_mix_${stampo}`;
   const B_ALT = `=_alt_${stampo}`;
@@ -249,20 +252,32 @@ export function componiEml({ from = '', replyTo = '', to = '', cc = [], oggetto 
     '',
     aRighe(b64testo(pagina)),
   ];
-  const htmlEventualmenteConLogo = conLogo ? [
+  const htmlEventualmenteConLogo = (conLogo || immaginiInline.length) ? [
     `Content-Type: multipart/related; boundary="${B_REL}"; type="text/html"`,
     '',
     `--${B_REL}`,
     ...parteHtml,
     '',
-    `--${B_REL}`,
-    `Content-Type: ${LOGO_FIRMA_MIME}; name="logo-formedil-padova.jpg"`,
-    'Content-Transfer-Encoding: base64',
-    `Content-ID: <${LOGO_FIRMA_CID}>`,
-    'Content-Disposition: inline; filename="logo-formedil-padova.jpg"',
-    '',
-    aRighe(LOGO_FIRMA_B64),
-    '',
+    ...(conLogo ? [
+      `--${B_REL}`,
+      `Content-Type: ${LOGO_FIRMA_MIME}; name="logo-formedil-padova.jpg"`,
+      'Content-Transfer-Encoding: base64',
+      `Content-ID: <${LOGO_FIRMA_CID}>`,
+      'Content-Disposition: inline; filename="logo-formedil-padova.jpg"',
+      '',
+      aRighe(LOGO_FIRMA_B64),
+      '',
+    ] : []),
+    ...immaginiInline.flatMap((i) => [
+      `--${B_REL}`,
+      `Content-Type: ${i.mime || 'image/png'}; name="${i.nome || i.cid}"`,
+      'Content-Transfer-Encoding: base64',
+      `Content-ID: <${i.cid}>`,
+      `Content-Disposition: inline; filename="${i.nome || i.cid}"`,
+      '',
+      aRighe(b64(i.byte)),
+      '',
+    ]),
     `--${B_REL}--`,
   ] : parteHtml;
 
