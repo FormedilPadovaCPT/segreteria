@@ -224,6 +224,29 @@ export async function apriDialogoMail(p, modo = 'avviso') {
       return;
     }
 
+    /* Resta scritto che cosa abbiamo mandato e, soprattutto, che cosa
+       abbiamo SCRITTO: prima il testo viveva solo in questo campo e
+       spariva alla chiusura del dialogo. Registriamo la PREPARAZIONE —
+       l'invio lo fa una persona, e l'app non lo sa. */
+    /* I nomi degli allegati li dice la funzione, che sa quali ha davvero
+       messo nella mail; il DOM è solo la riserva. */
+    const nomiAllegati = (data?.allegati?.length ? data.allegati
+      : [...bg.querySelectorAll('#m-att input:checked')]
+          .map((c) => c.closest('label')?.textContent.trim() || c.value)
+    ).filter(Boolean);
+    const { error: eStorico } = await sb.from('s_prot_invii').insert({
+      protocollo_id: p.id,
+      modo,
+      canale: gmail ? 'gmail' : 'outlook',
+      destinatari: to,
+      cc,
+      oggetto: data?.oggetto || null,
+      testo: $('#m-msg', bg).value.trim() || null,
+      allegati: nomiAllegati,
+      preparata_da: (await sb.auth.getUser()).data?.user?.email || null,
+    });
+    if (eStorico) toast('Mail pronta, ma non sono riuscito a registrarla nel protocollo: ' + eStorico.message, 'err');
+
     if (gmail) {
       chiudi();
       /* La bozza e' nella casella: si apre Gmail su quella bozza. Da li'

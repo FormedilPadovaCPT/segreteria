@@ -214,6 +214,12 @@ export async function apriDettaglio(id) {
   const { data: allegati } = await sb.from('s_prot_allegati')
     .select('*').eq('protocollo_id', id).order('id');
 
+  /* Le mail preparate su questo protocollo: chi, cosa e SOPRATTUTTO il
+     testo scritto. Prima il testo viveva solo nel campo della maschera e
+     spariva alla chiusura del dialogo. */
+  const { data: invii } = await sb.from('s_prot_invii')
+    .select('*').eq('protocollo_id', id).order('preparata_at', { ascending: false });
+
   const inn = p.direzione === 'IN';
   const voce = (dt, dd) => (dd ? `<dt>${dt}</dt><dd>${esc(dd)}</dd>` : '');
 
@@ -276,6 +282,28 @@ export async function apriDettaglio(id) {
       processato: finisce in <code>00_INBOX/_protocollo</code>, da smistare.
     </p>
     ${p.drive_url ? `<p style="margin-top:10px;font-size:12px"><a href="${esc(p.drive_url)}" target="_blank" rel="noopener">Documento su Drive ↗</a></p>` : ''}
+
+    <div class="sect-title">Mail preparate su questo protocollo</div>
+    ${(invii || []).length ? `<ul class="att-list">
+      ${invii.map((m) => `
+        <li class="att-item" style="display:block">
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <strong>${m.modo === 'protocollato' ? 'Invio del protocollato' : m.modo === 'avviso' ? 'Avviso al mittente' : 'Inoltro interno'}</strong>
+            <span class="tag">${m.canale === 'gmail' ? 'Gmail' : 'Outlook'}</span>
+            <span class="cell-sub">preparata il ${dataIt(m.preparata_at)}${m.preparata_da ? ' da ' + esc(m.preparata_da) : ''}</span>
+            ${m.inviata_at
+              ? `<span class="tag" style="background:var(--ok-bg,#e6f4ea);color:var(--ok,#1e7b34)">inviata il ${dataIt(m.inviata_at)}</span>`
+              : `<button class="btn btn-ghost btn-sm" data-az="segna-inviata" data-invio="${m.id}">L&rsquo;ho inviata</button>`}
+          </div>
+          <div class="cell-sub" style="margin-top:4px">A ${esc((m.destinatari || []).join(', '))}${(m.cc || []).length ? ' · cc ' + esc(m.cc.join(', ')) : ''}</div>
+          ${(m.allegati || []).length ? `<div class="cell-sub">Allegati: ${esc(m.allegati.join(' · '))}</div>` : ''}
+          ${m.testo ? `<p style="margin:6px 0 0;white-space:pre-line">${esc(m.testo)}</p>` : '<p class="cell-sub" style="margin:6px 0 0">Nessun testo aggiunto: è uscito il modello standard.</p>'}
+        </li>`).join('')}
+    </ul>
+    <p class="hint" style="margin:6px 0 0">
+      Qui resta <strong>quello che è stato scritto</strong>. La riga dice «preparata»: la mail la manda
+      una persona da Outlook o da Gmail, e l&rsquo;app non sa quando è partita — «l&rsquo;ho inviata» serve a dirglielo.
+    </p>` : '<p class="empty" style="padding:12px">Nessuna mail preparata da questo protocollo.</p>'}
 
     <div class="sect-title">Azioni</div>
     <div class="drawer-actions">
@@ -416,6 +444,20 @@ async function gestisciAzioneDrawer(e) {
   if (az === 'avviso' || az === 'inoltra' || az === 'invia-prot') {
     const { apriDialogoMail } = await import('./mail.js');
     apriDialogoMail(p, az === 'avviso' ? 'avviso' : az === 'invia-prot' ? 'protocollato' : 'inoltra');
+    return;
+  }
+
+  /* «L'ho inviata»: l'app prepara la bozza ma non sa quando la persona
+     preme Invia. Finché nessuno lo dice, la riga resta «preparata» — che
+     è la verità, non una reticenza. */
+  if (az === 'segna-inviata') {
+    const { data: u } = await sb.auth.getUser();
+    const { error } = await sb.from('s_prot_invii')
+      .update({ inviata_at: new Date().toISOString(), inviata_da: u?.user?.email || null })
+      .eq('id', Number(btn.dataset.invio));
+    if (error) { toast('Non riuscito: ' + error.message, 'err'); return; }
+    toast('Segnata come inviata.', 'ok');
+    apriDettaglio(p.id);
     return;
   }
 
