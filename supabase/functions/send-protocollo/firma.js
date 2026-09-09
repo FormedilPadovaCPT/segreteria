@@ -223,6 +223,7 @@ export function senzaFirma(corpo) {
      firma                — false per una mail senza firma
      unsent               — true: «X-Unsent: 1», Outlook la apre in bozza
      from                 — facoltativo (le bozze prendono l'account di Outlook)
+     replyTo              — facoltativo: dove tornano le risposte, se diverso da from
    Struttura:
      multipart/mixed
        multipart/alternative
@@ -231,7 +232,7 @@ export function senzaFirma(corpo) {
            text/html
            image/jpeg (il logo, cid:)
        allegati…                                                       */
-export function componiEml({ from = '', to = '', cc = [], oggetto = '', corpo = '', html = '', allegati = [], firma = true, unsent = true }) {
+export function componiEml({ from = '', replyTo = '', to = '', cc = [], oggetto = '', corpo = '', html = '', allegati = [], firma = true, unsent = true }) {
   const testo = senzaFirma(corpo);
   const plain = firma ? `${testo}\n\n${FIRMA_SEGRETERIA}` : testo;
   const pagina = html || paginaHtml(testoInHtml(testo), { firma });
@@ -268,6 +269,7 @@ export function componiEml({ from = '', to = '', cc = [], oggetto = '', corpo = 
   return [
     ...(unsent ? ['X-Unsent: 1'] : []),
     ...(from ? [`From: ${from}`] : []),
+    ...(replyTo ? [`Reply-To: ${replyTo}`] : []),
     `To: ${to}`,
     ...(ccList.length ? [`Cc: ${ccList.join(', ')}`] : []),
     `Subject: ${codificaOggetto(oggetto)}`,

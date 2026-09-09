@@ -1,5 +1,5 @@
 /* ============================================================
-   Le due mail che partono da un protocollo.
+   Le mail che partono da un protocollo.
 
    «Avviso al mittente» — in entrata, si scrive a CHI CI HA
    SCRITTO per dirgli che la sua comunicazione è stata
@@ -10,19 +10,33 @@
    coordinatore, altri. Con il documento allegato, il corpo della
    comunicazione ricevuta e il testo che si aggiunge.
 
-   ⚠️ L'app NON spedisce. Prepara il messaggio — intestazione, firma
-   istituzionale, nota privacy, allegato — e lo consegna come file
-   .eml: si apre in Outlook nella finestra di composizione, con
+   «Invia protocollato» — in USCITA (dal 09/09/2026): il documento
+   protocollato va all'impresa e alle persone indicate, con la
+   «stampa del protocollo» in testa (numero, data, ufficio — la
+   tabellina della macro Access «Protocollo in USCITA»), il testo
+   della comunicazione, gli allegati scelti e la firma dell'ufficio
+   in piede. Oggetto nella forma di Access: «FORMEDIL Padova -AREA
+   SICUREZZA E SALUTE- <oggetto> Prot. <N> - email del <data ora> -
+   alla c.a. <persona>».
+
+   ⚠️ Di norma l'app NON spedisce. Prepara il messaggio — intestazione,
+   firma istituzionale, nota privacy, allegati — e lo consegna come
+   file .eml: si apre in Outlook nella finestra di composizione, con
    l'account ufficiale cpt@formedilpadova.it, e l'invio lo fa una
    persona. È quel che faceva la macro Access, che finiva con
    .Display e non con .Send, ed è lo stesso confine del timbro.
+   Per l'invio del protocollato c'è anche, A SCELTA, la strada Gmail:
+   parte subito da cptpd@did.formedilpadova.it (indirizzo istituzionale
+   a tutti gli effetti dal 09/09/2026), con Reply-To cpt@formedilpadova.it.
    ============================================================ */
 
 import { sb, $, esc, dataIt, toast, attendi, codiceProtocollo } from './core.js';
 import { RUBRICA_INTERNA, emailAssegnatario } from './lookups.js';
 
-/* Indirizzi già noti del mittente, per non riscriverli a mano. */
-async function indirizziMittente(p) {
+/* Indirizzi già noti dell'impresa e delle persone del protocollo, per
+   non riscriverli a mano: l'impresa (referente, seconda mail, PEC) e
+   le persone citate come «persona» e «alla c.a.», cercate per cognome. */
+async function indirizziControparte(p) {
   const trovati = new Set();
   if (p.impresa_id) {
     const { data: imp } = await sb.from('imprese')
@@ -30,8 +44,12 @@ async function indirizziMittente(p) {
       .eq('impresa_id', p.impresa_id).maybeSingle();
     [imp?.impresa_email_ref, imp?.impresa_email2, imp?.pec].forEach((e) => e && trovati.add(e.trim()));
   }
-  if (p.persona) {
-    const cognome = p.persona.split(/\s+/)[0];
+  const nomi = [p.persona, p.alla_ca].filter(Boolean);
+  for (const n of nomi) {
+    /* il cognome: la prima parola che non sia un titolo */
+    const parole = n.split(/\s+/).filter((w) => !/^(sig\.?ra?|dott\.?(ssa)?|dr\.?(ssa)?|ing\.?|arch\.?|geom\.?|rag\.?|avv\.?|prof\.?|p\.?i\.?)$/i.test(w));
+    const cognome = parole[0];
+    if (!cognome || cognome.length < 3) continue;
     const { data: per } = await sb.from('persone').select('email, email2').ilike('cognome', cognome).limit(3);
     (per || []).forEach((x) => { if (x.email) trovati.add(x.email.trim()); });
   }
@@ -40,6 +58,7 @@ async function indirizziMittente(p) {
 
 export async function apriDialogoMail(p, modo = 'avviso') {
   const avviso = modo === 'avviso';
+  const protocollato = modo === 'protocollato';
   const codice = codiceProtocollo(p);
 
   const { data: allegati } = await sb.from('s_prot_allegati')
@@ -50,72 +69,108 @@ export async function apriDialogoMail(p, modo = 'avviso') {
     .order('id');
   const conDrive = (allegati || []).filter((a) => a.drive_file_id);
 
-  /* A chi si scrive, secondo il verso: al mittente, o dentro. */
-  const suggeriti = avviso
-    ? await indirizziMittente(p)
+  /* Quali allegati proporre gia' spuntati, secondo il verso:
+     - avviso: nessuno (il documento e' del mittente, ce l'ha gia');
+     - inoltro: il primo (principale o timbrato);
+     - protocollato: i timbrati; se non ce ne sono, tutti. */
+  const preselezione = (a, i) => {
+    if (avviso) return false;
+    if (protocollato) return conDrive.some((x) => x.timbrato) ? !!a.timbrato : true;
+    return i === 0;
+  };
+
+  /* A chi si scrive, secondo il verso: fuori, o dentro. */
+  const suggeriti = (avviso || protocollato)
+    ? await indirizziControparte(p)
     : [emailAssegnatario(p.alla_ca)].filter(Boolean);
+
+  const titolo = avviso ? 'Avviso di protocollazione'
+    : protocollato ? 'Invia il documento protocollato' : 'Inoltra il documento protocollato';
+  const chi = esc(p.impresa_nome || p.persona || p.alla_ca || '');
 
   const bg = document.createElement('div');
   bg.className = 'drawer-bg';
   bg.style.zIndex = 62;
   bg.innerHTML = `
     <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff;border-radius:10px;
-                padding:22px;width:min(620px,95vw);max-height:92vh;overflow-y:auto;box-shadow:var(--ombra)">
-      <h3 style="margin:0 0 4px;font-size:17px">${avviso ? 'Avviso di protocollazione' : 'Inoltra il documento protocollato'}</h3>
+                padding:22px;width:min(640px,95vw);max-height:92vh;overflow-y:auto;box-shadow:var(--ombra)">
+      <h3 style="margin:0 0 4px;font-size:17px">${titolo}</h3>
       <p style="margin:0 0 16px;color:var(--testo-soft);font-size:13px;line-height:1.5">
         Protocollo <strong>${esc(codice)}</strong> del ${dataIt(p.data_prot)}.
         ${avviso
-          ? `Va <strong>al mittente</strong> — ${esc(p.impresa_nome || p.persona || 'chi ci ha scritto')} —
+          ? `Va <strong>al mittente</strong> — ${chi || 'chi ci ha scritto'} —
              per dirgli che la sua comunicazione è stata protocollata.`
-          : 'Va a chi in ufficio deve vederlo, col documento allegato.'}
+          : protocollato
+            ? `Va <strong>all'impresa e alle persone indicate</strong> — ${chi || 'il destinatario del protocollo'} —
+               con la stampa del protocollo in testa, i documenti allegati e la firma dell'ufficio in piede.`
+            : 'Va a chi in ufficio deve vederlo, col documento allegato.'}
       </p>
 
-      ${!avviso ? `
       <div class="field" style="margin-bottom:10px">
-        <label>Aggiungi in fretta</label>
-        <div class="chip-riga" id="m-rubrica">
+        <label>${protocollato ? 'Aggiungi in copia (ufficio)' : 'Aggiungi in fretta'}</label>
+        <div class="chip-riga" id="m-rubrica" data-campo="${protocollato ? 'm-cc' : 'm-to'}">
           ${RUBRICA_INTERNA.map((r) => `<button type="button" class="chip" data-mail="${esc(r.email)}">${esc(r.nome)}</button>`).join('')}
         </div>
-      </div>` : ''}
+      </div>
 
       <div class="field" style="margin-bottom:12px">
         <label for="m-to">Destinatari (separati da virgola)</label>
         <input type="text" id="m-to" value="${esc(suggeriti.join(', '))}" placeholder="nome@dominio.it">
         <span class="hint">${suggeriti.length
-          ? 'Indirizzo preso dall&rsquo;anagrafica: controllalo prima di inviare.'
+          ? 'Indirizzi presi dall&rsquo;anagrafica (impresa e persone del protocollo): controllali prima di inviare.'
           : 'Nessun indirizzo trovato in anagrafica: scrivilo a mano.'}</span>
       </div>
 
       <div class="field" style="margin-bottom:12px">
         <label for="m-cc">Copia conoscenza (facoltativa)</label>
-        <input type="text" id="m-cc" placeholder="${avviso ? 'es. l&rsquo;ente mittente' : 'es. cptpd@did.formedilpadova.it'}">
+        <input type="text" id="m-cc" placeholder="${avviso ? 'es. l&rsquo;ente mittente' : protocollato ? 'es. il coordinatore, il tecnico incaricato' : 'es. cptpd@did.formedilpadova.it'}">
       </div>
 
       ${conDrive.length ? `
       <div class="field" style="margin-bottom:12px">
-        <label for="m-att">Documento da allegare</label>
-        <select id="m-att">
-          <option value="">Nessun allegato</option>
-          ${conDrive.map((a, i) => `<option value="${esc(a.drive_file_id)}" ${!avviso && i === 0 ? 'selected' : ''}>${esc(a.nome)}${a.timbrato ? ' (timbrato)' : ''}</option>`).join('')}
-        </select>
-        ${avviso ? '<span class="hint">Di norma non serve: il documento è suo, ce l&rsquo;ha già.</span>' : ''}
-      </div>` : `<p class="hint" style="margin:0 0 12px">Nessun documento su Drive collegato a questo protocollo.</p>`}
+        <label>Documenti da allegare</label>
+        <div id="m-att" style="display:flex;flex-direction:column;gap:4px">
+          ${conDrive.map((a, i) => `
+            <label style="font-weight:400;display:flex;gap:8px;align-items:center">
+              <input type="checkbox" style="width:auto" value="${esc(a.drive_file_id)}" ${preselezione(a, i) ? 'checked' : ''}>
+              <span>${esc(a.nome)}${a.timbrato ? ' <span class="tag">timbrato</span>' : ''}${a.principale ? ' <span class="tag">principale</span>' : ''}</span>
+            </label>`).join('')}
+        </div>
+        ${avviso ? '<span class="hint">Di norma non serve: il documento è suo, ce l&rsquo;ha già.</span>'
+          : protocollato ? '<span class="hint">Proposti i timbrati: è la copia protocollata che deve uscire.</span>' : ''}
+      </div>` : `<p class="hint" style="margin:0 0 12px">Nessun documento su Drive collegato a questo protocollo${protocollato ? ': la mail partirebbe senza allegati' : ''}.</p>`}
 
       <div class="field" style="margin-bottom:14px">
-        <label for="m-msg">Il tuo testo (facoltativo)</label>
-        <textarea id="m-msg" placeholder="${avviso ? 'Righe da aggiungere prima dei saluti…' : 'Es. «Ti giro questa, scade il 18 settembre»…'}"></textarea>
+        <label for="m-msg">${protocollato ? 'Testo della comunicazione' : 'Il tuo testo (facoltativo)'}</label>
+        <textarea id="m-msg" ${protocollato ? 'rows="6"' : ''} placeholder="${avviso ? 'Righe da aggiungere prima dei saluti…' : protocollato ? 'Es. «vogliate trovare in allegato…»' : 'Es. «Ti giro questa, scade il 18 settembre»…'}">${protocollato ? esc(p.note || '') : ''}</textarea>
+        ${protocollato ? '<span class="hint">Proposto il testo registrato nelle note del protocollo. Saluto iniziale e «Cordialmente» li mette la mail.</span>' : ''}
       </div>
 
+      ${protocollato ? `
+      <div class="field" style="margin-bottom:14px">
+        <label>Come parte</label>
+        <label style="font-weight:400;display:flex;gap:8px;align-items:center">
+          <input type="radio" name="m-canale" value="bozza" style="width:auto" checked>
+          <span><strong>Outlook</strong> — si scarica la bozza pronta, la rileggi e premi Invia tu (mittente <code>cpt@formedilpadova.it</code>)</span>
+        </label>
+        <label style="font-weight:400;display:flex;gap:8px;align-items:center;margin-top:6px">
+          <input type="radio" name="m-canale" value="invia" style="width:auto">
+          <span><strong>Gmail</strong> — parte subito da <code>cptpd@did.formedilpadova.it</code>, con risposte a <code>cpt@formedilpadova.it</code></span>
+        </label>
+      </div>` : ''}
+
       <p class="hint" style="margin:0 0 16px;line-height:1.5">
-        Intestazione, firma della Segreteria, dati dell'ente, orari e nota privacy vengono aggiunti
-        automaticamente${avviso ? '' : ', insieme alla scheda del protocollo e al testo della comunicazione ricevuta'}.<br>
-        <strong>La mail non parte da qui</strong>: si scarica pronta e si apre in Outlook
-        &mdash; mittente <code>cpt@formedilpadova.it</code> &mdash; dove la rileggi e premi Invia tu.
+        ${protocollato
+          ? 'In testa alla mail va la stampa del protocollo (numero, data, ufficio); in piede la firma della Segreteria con dati dell&rsquo;ente, orari e nota privacy. L&rsquo;oggetto è nella forma di sempre: «FORMEDIL Padova -AREA SICUREZZA E SALUTE- &lt;oggetto&gt; Prot. &lt;N&gt; - email del &lt;data e ora&gt; - alla c.a. &lt;persona&gt;».'
+          : `Intestazione, firma della Segreteria, dati dell'ente, orari e nota privacy vengono aggiunti
+             automaticamente${avviso ? '' : ', insieme alla scheda del protocollo e al testo della comunicazione ricevuta'}.<br>
+             <strong>La mail non parte da qui</strong>: si scarica pronta e si apre in Outlook
+             &mdash; mittente <code>cpt@formedilpadova.it</code> &mdash; dove la rileggi e premi Invia tu.`}
       </p>
 
       <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">
         <button class="btn btn-ghost" id="m-annulla">Annulla</button>
-        <button class="btn btn-primary" id="m-invia">${avviso ? '📧 Apri l&rsquo;avviso in Outlook' : '📧 Apri l&rsquo;inoltro in Outlook'}</button>
+        <button class="btn btn-primary" id="m-invia">${avviso ? '📧 Apri l&rsquo;avviso in Outlook' : protocollato ? '📧 Apri in Outlook' : '📧 Apri l&rsquo;inoltro in Outlook'}</button>
       </div>
     </div>`;
   document.body.appendChild(bg);
@@ -128,39 +183,63 @@ export async function apriDialogoMail(p, modo = 'avviso') {
   $('#m-rubrica', bg)?.addEventListener('click', (e) => {
     const b = e.target.closest('[data-mail]');
     if (!b) return;
-    const campo = $('#m-to', bg);
+    const campo = $('#' + $('#m-rubrica', bg).dataset.campo, bg);
     const gia = campo.value.split(',').map((x) => x.trim()).filter(Boolean);
     if (gia.includes(b.dataset.mail)) return;
     campo.value = [...gia, b.dataset.mail].join(', ');
   });
 
+  /* l'etichetta del bottone segue il canale scelto */
+  bg.querySelectorAll('input[name="m-canale"]').forEach((r) => r.addEventListener('change', () => {
+    $('#m-invia', bg).textContent = r.value === 'invia' && r.checked ? '📤 Invia ora da Gmail' : '📧 Apri in Outlook';
+  }));
+
   $('#m-invia', bg).addEventListener('click', async (ev) => {
     const to = $('#m-to', bg).value.split(',').map((x) => x.trim()).filter(Boolean);
     if (!to.length) return toast('Serve almeno un destinatario.', 'err');
     const cc = $('#m-cc', bg).value.split(',').map((x) => x.trim()).filter(Boolean);
-    const driveFileId = $('#m-att', bg)?.value || null;
+    const driveFileIds = [...bg.querySelectorAll('#m-att input:checked')].map((c) => c.value);
+    const canale = bg.querySelector('input[name="m-canale"]:checked')?.value || 'bozza';
+    const invia = protocollato && canale === 'invia';
 
-    attendi(ev.currentTarget, true, 'Preparo…');
+    if (invia) {
+      const ok = confirm(`La mail parte ADESSO da Gmail (cptpd@did.formedilpadova.it), senza passare da Outlook.\n\nA: ${to.join(', ')}${cc.length ? `\nCc: ${cc.join(', ')}` : ''}\nAllegati: ${driveFileIds.length}\n\nConfermi?`);
+      if (!ok) return;
+    }
+
+    const btn = ev.currentTarget;
+    attendi(btn, true, invia ? 'Invio…' : 'Preparo…');
     const { data, error } = await sb.functions.invoke('send-protocollo', {
       body: {
         protocolloId: p.id,
         modo,
-        azione: 'bozza',          // non spedire: preparare e basta
+        azione: invia ? 'invia' : 'bozza',
         to,
         cc,
         messaggio: $('#m-msg', bg).value.trim(),
-        driveFileId,
+        driveFileIds,
       },
     });
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
 
-    if (error || data?.error || !data?.eml) {
-      toast('Non sono riuscito a preparare la mail: ' + (data?.error || error?.message || 'risposta vuota'), 'err');
+    if (error || data?.error) {
+      toast(`Non sono riuscito a ${invia ? 'inviare' : 'preparare'} la mail: ` + (data?.error || error?.message || 'risposta vuota'), 'err');
       return;
     }
 
+    if (invia) {
+      chiudi();
+      toast(`Inviata da Gmail a ${to.join(', ')}${data?.allegati?.length ? ` con ${data.allegati.length} allegat${data.allegati.length === 1 ? 'o' : 'i'}` : ''}.`, 'ok');
+      /* il dettaglio si ridisegna: ora porta «inviato il … a …» */
+      const { apriDettaglio } = await import('./protocollo.js');
+      apriDettaglio(p.id);
+      return;
+    }
+
+    if (!data?.eml) { toast('Non sono riuscito a preparare la mail: risposta vuota', 'err'); return; }
+
     /* Il .eml scaricato: doppio clic e Outlook lo apre in
-       composizione, allegato compreso. Non e' una mail ricevuta,
+       composizione, allegati compresi. Non e' una mail ricevuta,
        e' una bozza — la riga «X-Unsent: 1» serve a questo. */
     scarica(data.eml, data.nomeFile || 'protocollo.eml');
     chiudi();

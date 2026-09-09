@@ -282,6 +282,7 @@ export async function apriDettaglio(id) {
       <button class="btn btn-primary btn-sm" data-az="modifica">Modifica</button>
       <button class="btn btn-ghost btn-sm" data-az="timbra-doc">🖃 Timbra un documento</button>
       ${p.direzione === 'IN' ? '<button class="btn btn-ghost btn-sm" data-az="avviso">✉️ Avviso al mittente</button>' : ''}
+      ${p.direzione === 'OUT' && !p.annullato ? '<button class="btn btn-out btn-sm" data-az="invia-prot">📤 Invia protocollato</button>' : ''}
       <button class="btn btn-ghost btn-sm" data-az="inoltra">📨 Inoltra</button>
       <button class="btn btn-ghost btn-sm" data-az="copia">Duplica come nuovo</button>
       ${p.impresa_id ? '<button class="btn btn-ghost btn-sm" data-az="impresa">🏢 Scheda impresa</button>' : ''}
@@ -290,7 +291,7 @@ export async function apriDettaglio(id) {
         : '<button class="btn btn-ghost btn-sm" data-az="annulla">Annulla protocollo</button>'}
     </div>
     <p style="font-size:11px;color:var(--testo-soft);margin-top:14px">
-      ${p.mail_inviata_at ? `Avviso inviato il ${dataIt(p.mail_inviata_at)} a ${esc(p.mail_destinatari || '')}.<br>` : ''}
+      ${p.mail_inviata_at ? `${inn ? 'Avviso inviato' : 'Protocollato inviato da Gmail'} il ${dataIt(p.mail_inviata_at)} a ${esc(p.mail_destinatari || '')}.<br>` : ''}
       Inserito da ${esc(p.creato_da || 'archivio Access')}${p.created_at ? ` il ${dataIt(p.created_at)}` : ''}.
       Il numero di protocollo non è modificabile.
     </p>`;
@@ -412,9 +413,9 @@ async function gestisciAzioneDrawer(e) {
 
   if (az === 'timbra-doc') { chiediQualeDocumento(); return; }
 
-  if (az === 'avviso' || az === 'inoltra') {
+  if (az === 'avviso' || az === 'inoltra' || az === 'invia-prot') {
     const { apriDialogoMail } = await import('./mail.js');
-    apriDialogoMail(p, az === 'avviso' ? 'avviso' : 'inoltra');
+    apriDialogoMail(p, az === 'avviso' ? 'avviso' : az === 'invia-prot' ? 'protocollato' : 'inoltra');
     return;
   }
 
