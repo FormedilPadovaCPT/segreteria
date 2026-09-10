@@ -10,6 +10,7 @@ import {
   candidatiComune, scegliComune, comuneDaElenco, pulisciIndirizzo, tecnicoDalFile,
   testoNotaIncarico, nomeFileElenco, cartellaElenco, annoScolasticoDi, chiaveNome, normNome,
   leggiModelloRighe, leggiDataCella,
+  unisciRichiesteStage, sedeDaRichiedente, sedeDaNota, allievoDaTesto,
 } from '../js/stage-abbinamenti.js';
 
 /* ── piccolo costruttore di XML di Word e di zip (senza compressione) ── */
@@ -247,6 +248,52 @@ test('date delle celle', () => {
   assert.equal(leggiDataCella('7.5.26'), '2026-05-07');
   assert.equal(leggiDataCella(''), null);
   assert.equal(leggiDataCella('domani'), null);
+});
+
+test('storico delle richieste stage: storico e incarichi uniti senza doppioni', () => {
+  const storico = [
+    // tipologia stage, incarico con tipo NON stage (84 casi reali cosi'): va preso lo stesso
+    { id: 1001, tipologia: 'Richiesta Visita STAGE', data_richiesta: '2025-10-13', richiedente: 'Bertan Rag. Barbara', impresa: 'ALFA SRL', comune_cantiere: 'PADOVA', tecnico: 'Caon P.I. Franco', verbale_visita: '71', data_verbale: '22/10/2025', pratica_chiusa: true },
+    { id: 1002, tipologia: 'Richiesta Visita "Progetto Sicuri si Diventa" STAGE', data_richiesta: '2024-03-10', richiedente: 'RANCI Dott.ssa ALESSIA', impresa: 'BETA SRL', pratica_chiusa: true },
+    // non stage: fuori
+    { id: 1003, tipologia: 'Richiesta Visita su segnalazione', data_richiesta: '2025-01-01' },
+  ];
+  const incarichi = [
+    { id: 1001, tipo_richiesta: 'Sopralluogo in Cantiere - Visita singola', testo_richiesta: 'ROSSI MARCO', stato: 'chiuso', tecnico_nome: 'Caon P.I. Franco', data_richiesta: '2025-10-12' },
+    { id: 1002, tipo_richiesta: 'Sopralluogo in Azienda AUDIT ASL/STAGE', testo_richiesta: 'Impresa lunga con indirizzo via Roma 12 35100 Padova e telefono e altro testo ancora', stato: 'chiuso' },
+    // nuova, nata da un elenco: solo negli incarichi
+    { id: 1100, tipo_richiesta: 'Sopralluogo in Azienda AUDIT ASL/STAGE', tipologia_richiesta: 'Richiesta Visita STAGE', testo_richiesta: 'NERI SARA', stato: 'aperto', accettato_il: '2026-10-14T08:00:00Z', stage_elenco_id: 7, data_richiesta: '2026-10-12', impresa: 'GAMMA SRL', comune: 'ESTE' },
+    // incarico qualunque: fuori
+    { id: 1101, tipo_richiesta: 'Serie di visite', stato: 'aperto' },
+  ];
+  const elenchi = [{ id: 7, sede: 'Stanghella', classe: 3, anno_scolastico: '2026-2027' }];
+  const r = unisciRichiesteStage({ storico, incarichi, elenchi });
+  assert.deepEqual(r.map((x) => x.id), [1100, 1001, 1002], 'dal più recente, senza doppioni né estranei');
+  const [nuova, vecchia, sicuri] = r;
+  assert.equal(nuova.sede, 'Stanghella', 'sede dall\'elenco');
+  assert.equal(nuova.anno_scolastico, '2026-2027');
+  assert.equal(nuova.stato.codice, 'accettata');
+  assert.equal(nuova.aperta, true);
+  assert.equal(vecchia.sede, 'Padova', 'sede dalla richiedente');
+  assert.equal(vecchia.allievo, 'ROSSI MARCO');
+  assert.equal(vecchia.data, '2025-10-13', 'la data dello storico vince su quella slittata degli incarichi');
+  assert.equal(vecchia.stato.codice, 'chiusa');
+  assert.equal(vecchia.esito, 'verbale 71 · del 22/10/2025');
+  assert.equal(sicuri.progetto, 'Sicuri si Diventa');
+  assert.equal(sicuri.sede, 'Stanghella');
+  assert.equal(sicuri.allievo, null, 'un testo lungo non è un nome');
+});
+
+test('sede e allievo', () => {
+  assert.equal(sedeDaRichiedente('Bertan Rag. Barbara'), 'Padova');
+  assert.equal(sedeDaRichiedente('Alessia Sig.ra Alessia'), 'Stanghella');
+  assert.equal(sedeDaRichiedente('Rossi Mario — ALFA SRL'), null);
+  assert.equal(sedeDaNota('STAGE 3° OPERATORE EDILE 2025 - 2026 STANGHELLA\ndal 13 ottobre'), 'Stanghella');
+  assert.equal(sedeDaNota('stage dal 27/04/2026 al 27/05/2026\n2ª Operatore Edile Padova — a.s. 2025-2026'), 'Padova');
+  assert.equal(sedeDaNota('via Roma 1, Padova'), null, 'un indirizzo non dice la sede');
+  assert.equal(allievoDaTesto('  CANTON LEONARDO '), 'CANTON LEONARDO');
+  assert.equal(allievoDaTesto('Gentile Renato\ncon la presente'), null);
+  assert.equal(allievoDaTesto(''), null);
 });
 
 test('ricerca dell\'impresa per nome', () => {

@@ -626,6 +626,109 @@ export function leggiModelloRighe(elenco, allievi) {
   return { intestazione: h, righe, avvisi, note_elenco: extra.note || null };
 }
 
+// ─── lo storico delle richieste di visita stage ─────────────────────────────
+/*
+   Chiesto dall'utente il 10/09/2026: nella pagina «Stage allievi» deve vedersi
+   anche lo storico delle visite stage, che finora stava solo sotto «Richieste
+   visita» (storico Access) e fra gli incarichi dei tecnici.
+
+   Le due fonti, misurate:
+   - s_servizi_storico: 237 richieste stage 2021-2026, riconosciute dalla
+     TIPOLOGIA («Richiesta Visita STAGE», «… Progetto Sicuri si Diventa STAGE»);
+   - incarichi: le stesse 237, con lo stesso numero, piu' lo stato di oggi;
+     84 di queste hanno pero' tipo «Sopralluogo in Cantiere - Visita singola»
+     (cosi' in Access): per riconoscerle vale la tipologia dello storico, non il tipo.
+   Le richieste nuove nate dagli elenchi stanno solo negli incarichi.
+*/
+
+/** Padova o Stanghella da chi ha chiesto la visita (le due referenti della didattica). */
+export function sedeDaRichiedente(testo) {
+  const t = String(testo || '');
+  if (/bertan|barbara|didattica\.pd/i.test(t)) return 'Padova';
+  if (/ranci|alessia|didattica\.st|stanghella/i.test(t)) return 'Stanghella';
+  return null;
+}
+
+/** Dalla nota dell'incarico: «STAGE 3° OPERATORE EDILE 2025 - 2026 PADOVA». */
+export function sedeDaNota(testo) {
+  const m = String(testo || '').match(/OPERATORE\s+EDILE[^\n]*?\b(PADOVA|STANGHELLA)\b/i)
+    || String(testo || '').match(/ª\s+Operatore\s+Edile\s+(Padova|Stanghella)\b/i);
+  return m ? m[1][0].toUpperCase() + m[1].slice(1).toLowerCase() : null;
+}
+
+/** Il nome dell'allievo sta in testo_richiesta solo se e' breve e su una riga (dal 2022). */
+export function allievoDaTesto(testo) {
+  const t = String(testo || '').trim();
+  if (t.length < 3 || t.length > 60 || /\n/.test(t) || /@|\d{3,}/.test(t)) return null;
+  return pulisci(t);
+}
+
+/** Lo stato di una richiesta: quello dell'incarico se c'e', altrimenti quello dello storico. */
+export function statoRichiesta(inc, st) {
+  if (inc) {
+    if (inc.stato === 'chiuso') return { codice: 'chiusa', testo: 'chiusa' };
+    if (inc.rifiutato_il) return { codice: 'rifiutata', testo: 'rifiutata dal tecnico' };
+    if (inc.visita_id || inc.stato === 'eseguito') return { codice: 'eseguita', testo: 'visita registrata' };
+    if (inc.accettato_il) return { codice: 'accettata', testo: 'accettata' };
+    if (inc.presa_visione_il) return { codice: 'vista', testo: 'vista dal tecnico' };
+    return { codice: 'nuova', testo: 'da vedere' };
+  }
+  return st?.pratica_chiusa ? { codice: 'chiusa', testo: 'chiusa' } : { codice: 'nuova', testo: 'aperta (storico)' };
+}
+
+/**
+ * Storico e incarichi in un elenco solo, senza doppioni (stesso numero).
+ * { id, data, anno_scolastico, sede, progetto, allievo, impresa, comune, tecnico,
+ *   stato: {codice, testo}, aperta, esito, storico, incarico, elenco }, dal piu' recente.
+ */
+export function unisciRichiesteStage({ storico = [], incarichi = [], elenchi = [] } = {}) {
+  const incDi = new Map(incarichi.map((i) => [Number(i.id), i]));
+  const elDi = new Map(elenchi.map((e) => [Number(e.id), e]));
+  const dataIso = (d) => (d ? String(d).slice(0, 10) : null);
+
+  const riga = (s, i) => {
+    const el = i?.stage_elenco_id ? elDi.get(Number(i.stage_elenco_id)) || null : null;
+    const data = dataIso(s?.data_richiesta) || dataIso(i?.data_richiesta);
+    const stato = statoRichiesta(i, s);
+    const esito = s ? [
+      s.verbale_visita ? `verbale ${s.verbale_visita}` : null,
+      s.data_verbale ? `del ${s.data_verbale}` : null,
+      s.valutazione || null,
+    ].filter(Boolean).join(' · ') : null;
+    return {
+      id: Number(s?.id ?? i.id),
+      data,
+      anno_scolastico: data ? annoScolasticoDi(data) : null,
+      sede: el?.sede || sedeDaRichiedente(s?.richiedente) || sedeDaRichiedente(i?.richiedente) || sedeDaNota(i?.note_comunicazione) || null,
+      progetto: /sicuri\s+si\s+diventa/i.test(s?.tipologia || '') ? 'Sicuri si Diventa' : null,
+      allievo: allievoDaTesto(i?.testo_richiesta),
+      impresa: i?.impresa || s?.impresa || null,
+      comune: i?.comune || s?.comune_cantiere || null,
+      tecnico: i?.tecnico_nome || s?.tecnico || null,
+      stato,
+      aperta: !['chiusa'].includes(stato.codice),
+      esito: esito || null,
+      storico: s || null,
+      incarico: i || null,
+      elenco: el,
+    };
+  };
+
+  const righe = [];
+  const visti = new Set();
+  for (const s of storico) {
+    if (!/stage/i.test(s.tipologia || '')) continue;
+    righe.push(riga(s, incDi.get(Number(s.id)) || null));
+    visti.add(Number(s.id));
+  }
+  for (const i of incarichi) {
+    if (visti.has(Number(i.id))) continue;
+    if (!i.stage_elenco_id && !/stage/i.test(`${i.tipo_richiesta || ''} ${i.tipologia_richiesta || ''}`)) continue;
+    righe.push(riga(null, i));
+  }
+  return righe.sort((a, b) => (b.data || '').localeCompare(a.data || '') || b.id - a.id);
+}
+
 /** L'anno scolastico in corso a una data: da settembre si passa al successivo. */
 export function annoScolasticoDi(isoData) {
   const [a, m] = String(isoData).split('-').map(Number);

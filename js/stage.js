@@ -29,8 +29,9 @@ import { riassegnaTecnico } from './incarico-tecnico.js';
 import {
   leggiAbbinamenti, candidatiComune, scegliComune, comuneDaElenco, pulisciIndirizzo, tecnicoDalFile,
   testoNotaIncarico, oggettoIncarico, nomeFileElenco, cartellaElenco, richiedenteDaRighe,
-  chiaveNome, normNome, pulisci, annoScolasticoDi, leggiModelloRighe,
+  chiaveNome, normNome, pulisci, annoScolasticoDi, leggiModelloRighe, unisciRichiesteStage,
 } from './stage-abbinamenti.js';
+import { caricaStorico, apriDettaglioStorico } from './servizi-storico.js';
 
 const CARTELLA_VAULT = '2_AREE/Formazione/Scuola_Edile_offerta_formativa/stage_scolastici';
 const MIME_DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
@@ -42,6 +43,9 @@ let tecnici = [];
 let zone = [];
 let referenti = [];
 let bozza = null;
+/* lo storico delle richieste di visita stage (Access + incarichi), chiesto il 10/09/2026 */
+let richieste = [];
+const filtroR = { anno: null, sede: '', stato: 'tutte', q: '' };
 
 const nomeTecnico = (email) => {
   const t = tecnici.find((x) => x.email === email);
@@ -102,6 +106,8 @@ export async function render() {
   const host = $('#stage-host');
   host.innerHTML = '<p class="empty">Un istante…</p>';
   await carica();
+  try { await caricaRichieste(); }
+  catch (e) { richieste = []; toast(`Storico delle richieste stage non caricato: ${e.message}`, 'err'); }
 
   const righe = elenchi.map((e) => {
     const c = conteggi[e.id] || { tot: 0, aperti: 0, chiusi: 0, rifiutati: 0, visite: 0 };
@@ -137,7 +143,24 @@ export async function render() {
       Le visite agli stagisti <strong>non passano dal Direttore</strong>: sono un costo figurativo della Scuola (regola del 10/09/2026).
       Confermato l'elenco, ogni allievo diventa un incarico nel gestionale visite per il tecnico scelto,
       che dalla pagina Incarichi apre la visita con allievo, ditta e cantiere già compilati.
-    </p>`;
+    </p>
+
+    <h3 style="margin:22px 0 8px">📋 Richieste di visita stage</h3>
+    <div class="dt-barra">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <select class="inp inp-sm" id="st-r-anno"></select>
+        <select class="inp inp-sm" id="st-r-sede">
+          <option value="">Padova e Stanghella</option><option value="Padova">Padova</option><option value="Stanghella">Stanghella</option>
+        </select>
+        <div class="seg" id="st-r-stato">
+          ${[['aperte', 'Aperte'], ['tutte', 'Tutte'], ['chiuse', 'Chiuse']].map(([v, l]) =>
+            `<button class="seg-btn ${filtroR.stato === v ? 'is-active' : ''}" data-val="${v}">${l}</button>`).join('')}
+        </div>
+      </div>
+      <input id="st-r-cerca" class="inp" type="search" style="max-width:320px" value="${esc(filtroR.q)}"
+        placeholder="Cerca allievo, impresa, comune, tecnico, n°…">
+    </div>
+    <div id="st-richieste"></div>`;
 
   $('#st-file').addEventListener('change', async (ev) => {
     const f = ev.target.files?.[0];
@@ -152,6 +175,121 @@ export async function render() {
     if (ev.target.closest('[data-link]')) return;
     apriElenco(Number(tr.dataset.id));
   }));
+
+  /* storico delle richieste: filtri e tabella */
+  const anni = [...new Set(richieste.map((x) => x.anno_scolastico).filter(Boolean))].sort().reverse();
+  if (filtroR.anno === null) filtroR.anno = anni[0] || '';   /* si apre sull'anno più recente */
+  $('#st-r-anno').innerHTML = `<option value="">Tutti gli anni</option>${anni.map((a) =>
+    `<option value="${a}" ${a === filtroR.anno ? 'selected' : ''}>a.s. ${a}</option>`).join('')}`;
+  $('#st-r-sede').value = filtroR.sede;
+  $('#st-r-anno').addEventListener('change', (e) => { filtroR.anno = e.target.value; disegnaRichieste(); });
+  $('#st-r-sede').addEventListener('change', (e) => { filtroR.sede = e.target.value; disegnaRichieste(); });
+  $('#st-r-cerca').addEventListener('input', (e) => { filtroR.q = e.target.value; disegnaRichieste(); });
+  $('#st-r-stato').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-val]');
+    if (!b) return;
+    filtroR.stato = b.dataset.val;
+    $('#st-r-stato').querySelectorAll('[data-val]').forEach((x) => x.classList.toggle('is-active', x === b));
+    disegnaRichieste();
+  });
+  disegnaRichieste();
+}
+
+/* ══════════ storico delle richieste di visita stage ══════════ */
+
+const COLONNE_INC = 'id, data_richiesta, richiedente, testo_richiesta, tipo_richiesta, tipologia_richiesta, impresa, comune, indirizzo, '
+  + 'tecnico_nome, stato, presa_visione_il, accettato_il, rifiutato_il, rifiuto_motivo, visita_id, note_comunicazione, '
+  + 'stage_elenco_id, referente, cell_referente, oggetto';
+
+async function caricaRichieste() {
+  const storico = await caricaStorico();
+  const idStage = storico.filter((s) => /stage/i.test(s.tipologia || '')).map((s) => s.id);
+  const lotti = [];
+  for (let i = 0; i < idStage.length; i += 150) {
+    lotti.push(sb.from('incarichi').select(COLONNE_INC).in('id', idStage.slice(i, i + 150)));
+  }
+  /* le richieste nuove (dagli elenchi) e gli incarichi stage che nello storico non ci sono */
+  lotti.push(sb.from('incarichi').select(COLONNE_INC)
+    .or('stage_elenco_id.not.is.null,tipo_richiesta.ilike.*stage*,tipologia_richiesta.ilike.*stage*'));
+  const risposte = await Promise.all(lotti);
+  const err = risposte.find((r) => r.error);
+  if (err) throw new Error(err.error.message);
+  const perId = new Map();
+  for (const r of risposte) for (const i of r.data || []) perId.set(i.id, i);
+  richieste = unisciRichiesteStage({ storico, incarichi: [...perId.values()], elenchi });
+}
+
+const COLORE_STATO = { chiusa: 'dt-ok', eseguita: 'dt-ok', accettata: 'dt-senzadata', vista: 'dt-senzadata', nuova: 'dt-senzadata', rifiutata: 'dt-scaduto' };
+
+function disegnaRichieste() {
+  const box = $('#st-richieste');
+  if (!box) return;
+  const q = pulisci(filtroR.q).toLowerCase();
+  const filtrate = richieste.filter((x) =>
+    (!filtroR.anno || x.anno_scolastico === filtroR.anno)
+    && (!filtroR.sede || x.sede === filtroR.sede)
+    && (filtroR.stato === 'tutte' || (filtroR.stato === 'aperte' ? x.aperta : !x.aperta))
+    && (!q || [String(x.id), x.allievo, x.impresa, x.comune, x.tecnico, x.sede].some((v) => (v || '').toLowerCase().includes(q))));
+  const aperte = filtrate.filter((x) => x.aperta).length;
+  const MOSTRA = 300;
+  const righe = filtrate.slice(0, MOSTRA).map((x) => `<tr data-rid="${x.id}">
+      <td>${x.storico ? '📜 ' : ''}${x.id}</td>
+      <td>${x.data ? dataIt(x.data) : '—'}</td>
+      <td>${esc(x.sede || '—')}${x.progetto ? ` <span class="hint">${esc(x.progetto)}</span>` : ''}</td>
+      <td>${esc(x.allievo || '—')}</td>
+      <td>${esc(x.impresa || '—')}</td>
+      <td>${esc(x.comune || '—')}</td>
+      <td>${esc(x.tecnico || '—')}</td>
+      <td><span class="dt-cella ${COLORE_STATO[x.stato.codice] || ''}" style="padding:2px 8px">${esc(x.stato.testo)}</span></td>
+      <td class="hint">${esc(x.esito || '')}</td>
+    </tr>`).join('');
+  box.innerHTML = `
+    <div class="table-wrap">
+      <table class="tbl">
+        <thead><tr><th>N°</th><th>Data</th><th>Sede</th><th>Allievo</th><th>Impresa</th><th>Comune</th><th>Tecnico</th><th>Stato</th><th>Esito</th></tr></thead>
+        <tbody>${righe || '<tr><td colspan="9" class="empty">Nessuna richiesta con questi filtri.</td></tr>'}</tbody>
+      </table>
+    </div>
+    <p class="hint" style="margin-top:8px">${filtrate.length} richieste${filtroR.anno ? ` nell'a.s. ${esc(filtroR.anno)}` : ''}, ${aperte} aperte
+      ${filtrate.length > MOSTRA ? ` — mostrate le prime ${MOSTRA}` : ''}.
+      📜 = presente anche nel registro storico Access (richieste 2021-2026). Lo stato è quello dell'incarico nel gestionale visite.
+      L'allievo si legge dall'incarico: nelle richieste del 2021 non era registrato a parte.</p>`;
+  box.querySelectorAll('tbody tr[data-rid]').forEach((tr) =>
+    tr.addEventListener('click', () => dettaglioRichiesta(richieste.find((x) => x.id === Number(tr.dataset.rid)))));
+}
+
+function dettaglioRichiesta(x) {
+  if (!x) return;
+  const i = x.incarico || {};
+  const campo = (l, v) => (v ? `<div class="dt-doc-riga"><strong>${l}:</strong> ${esc(String(v))}</div>` : '');
+  apriDrawer(`Richiesta di visita stage n° ${x.id}`, '', `<div id="st-dett">
+    ${campo('Data richiesta', x.data ? dataIt(x.data) : null)}
+    ${campo('Anno scolastico', x.anno_scolastico)}
+    ${campo('Sede', x.sede)}
+    ${campo('Progetto', x.progetto)}
+    ${campo('Richiedente', x.storico?.richiedente || i.richiedente)}
+    ${campo('Allievo', x.allievo)}
+    ${campo('Impresa', x.impresa)}
+    ${campo('Cantiere', [i.indirizzo, x.comune].filter(Boolean).join(', '))}
+    ${campo('Tutor aziendale', [i.referente, i.cell_referente].filter(Boolean).join(' — '))}
+    ${campo('Tecnico', x.tecnico)}
+    ${campo('Stato', x.stato.testo + (i.rifiuto_motivo ? ` — ${i.rifiuto_motivo}` : ''))}
+    ${campo('Visita registrata', i.visita_id)}
+    ${campo('Esito', x.esito)}
+    ${i.note_comunicazione ? `<div class="dt-doc-riga"><strong>Note dell'incarico:</strong><br><span style="white-space:pre-wrap">${esc(i.note_comunicazione)}</span></div>` : ''}
+    ${!x.allievo && i.testo_richiesta ? `<div class="dt-doc-riga"><strong>Testo della richiesta:</strong><br><span style="white-space:pre-wrap">${esc(i.testo_richiesta)}</span></div>` : ''}
+    <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+      ${x.storico ? '<button class="btn btn-ghost btn-sm" data-az="storico">📜 Scheda storica Access</button>' : ''}
+      ${x.elenco ? `<button class="btn btn-ghost btn-sm" data-az="elenco">🎒 Elenco ${x.elenco.classe}ª OE ${esc(x.elenco.sede)} ${esc(x.elenco.anno_scolastico)}</button>` : ''}
+    </div>
+    ${!x.incarico ? '<p class="hint" style="margin-top:10px">Nessun incarico collegato nel gestionale visite: vale solo il registro storico.</p>' : ''}
+  </div>`);
+  $('#st-dett').addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-az]');
+    if (!b) return;
+    if (b.dataset.az === 'storico') apriDettaglioStorico(x.storico);
+    if (b.dataset.az === 'elenco') apriElenco(x.elenco.id);
+  });
 }
 
 /* ══════════ caricamento del Word ══════════ */
