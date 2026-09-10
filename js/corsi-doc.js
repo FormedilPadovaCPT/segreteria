@@ -1,52 +1,46 @@
 /* ============================================================
-   I documenti del modulo formazione, sulla carta Formedil di
-   segnalazioni-doc.js (apriCarta):
+   I documenti del modulo formazione.
 
-   1. ATTESTATO — ricalca i tre modelli storici (stessa scheda
-      dati, cambia la certificazione): partecipazione (senza
-      impresa) / regolare frequenza / frequenza + verifica finale.
-      Numero della serie dedicata N/aaaa (decisa il 01/09/2026).
+   1. ATTESTATO — veste «ciclo a griglia», scelta dall'utente l'11/09/2026
+      fra quattro varianti: banda arancione a sinistra, logo in alto a
+      destra, i campi del modello storico in due griglie a filetti («Dati
+      del corso», «Dati del corsista») con in mezzo la frase di
+      certificazione. I dati e le frasi sono quelli di prima, parola per
+      parola: è cambiata la grafica, non il contenuto. Tre certificazioni:
+      partecipazione (senza impresa) / regolare frequenza / frequenza +
+      verifica finale. Numero della serie dedicata N/aaaa (decisa il
+      01/09/2026), o «Prot.» storico in ristampa.
       ⚠️ Il logo blu della Regione va SOLO sui corsi riconosciuti
-      (riconosciuto_regione): img/logo-regione.png, se presente.
-      I corsi in progetti finanziati possono avere altri loghi
-      (ctx.loghiExtra, byte immagine).
-      Pagina 2: argomenti trattati (giornate + interventi).
+      (riconosciuto_regione): img/logo-regione.png, se presente. I corsi
+      in progetti finanziati possono avere altri loghi (ctx.loghiExtra,
+      byte immagine). Stanno in alto, a sinistra del logo Formedil.
+      Pagina 2: argomenti trattati (giornate + interventi + crediti).
 
-   2. REGISTRO PRESENZE — scheda corso + per ogni giornata i
-      docenti (con spazio firma) e l'elenco partecipanti con le
-      colonne firma entrata/uscita. Lo firma il RESPONSABILE DEL
+   2. REGISTRO PRESENZE — veste «ciclo», scelta dall'utente l'11/09/2026:
+      la stessa della copertina del fascicolo di asseverazione. Copertina
+      coi dati del corso, poi per ogni giornata i docenti con lo spazio
+      firma, l'elenco dei partecipanti con firma entrata/uscita e la
+      chiusura (note, totali, visto). Lo firma il RESPONSABILE DEL
       PROGETTO FORMATIVO (Balladore), non il Direttore.
+
+   Attestato e registro disegnano la loro carta da sé (apriCiclo); il logo
+   è img/logo-pdf.jpg (600 px, lo stesso della copertina asseverazione),
+   con img/logo.png come riserva.
 
    3. LETTERA DI INCARICO DOCENZA — il contratto d'opera del
       modello storico (Prot. OUT nel registro unico), con i
-      compiti del docente, i compensi e l'accordo quadro.
+      compiti del docente, i compensi e l'accordo quadro. Resta sulla
+      carta intestata di segnalazioni-doc.js (apriCarta).
    ============================================================ */
 
 import { apriCarta } from './segnalazioni-doc.js';
-import { dataIt, taglia, testoPdf } from './comune.js';
-import { qrGen } from './cdn.js';
-
-/* QR a vettore, come il timbro (nitido in stampa, niente bitmap) */
-function disegnaQr(c, qrcode, testo, x, y, lato) {
-  const qr = qrcode(0, 'M');
-  qr.addData(testo);
-  qr.make();
-  const n = qr.getModuleCount();
-  const passo = lato / n;
-  c.stato.pagina.drawRectangle({ x, y, width: lato, height: lato, color: c.bianco });
-  for (let r = 0; r < n; r++) {
-    for (let col = 0; col < n; col++) {
-      if (!qr.isDark(r, col)) continue;
-      c.stato.pagina.drawRectangle({
-        x: x + col * passo, y: y + lato - (r + 1) * passo,
-        width: passo + 0.2, height: passo + 0.2, color: c.nero,
-      });
-    }
-  }
-}
+import { ENTE, COLORI } from './config.js';
+import { dataIt, oggiIso, taglia, testoPdf } from './comune.js';
+import { pdfLib, qrGen } from './cdn.js';
 
 const SX = 57;
 const DX = 538;
+const A4 = [595.28, 841.89];
 const salva = async (doc) => new Uint8Array(await doc.save());
 
 /* dimensioni entro un riquadro SENZA deformare (proporzioni conservate) */
@@ -66,330 +60,474 @@ export function scaricaPdf(byte, nome) {
 
 const orario = (t) => (t ? String(t).slice(0, 5) : '');
 const fascia = (dalle, alle) => [orario(dalle), orario(alle)].filter(Boolean).join('–');
+const fasciaGiornata = (g) => fascia(g.dalle, g.alle) + (g.dalle2 ? ` e ${fascia(g.dalle2, g.alle2)}` : '');
+const GIORNI = ['domenica', 'lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato'];
+const giornoSett = (iso) => (iso ? GIORNI[new Date(`${String(iso).slice(0, 10)}T12:00:00`).getDay()] : '');
+const nome = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
+const QUALITA_DOCENTE = ['docente', 'codocente', 'relatore'];
+const MODALITA = { aula: 'Corso in aula', cantiere: 'Corso in cantiere', impresa: 'Corso in impresa', videoconferenza: 'Corso in videoconferenza', mista: 'Corso in modalità mista' };
+const tipologia = (corso) => (corso.tipo === 'conferenza_cantiere' ? 'Conferenza di Cantiere' : (MODALITA[corso.modalita] || 'Corso'));
+const GDPR = 'Ai sensi degli artt. 13 e 14 del Regolamento Europeo n. 2016/679 (GDPR), ciascun firmatario esprime il consenso al trattamento dei propri dati personali da parte di Formedil Padova, Via Basilicata 10 — Padova, per le finalità e con le modalità contenute nell\'informativa, che conferma di aver ricevuto e della quale ha preso integrale visione.';
+const righeEnte = () => [
+  "FORMEDIL PADOVA — Ente Unico per la Formazione e la Sicurezza per il settore dell'Edilizia ed affini della Provincia di Padova",
+  'ANCE PADOVA · FENEAL UIL · FILCA CISL · FILLEA CGIL — Accreditamento Regione Veneto L.R. N. 19 del 09.08.02 cod. A0119',
+  `CF 80006850285 · P.IVA 02585760289 · CCIAA PD REA 294715 · ${ENTE.indirizzo} · tel. ${ENTE.tel} · ${ENTE.email}`,
+];
 
-/* ── GRIGLIA CONTINUA in stile modello storico: le celle di una
-      riga hanno tutte la stessa altezza e condividono i bordi.
-      cella = { l: etichetta, v: valore, peso, dim?, centro? } ── */
-function tabella(c, righe) {
-  const largoTot = DX - SX;
-  for (const riga of righe) {
-    const tot = riga.reduce((s, x) => s + (x.peso || 1), 0);
-    const misure = riga.map((x) => largoTot * ((x.peso || 1) / tot));
-    /* prima si misura l'altezza necessaria a tutta la riga */
-    const testi = riga.map((x, i) => spezza(c, String(x.v ?? '—'), misure[i] - 10, c.bold, x.dim || 9.5));
-    const h = Math.max(...riga.map((x, i) => 14 + testi[i].length * ((x.dim || 9.5) + 2.5) + 5));
-    if (c.stato.y - h < 90) c.nuovaPagina();
-    let x0 = SX;
-    riga.forEach((cella, i) => {
-      const pg = c.stato.pagina;
-      pg.drawRectangle({ x: x0, y: c.stato.y - h, width: misure[i], height: h, borderWidth: 0.8, borderColor: c.grigio });
-      pg.drawText(cella.l, { x: x0 + 5, y: c.stato.y - 11, size: 7, font: c.font, color: c.grigio });
-      const dim = cella.dim || 9.5;
-      let y = c.stato.y - 14 - dim;
-      for (const r of testi[i]) {
-        const xTxt = cella.centro ? x0 + (misure[i] - c.bold.widthOfTextAtSize(r, dim)) / 2 : x0 + 5;
-        pg.drawText(r, { x: xTxt, y, size: dim, font: c.bold, color: c.nero });
-        y -= dim + 2.5;
-      }
-      x0 += misure[i];
+/* QR a vettore, come il timbro (nitido in stampa, niente bitmap) */
+function disegnaQr(pg, qrcode, testo, x, y, lato, colore) {
+  const qr = qrcode(0, 'M');
+  qr.addData(testo);
+  qr.make();
+  const n = qr.getModuleCount();
+  const passo = lato / n;
+  for (let r = 0; r < n; r++) {
+    for (let col = 0; col < n; col++) {
+      if (!qr.isDark(r, col)) continue;
+      pg.drawRectangle({ x: x + col * passo, y: y + lato - (r + 1) * passo, width: passo + 0.2, height: passo + 0.2, color: colore });
+    }
+  }
+}
+
+/* ── la carta «ciclo»: documento, font, colori e logo ── */
+async function apriCiclo() {
+  const { PDFDocument, StandardFonts, rgb } = await pdfLib();
+  const doc = await PDFDocument.create();
+  const F = {
+    r: await doc.embedFont(StandardFonts.Helvetica),
+    b: await doc.embedFont(StandardFonts.HelveticaBold),
+    i: await doc.embedFont(StandardFonts.HelveticaOblique),
+  };
+  const C = {
+    arancio: rgb(...COLORI.arancio), grigio: rgb(...COLORI.grigio), bianco: rgb(1, 1, 1), nero: rgb(0.1, 0.1, 0.1),
+    tenue: rgb(0.545, 0.569, 0.6), linea: rgb(0.835, 0.847, 0.863), bordo: rgb(0.62, 0.64, 0.67),
+    zebra: rgb(0.965, 0.965, 0.97), alone: rgb(0.988, 0.863, 0.796), filigrana: rgb(0.945, 0.949, 0.953),
+    etichetta: rgb(0.765, 0.784, 0.808),
+  };
+  /* il logo in alta risoluzione; se non si trova, quello della carta intestata; la carta regge anche senza */
+  let logo = null;
+  for (const [url, jpg] of [['img/logo-pdf.jpg', true], ['img/logo.png', false]]) {
+    try {
+      const byte = new Uint8Array(await (await fetch(url)).arrayBuffer());
+      logo = jpg ? await doc.embedJpg(byte) : await doc.embedPng(byte);
+      break;
+    } catch { /* si prova il successivo */ }
+  }
+  const pagina = () => {
+    const pg = doc.addPage(A4);
+    pg.drawRectangle({ x: 0, y: 0, width: 34, height: A4[1], color: C.arancio });
+    return pg;
+  };
+  return { doc, F, C, logo, pagina };
+}
+
+/* testo con allineamento e spaziatura delle lettere; restituisce la larghezza.
+   Gli a capo si appiattiscono: pdf-lib non sa misurare «\n» (WinAnsi). */
+function T(pg, s, x, y, size, f, color, o = {}) {
+  const t = testoPdf(String(s ?? '')).replace(/\s*[\r\n\t]+\s*/g, ' ');
+  const sp = o.sp || 0;
+  const w = f.widthOfTextAtSize(t, size) + sp * Math.max(0, t.length - 1);
+  let xx = o.al === 'r' ? x - w : o.al === 'c' ? x - w / 2 : x;
+  if (!sp) pg.drawText(t, { x: xx, y, size, font: f, color });
+  else for (const ch of t) { pg.drawText(ch, { x: xx, y, size, font: f, color }); xx += f.widthOfTextAtSize(ch, size) + sp; }
+  return w;
+}
+/* a capo alla parola, misurando col font */
+function righe(s, f, size, largo) {
+  const out = [];
+  let r = '';
+  for (const p of testoPdf(String(s ?? '')).replace(/\s+/g, ' ').trim().split(' ')) {
+    const prova = r ? `${r} ${p}` : p;
+    if (r && f.widthOfTextAtSize(prova, size) > largo) { out.push(r); r = p; } else r = prova;
+  }
+  out.push(r || '—');
+  return out;
+}
+const cut = (f, size, s, largo) => taglia(f, size, testoPdf(nome(s)), largo);
+const linea = (pg, x1, y1, x2, y2, color, thickness = 0.6, dashArray) =>
+  pg.drawLine({ start: { x: x1, y: y1 }, end: { x: x2, y: y2 }, color, thickness, ...(dashArray ? { dashArray } : {}) });
+const altLogo = (k, w) => (k.logo ? w * k.logo.height / k.logo.width : 0);
+function logoIn(k, pg, x, y, w) {
+  if (!k.logo) return 0;
+  const h = altLogo(k, w);
+  pg.drawImage(k.logo, { x, y, width: w, height: h });
+  return h;
+}
+function enteBlocco(k, pg, x, y, largo) {
+  let yy = y;
+  righeEnte().forEach((s, i) => {
+    const f = i === 0 ? k.F.b : k.F.r;
+    for (const r of righe(s, f, 6.2, largo)) { T(pg, r, x, yy, 6.2, f, k.C.tenue); yy -= 8.2; }
+  });
+}
+/* griglia a filetti: righe di celle [etichetta, valore, peso, corpo] */
+function griglia(k, pg, X0, Wc, y, rows, { val = 10.5, verticali = false } = {}) {
+  const { F, C } = k;
+  linea(pg, X0, y, X0 + Wc, y, C.linea);
+  for (const row of rows) {
+    const tot = row.reduce((s, c) => s + (c[2] || 1), 0);
+    let x = X0, hMax = 0;
+    const celle = [];
+    for (const [l, v, peso = 1, corpo = val] of row) {
+      const w = Wc * peso / tot;
+      const rr = righe(v ?? '—', F.b, corpo, w - 14);
+      hMax = Math.max(hMax, 16 + corpo + 10 + (rr.length - 1) * (corpo + 3));
+      celle.push([x, l, rr, corpo]);
+      x += w;
+    }
+    celle.forEach(([cx, l, rr, corpo], i) => {
+      const pad = verticali && i ? 7 : 0;
+      T(pg, String(l).toUpperCase(), cx + pad, y - 12, 6.3, F.r, C.tenue, { sp: 1.1 });
+      rr.forEach((r, j) => T(pg, r, cx + pad, y - 18 - corpo - j * (corpo + 3), corpo, F.b, C.grigio));
+      if (verticali && i) linea(pg, cx, y, cx, y - hMax, C.linea);
     });
-    c.stato.y -= h;   /* nessuno spazio fra le righe: griglia continua */
+    y -= hMax;
+    linea(pg, X0, y, X0 + Wc, y, C.linea);
   }
-}
-
-/* testo centrato con a capo */
-function centrato(c, testo, f, dim, colore) {
-  for (const r of spezza(c, testo, DX - SX - 20, f, dim)) {
-    c.serve(dim + 6);
-    c.stato.pagina.drawText(r, { x: SX + (DX - SX - f.widthOfTextAtSize(r, dim)) / 2, y: c.stato.y, size: dim, font: f, color: colore });
-    c.stato.y -= dim + 4;
-  }
-}
-
-/* banda colorata a tutta larghezza */
-function banda(c, testo, colore, colTxt, centraTesto = true) {
-  testo = testoPdf(testo);
-  c.serve(20);
-  c.stato.pagina.drawRectangle({ x: SX, y: c.stato.y - 5, width: DX - SX, height: 16, color: colore });
-  const f = c.bold;
-  const x = centraTesto ? SX + (DX - SX - f.widthOfTextAtSize(testo, 10)) / 2 : SX + 6;
-  c.stato.pagina.drawText(testo, { x, y: c.stato.y - 1, size: 10, font: f, color: colTxt });
-  c.stato.y -= 20;
-}
-
-/* cornice arancione doppia + piè «Stampato a Padova il» su ogni pagina */
-function cornice(c, dataStampa) {
-  for (const pg of c.doc.getPages()) {
-    pg.drawRectangle({ x: 14, y: 14, width: 567, height: 814, borderWidth: 3, borderColor: c.arancio });
-    pg.drawRectangle({ x: 21, y: 21, width: 553, height: 800, borderWidth: 0.8, borderColor: c.arancio });
-    pg.drawText(`Stampato a Padova il ${dataIt(dataStampa) || ''}`, { x: 30, y: 26, size: 6.5, font: c.italic, color: c.grigio });
-  }
-}
-
-function spezza(c, testo, largo, f, dim) {
-  const parole = testoPdf(testo).split(/\s+/).filter(Boolean);
-  const righe = [];
-  let riga = '';
-  for (const w of parole) {
-    const prova = riga ? riga + ' ' + w : w;
-    if (f.widthOfTextAtSize(prova, dim) > largo && riga) { righe.push(riga); riga = w; }
-    else riga = prova;
-  }
-  righe.push(riga || '—');
-  return righe;
-}
-
-/* pagina 2: argomenti trattati — banda arancio del titolo, banda
-   verde per ogni giornata, riga «Totale crediti», come il modello */
-function argomentiTrattati(c, corso, giornate, interventi) {
-  const verde = c.verde;
-  c.nuovaPagina();
-  c.stato.y = 795;
-  const banda = (testo, colore, colTxt, bold = true) => {
-    c.serve(20);
-    c.stato.pagina.drawRectangle({ x: SX, y: c.stato.y - 5, width: DX - SX, height: 16, color: colore });
-    const f = bold ? c.bold : c.font;
-    c.stato.pagina.drawText(testo, { x: SX + (bold ? (DX - SX - f.widthOfTextAtSize(testo, 10)) / 2 : 6), y: c.stato.y - 1, size: 10, font: f, color: colTxt });
-    c.stato.y -= 20;
-  };
-  banda('Argomenti trattati', c.arancio, c.bianco);
-  let crediti = 0;
-  const stampaIntervento = (it) => {
-    c.serve(34);
-    const y0 = c.stato.y;
-    c.stato.pagina.drawText(`Dalle ${orario(it.dalle) || '—'}  Alle ${orario(it.alle) || '—'}`, { x: SX + 4, y: y0, size: 9, font: c.font, color: c.grigio });
-    c.stato.pagina.drawText(testoPdf(`${it.qualita === 'docente' ? 'Docente' : it.qualita.charAt(0).toUpperCase() + it.qualita.slice(1)}  ${it.nominativo}`), { x: SX + 130, y: y0, size: 9.5, font: c.bold, color: c.nero });
-    const cred = `Crediti formativi  ${it.crediti ?? 0}`;
-    c.stato.pagina.drawText(cred, { x: DX - 6 - c.italic.widthOfTextAtSize(cred, 8.5), y: y0, size: 8.5, font: c.italic, color: c.grigio });
-    c.stato.y -= 13;
-    if (it.materia) c.scrivi(`Materia   ${it.materia}`, c.font, 9, c.grigio, 4);
-    if (it.argomenti) c.scrivi(it.argomenti, c.italic, 9, c.nero, 4);
-    crediti += Number(it.crediti || 0);
-    c.stato.y -= 4;
-  };
-  for (const g of giornate) {
-    banda(`Data Lezione   ${dataIt(g.data)}${g.aula ? `   —   ${g.aula}` : ''}`, verde, c.bianco, false);
-    interventi.filter((x) => x.giornata_id === g.id).forEach(stampaIntervento);
-    c.stato.y -= 2;
-  }
-  interventi.filter((x) => !x.giornata_id || !giornate.some((g) => g.id === x.giornata_id)).forEach(stampaIntervento);
-  c.serve(20);
-  const tot = `Totale crediti   ${crediti}`;
-  c.stato.pagina.drawRectangle({ x: DX - 150, y: c.stato.y - 5, width: 150, height: 16, color: c.grigioChiaro });
-  c.stato.pagina.drawText(tot, { x: DX - 145, y: c.stato.y - 1, size: 9.5, font: c.italic, color: c.nero });
-  c.stato.y -= 22;
+  return y;
 }
 
 /* ── 1. ATTESTATO ──
    iscritto: riga s_corsi_iscritti; anagrafica: {nato_luogo, nato_il} se agganciato;
-   ctx: { numero, firmaByte, firmaNome, logoRegioneByte, loghiExtra: [byte] } */
+   ctx: { numero, firmaByte, firmaNome, logoRegioneByte, loghiExtra: [byte], dataRilascio } */
 export async function pdfAttestato(corso, iscritto, anagrafica, giornate, interventi, ctx) {
-  const c = await apriCarta();
-  const pg = () => c.stato.pagina;
-
-  /* numero in alto a destra: serie nuova N/aaaa, o «Prot.» storico
-     (ristampa di un attestato delle vecchie gestioni col suo numero) */
-  const nTxt = String(ctx.numero).includes('/') ? `Attestato n. ${ctx.numero}` : `Prot.: ${ctx.numero}`;
-  pg().drawText(nTxt, { x: DX - c.bold.widthOfTextAtSize(nTxt, 11), y: 800, size: 11, font: c.bold, color: c.nero });
-
-  /* loghi: Regione SOLO se riconosciuto, più gli eventuali loghi di progetto */
-  let xLogo = SX;
-  const disegnaLogo = (img) => {
-    const h = 30, w = (img.width / img.height) * h;
-    pg().drawImage(img, { x: xLogo, y: c.stato.y - h + 6, width: w, height: h });
-    xLogo += w + 14;
-    return true;
-  };
-  let cambiaRiga = false;
-  if (corso.riconosciuto_regione && ctx.logoRegioneByte) {
-    try { cambiaRiga = disegnaLogo(await c.doc.embedPng(ctx.logoRegioneByte)); } catch { /* senza logo */ }
-  }
-  for (const byte of ctx.loghiExtra || []) {
-    try { cambiaRiga = disegnaLogo(await c.doc.embedPng(byte).catch(() => c.doc.embedJpg(byte))); } catch { /* ignora */ }
-  }
-  if (cambiaRiga) c.stato.y -= 34;
-  c.stato.y -= 4;
-
-  /* ── la griglia continua del modello storico ── */
-  const oreTot = corso.durata_ore ?? '—';
-  const oreFreq = iscritto.ore_frequentate ?? oreTot;
-  const perc = iscritto.perc_frequenza != null ? `${Math.round(iscritto.perc_frequenza)}%` : '100%';
-  tabella(c, [
-    [{ l: 'Titolo del corso', v: corso.titolo, peso: 2, dim: 10.5 }, { l: 'Sede', v: corso.sede || '—', peso: 1 }],
-    [{ l: 'Anno formativo', v: corso.anno_formativo || '—', centro: true },
-     { l: 'Data inizio', v: dataIt(corso.data_inizio) || '—', centro: true },
-     { l: 'Data fine', v: dataIt(corso.data_fine || corso.data_inizio) || '—', centro: true }],
-    [{ l: 'Totale ore corso', v: oreTot, centro: true },
-     { l: 'Tot. ore frequentate', v: oreFreq, centro: true },
-     { l: '% di frequenza del corsista', v: perc, centro: true },
-     { l: '% minima di frequenza', v: `${corso.perc_freq_min ?? 90}%`, centro: true }],
-    [{ l: 'Tipologia di corso', v: corso.tipo === 'conferenza_cantiere' ? 'Conferenza di Cantiere' : (corso.modalita ? { aula: 'Corso in aula', cantiere: 'Corso in cantiere', impresa: 'Corso in impresa', videoconferenza: 'Corso in videoconferenza', mista: 'Corso in modalità mista' }[corso.modalita] : 'Corso'), peso: 1 },
-     { l: 'Settore ATECO', v: corso.ateco_txt || '—', peso: 2 }],
-    [{ l: 'Il presente certificato è valido per', v: corso.validita_txt || 'Informazione', peso: 1 }],
-  ]);
-  c.stato.y -= 16;
-
+  const k = await apriCiclo();
+  const { doc, F, C } = k;
+  const H = A4[1], X0 = 70, X1 = 545, Wc = X1 - X0;
+  const numero = String(ctx.numero ?? '');
+  const nTxt = numero.includes('/') ? `Attestato n. ${numero}` : `Prot.: ${numero}`;
+  const tipoAtt = corso.tipo_attestato || 'frequenza';
+  const partecipazione = tipoAtt === 'partecipazione';
+  const titoloAtt = { partecipazione: 'Attestato di partecipazione', frequenza: 'Attestato di frequenza', frequenza_verifica: 'Attestato di frequenza e verifica finale' }[tipoAtt] || 'Attestato';
   const certificazione = {
     partecipazione: `Si certifica la partecipazione a ${corso.titolo} per il corsista:`,
     frequenza: 'Si certifica la regolare frequenza per il corsista:',
     frequenza_verifica: 'Si certifica la regolare frequenza e il superamento con esito positivo della verifica finale di apprendimento per il corsista:',
-  }[corso.tipo_attestato || 'frequenza'];
-  centrato(c, certificazione, c.bold, 11.5, c.nero);
-  c.stato.y -= 8;
+  }[tipoAtt];
+  const dataRil = ctx.dataRilascio || oggiIso();
+  const oreTot = corso.durata_ore ?? '—';
+  const oreFreq = iscritto.ore_frequentate ?? oreTot;
+  const perc = iscritto.perc_frequenza != null ? `${Math.round(iscritto.perc_frequenza)}%` : '100%';
 
-  const righeCorsista = [
-    [{ l: 'Nome e cognome', v: iscritto.nominativo, peso: 2, dim: 15 }, { l: 'Codice fiscale', v: iscritto.cf || '—', peso: 1 }],
-  ];
+  let pg = k.pagina();
+
+  /* testata: logo Formedil a destra; a sinistra di questo il logo Regione
+     (SOLO corsi riconosciuti) e gli eventuali loghi di progetto */
+  const lw = 150, lh = altLogo(k, lw);
+  logoIn(k, pg, X1 - lw, H - 46 - lh, lw);
+  const loghi = [];
+  if (corso.riconosciuto_regione && ctx.logoRegioneByte) loghi.push(ctx.logoRegioneByte);
+  loghi.push(...(ctx.loghiExtra || []));
+  let xLogo = X1 - (k.logo ? lw + 16 : 0);
+  for (const byte of loghi) {
+    let img;
+    try { img = await doc.embedPng(byte); } catch { try { img = await doc.embedJpg(byte); } catch { continue; } }
+    const h = 34, w = (img.width / img.height) * h;
+    if (xLogo - w < X0 + 230) break;   /* non sopra il numero */
+    pg.drawImage(img, { x: xLogo - w, y: H - 46 - (lh || h) / 2 - h / 2, width: w, height: h });
+    xLogo -= w + 14;
+  }
+  T(pg, `${titoloAtt}  ·  ${tipologia(corso)}`.toUpperCase(), X0, H - 56, 7, F.r, C.arancio, { sp: 1.4 });
+  T(pg, nTxt, X0, H - 79, 18, F.b, C.grigio);
+
+  const barra = (testo, y) => {
+    pg.drawRectangle({ x: X0, y: y - 18, width: Wc, height: 18, color: C.grigio });
+    T(pg, testo.toUpperCase(), X0 + 8, y - 12, 7, F.b, C.bianco, { sp: 1.4 });
+    return y - 18;
+  };
+
+  let y = barra('Dati del corso', H - 122);
+  y = griglia(k, pg, X0, Wc, y, [
+    [['Titolo del corso', corso.titolo, 2, 11.5], ['Sede', corso.sede || '—', 1, 9.5]],
+    [['Anno formativo', corso.anno_formativo ?? '—'], ['Data inizio', dataIt(corso.data_inizio) || '—'], ['Data fine', dataIt(corso.data_fine || corso.data_inizio) || '—']],
+    [['Totale ore corso', oreTot], ['Ore frequentate', oreFreq], ['Frequenza corsista', perc], ['Frequenza minima', `${corso.perc_freq_min ?? 90}%`]],
+    [['Tipologia di corso', tipologia(corso)], ['Settore ATECO', corso.ateco_txt || '—', 2]],
+    [['Il presente certificato è valido per', corso.validita_txt || 'Informazione']],
+  ], { verticali: true });
+
+  y -= 30;
+  pg.drawRectangle({ x: X0, y: y - 6, width: 4, height: 20, color: C.arancio });
+  righe(certificazione, F.b, 12.5, Wc - 16).forEach((r) => { T(pg, r, X0 + 14, y, 12.5, F.b, C.grigio); y -= 16; });
+  y -= 18;
+
+  y = barra('Dati del corsista', y);
+  const corsista = [[['Nome e cognome', nome(iscritto.nominativo), 2, 17], ['Codice fiscale', iscritto.cf || '—', 1, 11]]];
   if (anagrafica?.nato_luogo || anagrafica?.nato_il) {
-    righeCorsista.push([
-      { l: 'Luogo di nascita', v: anagrafica.nato_luogo || '—', peso: 2 },
-      { l: 'Data di nascita', v: anagrafica.nato_il ? dataIt(anagrafica.nato_il) : '—', peso: 1 },
-    ]);
+    corsista.push([['Luogo di nascita', anagrafica.nato_luogo || '—', 2], ['Data di nascita', anagrafica.nato_il ? dataIt(anagrafica.nato_il) : '—', 1]]);
   }
-  righeCorsista.push(corso.tipo_attestato === 'partecipazione'
-    ? [{ l: 'In qualità di', v: iscritto.ruolo || '—' }, { l: 'Ruolo aziendale', v: iscritto.mansione || '—' }]
-    : [{ l: 'Ragione sociale', v: iscritto.impresa_txt || '—', peso: 2 },
-       { l: 'In qualità di', v: iscritto.ruolo || '—', peso: 1 },
-       { l: 'Ruolo aziendale', v: iscritto.mansione || '—', peso: 1 }]);
-  tabella(c, righeCorsista);
-  c.stato.y -= 22;
+  corsista.push(partecipazione
+    ? [['In qualità di', iscritto.ruolo || '—'], ['Ruolo aziendale', iscritto.mansione || '—']]
+    : [['Ragione sociale', iscritto.impresa_txt || '—', 2], ['In qualità di', iscritto.ruolo || '—', 1], ['Ruolo aziendale', iscritto.mansione || '—', 1]]);
+  y = griglia(k, pg, X0, Wc, y, corsista, { verticali: true });
 
-  /* ── firma centrata in basso; a sinistra il QR di verifica ── */
-  c.serve(150);
-  const centro = SX + (DX - SX) / 2;
-  const yF = c.stato.y;
-  const t1 = 'Timbro e firma del responsabile del corso';
-  pg().drawText(t1, { x: centro - c.font.widthOfTextAtSize(t1, 9.5) / 2, y: yF, size: 9.5, font: c.font, color: c.nero });
-  const t2 = `(${ctx.firmaNome || 'Il responsabile del progetto formativo'})`;
-  pg().drawText(t2, { x: centro - c.bold.widthOfTextAtSize(t2, 10) / 2, y: yF - 14, size: 10, font: c.bold, color: c.nero });
-  if (ctx.firmaByte) {
-    try {
-      let img;
-      try { img = await c.doc.embedPng(ctx.firmaByte); } catch { img = await c.doc.embedJpg(ctx.firmaByte); }
-      const { width, height } = adatta(img, 160, 80);
-      pg().drawImage(img, { x: centro - width / 2, y: yF - 22 - height, width, height });
-    } catch { /* si firma a mano */ }
-  }
-  pg().drawText(`Rilasciato a Padova il ${dataIt(ctx.dataRilascio) || dataIt(new Date().toISOString().slice(0, 10))}`,
-    { x: SX, y: yF - 14, size: 9, font: c.font, color: c.nero });
-  pg().drawText('Verifica integrità documento', { x: SX, y: yF - 28, size: 7.5, font: c.font, color: c.grigio });
-  /* il QR di verifica del modello storico: numero, corsista, corso */
+  /* rilascio e QR a sinistra, firma del responsabile a destra */
+  const yb = y - 30;
+  T(pg, `Rilasciato a Padova il ${dataIt(dataRil)}`, X0, yb, 10, F.b, C.grigio);
   try {
     const qrcode = await qrGen();
     const testoQr = [
       'FORMEDIL PADOVA', nTxt, iscritto.nominativo, iscritto.cf ? `CF ${iscritto.cf}` : null,
       `Corso ${corso.id} — ${String(corso.titolo).slice(0, 60)}`,
-      dataIt(ctx.dataRilascio) || '',
+      dataIt(dataRil) || '',
     ].filter(Boolean).join(' | ');
-    disegnaQr(c, qrcode, testoQr, SX, yF - 86, 50);
-    pg().drawText(nTxt, { x: SX, y: yF - 97, size: 8, font: c.bold, color: c.nero });
+    disegnaQr(pg, qrcode, testoQr, X0, yb - 72, 58, C.nero);
+    T(pg, 'Verifica integrità documento', X0, yb - 82, 6.5, F.r, C.tenue);
+    T(pg, nTxt, X0, yb - 93, 8, F.b, C.grigio);
   } catch {
-    pg().drawText(nTxt, { x: SX, y: yF - 38, size: 8, font: c.bold, color: c.nero });
+    T(pg, nTxt, X0, yb - 16, 8, F.b, C.grigio);
   }
+  const cf = X0 + Wc * 0.68;
+  T(pg, 'Timbro e firma del responsabile del corso', cf, yb, 8, F.r, C.tenue, { al: 'c' });
+  T(pg, `(${ctx.firmaNome || 'Il responsabile del progetto formativo'})`, cf, yb - 13, 10, F.b, C.grigio, { al: 'c' });
+  if (ctx.firmaByte) {
+    try {
+      let img;
+      try { img = await doc.embedPng(ctx.firmaByte); } catch { img = await doc.embedJpg(ctx.firmaByte); }
+      const { width, height } = adatta(img, 175, 98);
+      pg.drawImage(img, { x: cf - width / 2, y: yb - 18 - height, width, height });
+    } catch { /* si firma a mano */ }
+  }
+  enteBlocco(k, pg, X0, 68, Wc);
 
-  argomentiTrattati(c, corso, giornate, interventi);
-  cornice(c, ctx.dataRilascio || new Date().toISOString().slice(0, 10));
-  return salva(c.doc);
+  argomentiTrattati(k, corso, nome(iscritto.nominativo), nTxt, giornate, interventi);
+
+  const pagine = doc.getPages();
+  pagine.forEach((p, i) => {
+    T(p, `Stampato a Padova il ${dataIt(dataRil)}`, X0, 24, 6.8, F.i, C.tenue);
+    T(p, `Pagina ${i + 1} di ${pagine.length}`, X1, 24, 7.5, F.b, C.grigio, { al: 'r' });
+  });
+  return salva(doc);
+}
+
+/* pagina 2 dell'attestato: argomenti trattati, giornata per giornata */
+function argomentiTrattati(k, corso, nominativo, nTxt, giornate, interventi) {
+  const { F, C } = k;
+  const H = A4[1], X0 = 70, X1 = 545;
+  let pg = k.pagina();
+  const testa = (segue) => {
+    T(pg, `Argomenti trattati  ·  ${nTxt}`.toUpperCase(), X0, H - 40, 7, F.r, C.arancio, { sp: 1.4 });
+    T(pg, cut(F.b, 12, nominativo, X1 - X0), X0, H - 57, 12, F.b, C.grigio);
+    T(pg, cut(F.r, 8.5, `${corso.titolo}${segue ? '  (segue)' : ''}`, X1 - X0), X0, H - 70, 8.5, F.r, C.tenue);
+    linea(pg, X0, H - 82, X1, H - 82, C.linea, 0.8);
+    return H - 112;
+  };
+  let y = testa(false);
+  const serve = (h) => { if (y - h < 60) { pg = k.pagina(); y = testa(true); } };
+  let crediti = 0;
+  const intervento = (it) => {
+    const tx = X0 + 84;
+    const arg = it.argomenti ? righe(it.argomenti, F.i, 8.5, X1 - tx) : [];
+    serve(30 + arg.length * 11);
+    T(pg, fascia(it.dalle, it.alle) || '—', X0, y, 8.5, F.r, C.tenue);
+    const q = it.qualita ? it.qualita.charAt(0).toUpperCase() + it.qualita.slice(1) : 'Docente';
+    const wq = T(pg, `${q}  `, tx, y, 8.5, F.r, C.tenue);
+    T(pg, cut(F.b, 10, it.nominativo, X1 - tx - wq - 100), tx + wq, y, 10, F.b, C.grigio);
+    T(pg, `Crediti formativi  ${it.crediti ?? 0}`, X1, y, 8, F.i, C.tenue, { al: 'r' });
+    y -= 12.5;
+    if (it.materia) { T(pg, cut(F.r, 8, `Materia: ${it.materia}`, X1 - tx), tx, y, 8, F.r, C.tenue); y -= 11; }
+    arg.forEach((r) => { T(pg, r, tx, y, 8.5, F.i, C.grigio); y -= 11; });
+    y -= 10;
+    crediti += Number(it.crediti || 0);
+  };
+  for (const g of giornate) {
+    serve(64);
+    const w = T(pg, dataIt(g.data), X0, y, 17, F.b, C.grigio);
+    T(pg, giornoSett(g.data), X0 + w + 8, y, 9, F.r, C.tenue);
+    T(pg, fasciaGiornata(g), X1, y + 1, 12, F.b, C.arancio, { al: 'r' });
+    y -= 13;
+    if (g.aula || g.sede) T(pg, cut(F.r, 8, g.aula || g.sede, 260), X1, y, 8, F.r, C.tenue, { al: 'r' });
+    y -= 16;
+    interventi.filter((x) => x.giornata_id === g.id).forEach(intervento);
+    linea(pg, X0, y + 4, X1, y + 4, C.linea, 0.6);
+    y -= 14;
+  }
+  const orfani = interventi.filter((x) => !x.giornata_id || !giornate.some((g) => g.id === x.giornata_id));
+  if (orfani.length) { orfani.forEach(intervento); y -= 4; }
+  serve(40);
+  const bw = 190, bh = 34;
+  pg.drawRectangle({ x: X1 - bw, y: y - bh, width: bw, height: bh, color: C.grigio });
+  T(pg, 'TOTALE CREDITI', X1 - bw + 14, y - 21, 7, F.r, C.etichetta, { sp: 1.4 });
+  T(pg, String(crediti), X1 - 14, y - 24, 16, F.b, C.bianco, { al: 'r' });
 }
 
 /* ── 2. REGISTRO PRESENZE ── */
 export async function pdfRegistro(corso, giornate, interventi, iscritti, conf) {
-  const c = await apriCarta();
-  banda(c, 'REGISTRO PRESENZA ALLIEVI', c.arancio, c.bianco);
-  c.stato.y -= 4;
-  tabella(c, [
-    [{ l: 'Ente Attuatore', v: "FORMEDIL PADOVA — Ente Unico per la Formazione e la Sicurezza per il settore dell'Edilizia ed affini della Provincia di Padova", dim: 9 }],
-    [{ l: 'Codice corso', v: String(corso.id), peso: 1, centro: true }, { l: 'Titolo corso', v: corso.titolo, peso: 3, dim: 10.5 }],
-    [{ l: 'Sede di svolgimento', v: corso.sede || '—' }],
-    [{ l: 'Data inizio corso', v: dataIt(corso.data_inizio) || '—', centro: true },
-     { l: 'Data fine corso', v: dataIt(corso.data_fine || corso.data_inizio) || '—', centro: true },
-     { l: 'Durata (ore)', v: corso.durata_ore ?? '—', centro: true }],
-    [{ l: 'Tipologia di corso', v: corso.tipo === 'conferenza_cantiere' ? 'Conferenza di Cantiere' : corso.tipo, peso: 1 },
-     { l: 'Settore ATECO', v: corso.ateco_txt || '—', peso: 2 }],
-    [{ l: 'Rappresentante Legale', v: corso.rappresentante_legale || conf.presidente_nome || '—' },
-     { l: 'Resp. del progetto formativo', v: corso.responsabile_formativo || conf.responsabile_formativo_nome || '—' }],
-    [{ l: 'Numero partecipanti', v: `Presenti allievi n° ______   (iscritti: ${iscritti.length})` }],
-  ]);
-  c.stato.y -= 16;
-  const yNotaPagine = c.stato.y;   /* la riga si scrive alla fine, quando il totale è noto */
-
+  const k = await apriCiclo();
+  const { doc, F, C } = k;
+  const H = A4[1], X0 = 70, X1 = 545, Wc = X1 - X0, FONDO = 50, RIGA = 22;
+  const resp = corso.responsabile_formativo || conf.responsabile_formativo_nome || '';
+  const legale = corso.rappresentante_legale || conf.presidente_nome || '—';
+  const tipoTxt = tipologia(corso);
+  const fine = corso.data_fine || corso.data_inizio;
+  const dateTxt = corso.data_inizio === fine ? (dataIt(corso.data_inizio) || '—') : `${dataIt(corso.data_inizio) || '—'} – ${dataIt(fine) || '—'}`;
   const partecipanti = iscritti.filter((i) => !['annullato', 'sostituito'].includes(i.esito))
     .sort((a, b) => a.nominativo.localeCompare(b.nominativo, 'it', { numeric: true }));
+  const docentiDi = (g) => interventi.filter((x) => x.giornata_id === g.id && QUALITA_DOCENTE.includes(x.qualita));
+  const docentiUnici = [...new Map(interventi.filter((x) => QUALITA_DOCENTE.includes(x.qualita)).map((x) => [nome(x.nominativo), x])).values()];
 
-  for (const g of giornate) {
-    c.nuovaPagina();
-    c.stato.y = 795;
-    c.scrivi(`${corso.titolo}`, c.bold, 10.5);
-    c.stato.y -= 2;
-    banda(c, `Data lezione   ${dataIt(g.data)}    ·    Orario ${fascia(g.dalle, g.alle)}${g.dalle2 ? ` e ${fascia(g.dalle2, g.alle2)}` : ''}    ·    ${g.aula || g.sede || corso.sede || ''}`, c.verde, c.bianco, false);
-    c.stato.y -= 4;
+  /* ── copertina ── */
+  let pg = k.pagina();
+  T(pg, String(corso.id), X1 + 4, 124, 118, F.b, C.filigrana, { al: 'r' });
+  logoIn(k, pg, X1 - 150, H - 46 - altLogo(k, 150), 150);
+  let y = 650;
+  T(pg, `Registro presenze allievi  ·  ${tipoTxt}`.toUpperCase(), X0, y, 8, F.r, C.arancio, { sp: 1.4 });
+  y -= 36;
+  const tit = righe(corso.titolo, F.b, 27, Wc);
+  tit.forEach((r, i) => T(pg, r, X0, y - i * 31, 27, F.b, C.grigio));
+  y -= (tit.length - 1) * 31 + 21;
+  const sede = righe(corso.sede || '—', F.r, 10.5, Wc);
+  sede.forEach((r, i) => T(pg, r, X0, y - i * 14, 10.5, F.r, C.tenue));
+  y -= (sede.length - 1) * 14 + 50;
 
-    /* docenti della giornata, con spazio firma */
-    for (const it of interventi.filter((x) => x.giornata_id === g.id && ['docente', 'codocente', 'relatore'].includes(x.qualita))) {
-      c.serve(40);
-      const y0 = c.stato.y;
-      c.stato.pagina.drawText(testoPdf(`${it.nominativo}   ·   ${fascia(it.dalle, it.alle)}`), { x: SX, y: y0, size: 9.5, font: c.bold, color: c.nero });
-      c.stato.pagina.drawText(testoPdf(it.materia || ''), { x: SX, y: y0 - 12, size: 8.5, font: c.italic, color: c.grigio });
-      c.stato.pagina.drawText('Firma docente', { x: 380, y: y0, size: 7, font: c.font, color: c.grigio });
-      c.stato.pagina.drawLine({ start: { x: 380, y: y0 - 14 }, end: { x: DX, y: y0 - 14 }, thickness: 0.7, color: c.grigio });
-      c.stato.y -= 32;
-      if (it.argomenti) { c.scrivi(it.argomenti, c.font, 8.5, c.nero); c.stato.y -= 4; }
-    }
-    c.stato.y -= 6;
-
-    /* tabella partecipanti: n / nominativo+CF / impresa / firma entrata / firma uscita */
-    const col = [26, 175, 130, 75, 75];
-    const x0 = SX;
-    const intesta = () => {
-      const y0 = c.stato.y;
-      let x = x0;
-      ['N°', 'Cognome e nome — CF', 'Impresa', 'Firma entrata', 'Firma uscita'].forEach((t, i) => {
-        c.stato.pagina.drawRectangle({ x, y: y0 - 16, width: col[i], height: 16, color: c.arancio });
-        c.stato.pagina.drawText(t, { x: x + 3, y: y0 - 11, size: 7.5, font: c.bold, color: c.bianco });
-        x += col[i];
-      });
-      c.stato.y -= 16;
-    };
-    intesta();
-    partecipanti.forEach((p, n) => {
-      if (c.stato.y - 26 < 70) { c.nuovaPagina(); intesta(); }
-      const y0 = c.stato.y;
-      let x = x0;
-      const vals = [String(n + 1), null, null, '', ''];
-      col.forEach((w, i) => {
-        c.stato.pagina.drawRectangle({ x, y: y0 - 26, width: w, height: 26, borderWidth: 0.6, borderColor: c.grigio });
-        if (i === 0) c.stato.pagina.drawText(vals[0], { x: x + 3, y: y0 - 16, size: 8, font: c.font, color: c.nero });
-        if (i === 1) {
-          c.stato.pagina.drawText(taglia(c.bold, 8, testoPdf(p.nominativo), w - 6), { x: x + 3, y: y0 - 11, size: 8, font: c.bold, color: c.nero });
-          if (p.cf) c.stato.pagina.drawText(testoPdf(p.cf), { x: x + 3, y: y0 - 21, size: 7, font: c.font, color: c.grigio });
-        }
-        if (i === 2) c.stato.pagina.drawText(taglia(c.font, 7.5, testoPdf(p.impresa_txt || ''), w - 6), { x: x + 3, y: y0 - 16, size: 7.5, font: c.font, color: c.nero });
-        x += w;
-      });
-      c.stato.y -= 26;
+  /* le giornate: una sola in chiaro, più d'una come tappe su una linea */
+  if (giornate.length === 1) {
+    const g = giornate[0];
+    pg.drawEllipse({ x: X0 + 11, y: y + 4, xScale: 12, yScale: 12, color: C.alone });
+    pg.drawEllipse({ x: X0 + 11, y: y + 4, xScale: 6.5, yScale: 6.5, color: C.arancio });
+    const w1 = T(pg, `${giornoSett(g.data)} ${dataIt(g.data)}`, X0 + 34, y, 13, F.b, C.grigio);
+    T(pg, cut(F.r, 10.5, `·  ${fasciaGiornata(g)}  ·  ${g.aula || g.sede || ''}`, Wc - w1 - 50), X0 + 42 + w1, y, 10.5, F.r, C.tenue);
+    y -= 46;
+  } else if (giornate.length > 1) {
+    const cx = (i) => X0 + Wc * (2 * i + 1) / (2 * giornate.length);
+    const fitte = giornate.length > 6;
+    linea(pg, cx(0), y, cx(giornate.length - 1), y, C.grigio, 2.5);
+    giornate.forEach((g, i) => {
+      pg.drawEllipse({ x: cx(i), y, xScale: 6, yScale: 6, color: i === 0 ? C.arancio : C.grigio });
+      T(pg, fitte ? String(dataIt(g.data)).slice(0, 5) : dataIt(g.data), cx(i), y - 20, fitte ? 7.5 : 8.5, F.b, C.grigio, { al: 'c' });
+      if (!fitte) T(pg, fasciaGiornata(g), cx(i), y - 31, 7.5, F.r, C.tenue, { al: 'c' });
     });
-
-    /* chiusura giornata */
-    c.serve(70);
-    c.stato.y -= 8;
-    c.scrivi('NOTE (entrate in ritardo, uscite anticipate, variazioni di orario rispetto al calendario):', c.font, 8, c.grigio);
-    c.stato.y -= 18;
-    const yV = c.stato.y;
-    c.stato.pagina.drawText('Totale presenze del giorno ______    Totale ore del giorno ______    Totale progressivo ore ______', { x: SX, y: yV, size: 8.5, font: c.font, color: c.nero });
-    c.stato.pagina.drawText('Visto del responsabile del corso', { x: 380, y: yV - 18, size: 7.5, font: c.font, color: c.grigio });
-    c.stato.pagina.drawText(`(${corso.responsabile_formativo || conf.responsabile_formativo_nome || ''})`, { x: 380, y: yV - 28, size: 8.5, font: c.bold, color: c.nero });
-    c.stato.pagina.drawLine({ start: { x: 380, y: yV - 46 }, end: { x: DX, y: yV - 46 }, thickness: 0.7, color: c.grigio });
-    c.stato.y -= 60;
-    c.scrivi('Ai sensi degli artt. 13 e 14 del Regolamento Europeo n. 2016/679 (GDPR), ciascun firmatario esprime il consenso al trattamento dei propri dati personali da parte di Formedil Padova, Via Basilicata 10 — Padova, per le finalità e con le modalità contenute nell\'informativa, che conferma di aver ricevuto e della quale ha preso integrale visione.', c.font, 6.5, c.grigio);
+    y -= 64;
   }
 
-  /* cornice + numeri di pagina, ora che il totale è noto */
-  cornice(c, new Date().toISOString().slice(0, 10));
-  const pagine = c.doc.getPages();
-  pagine.forEach((p, i) => p.drawText(`Pagina ${i + 1} di ${pagine.length}`, { x: DX - 70, y: 30, size: 7.5, font: c.font, color: c.grigio }));
+  /* banda grigia coi tre dati */
+  const bh = 60;
+  pg.drawRectangle({ x: X0, y: y - bh, width: Wc, height: bh, color: C.grigio });
+  [['Codice corso', String(corso.id)], [giornate.length > 1 ? 'Date' : 'Data', dateTxt], ['Durata', `${corso.durata_ore ?? '—'} ore`]]
+    .forEach(([l, v], i) => {
+      const cx = X0 + 18 + i * (Wc / 3);
+      T(pg, l.toUpperCase(), cx, y - 21, 7, F.r, C.etichetta, { sp: 1.4 });
+      T(pg, v, cx, y - 43, F.b.widthOfTextAtSize(testoPdf(v), 15) > Wc / 3 - 24 ? 11 : 15, F.b, C.bianco);
+    });
+  y -= bh + 36;
+
+  /* docenti a sinistra, responsabili e partecipanti a destra */
+  const xR = X0 + Wc * 0.5;
+  let yl = y;
+  T(pg, 'DOCENTI', X0, yl, 7.5, F.r, C.tenue, { sp: 1.4 });
+  yl -= 18;
+  const mostrati = docentiUnici.slice(0, 5);
+  for (const it of mostrati) {
+    T(pg, cut(F.b, 13.5, it.nominativo, xR - X0 - 12), X0, yl, 13.5, F.b, C.grigio);
+    T(pg, cut(F.r, 8, it.materia || '', xR - X0 - 16), X0, yl - 12, 8, F.r, C.tenue);
+    yl -= 33;
+  }
+  if (docentiUnici.length > mostrati.length) T(pg, `e altri ${docentiUnici.length - mostrati.length}`, X0, yl + 8, 8.5, F.i, C.tenue);
+  let yr = y;
+  const campoR = (l, v, corpo = 11.5, colore = C.grigio) => {
+    T(pg, l.toUpperCase(), xR, yr, 7.5, F.r, C.tenue, { sp: 1.4 });
+    const rr = righe(v, F.b, corpo, X1 - xR);
+    rr.forEach((r, i) => T(pg, r, xR, yr - 16 - i * (corpo + 3), corpo, F.b, colore));
+    yr -= 16 + rr.length * (corpo + 3) + 12;
+  };
+  campoR('Responsabile del progetto formativo', resp || '—');
+  campoR('Rappresentante legale', legale);
+  campoR('Settore', corso.ateco_txt || '—', 9.5);
+  campoR('Partecipanti', `Presenti n° ______ su ${partecipanti.length} iscritti`, 11, C.arancio);
+  const yNota = 108;
+  enteBlocco(k, pg, X0, 80, Wc);
+
+  /* ── pagine delle giornate ── */
+  const testata = (g, segue) => {
+    const lh = altLogo(k, 88);
+    logoIn(k, pg, X1 - 88, H - 30 - lh, 88);
+    T(pg, `REGISTRO PRESENZE  ·  CORSO ${corso.id}`, X0, H - 34, 7, F.r, C.arancio, { sp: 1.4 });
+    T(pg, cut(F.b, 10.5, corso.titolo, X1 - X0 - 104), X0, H - 49, 10.5, F.b, C.grigio);
+    const yt = H - 30 - Math.max(lh, 28) - 36;
+    const w = T(pg, dataIt(g.data), X0, yt, 22, F.b, C.grigio);
+    T(pg, `${giornoSett(g.data)}${segue ? '  ·  segue' : ''}`, X0 + w + 9, yt, 10, F.r, C.tenue);
+    T(pg, fasciaGiornata(g), X1, yt + 2, 15, F.b, C.arancio, { al: 'r' });
+    T(pg, cut(F.r, 8.5, g.aula || g.sede || corso.sede || '', 220), X1, yt - 12, 8.5, F.r, C.tenue, { al: 'r' });
+    linea(pg, X0, yt - 22, X1, yt - 22, C.linea, 0.8);
+    return yt - 38;
+  };
+  const cols = [0.052, 0.33, 0.258, 0.18, 0.18].map((p) => p * Wc);
+  const xs = cols.map((_, i) => X0 + cols.slice(0, i).reduce((s, w) => s + w, 0));
+  const intesta = (yy) => {
+    pg.drawRectangle({ x: X0, y: yy - 18, width: Wc, height: 18, color: C.grigio });
+    ['N°', 'Partecipante · codice fiscale', 'Impresa', 'Firma entrata', 'Firma uscita'].forEach((t, i) =>
+      T(pg, t.toUpperCase(), i ? xs[i] + 5 : xs[0] + cols[0] / 2, yy - 12, 6.2, F.b, C.bianco, { sp: 0.5, al: i ? undefined : 'c' }));
+    return yy - 18;
+  };
+
+  for (const g of giornate) {
+    pg = k.pagina();
+    y = testata(g, false);
+
+    /* docenti della giornata, due per riga, con lo spazio firma */
+    const lista = docentiDi(g);
+    if (lista.length) {
+      const gap = 20, cw = (Wc - gap) / 2;
+      T(pg, 'DOCENTI DELLA GIORNATA', X0, y, 7, F.r, C.tenue, { sp: 1.4 });
+      y -= 16;
+      for (let i = 0; i < lista.length; i += 2) {
+        if (y - 56 < FONDO + 40) { pg = k.pagina(); y = testata(g, true); }
+        lista.slice(i, i + 2).forEach((it, j) => {
+          const x = X0 + j * (cw + gap);
+          T(pg, cut(F.b, 10.5, it.nominativo, cw), x, y, 10.5, F.b, C.grigio);
+          T(pg, cut(F.r, 7.5, `${fascia(it.dalle, it.alle)}  ·  ${it.materia || ''}`, cw), x, y - 11, 7.5, F.r, C.tenue);
+          if (it.argomenti) T(pg, cut(F.i, 7.5, it.argomenti, cw), x, y - 21, 7.5, F.i, C.grigio);
+          T(pg, 'Firma', x, y - 40, 6.5, F.r, C.tenue);
+          linea(pg, x + 24, y - 40, x + cw, y - 40, C.grigio, 0.7);
+        });
+        y -= 56;
+      }
+      y += 6;
+    }
+    y -= 12;
+
+    /* partecipanti */
+    y = intesta(y);
+    partecipanti.forEach((p, n) => {
+      if (y - RIGA < FONDO) { pg = k.pagina(); y = testata(g, true) - 6; y = intesta(y); }
+      if (n % 2) pg.drawRectangle({ x: X0, y: y - RIGA, width: Wc, height: RIGA, color: C.zebra });
+      linea(pg, X0, y - RIGA, X1, y - RIGA, C.linea, 0.5);
+      [3, 4].forEach((i) => linea(pg, xs[i], y, xs[i], y - RIGA, C.linea, 0.5));
+      T(pg, String(n + 1), xs[0] + cols[0] / 2, y - 13.5, 7.5, F.r, C.tenue, { al: 'c' });
+      T(pg, cut(F.b, 8, p.nominativo, cols[1] - 8), xs[1] + 4, y - 9.5, 8, F.b, C.grigio);
+      if (p.cf) T(pg, p.cf, xs[1] + 4, y - 18, 6.2, F.r, C.tenue);
+      T(pg, cut(F.r, 7.3, p.impresa_txt || '', cols[2] - 8), xs[2] + 4, y - 13.5, 7.3, F.r, C.grigio);
+      y -= RIGA;
+    });
+
+    /* chiusura della giornata */
+    if (y - 122 < FONDO) { pg = k.pagina(); y = testata(g, true); }
+    y -= 16;
+    T(pg, 'Note (entrate in ritardo, uscite anticipate, variazioni di orario rispetto al calendario)', X0, y, 7, F.r, C.tenue);
+    linea(pg, X0, y - 16, X1, y - 16, C.bordo, 0.6, [1.2, 2.2]);
+    y -= 38;
+    ['Presenti del giorno', 'Ore del giorno', 'Totale progressivo ore'].forEach((l, i) => {
+      const bx = X0 + i * 88;
+      T(pg, l, bx, y, 6.5, F.r, C.tenue);
+      pg.drawRectangle({ x: bx, y: y - 27, width: 80, height: 21, borderColor: C.bordo, borderWidth: 0.7 });
+    });
+    const vx = X1 - 196;
+    T(pg, 'Visto del responsabile del progetto formativo', vx, y, 6.5, F.r, C.tenue);
+    T(pg, resp, vx, y - 11, 8.5, F.b, C.grigio);
+    linea(pg, vx, y - 31, X1, y - 31, C.grigio, 0.7);
+    y -= 46;
+    righe(GDPR, F.r, 5.8, Wc).forEach((r, i) => T(pg, r, X0, y - i * 7.4, 5.8, F.r, C.tenue));
+  }
+
+  /* piè di pagina e numero di pagine, ora che il totale è noto */
+  const pagine = doc.getPages();
+  const stampa = dataIt(oggiIso());
+  pagine.forEach((p, i) => {
+    T(p, `Registro presenze allievi · corso ${corso.id} · stampato a Padova il ${stampa}`, X0, 26, 6.8, F.r, C.tenue);
+    T(p, `Pagina ${i + 1} di ${pagine.length}`, X1, 26, 7.5, F.b, C.grigio, { al: 'r' });
+  });
   const nota = `Il presente registro di formazione è composto di n° ${pagine.length} pagine progressivamente numerate dal n° 1 al n° ${pagine.length}`;
-  pagine[0].drawText(nota, { x: SX + (DX - SX - c.italic.widthOfTextAtSize(nota, 9.5)) / 2, y: yNotaPagine, size: 9.5, font: c.italic, color: c.nero });
-  return salva(c.doc);
+  righe(nota, F.i, 8.5, Wc).forEach((r, i) => T(pagine[0], r, X0, yNota - i * 11.5, 8.5, F.i, C.grigio));
+  return salva(doc);
 }
 
 /* ── 3. LETTERA DI INCARICO DOCENZA (contratto d'opera) ── */
