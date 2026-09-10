@@ -54,38 +54,49 @@ const CATALOGO: Record<string, { titolo: string; slug: string; app: string; chi:
   },
 }
 
-const PERCORSO = ['9_APPLICATIVI', 'Gestionale_Visite_APP', 'Manuali_pubblicati']
 const NOME = /^(\d{4})_(\d{2})_(\d{2})_GUIDA_Formedil-Padova_([a-z0-9-]+)_v(\d+(?:\.\d+)*)\.pdf$/i
 
 const json = (o: unknown, status = 200) =>
   new Response(JSON.stringify(o), { status, headers: { 'Content-Type': 'application/json', ...CORS } })
 
-const esc = (s: string) => s.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+/* ⚠️ LA CARTELLA SI TROVA PER ID, NON SCENDENDO PER NOME (10/09/2026).
+   La prima versione scendeva 9_APPLICATIVI → Gestionale_Visite_APP →
+   Manuali_pubblicati, ma su Drive le cartelle «9_APPLICATIVI» sono DUE (il
+   vault e una copia del 03/09) e la ricerca prendeva quella sbagliata:
+   «manca Gestionale_Visite_APP» su tutte e tre le app, al primo clic.
+   L'id invece non cambia se la cartella si sposta o si rinomina (regola del
+   protocollo, provata il 30/08). Se un giorno la cartella venisse ricreata,
+   si ripiega sulla cartella «Manuali_pubblicati» che sta DENTRO una cartella
+   «Gestionale_Visite_APP» — controllando il padre, non fidandosi del nome. */
+const CARTELLA_ID = '1k-kpk0xGyUJfHQM3o5B7wAkbolbPZxix'
+const TUTTI_I_DRIVE = { supportsAllDrives: 'true', includeItemsFromAllDrives: 'true' }
 
-async function findFolder(token: string, name: string, parentId: string | null): Promise<string | null> {
-  let q = `name = '${esc(name)}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`
-  if (parentId) q += ` and '${parentId}' in parents`
-  const r = await fetch('https://www.googleapis.com/drive/v3/files?' +
-    new URLSearchParams({ q, fields: 'files(id)', pageSize: '5' }), { headers: { Authorization: `Bearer ${token}` } })
-  const d = await r.json()
-  if (d.error) throw new Error('Ricerca cartella fallita: ' + JSON.stringify(d.error))
-  return d.files?.[0]?.id ?? null
+async function metadati(token: string, id: string): Promise<{ id: string; name: string; trashed?: boolean; parents?: string[] } | null> {
+  const r = await fetch(`https://www.googleapis.com/drive/v3/files/${id}?` +
+    new URLSearchParams({ fields: 'id,name,trashed,parents', supportsAllDrives: 'true' }),
+    { headers: { Authorization: `Bearer ${token}` } })
+  return r.ok ? await r.json() : null
 }
 
 let cartellaId: string | null = null
 async function cartella(token: string): Promise<string> {
   if (cartellaId) return cartellaId
-  let padre: string | null = null
-  for (const seg of PERCORSO) {
-    /* il primo segmento si cerca nella radice, e se li' non si vede
-       dappertutto: stessa strada di allegati-protocollo */
-    let id = await findFolder(token, seg, padre ?? 'root')
-    if (!id && !padre) id = await findFolder(token, seg, null)
-    if (!id) throw new Error(`Cartella dei manuali non trovata su Drive (manca «${seg}»)`)
-    padre = id
+  const f = await metadati(token, CARTELLA_ID)
+  if (f && !f.trashed && f.name === 'Manuali_pubblicati') return (cartellaId = f.id)
+
+  const q = "name = 'Manuali_pubblicati' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+  const r = await fetch('https://www.googleapis.com/drive/v3/files?' +
+    new URLSearchParams({ q, fields: 'files(id,parents)', pageSize: '20', ...TUTTI_I_DRIVE }),
+    { headers: { Authorization: `Bearer ${token}` } })
+  const d = await r.json()
+  if (d.error) throw new Error('Ricerca della cartella dei manuali fallita: ' + JSON.stringify(d.error))
+  for (const c of d.files || []) {
+    const padre = c.parents?.[0] ? await metadati(token, c.parents[0]) : null
+    /* ⚠️ su Drive la cartella si chiama «Gestionale Visite», sul disco
+       «Gestionale_Visite_APP»: è la ragione per cui la discesa per nome falliva */
+    if (/^Gestionale[ _]Visite/.test(padre?.name || '')) return (cartellaId = c.id)
   }
-  cartellaId = padre
-  return padre!
+  throw new Error('Cartella dei manuali non trovata su Drive (Gestionale_Visite_APP/Manuali_pubblicati)')
 }
 
 const confronta = (a: string, b: string) => {
@@ -105,7 +116,7 @@ type Versione = { codice: string; versione: string; data: string; id: string; no
 async function versioni(token: string): Promise<Record<string, Versione[]>> {
   const q = `'${await cartella(token)}' in parents and trashed = false`
   const r = await fetch('https://www.googleapis.com/drive/v3/files?' + new URLSearchParams({
-    q, pageSize: '200', fields: 'files(id,name,size)',
+    q, pageSize: '200', fields: 'files(id,name,size)', ...TUTTI_I_DRIVE,
   }), { headers: { Authorization: `Bearer ${token}` } })
   const d = await r.json()
   if (d.error) throw new Error('Non riesco a leggere la cartella dei manuali: ' + JSON.stringify(d.error))
@@ -172,7 +183,7 @@ serve(async (req) => {
       if (!puo(c.chi)) return json({ error: 'Questo manuale non è fra quelli che il tuo utente può leggere' }, 403)
       const ultima = tutte[codice]?.[0]
       if (!ultima) return json({ error: 'Nessuna versione pubblicata di questo manuale' }, 404)
-      const r = await fetch(`https://www.googleapis.com/drive/v3/files/${ultima.id}?alt=media`, {
+      const r = await fetch(`https://www.googleapis.com/drive/v3/files/${ultima.id}?alt=media&supportsAllDrives=true`, {
         headers: { Authorization: `Bearer ${token}` },
       })
       if (!r.ok) throw new Error('Lettura da Drive fallita: ' + (await r.text()).slice(0, 300))
