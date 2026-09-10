@@ -289,6 +289,8 @@ try {
       $('#login').classList.add('hidden');
       $('#app').classList.remove('hidden');
       $('#user-email').textContent = state.email;
+      /* manuali d'uso: pulsante in fondo al menu, anche per il Direttore */
+      import('./manuali.js').then((m) => m.collegaManuali()).catch((e) => console.warn('[manuali]', e));
 
       const { data: tipi } = await sb.from('s_tipo_doc').select('*').order('descrizione');
       state.tipiDoc = tipi || [];

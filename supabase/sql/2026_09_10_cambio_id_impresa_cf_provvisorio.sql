@@ -1,44 +1,21 @@
 -- ============================================================================
--- 2026-09-08 — Cambio della chiave di un'impresa (codice fiscale = impresa_id)
+-- 2026-09-10 — Cambio della chiave: ammesso il CODICE FISCALE PROVVISORIO
 --
--- Chiesto dall'utente per l'impresa 04538080286 «A.T.I. Semenzato – Dalle
--- Fratte – Vecchiato», nata dall'import con la P.IVA come chiave, che va
--- portata al codice fiscale DLLMNL76C09B563L. Dal 15/07/2026 la chiave delle
--- imprese è il CF (memoria «Regola impresa_cf»), ma finora cambiarla voleva
--- dire una migrazione a mano: le 9 chiavi esterne sono tutte NO ACTION e non
--- differibili, e ci sono altre 20 colonne `impresa_id` senza vincolo.
+-- Chiesto dall'utente: i codici fiscali non sempre arrivano in chiaro, ma si
+-- sa almeno che la chiave è diversa dalla partita IVA. Esempio: l'impresa
+-- 05619860280 (HANI DECORI DI ALI HANI SHAHAT MOHAMEDI) va portata a
+-- LAIHSH*****Z336U. La forma è quella di un CF con la DATA DI NASCITA
+-- (anno, mese, giorno = 5 caratteri) coperta da asterischi:
+--   6 lettere (cognome+nome) · ***** · comune (lettera + 3) · carattere di controllo
+-- Nel database ce n'erano già 32 in questa forma, arrivate dagli import, tutte
+-- con 5 asterischi. Quando il CF completo è noto la chiave si cambia di nuovo
+-- con la stessa funzione.
 --
--- Come funziona `s_cambia_id_impresa(vecchio, nuovo, motivo)`:
---   1. crea la riga nuova come copia di quella vecchia, con impresa_id e
---      impresa_cf = nuovo; la P.IVA resta quella che era (se era vuota e il
---      vecchio codice era una P.IVA, ci finisce lui: il vecchio codice resta
---      cercabile come chiave secondaria);
---   2. sposta sul nuovo codice OGNI colonna `impresa_id` delle tabelle di
---      public (scoperte dal catalogo, non da un elenco scritto a mano: una
---      tabella nuova viene presa da sola) più `cantiere_imprese_previste.impresa_cf`;
---   3. cancella la riga vecchia: se una tabella con vincolo fosse sfuggita,
---      la DELETE fallisce e tutto torna indietro — è la rete di sicurezza;
---   4. lascia traccia in `s_impresa_cambio_id` (con il conteggio per tabella),
---      in `s_impresa_audit` e in `note_access` dell'impresa.
--- Solo la segreteria può chiamarla (o chi opera direttamente sul database).
+-- Cambia rispetto a 2026_09_08_cambio_id_impresa.sql: la validazione del
+-- codice nuovo, la nota in note_access («codice fiscale provvisorio») e il
+-- campo `provvisorio` nella risposta. Applicata in produzione con la
+-- migrazione `cambia_id_impresa_cf_provvisorio`.
 -- ============================================================================
-
-create table if not exists public.s_impresa_cambio_id (
-  id         bigserial primary key,
-  vecchio    text not null,
-  nuovo      text not null,
-  motivo     text,
-  utente     text,
-  quando     timestamptz not null default now(),
-  toccate    jsonb not null default '{}'::jsonb
-);
-comment on table public.s_impresa_cambio_id is
-  'Storico dei cambi di chiave (impresa_id = codice fiscale) fatti con s_cambia_id_impresa: chi, quando, perché, e quante righe per tabella sono state spostate.';
-alter table public.s_impresa_cambio_id enable row level security;
-drop policy if exists s_impresa_cambio_id_sel on public.s_impresa_cambio_id;
-create policy s_impresa_cambio_id_sel on public.s_impresa_cambio_id for select to authenticated using (public.is_segreteria());
-revoke all on public.s_impresa_cambio_id from public, anon;
-grant select on public.s_impresa_cambio_id to authenticated;
 
 create or replace function public.s_cambia_id_impresa(p_vecchio text, p_nuovo text, p_motivo text default null)
 returns jsonb
@@ -50,6 +27,7 @@ declare
   v_vecchio text := upper(trim(coalesce(p_vecchio, '')));
   v_nuovo   text := upper(regexp_replace(coalesce(p_nuovo, ''), '\s', '', 'g'));
   v_utente  text := coalesce(auth.jwt() ->> 'email', 'sistema (' || session_user || ')');
+  v_provvisorio boolean;
   v_nome    text;
   r         record;
   n         bigint;
@@ -68,12 +46,11 @@ begin
   if v_vecchio = v_nuovo then
     raise exception 'Il codice nuovo è uguale a quello attuale';
   end if;
-  -- ⚠️ SUPERATA dal 10/09/2026: la versione in produzione ammette anche il CF
-  -- provvisorio (LAIHSH*****Z336U) — vedi 2026_09_10_cambio_id_impresa_cf_provvisorio.sql.
-  -- La riga si allinea qui perché rieseguire questo file non riapra il rifiuto.
+  -- CF provvisorio: data di nascita coperta da 5 asterischi (LAIHSH*****Z336U)
+  v_provvisorio := v_nuovo ~ '^[A-Z]{6}\*{5}[A-Z][0-9LMNPQRSTUV]{3}[A-Z]$';
   if not (v_nuovo ~ '^[0-9]{11}$'
           or v_nuovo ~ '^[A-Z]{6}[0-9LMNPQRSTUV]{2}[A-EHLMPRST][0-9LMNPQRSTUV]{2}[A-Z][0-9LMNPQRSTUV]{3}[A-Z]$'
-          or v_nuovo ~ '^[A-Z]{6}\*{5}[A-Z][0-9LMNPQRSTUV]{3}[A-Z]$') then
+          or v_provvisorio) then
     raise exception 'Il codice nuovo non è un codice fiscale (16 caratteri), né un codice fiscale provvisorio con la data di nascita coperta da 5 asterischi (es. LAIHSH*****Z336U), né una partita IVA (11 cifre): %', v_nuovo;
   end if;
   select impresa_nome into v_nome from imprese where impresa_id = v_vecchio;
@@ -96,8 +73,10 @@ begin
                     then jsonb_build_object('piva', v_vecchio) else '{}'::jsonb end
             || jsonb_build_object('note_access',
                  concat_ws(E'\n', nullif(i.note_access, ''),
-                   format('Codice fiscale (chiave) cambiato da %s a %s il %s da %s%s',
-                          v_vecchio, v_nuovo, to_char(now(), 'DD/MM/YYYY'), v_utente,
+                   format('Codice fiscale (chiave) cambiato da %s a %s%s il %s da %s%s',
+                          v_vecchio, v_nuovo,
+                          case when v_provvisorio then ' (codice fiscale provvisorio: data di nascita non in chiaro)' else '' end,
+                          to_char(now(), 'DD/MM/YYYY'), v_utente,
                           case when nullif(p_motivo, '') is not null then ' — ' || p_motivo else '' end)))
          )).*
     from imprese i where i.impresa_id = v_vecchio;
@@ -130,7 +109,7 @@ begin
   insert into s_impresa_audit (impresa_id, campo, prima, dopo, utente)
   values (v_nuovo, 'impresa_id', v_vecchio, v_nuovo, v_utente);
 
-  return jsonb_build_object('ok', true, 'vecchio', v_vecchio, 'nuovo', v_nuovo,
+  return jsonb_build_object('ok', true, 'vecchio', v_vecchio, 'nuovo', v_nuovo, 'provvisorio', v_provvisorio,
                             'impresa', v_nome, 'righe_spostate', tot, 'toccate', toccate);
 end $$;
 revoke execute on function public.s_cambia_id_impresa(text, text, text) from public, anon;

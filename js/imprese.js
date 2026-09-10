@@ -686,11 +686,20 @@ function agganciaCambioChiave() {
     const nuovo = (window.prompt(
       `Nuovo codice fiscale (chiave) per «${scheda.impresa.impresa_nome}».\n\n` +
       `Codice attuale: ${attuale}\n` +
-      'Scrivi il codice fiscale (16 caratteri) o la partita IVA (11 cifre) che deve fare da chiave:', '') || '').trim().toUpperCase();
+      'Scrivi il codice fiscale (16 caratteri) o la partita IVA (11 cifre) che deve fare da chiave.\n' +
+      'Se il codice fiscale non è in chiaro, scrivi quello provvisorio con 5 asterischi al posto della data di nascita (es. LAIHSH*****Z336U):', '') || '').replace(/\s/g, '').toUpperCase();
     if (!nuovo) return;
     if (nuovo === attuale) return toast('È lo stesso codice di adesso.', 'err');
-    if (!/^[0-9]{11}$/.test(nuovo) && !/^[A-Z0-9]{16}$/.test(nuovo)) return toast('Serve un codice fiscale di 16 caratteri o una partita IVA di 11 cifre.', 'err');
-    const motivo = (window.prompt('Motivo del cambio (resta scritto nelle note dell\'impresa e nello storico):', 'Chiave riportata al codice fiscale') || '').trim();
+    /* 10/09/2026: il CF provvisorio (data di nascita coperta da 5 asterischi)
+       è ammesso come chiave: si sa già che non è la P.IVA, e quando il CF
+       completo è noto la chiave si cambia di nuovo. Nel database ce n'erano
+       già 32 in questa forma, arrivate dagli import. */
+    const provvisorio = /^[A-Z]{6}\*{5}[A-Z][0-9LMNPQRSTUV]{3}[A-Z]$/.test(nuovo);
+    if (!/^[0-9]{11}$/.test(nuovo) && !/^[A-Z0-9]{16}$/.test(nuovo) && !provvisorio) {
+      return toast('Serve un codice fiscale di 16 caratteri, una partita IVA di 11 cifre o un codice fiscale provvisorio con 5 asterischi al posto della data di nascita (es. LAIHSH*****Z336U).', 'err');
+    }
+    const motivo = (window.prompt('Motivo del cambio (resta scritto nelle note dell\'impresa e nello storico):',
+      provvisorio ? 'Chiave portata al codice fiscale provvisorio (CF non in chiaro)' : 'Chiave riportata al codice fiscale') || '').trim();
     if (!window.confirm(
       `Confermi il cambio di chiave?\n\n${attuale}  →  ${nuovo}\n\n` +
       'Verranno spostate sul codice nuovo tutte le righe collegate (visite, presenze in cantiere, cantieri e pratiche di asseverazione, ' +
