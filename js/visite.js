@@ -99,7 +99,10 @@ const nomeTecnico = (email) => {
 function campiIncarico(p, email) {
   const cc = cantieriDi(p);
   return {
-    tipologia: p.tipo_richiesta === 'serie' ? 'Serie di visite' : 'Sopralluogo in Cantiere - Visita singola',
+    tipo: p.tipo_richiesta === 'serie' ? 'Serie di visite' : 'Sopralluogo in Cantiere - Visita singola',
+    /* la tipologia scelta in maschera; dal modulo online e' una richiesta dell'impresa */
+    tipologia: tipologie.find((x) => x.id === p.tipologia_id)?.descrizione
+      || (p.tipo_richiesta === 'serie' ? 'Richiesta Serie di Visite' : 'Richiesta Visita da Impresa'),
     tecnicoEmail: email, tecnicoNome: nomeTecnico(email),
     richiedente: [[p.rl_titolo, p.rl_nome, p.rl_cognome].filter(Boolean).join(' '), p.ragione_sociale].filter(Boolean).join(' — '),
     testo: p.note_modulo,

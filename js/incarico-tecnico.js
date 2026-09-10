@@ -18,7 +18,17 @@ import { sb, state, toast, dataIt, oggiIso } from './core.js';
 import { scaricaEml, FIRMA_SEGRETERIA } from './eml.js';
 import { RUBRICA_INTERNA } from './lookups.js';
 
-export async function creaIncaricoDaPratica({ tabella, pratica, tipologia, tecnicoEmail, tecnicoNome,
+/* Due campi che si somigliano e non sono la stessa cosa (le due tendine di Access):
+   - `tipo`      = che cosa si chiede, lista s_tipo_richiesta («Sopralluogo urgente
+                   in Cantiere», «Serie di visite»…). Va in `tipo_richiesta`: e' il
+                   campo con cui il gestionale colora l'incarico, lo filtra, conta
+                   gli urgenti e riconosce lo stage;
+   - `tipologia` = da dove arriva, lista s_tipologia_richiesta col codice CNCPT
+                   («Richiesta Visita su segnalazione»…). Va in `tipologia_richiesta`.
+   Fino al 10/09/2026 si passava il tipo col nome «tipologia» e finiva nella colonna
+   sbagliata: nel gestionale gli incarichi uscivano grigi, senza filtro e mai urgenti.
+   Chi passa ancora il solo `tipologia` (vecchia forma) lo vede scritto come tipo. */
+export async function creaIncaricoDaPratica({ tabella, pratica, tipo, tipologia, tecnicoEmail, tecnicoNome,
   richiedente, testo, impresa, impresaId, indirizzo, comune, oggetto, referente, cellReferente,
   mezzo, visitePreviste, cantiereId }) {
   if (!tecnicoEmail) { toast('Incarico non creato: manca il tecnico assegnato.', 'err'); return null; }
@@ -40,7 +50,8 @@ export async function creaIncaricoDaPratica({ tabella, pratica, tipologia, tecni
     richiedente: richiedente || null,
     mezzo: mezzo || null,
     testo_richiesta: testo || null,
-    tipologia_richiesta: tipologia,
+    tipo_richiesta: tipo || tipologia || null,
+    tipologia_richiesta: tipo ? (tipologia || null) : null,
     approvato: true,
     tecnico_nome: tecnicoNome || null,
     tecnico_email: tecnicoEmail,
@@ -158,7 +169,7 @@ export async function riassegnaTecnico({ incaricoId, tabella = null, pratica = n
     const cc = coord ? [coord.email] : [];
     const dove = [inc.indirizzo, inc.comune].filter(Boolean).join(', ') || inc.impresa || '—';
     const scheda = [
-      `Incarico n° ${id}${inc.tipologia_richiesta ? ` — ${inc.tipologia_richiesta}` : ''}`,
+      `Incarico n° ${id}${(inc.tipo_richiesta || inc.tipologia_richiesta) ? ` — ${inc.tipo_richiesta || inc.tipologia_richiesta}` : ''}`,
       `Oggetto: ${inc.oggetto || '—'}`,
       `Cantiere: ${dove}`,
       inc.impresa ? `Impresa: ${inc.impresa}` : null,
@@ -174,7 +185,7 @@ export async function riassegnaTecnico({ incaricoId, tabella = null, pratica = n
         oggetto: `Formedil Padova - Incarico n° ${id} riassegnato - ${dove}`,
         corpo: `Ciao ${cognomeNome(tVecchio) || nomeVecchio},
 
-ti avviso che l'incarico n° ${id} (${inc.oggetto || inc.tipologia_richiesta || 'visita'} — ${dove}) dal ${dataIt(oggi)} non è più a tuo carico: è stato riassegnato a ${cognomeNome(tNuovo) || nomeNuovo}${motivo ? ` (${motivo})` : ''}.
+ti avviso che l'incarico n° ${id} (${inc.oggetto || inc.tipo_richiesta || inc.tipologia_richiesta || 'visita'} — ${dove}) dal ${dataIt(oggi)} non è più a tuo carico: è stato riassegnato a ${cognomeNome(tNuovo) || nomeNuovo}${motivo ? ` (${motivo})` : ''}.
 
 Non devi fare nulla: nel gestionale visite l'incarico non compare più fra i tuoi.
 

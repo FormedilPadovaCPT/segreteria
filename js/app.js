@@ -142,6 +142,13 @@ async function vaiA(vista) {
     return mod.visite.render();
   }
 
+  if (vista === 'stage') {
+    mostraVista('stage');
+    $('#stage-host').innerHTML = '<p class="empty">Un istante…</p>';
+    mod.stage = mod.stage || await import('./stage.js');
+    return mod.stage.render();
+  }
+
   if (vista === 'notifiche') {
     mostraVista('notifiche');
     $('#notifiche-host').innerHTML = '<p class="empty">Un istante…</p>';

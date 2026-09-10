@@ -76,7 +76,8 @@ const nomeTecnico = (email) => {
 /* i campi dell'incarico al tecnico (gestionale visite) per questa pratica */
 function campiIncarico(p, email) {
   return {
-    tipologia: 'Conferenza di Cantiere',
+    tipo: 'Conferenza di Cantiere',
+    tipologia: 'Richiesta Conferenza di Cantiere',
     tecnicoEmail: email, tecnicoNome: nomeTecnico(email),
     richiedente: [[p.rl_titolo, p.rl_nome, p.rl_cognome].filter(Boolean).join(' '), p.ragione_sociale].filter(Boolean).join(' — '),
     testo: p.note_modulo,

@@ -544,7 +544,7 @@ const OPZIONI = {
   ccnl: CCNL_OPZIONI,
   contratto_ccnl: CCNL_OPZIONI,
   contratto_ccnl_altro: CCNL_OPZIONI,
-  cassa_edile: ['C.E.I.V.', 'EDILCASSA VENETO', 'CASSA EDILE BELLUNO', 'CASSA EDILE VENEZIA', 'CASSA EDILE VICENZA', 'Iscritta altra Cassa', 'ALTRO'],
+  cassa_edile: ['C.E.I.V.', 'EDILCASSA VENETO', 'CASSA EDILE BELLUNO', 'CASSA EDILE VENEZIA', 'CASSA EDILE VICENZA', 'ALTRO'],
   stato_cassa: ['Attiva', 'Sospesa', 'Cessata', 'Non iscritta'],
   rspp: [
     ['il responsabile del servizio di prevenzione e protezione è il datore di lavoro', 'Il datore di lavoro'],

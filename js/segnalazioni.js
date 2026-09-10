@@ -95,7 +95,8 @@ const nomeTecnico = (email) => {
 /* i campi dell'incarico al tecnico (gestionale visite) per questa pratica */
 function campiIncarico(p, email) {
   return {
-    tipologia: 'Sopralluogo urgente in Cantiere',
+    tipo: 'Sopralluogo urgente in Cantiere',          /* colore rosso e 🚨 nel gestionale */
+    tipologia: 'Richiesta Visita su segnalazione',
     tecnicoEmail: email, tecnicoNome: nomeTecnico(email),
     richiedente: [p.notificante, p.segnalante_tipo ? `(${p.segnalante_tipo})` : ''].filter(Boolean).join(' '),
     testo: [p.motivo, p.stato_lavori ? `Stato lavori: ${p.stato_lavori}` : null,
