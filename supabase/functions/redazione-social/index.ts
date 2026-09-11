@@ -16,6 +16,10 @@
 //                     pubblico (s_config.telegram_canale) via bot.
 //   op: 'notizia'   → pubblica un post APPROVATO come notizia nell'app
 //                     servizi (tabella `notizie` dell'altro progetto Supabase).
+//   op: 'immagine' / 'immagine_rimuovi' → immagine di testa del post, nel
+//                     bucket pubblico social-media (11/09/2026): su Telegram
+//                     esce come foto con il testo in didascalia, nell'app come
+//                     immagine della notizia.
 //
 // Chi può fare cosa — due porte diverse, di proposito:
 //   materia/bozze  → parola d'ordine in `X-Redazione-Token`, confrontata con
@@ -167,8 +171,34 @@ serve(async (req) => {
     if (!id) return json({ error: 'id del post mancante' }, 400)
     const { data: post } = await admin.from('s_post').select('*').eq('id', id).maybeSingle()
     if (!post) return json({ error: 'post non trovato' }, 404)
-    if (!['approvato', 'pubblicato'].includes(post.stato)) return json({ error: 'si pubblica solo un post approvato' }, 400)
     const canali = (post.canali_pubblicati && typeof post.canali_pubblicati === 'object') ? { ...post.canali_pubblicati } : {}
+
+    /* ── immagine di testa (11/09/2026): bucket pubblico social-media di questo
+       progetto, così serve a Telegram (sendPhoto con URL) e alla notizia
+       dell'app servizi (immagine_url). Scrive solo il service role. ── */
+    if (op === 'immagine') {
+      const mime = String(body.mime || '')
+      if (!['image/jpeg', 'image/png', 'image/webp'].includes(mime)) return json({ error: 'formato immagine non ammesso (jpeg, png, webp)' }, 400)
+      const b64 = String(body.base64 || '')
+      if (!b64) return json({ error: 'immagine vuota' }, 400)
+      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
+      if (bytes.length > 5 * 1024 * 1024) return json({ error: 'immagine oltre 5 MB' }, 400)
+      const est = mime === 'image/png' ? 'png' : mime === 'image/webp' ? 'webp' : 'jpg'
+      const path = `post-${id}/${Date.now()}.${est}`
+      const { error: eUp } = await admin.storage.from('social-media').upload(path, bytes, { contentType: mime, upsert: false })
+      if (eUp) return json({ error: 'caricamento immagine: ' + eUp.message }, 502)
+      const { data: pub } = admin.storage.from('social-media').getPublicUrl(path)
+      if (post.immagine_path) await admin.storage.from('social-media').remove([post.immagine_path]).catch(() => null)
+      await admin.from('s_post').update({ immagine_url: pub.publicUrl, immagine_path: path, aggiornato_da: email }).eq('id', id)
+      return json({ ok: true, immagine_url: pub.publicUrl })
+    }
+    if (op === 'immagine_rimuovi') {
+      if (post.immagine_path) await admin.storage.from('social-media').remove([post.immagine_path]).catch(() => null)
+      await admin.from('s_post').update({ immagine_url: null, immagine_path: null, aggiornato_da: email }).eq('id', id)
+      return json({ ok: true })
+    }
+
+    if (!['approvato', 'pubblicato'].includes(post.stato)) return json({ error: 'si pubblica solo un post approvato' }, 400)
 
     if (op === 'pubblica') {
       if (canali.telegram?.message_id && !body.di_nuovo) return json({ error: 'già pubblicato su Telegram (message_id ' + canali.telegram.message_id + ')' }, 409)
@@ -179,12 +209,34 @@ serve(async (req) => {
       if (!chat) return json({ error: 's_config.telegram_canale vuoto' }, 500)
       const testo = String(body.testo || post.testo_telegram || '').trim()
       if (!testo) return json({ error: 'testo Telegram vuoto' }, 400)
-      const r = await fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: chat, text: testo, disable_web_page_preview: false }),
-      })
-      const tg = await r.json().catch(() => ({}))
-      if (!r.ok || !tg.ok) return json({ error: 'Telegram: ' + (tg.description || r.status) }, 502)
+      /* con l'immagine di testa: foto col testo come didascalia (limite Telegram
+         1024 caratteri); se il testo è più lungo, foto e poi messaggio a parte */
+      let r: Response, tg: Record<string, any> = {}
+      if (post.immagine_url) {
+        const didascalia = testo.length <= 1024 ? testo : ''
+        r = await fetch(`https://api.telegram.org/bot${TOKEN}/sendPhoto`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: chat, photo: post.immagine_url, caption: didascalia }),
+        })
+        tg = await r.json().catch(() => ({}))
+        if (!r.ok || !tg.ok) return json({ error: 'Telegram (foto): ' + (tg.description || r.status) }, 502)
+        if (!didascalia) {
+          const r2 = await fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: chat, text: testo, disable_web_page_preview: true }),
+          })
+          const tg2 = await r2.json().catch(() => ({}))
+          if (!r2.ok || !tg2.ok) return json({ error: 'Telegram (testo dopo la foto): ' + (tg2.description || r2.status) }, 502)
+          tg = tg2
+        }
+      } else {
+        r = await fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: chat, text: testo, disable_web_page_preview: false }),
+        })
+        tg = await r.json().catch(() => ({}))
+        if (!r.ok || !tg.ok) return json({ error: 'Telegram: ' + (tg.description || r.status) }, 502)
+      }
       canali.telegram = { message_id: tg.result?.message_id, chat: chat, at: new Date().toISOString(), da: email }
       await admin.from('s_post').update({
         canali_pubblicati: canali, stato: 'pubblicato', pubblicato_il: post.pubblicato_il || new Date().toISOString(),
@@ -205,7 +257,7 @@ serve(async (req) => {
       const { data: n, error } = await notizie.from('notizie').insert({
         titolo, corpo: testoInHtml(testo), categoria, priorita: post.pilastro === 'avviso' ? 'urgente' : 'normale',
         autore: 'Area Sicurezza e Salute', data_pubbl: new Date().toISOString().slice(0, 10),
-        link_esterno: post.fonte_url || null, pubblicata: true,
+        link_esterno: post.fonte_url || null, immagine_url: post.immagine_url || null, pubblicata: true,
       }).select('id').single()
       if (error) return json({ error: 'notizie: ' + error.message }, 502)
       canali.app = { notizia_id: n.id, at: new Date().toISOString(), da: email }

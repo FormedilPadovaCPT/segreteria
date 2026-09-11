@@ -46,6 +46,42 @@ async function carica() {
   linee = c?.valore || '';
 }
 
+/* supabase-js nasconde il corpo della risposta quando la funzione risponde
+   non-2xx («Edge Function returned a non-2xx status code»): il messaggio
+   vero sta in error.context. Qui lo si tira fuori, altrimenti chi preme il
+   bottone legge un codice e non capisce che manca un secret. */
+async function messaggioErrore(error, data) {
+  if (data?.error) return data.error;
+  try {
+    if (error?.context && typeof error.context.json === 'function') {
+      const j = await error.context.json();
+      if (j?.error) return j.error;
+    }
+  } catch { /* corpo non JSON */ }
+  return error?.message || 'errore sconosciuto';
+}
+
+/* immagine di testa: ridotta nel browser (lato lungo 1600 px, JPEG) prima
+   di partire, così non si caricano foto da 8 MB per un post */
+function immagineRidotta(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const max = 1600;
+      const k = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      const dataUrl = c.toDataURL('image/jpeg', 0.86);
+      resolve({ mime: 'image/jpeg', base64: dataUrl.split(',')[1], larghezza: c.width, altezza: c.height });
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('file non leggibile come immagine')); };
+    img.src = url;
+  });
+}
+
 const canaliDi = (p) => (p.canali_pubblicati && typeof p.canali_pubblicati === 'object') ? p.canali_pubblicati : {};
 const pillPilastro = (k) => { const [ico, nome] = PILASTRI[k] || ['•', k]; return `<span class="badge" style="background:#eef0f3;color:var(--grigio)">${ico} ${esc(nome)}</span>`; };
 const pillStato = (s) => {
@@ -213,6 +249,15 @@ export async function apriPratica(id) {
     ${p.scarto_motivo ? `<div class="dt-doc-riga"><strong>Motivo dello scarto:</strong> ${esc(p.scarto_motivo)}</div>` : ''}
     ${Object.keys(c).length ? `<div class="dt-doc-riga"><strong>Uscito su:</strong> ${CANALI.filter(([k]) => c[k]).map(([k, l]) => `${esc(l)} (${esc((c[k].at || '').slice(0, 10))}${c[k].message_id ? `, msg ${c[k].message_id}` : ''})`).join(' · ')}</div>` : ''}
 
+    <div class="dt-doc-riga" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:8px">
+      <strong>Immagine di testa:</strong>
+      ${p.immagine_url ? `<a href="${esc(p.immagine_url)}" target="_blank" rel="noopener"><img src="${esc(p.immagine_url)}" alt="" style="height:72px;border-radius:8px;border:1px solid var(--bordo)"></a>` : '<span class="hint">nessuna (su Telegram esce solo testo)</span>'}
+      <input type="file" id="pd-img-file" accept="image/jpeg,image/png,image/webp" style="max-width:220px">
+      <button class="btn btn-ghost btn-sm" id="pd-img-carica" type="button">⬆ Carica</button>
+      ${p.immagine_url ? '<button class="btn btn-ghost btn-sm" id="pd-img-togli" type="button">✕ Togli</button>' : ''}
+      <span class="hint">Su Telegram esce come foto col testo sotto (max 1024 caratteri in didascalia); nell'app servizi come immagine della notizia. Foto dell'ente o d'archivio, mai cantieri o persone riconoscibili.</span>
+    </div>
+
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:10px">
       <div class="field"><label>Pilastro</label><select id="pd-pilastro">${Object.entries(PILASTRI).map(([k, [i, n]]) => `<option value="${k}" ${k === p.pilastro ? 'selected' : ''}>${i} ${n}</option>`).join('')}</select></div>
       <div class="field"><label>Da pubblicare il</label><input type="date" id="pd-data" value="${p.data_programmata || ''}"></div>
@@ -276,24 +321,51 @@ export async function apriPratica(id) {
     if (await salva({ stato: 'scartato', scarto_motivo: motivo.trim() || 'scartato senza motivo' }, 'Scartato.')) chiudiDrawer();
   });
 
+  /* immagine di testa */
+  $('#pd-img-carica').addEventListener('click', async (ev) => {
+    const file = $('#pd-img-file').files?.[0];
+    if (!file) return toast('Scegli prima un file immagine.', 'err');
+    const btn = ev.currentTarget;
+    attendi(btn, true, 'Carico…');
+    try {
+      const img = await immagineRidotta(file);
+      const { data, error } = await sb.functions.invoke('redazione-social', { body: { op: 'immagine', id, mime: img.mime, base64: img.base64 } });
+      if (error || data?.error) throw new Error(await messaggioErrore(error, data));
+      toast('Immagine caricata.', 'ok');
+      await render(); apriPratica(id);
+    } catch (e) {
+      attendi(btn, false);
+      toast('Immagine: ' + e.message, 'err');
+    }
+  });
+  $('#pd-img-togli')?.addEventListener('click', async (ev) => {
+    attendi(ev.currentTarget, true);
+    const { data, error } = await sb.functions.invoke('redazione-social', { body: { op: 'immagine_rimuovi', id } });
+    if (error || data?.error) { attendi(ev.currentTarget, false); return toast('Immagine: ' + await messaggioErrore(error, data), 'err'); }
+    toast('Immagine tolta.', 'ok');
+    await render(); apriPratica(id);
+  });
+
   /* pubblicazione */
   $('#pd-tg')?.addEventListener('click', async (ev) => {
     if (!confirm('Pubblico ADESSO questo testo sul canale Telegram pubblico?')) return;
-    attendi(ev.currentTarget, true, 'Pubblico…');
+    const btn = ev.currentTarget;
+    attendi(btn, true, 'Pubblico…');
     await salva({}, 'Testo salvato.');
     const { data, error } = await sb.functions.invoke('redazione-social', { body: { op: 'pubblica', id } });
-    attendi(ev.currentTarget, false);
-    if (error || data?.error) return toast('Telegram: ' + (data?.error || error.message), 'err');
+    attendi(btn, false);
+    if (error || data?.error) return toast('Telegram: ' + await messaggioErrore(error, data), 'err');
     toast(`Pubblicato su Telegram (messaggio ${data.message_id}).`, 'ok');
     await render(); apriPratica(id);
   });
   $('#pd-notizia')?.addEventListener('click', async (ev) => {
     if (!confirm('Pubblico ADESSO la notizia nell\'app servizi?')) return;
-    attendi(ev.currentTarget, true, 'Pubblico…');
+    const btn = ev.currentTarget;
+    attendi(btn, true, 'Pubblico…');
     await salva({}, 'Testo salvato.');
     const { data, error } = await sb.functions.invoke('redazione-social', { body: { op: 'notizia', id } });
-    attendi(ev.currentTarget, false);
-    if (error || data?.error) return toast('App servizi: ' + (data?.error || error.message), 'err');
+    attendi(btn, false);
+    if (error || data?.error) return toast('App servizi: ' + await messaggioErrore(error, data), 'err');
     toast('Pubblicato nell\'app servizi.', 'ok');
     await render(); apriPratica(id);
   });

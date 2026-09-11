@@ -207,3 +207,11 @@ grant execute on function public.s_redazione_materia(int) to authenticated, serv
 insert into public.s_config (chiave, valore, descrizione) values
   ('redazione_calendari', 'c_ec5b2c076b35c3d0a8f2ca66fb6ba8fc1b502c9fed4dce653807edb93e26adf0@group.calendar.google.com, c_vv6fllsnnvgb9s7tgpttn9bjt8@group.calendar.google.com', 'Calendari Google letti dalla redazione social (id separati da virgola): eventi pubblici dei prossimi 60 giorni. Oggi «Convegni» e «Calendario corsi e attività - Scuola Edile CPT». L''agenda della segreteria resta fuori.')
 on conflict (chiave) do nothing;
+
+-- 11/09/2026: immagine di testa dei post (bucket pubblico social-media di questo progetto: serve a Telegram e all'app servizi)
+alter table public.s_post add column if not exists immagine_url text, add column if not exists immagine_path text;
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('social-media', 'social-media', true, 5242880, array['image/jpeg','image/png','image/webp'])
+on conflict (id) do update set public = true, file_size_limit = 5242880, allowed_mime_types = array['image/jpeg','image/png','image/webp'];
+drop policy if exists "social_media_lettura_pubblica" on storage.objects;
+create policy "social_media_lettura_pubblica" on storage.objects for select using (bucket_id = 'social-media');
