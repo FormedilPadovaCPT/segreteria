@@ -1,0 +1,55 @@
+/* ============================================================
+   Parti comuni alle vesti in prova (11/09/2026): ricerca rapida
+   (Ctrl+K), pulsante che la apre, gruppi del menu.
+   Tutto sotto :root[data-veste]: nella veste attuale non esiste.
+   Colori e forme li decide il file di ciascuna veste.
+   ============================================================ */
+
+:root[data-veste] .nav-voci{display:block}
+:root[data-veste] .nav-ico{display:none}
+:root[data-veste] .nav-n::before,
+:root[data-veste] .nav-n::after{content:none}
+:root[data-veste] .nav-sep{display:none}
+/* il Direttore vede poche voci: un gruppo senza voci visibili sparisce */
+:root[data-veste] .nav-gruppo:not(:has(.nav-item:not([style*="none"]))){display:none}
+
+:root[data-veste] kbd{
+  font:600 10px/1 "JetBrains Mono",Consolas,monospace;padding:2px 5px;border-radius:3px;
+  background:#eceef1;border:1px solid #cfd3d8;border-bottom-width:2px;color:#3d434c;white-space:nowrap;
+}
+
+/* ── pulsante della ricerca rapida, in testata ─────────── */
+:root[data-veste] .veste-cerca{
+  display:flex;align-items:center;gap:10px;margin-left:18px;width:min(380px,34vw);
+  padding:6px 12px;border:1px solid #d5d8dc;background:#fff;color:#8b9199;
+  font:inherit;font-size:12.5px;cursor:pointer;text-align:left;
+}
+:root[data-veste] .veste-cerca .vc-segno{color:var(--arancio);font-weight:700}
+:root[data-veste] .veste-cerca .vc-testo{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+:root[data-veste] .veste-cerca:focus-visible{outline:2px solid var(--arancio);outline-offset:2px}
+
+/* ── ricerca rapida ─────────────────────────────────────── */
+:root[data-veste] .vp-bg:not([hidden]){
+  position:fixed;inset:0;z-index:90;background:rgba(20,22,26,.35);
+  display:flex;justify-content:center;align-items:flex-start;padding:12vh 16px 16px;
+}
+:root[data-veste] .vp{
+  width:min(620px,100%);background:#fff;color:var(--testo);border:1px solid var(--bordo);
+  box-shadow:0 24px 60px -20px rgba(0,0,0,.45);overflow:hidden;
+}
+:root[data-veste] .vp-in{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--bordo)}
+:root[data-veste] .vp-segno{color:var(--arancio);font-weight:700;font-size:16px}
+:root[data-veste] .vp .vp-in input[type=text]{flex:1;border:0;padding:4px 0;font-size:15px;background:transparent;color:inherit;box-shadow:none}
+:root[data-veste] .vp .vp-in input[type=text]:focus{box-shadow:none}
+:root[data-veste] .vp-lista{list-style:none;margin:0;padding:6px 0;max-height:52vh;overflow-y:auto}
+:root[data-veste] .vp-voce{display:flex;justify-content:space-between;gap:12px;padding:8px 16px;cursor:pointer;font-size:13.5px}
+:root[data-veste] .vp-voce small{color:var(--testo-soft);white-space:nowrap}
+:root[data-veste] .vp-voce.is-sel{background:var(--arancio-chiaro);box-shadow:inset 3px 0 0 var(--arancio)}
+:root[data-veste] .vp-vuoto{padding:10px 16px;color:var(--testo-soft);font-size:13px}
+
+@media(max-width:900px){
+  :root[data-veste] .veste-cerca{width:auto;margin-left:auto;padding:6px 9px}
+  :root[data-veste] .veste-cerca .vc-testo,
+  :root[data-veste] .veste-cerca kbd{display:none}
+  :root[data-veste] .topbar-right{margin-left:8px}
+}

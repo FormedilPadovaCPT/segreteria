@@ -5,15 +5,20 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Segreteria — Formedil Padova</title>
 <link rel="stylesheet" href="css/app.css">
+<link rel="stylesheet" href="css/vesti-comune.css">
 <link rel="stylesheet" href="css/veste-ciclo.css">
+<link rel="stylesheet" href="css/veste-sito.css">
+<link rel="stylesheet" href="css/veste-scrivania.css">
+<link rel="stylesheet" href="css/veste-comandi.css">
 <link rel="icon" href="img/logo.png">
 <script>
-/* veste «Ciclo» in prova (vedi js/veste.js): si mette subito, prima
-   che la pagina si disegni, cosi' la veste vecchia non lampeggia */
+/* vesti in prova (vedi js/veste.js): si mette subito, prima che la
+   pagina si disegni, cosi' la veste attuale non lampeggia */
 try {
-  if (localStorage.getItem('segreteria.veste') === 'ciclo') {
-    document.documentElement.dataset.veste = 'ciclo';
-    document.write('<link id="font-veste" rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700;800&display=swap">');
+  var veste = localStorage.getItem('segreteria.veste');
+  if (['ciclo', 'sito', 'scrivania', 'comandi'].indexOf(veste) >= 0) {
+    document.documentElement.dataset.veste = veste;
+    document.write('<link id="font-veste" rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700;800&family=Barlow+Condensed:wght@600;700;800&family=JetBrains+Mono:wght@500;600&display=swap">');
   }
 } catch (e) { /* senza memoria del browser resta la veste attuale */ }
 </script>
@@ -48,8 +53,14 @@ try {
       <strong>Gestionale Segreteria</strong>
       <span id="topbar-sub">Area Sicurezza e Salute</span>
     </div>
+    <button id="veste-cerca" type="button" class="veste-cerca" aria-label="Ricerca rapida (Ctrl+K)">
+      <span class="vc-segno">›</span><span class="vc-testo">Cerca una pagina, un protocollo, un'impresa…</span><kbd>Ctrl K</kbd>
+    </button>
     <div class="topbar-right">
-      <button id="veste-btn" type="button" class="btn btn-ghost btn-sm veste-btn" aria-pressed="false">🎨 Prova la nuova veste</button>
+      <label class="veste-scelta" title="Prova le vesti grafiche proposte. La scelta vale solo su questo computer; «Attuale» riporta a quella di sempre.">
+        <span>🎨 Veste</span>
+        <select id="veste-sel" class="veste-sel"><option value="attuale">Attuale</option></select>
+      </label>
       <span id="user-email" class="user-email"></span>
       <button id="logout-btn" class="btn btn-ghost btn-sm">Esci</button>
     </div>

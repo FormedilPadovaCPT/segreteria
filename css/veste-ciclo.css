@@ -1,5 +1,5 @@
 /* ============================================================
-   Veste «Ciclo» — PROVA, si attiva dal pulsante in alto
+   Veste «Ciclo» — PROVA, si sceglie dal selettore in alto
    (11/09/2026, scelta dall'utente fra le quattro proposte).
 
    È la famiglia grafica di registro, attestato e verbale portata
@@ -72,20 +72,19 @@
 :root[data-veste="ciclo"] .user-email{color:var(--grigio);font-size:12px}
 :root[data-veste="ciclo"] .menu-toggle{color:var(--grigio)}
 :root[data-veste="ciclo"] .topbar .btn-ghost{background:#fff;border-color:#cfd3d8;color:var(--grigio)}
-:root[data-veste="ciclo"] .topbar .veste-btn{border-color:var(--arancio);color:var(--arancio)}
+:root[data-veste="ciclo"] .topbar .veste-sel{background:#fff;border-color:var(--arancio);color:var(--arancio);font-family:var(--font-ciclo);font-weight:600}
+:root[data-veste="ciclo"] .veste-scelta{color:var(--grigio)}
+:root[data-veste="ciclo"] .veste-cerca{border:0;border-bottom:1.5px solid var(--grigio);padding:5px 2px;font-family:var(--font-ciclo)}
 
 /* ── menu a gruppi ──────────────────────────────────────── */
 :root[data-veste="ciclo"] .sidebar{
   border-left:8px solid var(--arancio);border-right:1px solid var(--bordo);
   padding:6px 12px 14px 10px;gap:0;
 }
-:root[data-veste="ciclo"] .nav-sep{display:none}
 :root[data-veste="ciclo"] .nav-grp{
   font:600 9.5px/1 var(--font-ciclo);letter-spacing:.16em;text-transform:uppercase;
   color:var(--etichetta);margin:16px 0 5px 4px;
 }
-/* il Direttore vede poche voci: un gruppo senza voci visibili sparisce */
-:root[data-veste="ciclo"] .nav-gruppo:not(:has(> .nav-item:not([style*="none"]))){display:none}
 :root[data-veste="ciclo"] .nav-item,
 :root[data-veste="ciclo"] .nav-manuali{
   display:flex;align-items:center;gap:9px;padding:6px 4px;
@@ -96,13 +95,10 @@
 :root[data-veste="ciclo"] .nav-manuali:hover{background:#f7f7f8}
 :root[data-veste="ciclo"] .nav-item.is-active{background:none;color:var(--arancio);font-weight:700}
 :root[data-veste="ciclo"] .nav-item.is-active::before{background:var(--arancio)}
-:root[data-veste="ciclo"] .nav-ico{display:none}
 :root[data-veste="ciclo"] .nav-n{
   margin-left:auto;background:var(--grigio);color:#fff;font-size:10px;font-weight:700;
   padding:1px 6px;line-height:1.4;
 }
-:root[data-veste="ciclo"] .nav-n::before,
-:root[data-veste="ciclo"] .nav-n::after{content:none}
 :root[data-veste="ciclo"] .nav-manuali{margin-top:14px;border-top:1.5px solid var(--grigio)}
 :root[data-veste="ciclo"] .nav-foot{padding:12px 4px;color:var(--etichetta)}
 

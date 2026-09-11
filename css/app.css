@@ -89,6 +89,12 @@ textarea{resize:vertical;min-height:80px;line-height:1.5}
 .user-email{font-size:12px;opacity:.95}
 .topbar .btn-ghost{background:rgba(255,255,255,.15);border-color:rgba(255,255,255,.4);color:#fff}
 .menu-toggle{display:none;background:none;border:0;color:#fff;font-size:22px;cursor:pointer;padding:0 4px}
+/* selettore delle vesti in prova (js/veste.js) e ricerca rapida, che c'e' solo nelle vesti nuove */
+.veste-scelta{display:flex;align-items:center;gap:6px;font-size:12px;white-space:nowrap}
+.topbar .veste-sel{width:auto;padding:4px 8px;font-size:12.5px;border-radius:6px;
+  background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.4);color:#fff;cursor:pointer}
+.topbar .veste-sel option{color:#2b2f36;background:#fff}
+.veste-cerca{display:none}
 
 /* ── shell / sidebar ───────────────────── */
 .shell{display:flex;min-height:calc(100vh - 58px)}
@@ -365,6 +371,7 @@ tr.riga-ceiv{border-left:4px solid var(--ceiv);background:var(--ceiv-bg)}
   .dl dt{margin-top:8px}
   .topbar-title span{display:none}
   .user-email{display:none}
+  .veste-scelta span{display:none}
   .bar-row .lb{width:120px;flex:0 0 120px}
 }
 
