@@ -5,7 +5,18 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Segreteria — Formedil Padova</title>
 <link rel="stylesheet" href="css/app.css">
+<link rel="stylesheet" href="css/veste-ciclo.css">
 <link rel="icon" href="img/logo.png">
+<script>
+/* veste «Ciclo» in prova (vedi js/veste.js): si mette subito, prima
+   che la pagina si disegni, cosi' la veste vecchia non lampeggia */
+try {
+  if (localStorage.getItem('segreteria.veste') === 'ciclo') {
+    document.documentElement.dataset.veste = 'ciclo';
+    document.write('<link id="font-veste" rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700;800&display=swap">');
+  }
+} catch (e) { /* senza memoria del browser resta la veste attuale */ }
+</script>
 </head>
 <body>
 
@@ -38,6 +49,7 @@
       <span id="topbar-sub">Area Sicurezza e Salute</span>
     </div>
     <div class="topbar-right">
+      <button id="veste-btn" type="button" class="btn btn-ghost btn-sm veste-btn" aria-pressed="false">🎨 Prova la nuova veste</button>
       <span id="user-email" class="user-email"></span>
       <button id="logout-btn" class="btn btn-ghost btn-sm">Esci</button>
     </div>
@@ -276,6 +288,7 @@
    dopo una pubblicazione (vedi sw.js) */
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 </script>
+<script type="module" src="js/veste.js"></script>
 <script type="module" src="js/app.js"></script>
 </body>
 </html>

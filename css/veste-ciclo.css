@@ -1,0 +1,225 @@
+/* ============================================================
+   Veste «Ciclo» — PROVA, si attiva dal pulsante in alto
+   (11/09/2026, scelta dall'utente fra le quattro proposte).
+
+   È la famiglia grafica di registro, attestato e verbale portata
+   sull'interfaccia: banda arancione sul bordo sinistro, etichette
+   maiuscole spaziate, bande grigie coi dati, tabelle a filetti,
+   angoli vivi.
+
+   OGNI regola sta sotto :root[data-veste="ciclo"]: senza
+   l'attributo questo file non cambia niente, e l'app resta nella
+   veste attuale. L'attributo lo mette js/veste.js (e lo script in
+   testa a index.html, per non far lampeggiare la vecchia veste).
+
+   Se la veste viene confermata: si rende predefinita in veste.js,
+   non si riscrive app.css. Se viene scartata: si toglie il link
+   in index.html e il pulsante, e questo file si archivia.
+   ============================================================ */
+
+:root[data-veste="ciclo"]{
+  --radius:0;
+  --ombra:0 1px 2px rgba(0,0,0,.06), 0 8px 24px rgba(0,0,0,.08);
+  --grigio-chiaro:#f4f5f6;
+  --bordo:#e3e5e8;
+  --filetto:#eceef1;
+  --etichetta:#8b9199;
+  --font-ciclo:Barlow,"Segoe UI",Arial,sans-serif;
+}
+
+/* angoli vivi ovunque, anche negli stili scritti dai moduli;
+   restano tondi i pallini e la rotellina di attesa */
+:root[data-veste="ciclo"] *:not(.spinner):not(.dot):not(.dt-dot):not(.man-pallino){border-radius:0 !important}
+
+:root[data-veste="ciclo"] body{font-family:var(--font-ciclo);background:#fff}
+:root[data-veste="ciclo"] .btn,
+:root[data-veste="ciclo"] .inp,
+:root[data-veste="ciclo"] input,
+:root[data-veste="ciclo"] select,
+:root[data-veste="ciclo"] textarea,
+:root[data-veste="ciclo"] .nav-item,
+:root[data-veste="ciclo"] .nav-manuali,
+:root[data-veste="ciclo"] .seg-btn,
+:root[data-veste="ciclo"] .tab-btn,
+:root[data-veste="ciclo"] .chip{font-family:var(--font-ciclo)}
+
+/* ── etichetta ciclo: maiuscola spaziata ─────────────────── */
+:root[data-veste="ciclo"] .tbl thead th,
+:root[data-veste="ciclo"] .fieldset legend,
+:root[data-veste="ciclo"] .numero-box .lbl,
+:root[data-veste="ciclo"] .kpi .l,
+:root[data-veste="ciclo"] .chip span,
+:root[data-veste="ciclo"] .dl dt{
+  font-family:var(--font-ciclo);letter-spacing:.12em;text-transform:uppercase;
+}
+
+/* ── pulsanti ───────────────────────────────────────────── */
+:root[data-veste="ciclo"] .btn{font-weight:600;letter-spacing:.02em}
+:root[data-veste="ciclo"] .btn-ghost{border-color:#cfd3d8;color:var(--grigio)}
+:root[data-veste="ciclo"] .btn-ghost:hover{border-color:var(--grigio);filter:none}
+
+/* ── testata: bianca, la banda arancione parte da qui ────── */
+:root[data-veste="ciclo"] .topbar{
+  background:#fff;color:var(--testo);box-shadow:none;
+  border-bottom:1px solid var(--bordo);border-left:8px solid var(--arancio);
+  padding:10px 20px 10px 14px;
+}
+:root[data-veste="ciclo"] .topbar-logo{background:none;padding:3px 0}
+:root[data-veste="ciclo"] .topbar-title strong{font:700 17px/1.1 var(--font-ciclo);color:var(--grigio)}
+:root[data-veste="ciclo"] .topbar-title span{
+  font:600 9.5px/1.4 var(--font-ciclo);letter-spacing:.16em;color:var(--arancio);opacity:1;
+}
+:root[data-veste="ciclo"] .user-email{color:var(--grigio);font-size:12px}
+:root[data-veste="ciclo"] .menu-toggle{color:var(--grigio)}
+:root[data-veste="ciclo"] .topbar .btn-ghost{background:#fff;border-color:#cfd3d8;color:var(--grigio)}
+:root[data-veste="ciclo"] .topbar .veste-btn{border-color:var(--arancio);color:var(--arancio)}
+
+/* ── menu a gruppi ──────────────────────────────────────── */
+:root[data-veste="ciclo"] .sidebar{
+  border-left:8px solid var(--arancio);border-right:1px solid var(--bordo);
+  padding:6px 12px 14px 10px;gap:0;
+}
+:root[data-veste="ciclo"] .nav-sep{display:none}
+:root[data-veste="ciclo"] .nav-grp{
+  font:600 9.5px/1 var(--font-ciclo);letter-spacing:.16em;text-transform:uppercase;
+  color:var(--etichetta);margin:16px 0 5px 4px;
+}
+/* il Direttore vede poche voci: un gruppo senza voci visibili sparisce */
+:root[data-veste="ciclo"] .nav-gruppo:not(:has(> .nav-item:not([style*="none"]))){display:none}
+:root[data-veste="ciclo"] .nav-item,
+:root[data-veste="ciclo"] .nav-manuali{
+  display:flex;align-items:center;gap:9px;padding:6px 4px;
+  font-size:13px;font-weight:500;color:#3d434c;border-bottom:1px solid #f0f1f3;
+}
+:root[data-veste="ciclo"] .nav-item::before{content:"";width:6px;height:6px;background:#d5d8dc;flex:none}
+:root[data-veste="ciclo"] .nav-item:hover,
+:root[data-veste="ciclo"] .nav-manuali:hover{background:#f7f7f8}
+:root[data-veste="ciclo"] .nav-item.is-active{background:none;color:var(--arancio);font-weight:700}
+:root[data-veste="ciclo"] .nav-item.is-active::before{background:var(--arancio)}
+:root[data-veste="ciclo"] .nav-ico{display:none}
+:root[data-veste="ciclo"] .nav-n{
+  margin-left:auto;background:var(--grigio);color:#fff;font-size:10px;font-weight:700;
+  padding:1px 6px;line-height:1.4;
+}
+:root[data-veste="ciclo"] .nav-n::before,
+:root[data-veste="ciclo"] .nav-n::after{content:none}
+:root[data-veste="ciclo"] .nav-manuali{margin-top:14px;border-top:1.5px solid var(--grigio)}
+:root[data-veste="ciclo"] .nav-foot{padding:12px 4px;color:var(--etichetta)}
+
+/* ── area di lavoro ─────────────────────────────────────── */
+:root[data-veste="ciclo"] .main{background:#fff;padding:18px 26px 40px}
+:root[data-veste="ciclo"] .view-head{align-items:flex-end;margin-bottom:14px}
+:root[data-veste="ciclo"] .view-head h2{
+  display:block;border-bottom:0;padding-bottom:0;
+  font:700 26px/1.1 var(--font-ciclo);color:var(--grigio);text-wrap:balance;
+}
+/* occhiello col nome del gruppo del menu (lo imposta veste.js su ogni sezione) */
+:root[data-veste="ciclo"] .view-head h2::before{
+  content:var(--occhiello, "Segreteria");display:block;margin-bottom:6px;
+  font:600 10px/1 var(--font-ciclo);letter-spacing:.16em;text-transform:uppercase;color:var(--arancio);
+}
+
+:root[data-veste="ciclo"] .filters{background:none;border:0;border-bottom:1px solid var(--bordo);padding:0 0 12px}
+:root[data-veste="ciclo"] .seg{border-color:#cfd3d8}
+:root[data-veste="ciclo"] .seg-btn{border-right-color:#cfd3d8}
+
+/* ── campi ──────────────────────────────────────────────── */
+:root[data-veste="ciclo"] .inp,
+:root[data-veste="ciclo"] input[type=text],:root[data-veste="ciclo"] input[type=email],
+:root[data-veste="ciclo"] input[type=password],
+:root[data-veste="ciclo"] input[type=date],:root[data-veste="ciclo"] input[type=search],
+:root[data-veste="ciclo"] input[type=number],:root[data-veste="ciclo"] select,
+:root[data-veste="ciclo"] textarea{border-color:#d5d8dc}
+:root[data-veste="ciclo"] .field label{color:var(--grigio);font-weight:600}
+
+/* ── tabelle a filetti ──────────────────────────────────── */
+:root[data-veste="ciclo"] .table-wrap{border:0;background:#fff}
+:root[data-veste="ciclo"] .tbl thead th{
+  background:#fff;color:var(--etichetta);font-weight:600;border-bottom:1.5px solid var(--grigio);
+}
+:root[data-veste="ciclo"] .tbl tbody td{border-bottom-color:var(--filetto)}
+:root[data-veste="ciclo"] .tbl tbody tr:nth-child(even):not(.riga-succ):not(.riga-ceiv){background:#fafafb}
+:root[data-veste="ciclo"] .tbl tbody tr:hover,
+:root[data-veste="ciclo"] .tbl tbody tr:nth-child(even):hover{background:var(--arancio-chiaro)}
+:root[data-veste="ciclo"] .tbl tbody tr.row-in{border-left-width:3px}
+:root[data-veste="ciclo"] .tbl tbody tr.row-out{border-left-width:3px}
+:root[data-veste="ciclo"] .num{font-weight:700}
+
+:root[data-veste="ciclo"] .badge,
+:root[data-veste="ciclo"] .pill,
+:root[data-veste="ciclo"] .tag{font-family:var(--font-ciclo);letter-spacing:.08em}
+
+/* ── maschere ───────────────────────────────────────────── */
+:root[data-veste="ciclo"] .form-host{border-color:var(--bordo)}
+:root[data-veste="ciclo"] .fieldset{border-color:var(--bordo)}
+:root[data-veste="ciclo"] .fieldset legend{color:var(--arancio)}
+:root[data-veste="ciclo"] .numero-box{background:#f6f6f7;border:0;border-left:4px solid var(--arancio)}
+:root[data-veste="ciclo"] .numero-box .n{font-family:var(--font-ciclo);font-weight:800}
+
+/* ── cruscotto: sezioni a filetto, non schede ───────────── */
+:root[data-veste="ciclo"] .hm-griglia{gap:24px 26px}
+:root[data-veste="ciclo"] .hm-card{background:none;border:0;box-shadow:none;padding:0}
+:root[data-veste="ciclo"] .hm-testa{border-bottom:1.5px solid var(--grigio);padding-bottom:6px;margin-bottom:2px}
+:root[data-veste="ciclo"] .hm-testa h3{
+  display:flex;align-items:center;gap:8px;
+  font:700 11px/1.2 var(--font-ciclo);letter-spacing:.14em;text-transform:uppercase;color:var(--grigio);
+}
+:root[data-veste="ciclo"] .hm-testa h3::before{content:"";width:7px;height:7px;background:var(--arancio);flex:none}
+:root[data-veste="ciclo"] .hm-n{font-family:var(--font-ciclo);background:#eef0f2}
+:root[data-veste="ciclo"] .hm-n-attivo{background:var(--arancio);color:#fff}
+:root[data-veste="ciclo"] .hm-riga{padding:6px 2px;border-bottom:1px solid var(--filetto)}
+:root[data-veste="ciclo"] .hm-riga:hover{background:var(--arancio-chiaro)}
+:root[data-veste="ciclo"] .hm-allarme{border-left-width:6px}
+
+/* ── scheda laterale: testa in banda grigia ─────────────── */
+:root[data-veste="ciclo"] .drawer-head,
+:root[data-veste="ciclo"] .drawer-head.dir-IN,
+:root[data-veste="ciclo"] .drawer-head.dir-OUT{
+  background:var(--grigio);color:#fff;border-bottom:0;border-left:8px solid var(--arancio);
+}
+:root[data-veste="ciclo"] .drawer-head.dir-IN{border-left-color:#3fae6a}
+:root[data-veste="ciclo"] .drawer-head.dir-OUT{border-left-color:#e0605a}
+:root[data-veste="ciclo"] .drawer-head h3{font:700 19px/1.2 var(--font-ciclo);color:#fff}
+:root[data-veste="ciclo"] .drawer-head .icon-btn{color:#fff}
+:root[data-veste="ciclo"] .drawer-head .hint,
+:root[data-veste="ciclo"] .drawer-head small{color:#dfe2e6}
+:root[data-veste="ciclo"] .dl dt{font-size:10px;color:var(--etichetta);padding-top:2px}
+:root[data-veste="ciclo"] .sect-title,
+:root[data-veste="ciclo"] .sez h3{
+  display:flex;align-items:center;gap:8px;color:var(--grigio);font-family:var(--font-ciclo);
+  letter-spacing:.14em;border-bottom:1.5px solid var(--grigio);
+}
+:root[data-veste="ciclo"] .sect-title::before,
+:root[data-veste="ciclo"] .sez h3::before{content:"";width:7px;height:7px;background:var(--arancio);flex:none}
+:root[data-veste="ciclo"] .avviso-scadenza{border-left-width:3px}
+:root[data-veste="ciclo"] .att-item{border:0;border-bottom:1px solid var(--filetto);padding:7px 2px;margin-bottom:0}
+
+/* ── riquadri ───────────────────────────────────────────── */
+:root[data-veste="ciclo"] .sez,
+:root[data-veste="ciclo"] .card{border-color:var(--bordo)}
+:root[data-veste="ciclo"] .imp-head{border:1px solid var(--bordo);border-left:8px solid var(--arancio)}
+:root[data-veste="ciclo"] .imp-head h2{font-family:var(--font-ciclo);font-size:22px}
+:root[data-veste="ciclo"] .chip{border-color:#d5d8dc}
+
+/* statistiche: le cifre in banda grigia, come sui documenti */
+:root[data-veste="ciclo"] .kpi{background:var(--grigio);border:0;border-left:5px solid var(--arancio)}
+:root[data-veste="ciclo"] .kpi .v{color:#fff;font-family:var(--font-ciclo)}
+:root[data-veste="ciclo"] .kpi .l{color:#c3c8ce;font-size:10px}
+
+:root[data-veste="ciclo"] .tabs{border-bottom:1.5px solid var(--grigio)}
+:root[data-veste="ciclo"] .tab-btn{font-size:12.5px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:-1.5px}
+
+:root[data-veste="ciclo"] .toast{border-left:6px solid var(--arancio)}
+:root[data-veste="ciclo"] .toast.ok{border-left-color:#bfe3cc}
+:root[data-veste="ciclo"] .toast.err{border-left-color:#f3c1c1}
+
+/* ── accesso ────────────────────────────────────────────── */
+:root[data-veste="ciclo"] .login-wrap{background:#f4f5f6}
+:root[data-veste="ciclo"] .login-card{border-top:0;border-left:8px solid var(--arancio);box-shadow:var(--ombra)}
+:root[data-veste="ciclo"] .login-card h1{font:700 24px/1.1 var(--font-ciclo);color:var(--grigio)}
+:root[data-veste="ciclo"] .login-card .sub{font-family:var(--font-ciclo);letter-spacing:.16em;color:var(--arancio)}
+
+@media(max-width:900px){
+  :root[data-veste="ciclo"] .main{padding:14px}
+  :root[data-veste="ciclo"] .view-head h2{font-size:21px}
+}

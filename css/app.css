@@ -68,7 +68,7 @@ h1,h2,h3{margin:0;font-weight:700}
 .btn-link[disabled]{opacity:.5;cursor:not-allowed;text-decoration:none}
 
 /* ── input ─────────────────────────────── */
-.inp,input[type=text],input[type=email],input[type=date],input[type=search],input[type=number],select,textarea{
+.inp,input[type=text],input[type=email],input[type=password],input[type=date],input[type=search],input[type=number],select,textarea{
   width:100%;padding:9px 11px;border:1px solid var(--bordo);border-radius:6px;font-size:14px;
   font-family:inherit;color:var(--testo);background:#fff;
 }
@@ -103,6 +103,9 @@ textarea{resize:vertical;min-height:80px;line-height:1.5}
 .nav-item:hover{background:var(--grigio-chiaro)}
 .nav-item.is-active{background:var(--arancio-chiaro);color:var(--arancio);font-weight:700}
 .nav-sep{height:1px;background:var(--bordo);margin:10px 6px}
+/* conteggio nel testo della voce (js/veste.js lo mette in uno span): qui resta «(3)» */
+.nav-n::before{content:" ("}
+.nav-n::after{content:")"}
 .nav-foot{margin-top:auto;padding:12px;font-size:11px;color:var(--testo-soft);line-height:1.6}
 /* manuali d'uso (10/09/2026): non e' un .nav-item, perche' non apre una vista */
 .nav-manuali{
