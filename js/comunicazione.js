@@ -24,6 +24,7 @@
 
 import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer } from './core.js';
 import { scaricaEml } from './eml.js';
+import { postInTelegramHtml, postInHtmlNotizia, postInTestoSemplice, postPerIncollaTelegram, lunghezzaVisibile, SEGNI_AMMESSI } from './post-formato.js';
 
 let post = [];
 let filtro = 'bozza';
@@ -79,6 +80,163 @@ function immagineRidotta(file) {
     };
     img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('file non leggibile come immagine')); };
     img.src = url;
+  });
+}
+
+/* ══════════ formattazione dei testi (11/09/2026) ══════════
+   Nel testo restano i segni in stile Telegram (vedi js/post-formato.js):
+   la barra li mette e li toglie, il contatore conta i caratteri che il
+   lettore vede, l'anteprima mostra come uscirà. Telegram e app servizi
+   mostrano la formattazione; LinkedIn e Instagram escono in testo
+   semplice, quindi lì la barra ha solo l'elenco. */
+const EMOJI_FUNZIONALI = ['📋', '📌', '📢', '📅', '⏱', '📍', '👥', '👷', 'ℹ️', '📖', '🔧', '📊', '✅', '⚠️', '👉', '📧', '📞', '🖥'];
+const LIMITI = { telegram: 4096, app: 0, linkedin: 3000, instagram: 2200 };
+const RICCO = { telegram: true, app: true, linkedin: false, instagram: false };
+
+export function barraFormato(idc, canale) {
+  const ricco = RICCO[canale];
+  return `<div class="fmt-barra" data-fmt-per="${idc}" data-canale="${canale}">
+    ${ricco ? `<button type="button" data-fmt="**" title="Grassetto (Ctrl+B)"><b>G</b></button>
+    <button type="button" data-fmt="__" title="Corsivo (Ctrl+I)"><i>C</i></button>
+    <button type="button" data-fmt="++" title="Sottolineato (Ctrl+U)"><u>S</u></button>
+    <button type="button" data-fmt="~~" title="Barrato"><s>B</s></button>
+    <span class="fmt-sep"></span>
+    <button type="button" data-fmt="link" title="Link con testo (Ctrl+K)">🔗</button>
+    <button type="button" data-fmt="cit" title="Citazione: le righe selezionate iniziano con &gt;">❝</button>` : ''}
+    <button type="button" data-fmt="elenco" title="Elenco: le righe selezionate iniziano con ›">›</button>
+    ${canale === 'telegram' ? `<select data-fmt="emoji" title="Emoji funzionali in testa alla riga"><option value="">📋▾</option>${EMOJI_FUNZIONALI.map((e) => `<option value="${e}">${e}</option>`).join('')}</select>` : ''}
+    <button type="button" data-fmt="anteprima" title="Mostra come uscirà">👁 Anteprima</button>
+    <span class="fmt-conta" data-conta></span>
+  </div>`;
+}
+
+/* insertText tiene l'annulla (Ctrl+Z) del browser; setRangeText no */
+function inserisci(ta, testo) {
+  ta.focus();
+  let fatto = false;
+  try { fatto = document.execCommand('insertText', false, testo); } catch { fatto = false; }
+  if (!fatto) { ta.setRangeText(testo, ta.selectionStart, ta.selectionEnd, 'end'); ta.dispatchEvent(new Event('input')); }
+}
+
+function avvolgi(ta, segno) {
+  const a = ta.selectionStart; const b = ta.selectionEnd; const v = ta.value;
+  const sel = v.slice(a, b);
+  const n = segno.length;
+  if (v.slice(a - n, a) === segno && v.slice(b, b + n) === segno) {   /* già dentro i segni: si tolgono */
+    ta.setSelectionRange(a - n, b + n); inserisci(ta, sel);
+    ta.setSelectionRange(a - n, a - n + sel.length); return;
+  }
+  if (sel.length > 2 * n && sel.startsWith(segno) && sel.endsWith(segno)) {
+    const dentro = sel.slice(n, -n); inserisci(ta, dentro);
+    ta.setSelectionRange(a, a + dentro.length); return;
+  }
+  if (!sel.trim()) { inserisci(ta, segno + segno); ta.setSelectionRange(a + n, a + n); return; }
+  /* i segni valgono sulla riga: con più righe selezionate si avvolge ogni riga */
+  const nuovo = sel.split('\n').map((r) => {
+    if (!r.trim()) return r;
+    return r.match(/^\s*/)[0] + segno + r.trim() + segno + r.match(/\s*$/)[0];
+  }).join('\n');
+  inserisci(ta, nuovo);
+  ta.setSelectionRange(a, a + nuovo.length);
+}
+
+function prefissa(ta, prefisso) {
+  const v = ta.value;
+  const inizio = v.lastIndexOf('\n', ta.selectionStart - 1) + 1;
+  let fine = v.indexOf('\n', ta.selectionEnd > ta.selectionStart ? ta.selectionEnd - 1 : ta.selectionEnd);
+  if (fine === -1) fine = v.length;
+  const righe = v.slice(inizio, fine).split('\n');
+  const tutte = righe.filter((r) => r.trim()).length > 0 && righe.filter((r) => r.trim()).every((r) => r.startsWith(prefisso));
+  const nuovo = righe.map((r) => (!r.trim() ? r : tutte ? r.slice(prefisso.length) : prefisso + r)).join('\n');
+  ta.setSelectionRange(inizio, fine); inserisci(ta, nuovo);
+  ta.setSelectionRange(inizio, inizio + nuovo.length);
+}
+
+function inserisciLink(ta) {
+  const a = ta.selectionStart; const b = ta.selectionEnd;
+  const sel = ta.value.slice(a, b).trim();
+  const url = prompt('Indirizzo del link (https://…, mailto: o tel:)', 'https://');
+  if (url === null) return;
+  const u = url.trim();
+  if (!/^(https?:\/\/\S+|mailto:\S+|tel:\S+)$/.test(u) || u === 'https://') {
+    toast('Indirizzo non valido: deve iniziare con https://, mailto: o tel:', 'err'); return;
+  }
+  const testo = sel || (prompt('Testo da mostrare al posto dell\'indirizzo', '') || '').trim() || u;
+  ta.focus(); ta.setSelectionRange(a, b);
+  inserisci(ta, `[${testo.replace(/[[\]\n]/g, ' ')}](${u.replace(/\)/g, '%29')})`);
+}
+
+function aggiornaFormato(host, idc, immagineUrl) {
+  const ta = host.querySelector('#' + idc);
+  const barra = host.querySelector(`.fmt-barra[data-fmt-per="${idc}"]`);
+  if (!ta || !barra) return;
+  const canale = barra.dataset.canale;
+  const n = lunghezzaVisibile(ta.value);
+  const conta = barra.querySelector('[data-conta]');
+  if (conta) {
+    if (canale === 'telegram' && immagineUrl) {
+      conta.textContent = n <= 1024 ? `${n} / 1024 in didascalia` : `${n} · oltre 1024: foto e testo escono in due messaggi`;
+      conta.classList.toggle('oltre', n > 4096);
+    } else {
+      const lim = LIMITI[canale];
+      conta.textContent = lim ? `${n} / ${lim}` : `${n} caratteri`;
+      conta.classList.toggle('oltre', !!lim && n > lim);
+    }
+    conta.title = 'Caratteri che il lettore vede, senza i segni della formattazione.';
+  }
+  const ant = host.querySelector(`[data-anteprima="${idc}"]`);
+  if (!ant || ant.hidden) return;
+  const vuoto = '<span class="hint">testo vuoto</span>';
+  if (canale === 'telegram') {
+    ant.innerHTML = `<div class="bolla">${immagineUrl ? `<img src="${esc(immagineUrl)}" alt="">` : ''}${postInTelegramHtml(ta.value) || vuoto}</div>`;
+  } else if (canale === 'app') {
+    ant.innerHTML = (immagineUrl ? `<img src="${esc(immagineUrl)}" alt="">` : '') + (postInHtmlNotizia(ta.value) || vuoto);
+  } else {
+    ant.innerHTML = `<div style="white-space:pre-wrap">${esc(postInTestoSemplice(ta.value)) || vuoto}</div>`;
+  }
+}
+
+export function collegaFormato(host, { immagineUrl = null } = {}) {
+  host.querySelectorAll('.fmt-barra').forEach((barra) => {
+    const idc = barra.dataset.fmtPer;
+    const ta = host.querySelector('#' + idc);
+    if (!ta) return;
+    const agg = () => aggiornaFormato(host, idc, immagineUrl);
+    const azione = (fmt) => {
+      if (['**', '__', '++', '~~'].includes(fmt)) avvolgi(ta, fmt);
+      else if (fmt === 'link') inserisciLink(ta);
+      else if (fmt === 'cit') prefissa(ta, '> ');
+      else if (fmt === 'elenco') prefissa(ta, '› ');
+      agg();
+    };
+    barra.addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-fmt]');
+      if (!b) return;
+      if (b.dataset.fmt === 'anteprima') {
+        const ant = host.querySelector(`[data-anteprima="${idc}"]`);
+        ant.hidden = !ant.hidden;
+        b.classList.toggle('is-active', !ant.hidden);
+        agg(); return;
+      }
+      azione(b.dataset.fmt);
+    });
+    barra.querySelector('select[data-fmt="emoji"]')?.addEventListener('change', (e) => {
+      if (!e.target.value) return;
+      inserisci(ta, e.target.value + ' ');
+      e.target.value = '';
+      agg();
+    });
+    ta.addEventListener('input', agg);
+    if (RICCO[barra.dataset.canale]) {
+      ta.addEventListener('keydown', (e) => {
+        if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
+        const fmt = { b: '**', i: '__', u: '++', k: 'link' }[e.key.toLowerCase()];
+        if (!fmt) return;
+        e.preventDefault();
+        azione(fmt);
+      });
+    }
+    agg();
   });
 }
 
@@ -203,8 +361,13 @@ function nuovoPost() {
     </div>
     <div class="field"><label>Titolo di lavoro *</label><input type="text" id="np-titolo"></div>
     <div class="field"><label>Fonte (documento, protocollo, link)</label><input type="text" id="np-fonte"></div>
-    <div class="field"><label>Testo (Telegram) *</label><textarea id="np-testo" rows="8"></textarea></div>
+    <div class="field"><label>Testo (Telegram) *</label>
+      ${barraFormato('np-testo', 'telegram')}
+      <textarea id="np-testo" rows="8"></textarea>
+      <div class="fmt-anteprima tg" data-anteprima="np-testo" hidden></div>
+      <span class="hint">${esc(SEGNI_AMMESSI)}</span></div>
     <button class="btn btn-primary" id="np-crea" style="margin-top:10px">Crea la bozza</button>`);
+  collegaFormato($('#drawer-body'));
   $('#np-crea').addEventListener('click', async (ev) => {
     const titolo = $('#np-titolo').value.trim();
     const testo = $('#np-testo').value.trim();
@@ -230,11 +393,13 @@ export async function apriPratica(id) {
   const p = post.find((x) => x.id === id);
   if (!p) return;
   const c = canaliDi(p);
-  const area = (idc, label, val, rows = 6) => `
+  const area = (idc, label, val, rows, canale) => `
     <div class="field" style="margin-top:8px">
       <label style="display:flex;justify-content:space-between;align-items:center">${label}
-        <button class="btn btn-ghost btn-sm" data-copia="${idc}" type="button" style="padding:2px 8px;font-size:11px">⧉ copia</button></label>
+        <button class="btn btn-ghost btn-sm" data-copia="${idc}" data-canale="${canale}" type="button" style="padding:2px 8px;font-size:11px">⧉ copia</button></label>
+      ${barraFormato(idc, canale)}
       <textarea id="${idc}" rows="${rows}">${esc(val || '')}</textarea>
+      <div class="fmt-anteprima${canale === 'telegram' ? ' tg' : ''}" data-anteprima="${idc}" hidden></div>
     </div>`;
 
   apriDrawer(`${PILASTRI[p.pilastro]?.[0] || ''} ${p.titolo}`, '', `
@@ -263,10 +428,11 @@ export async function apriPratica(id) {
       <div class="field"><label>Da pubblicare il</label><input type="date" id="pd-data" value="${p.data_programmata || ''}"></div>
       <div class="field"><label>Titolo di lavoro</label><input type="text" id="pd-titolo" value="${esc(p.titolo)}"></div>
     </div>
-    ${area('pd-telegram', '📋 Telegram (esce da qui col bot)', p.testo_telegram, 9)}
-    ${area('pd-app', '🔔 App servizi — notizia estesa', p.testo_app, 8)}
-    ${area('pd-linkedin', '💼 LinkedIn (all\'agenzia)', p.testo_linkedin, 7)}
-    ${area('pd-instagram', '📸 Instagram / Facebook (all\'agenzia)', p.testo_instagram, 5)}
+    <p class="hint" style="margin:10px 0 0">Formattazione: ${esc(SEGNI_AMMESSI)}. Si mette coi pulsanti o con Ctrl+B / Ctrl+I / Ctrl+U / Ctrl+K. Telegram e app servizi la mostrano; LinkedIn e Instagram escono in testo semplice e i segni si tolgono da soli.</p>
+    ${area('pd-telegram', '📋 Telegram (esce da qui col bot)', p.testo_telegram, 9, 'telegram')}
+    ${area('pd-app', '🔔 App servizi — notizia estesa', p.testo_app, 8, 'app')}
+    ${area('pd-linkedin', '💼 LinkedIn (all\'agenzia)', p.testo_linkedin, 7, 'linkedin')}
+    ${area('pd-instagram', '📸 Instagram / Facebook (all\'agenzia)', p.testo_instagram, 5, 'instagram')}
     <div class="field" style="margin-top:8px"><label>Hashtag</label><input type="text" id="pd-hashtag" value="${esc(p.hashtag || '')}"></div>
 
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:14px">
@@ -289,6 +455,7 @@ export async function apriPratica(id) {
     <p class="hint" style="margin-top:8px">Telegram e app partono da qui. LinkedIn, Instagram e Facebook li pubblica l'agenzia col kit; quando è uscito, si segna a mano.</p>` : ''}`);
 
   $('#drawer').classList.add('drawer-xl');
+  collegaFormato($('#drawer-body'), { immagineUrl: p.immagine_url });
 
   const valori = () => ({
     pilastro: $('#pd-pilastro').value, data_programmata: $('#pd-data').value || null,
@@ -305,9 +472,25 @@ export async function apriPratica(id) {
     return true;
   };
 
+  /* copia: per Telegram restano ** __ ~~ (Telegram li trasforma all'invio),
+     per LinkedIn e Instagram il testo senza segni; dove si incolla in un
+     editor che accetta HTML arriva anche la versione formattata */
   $('#drawer-body').querySelectorAll('[data-copia]').forEach((b) => b.addEventListener('click', async () => {
-    try { await navigator.clipboard.writeText($('#' + b.dataset.copia).value); toast('Copiato.', 'ok'); }
-    catch { toast('Copia non riuscita: seleziona il testo e copia a mano.', 'err'); }
+    const v = $('#' + b.dataset.copia).value;
+    const canale = b.dataset.canale;
+    const piano = canale === 'telegram' ? postPerIncollaTelegram(v) : postInTestoSemplice(v);
+    const html = RICCO[canale] ? postInHtmlNotizia(v) : '';
+    try {
+      if (html && window.ClipboardItem) {
+        await navigator.clipboard.write([new ClipboardItem({
+          'text/plain': new Blob([piano], { type: 'text/plain' }),
+          'text/html': new Blob([html], { type: 'text/html' }),
+        })]);
+      } else {
+        await navigator.clipboard.writeText(piano);
+      }
+      toast(canale === 'telegram' ? 'Copiato. Incollato in Telegram, grassetto, corsivo e barrato escono all\'invio; il sottolineato no.' : 'Copiato.', 'ok');
+    } catch { toast('Copia non riuscita: seleziona il testo e copia a mano.', 'err'); }
   }));
   $('#pd-salva').addEventListener('click', async (ev) => { attendi(ev.currentTarget, true); await salva(); attendi(ev.currentTarget, false); });
   $('#pd-approva')?.addEventListener('click', async (ev) => {
@@ -355,7 +538,9 @@ export async function apriPratica(id) {
     const { data, error } = await sb.functions.invoke('redazione-social', { body: { op: 'pubblica', id } });
     attendi(btn, false);
     if (error || data?.error) return toast('Telegram: ' + await messaggioErrore(error, data), 'err');
-    toast(`Pubblicato su Telegram (messaggio ${data.message_id}).`, 'ok');
+    toast(data.formattazione_tolta
+      ? `Pubblicato su Telegram (messaggio ${data.message_id}) ma SENZA formattazione: Telegram non ha accettato i segni. Guarda l'anteprima.`
+      : `Pubblicato su Telegram (messaggio ${data.message_id}).`, data.formattazione_tolta ? 'err' : 'ok');
     await render(); apriPratica(id);
   });
   $('#pd-notizia')?.addEventListener('click', async (ev) => {
@@ -376,8 +561,8 @@ export async function apriPratica(id) {
       'Ciao,', '',
       `vi giro il testo per i canali social di Formedil Padova, Area Sicurezza e Salute — «${v.titolo}».`,
       p.data_programmata ? `Da pubblicare, se possibile, il ${dataIt(p.data_programmata)}.` : '',
-      '', '— LinkedIn —', v.testo_linkedin || '(non previsto)',
-      '', '— Instagram / Facebook —', v.testo_instagram || '(non previsto)',
+      '', '— LinkedIn —', v.testo_linkedin ? postInTestoSemplice(v.testo_linkedin) : '(non previsto)',
+      '', '— Instagram / Facebook —', v.testo_instagram ? postInTestoSemplice(v.testo_instagram) : '(non previsto)',
       '', v.hashtag ? `Hashtag: ${v.hashtag}` : '',
       p.immagine_suggerita ? `Grafica suggerita: ${p.immagine_suggerita}` : '',
       p.fonte_url ? `Fonte: ${p.fonte_url}` : '',

@@ -34,6 +34,8 @@ del gestionale visite e della webapp asseverazione, sulle tabelle `s_*`.
 | `js/fatture-tecnici-doc.js` | I tre PDF: lettera di incarico, riepilogo attività da fatturare, mandato di pagamento |
 | `supabase/sql/2026_09_04_fatture_tecnici.sql` | Tabelle `s_tariffe`, `s_tecnici_fiscale`, `s_incarichi_mensili`, `s_fatture_tecnici`, `s_prestazioni`, `s_mandati_pagamento`, `s_visite_stage` e funzioni `s_prestazioni_calcola`, `s_fattura_decisione` |
 | `js/comunicazione.js` | La coda della **redazione automatica social** dell'Area: bozze scritte dalla routine cloud, ritocco, approvazione, scarto con motivo, pubblicazione su Telegram e app servizi, kit `.eml` per l'agenzia |
+| `js/post-formato.js` | La **formattazione dei testi dei post** (11/09/2026): i segni che Telegram Desktop conosce (`**grassetto**`, `__corsivo__`, `++sottolineato++`, `~~barrato~~`, `[testo](link)`, `> citazione`) diventano HTML per Telegram, HTML della notizia per l'app servizi, testo semplice per LinkedIn e Instagram. Modulo puro, con una **copia** nella funzione `redazione-social` |
+| `strumenti/verifica-post-formato.mjs` | Controlla che la copia nella funzione sia identica e prova le conversioni (annidamento, escape, link pericolosi). `npm run post-formato-sync` rigenera la copia |
 | `supabase/functions/redazione-social/` | La porta della routine (materia prima e consegna bozze, con parola d'ordine) e della persona (pubblica su Telegram / app, con JWT segreteria) |
 | `supabase/sql/2026_09_06_redazione_social.sql` | Tabella `s_post`, funzione `s_redazione_materia` (solo aggregati), chiavi `redazione_token`, `redazione_linee`, `telegram_canale` |
 
@@ -74,6 +76,19 @@ corsi e attività»), letti dal service account dell'ente con la delega
 `calendar.readonly` aggiunta nella console Google Workspace. La routine non
 tocca Google: riceve titolo, date, luogo e le prime righe della descrizione.
 L'agenda della segreteria non è in elenco, di proposito.
+
+**Formattazione dei testi (11/09/2026).** Sopra i testi Telegram e app c'è
+una barra: G (grassetto), C (corsivo), S (sottolineato), B (barrato), link,
+citazione, elenco, emoji e anteprima, con Ctrl+B/I/U/K e il contatore dei
+caratteri (per Telegram con immagine, il limite di 1024 della didascalia).
+Nel database resta il testo coi segni; la funzione lo converte al momento di
+pubblicare, in `parse_mode: HTML` per Telegram e in HTML per la notizia. Se
+Telegram rifiuta la formattazione il messaggio esce lo stesso senza segni, e
+la risposta lo dice (`formattazione_tolta`). LinkedIn e Instagram non hanno
+formattazione: lì i segni si tolgono. Il bottone «Copia» mette negli appunti
+sia il testo (coi segni che Telegram Desktop trasforma all'invio) sia l'HTML.
+Il testo viene ripulito prima di aggiungere i tag, e i link si accettano solo
+verso http, https, mailto e tel.
 
 Regole fisse (stanno nel prompt della routine e nella pagina): mai nomi di
 imprese, cantieri, persone; solo aggregati col perimetro dichiarato; ogni

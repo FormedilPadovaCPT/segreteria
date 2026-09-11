@@ -40,6 +40,13 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
 import { getToken } from '../_shared/google.ts'
+// ⚠️ post-formato.js è la COPIA di js/post-formato.js della webapp (Deno non
+// legge fuori dalla cartella della funzione al deploy). Non si modifica qui:
+// `npm run post-formato-sync` la rigenera, strumenti/verifica-post-formato.mjs
+// fallisce se divergono. Da lì arrivano i segni della formattazione
+// (**grassetto**, __corsivo__, ++sottolineato++, ~~barrato~~, [testo](link), > citazione).
+// @ts-ignore modulo JS condiviso con la webapp, senza tipi
+import { postInTelegramHtml, postInHtmlNotizia, postInTestoSemplice, lunghezzaVisibile } from './post-formato.js'
 
 // Gli eventi pubblici dell'ufficio arrivano dai calendari Google elencati in
 // s_config.redazione_calendari (id separati da virgola), letti con il service
@@ -95,12 +102,19 @@ const json = (b: unknown, status = 200) =>
 const PILASTRI = ['cantiere', 'normativa', 'servizi', 'formazione', 'rassegna', 'avviso']
 const NOTIZIE_URL_DEFAULT = 'https://qcvwrgjldbdoxcfdsvkq.supabase.co'
 
-/* testo semplice → HTML della notizia (paragrafi, righe, link cliccabili) */
-function testoInHtml(t: string): string {
-  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  return String(t || '').trim().split(/\n{2,}/).map((par) =>
-    '<p>' + esc(par).replace(/\n/g, '<br>')
-      .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>') + '</p>').join('')
+/* invio a Telegram in HTML; se Telegram rifiuta la formattazione
+   («can't parse entities») si ritenta col testo senza segni, invece di
+   lasciare il post fermo: il messaggio esce, e la risposta lo dice */
+async function inviaTelegram(token: string, metodo: 'sendMessage' | 'sendPhoto', campi: Record<string, unknown>, testo: string, campoTesto: 'text' | 'caption') {
+  const chiama = (payload: Record<string, unknown>) => fetch(`https://api.telegram.org/bot${token}/${metodo}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+  }).then(async (r) => ({ r, tg: await r.json().catch(() => ({})) as Record<string, any> }))
+  let { r, tg } = await chiama({ ...campi, [campoTesto]: postInTelegramHtml(testo), parse_mode: 'HTML' })
+  if ((!r.ok || !tg.ok) && /parse entities/i.test(String(tg.description || ''))) {
+    const riprova = await chiama({ ...campi, [campoTesto]: postInTestoSemplice(testo) })
+    return { ...riprova, formattazione_tolta: true }
+  }
+  return { r, tg, formattazione_tolta: false }
 }
 
 serve(async (req) => {
@@ -209,40 +223,41 @@ serve(async (req) => {
       if (!chat) return json({ error: 's_config.telegram_canale vuoto' }, 500)
       const testo = String(body.testo || post.testo_telegram || '').trim()
       if (!testo) return json({ error: 'testo Telegram vuoto' }, 400)
+      if (lunghezzaVisibile(testo) > 4096) return json({ error: `testo Telegram troppo lungo: ${lunghezzaVisibile(testo)} caratteri visibili, il limite è 4096` }, 400)
       /* con l'immagine di testa: foto col testo come didascalia (limite Telegram
-         1024 caratteri); se il testo è più lungo, foto e poi messaggio a parte */
-      let r: Response, tg: Record<string, any> = {}
+         1024 caratteri VISIBILI, cioè senza i segni); se il testo è più lungo,
+         foto e poi messaggio a parte. Il testo esce formattato (parse_mode HTML). */
+      let tg: Record<string, any> = {}
+      let formattazioneTolta = false
       if (post.immagine_url) {
-        const didascalia = testo.length <= 1024 ? testo : ''
-        r = await fetch(`https://api.telegram.org/bot${TOKEN}/sendPhoto`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ chat_id: chat, photo: post.immagine_url, caption: didascalia }),
-        })
-        tg = await r.json().catch(() => ({}))
-        if (!r.ok || !tg.ok) return json({ error: 'Telegram (foto): ' + (tg.description || r.status) }, 502)
-        if (!didascalia) {
-          const r2 = await fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ chat_id: chat, text: testo, disable_web_page_preview: true }),
-          })
-          const tg2 = await r2.json().catch(() => ({}))
-          if (!r2.ok || !tg2.ok) return json({ error: 'Telegram (testo dopo la foto): ' + (tg2.description || r2.status) }, 502)
-          tg = tg2
+        const inDidascalia = lunghezzaVisibile(testo) <= 1024
+        const foto = inDidascalia
+          ? await inviaTelegram(TOKEN, 'sendPhoto', { chat_id: chat, photo: post.immagine_url }, testo, 'caption')
+          : await (async () => {
+              const r = await fetch(`https://api.telegram.org/bot${TOKEN}/sendPhoto`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ chat_id: chat, photo: post.immagine_url }),
+              })
+              return { r, tg: await r.json().catch(() => ({})) as Record<string, any>, formattazione_tolta: false }
+            })()
+        if (!foto.r.ok || !foto.tg.ok) return json({ error: 'Telegram (foto): ' + (foto.tg.description || foto.r.status) }, 502)
+        tg = foto.tg; formattazioneTolta = foto.formattazione_tolta
+        if (!inDidascalia) {
+          const msg = await inviaTelegram(TOKEN, 'sendMessage', { chat_id: chat, disable_web_page_preview: true }, testo, 'text')
+          if (!msg.r.ok || !msg.tg.ok) return json({ error: 'Telegram (testo dopo la foto): ' + (msg.tg.description || msg.r.status) }, 502)
+          tg = msg.tg; formattazioneTolta = msg.formattazione_tolta
         }
       } else {
-        r = await fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ chat_id: chat, text: testo, disable_web_page_preview: false }),
-        })
-        tg = await r.json().catch(() => ({}))
-        if (!r.ok || !tg.ok) return json({ error: 'Telegram: ' + (tg.description || r.status) }, 502)
+        const msg = await inviaTelegram(TOKEN, 'sendMessage', { chat_id: chat, disable_web_page_preview: false }, testo, 'text')
+        if (!msg.r.ok || !msg.tg.ok) return json({ error: 'Telegram: ' + (msg.tg.description || msg.r.status) }, 502)
+        tg = msg.tg; formattazioneTolta = msg.formattazione_tolta
       }
-      canali.telegram = { message_id: tg.result?.message_id, chat: chat, at: new Date().toISOString(), da: email }
+      canali.telegram = { message_id: tg.result?.message_id, chat: chat, at: new Date().toISOString(), da: email, ...(formattazioneTolta ? { formattazione_tolta: true } : {}) }
       await admin.from('s_post').update({
         canali_pubblicati: canali, stato: 'pubblicato', pubblicato_il: post.pubblicato_il || new Date().toISOString(),
         testo_telegram: testo, aggiornato_da: email,
       }).eq('id', id)
-      return json({ ok: true, message_id: tg.result?.message_id, chat })
+      return json({ ok: true, message_id: tg.result?.message_id, chat, formattazione_tolta: formattazioneTolta })
     }
 
     if (op === 'notizia') {
@@ -255,7 +270,7 @@ serve(async (req) => {
       if (!testo) return json({ error: 'testo per l\'app vuoto' }, 400)
       const categoria = ['notizie', ({ cantiere: 'cantieri', normativa: 'normativa', servizi: 'informazione', formazione: 'formazione', rassegna: 'informazione', avviso: 'avvisi' } as Record<string, string>)[post.pilastro] || 'informazione']
       const { data: n, error } = await notizie.from('notizie').insert({
-        titolo, corpo: testoInHtml(testo), categoria, priorita: post.pilastro === 'avviso' ? 'urgente' : 'normale',
+        titolo, corpo: postInHtmlNotizia(testo), categoria, priorita: post.pilastro === 'avviso' ? 'urgente' : 'normale',
         autore: 'Area Sicurezza e Salute', data_pubbl: new Date().toISOString().slice(0, 10),
         link_esterno: post.fonte_url || null, immagine_url: post.immagine_url || null, pubblicata: true,
       }).select('id').single()

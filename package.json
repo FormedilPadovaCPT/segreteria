@@ -6,6 +6,8 @@
   "scripts": {
     "timbra": "node strumenti/timbra.mjs",
     "firma-sync": "node strumenti/verifica-firma.mjs --sincronizza",
-    "verifica-firma": "node strumenti/verifica-firma.mjs"
+    "verifica-firma": "node strumenti/verifica-firma.mjs",
+    "post-formato-sync": "node strumenti/verifica-post-formato.mjs --sincronizza",
+    "verifica-post-formato": "node strumenti/verifica-post-formato.mjs"
   }
 }

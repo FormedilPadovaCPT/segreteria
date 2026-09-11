@@ -496,3 +496,20 @@ tr.riga-ceiv{border-left:4px solid var(--ceiv);background:var(--ceiv-bg)}
 .affiancate{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 16px;align-items:stretch}
 .affiancate>.sez{margin-bottom:16px}
 @media(max-width:1100px){.affiancate{grid-template-columns:1fr}}
+
+/* ── barra di formattazione dei post (vista Comunicazione, 11/09/2026) ── */
+.fmt-barra{display:flex;flex-wrap:wrap;gap:3px;align-items:center;margin:3px 0}
+.fmt-barra button{min-width:28px;height:26px;padding:0 7px;border:1px solid var(--bordo);background:#fff;border-radius:6px;font-size:13px;color:var(--grigio);cursor:pointer;line-height:1}
+.fmt-barra button:hover{border-color:var(--arancio);color:var(--arancio)}
+.fmt-barra button.is-active{background:var(--arancio-chiaro);border-color:var(--arancio);color:var(--arancio-scuro)}
+.fmt-barra select{width:auto !important;flex:0 0 auto;height:26px;font-size:13px;padding:0 2px;border:1px solid var(--bordo);border-radius:6px;background:#fff}
+.fmt-barra .fmt-sep{width:1px;height:18px;background:var(--bordo);margin:0 3px}
+.fmt-conta{margin-left:auto;font-size:11px;color:var(--testo-soft);white-space:nowrap}
+.fmt-conta.oltre{color:var(--out);font-weight:700}
+.fmt-anteprima{margin-top:4px;padding:10px 12px;border:1px dashed var(--bordo);border-radius:8px;background:#fff;font-size:14px;line-height:1.45;color:var(--testo)}
+.fmt-anteprima.tg{background:#e3e8ec}
+.fmt-anteprima.tg .bolla{background:#fff;border-radius:12px;padding:8px 12px;white-space:pre-wrap;box-shadow:0 1px 1px rgba(0,0,0,.08);max-width:560px}
+.fmt-anteprima blockquote{margin:6px 0;padding:2px 0 2px 10px;border-left:3px solid var(--arancio)}
+.fmt-anteprima img{max-width:100%;max-height:220px;object-fit:cover;border-radius:8px;margin-bottom:6px;display:block}
+.fmt-anteprima a{color:var(--arancio)}
+.fmt-anteprima p{margin:0 0 8px}
