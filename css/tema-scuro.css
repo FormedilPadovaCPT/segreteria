@@ -1,0 +1,214 @@
+/* ============================================================
+   Tema SCURO della veste Scrivania (11/09/2026, chiesto dall'utente
+   per lavorare la sera). Stessa disposizione della Scrivania, colori
+   scuri. NON è la predefinita: si sceglie dal selettore «Veste»
+   («Scrivania scura») e la scelta resta solo su quel browser.
+
+   Tutto sotto :root[data-veste="scrivania"][data-tema="scuro"]:
+   l'attributo data-tema lo mette js/veste.js (e lo script in testa
+   a index.html, per non far lampeggiare la versione chiara).
+
+   Come è fatto: si ridefiniscono i token di app.css, poi le superfici
+   bianche di app.css e i grigi chiari di veste-scrivania.css. In
+   fondo, le poche «isole» con colori scritti a mano nei moduli
+   (sfondi pastello, rossi e ambra scuri) che sul nero non si
+   leggerebbero. Chi aggiunge un colore fisso in un modulo lo
+   aggiunge anche lì, o meglio usa i token.
+
+   Arancione: la barra in alto resta arancione (è la scelta della
+   veste) ma più cupa, per non abbagliare la sera; i pulsanti d'azione
+   usano un arancione più chiaro, che sul fondo scuro si legge.
+   ============================================================ */
+
+:root[data-veste="scrivania"][data-tema="scuro"]{
+  color-scheme:dark;
+  --arancio:#ff6a2c;
+  --arancio-scuro:#ff8a50;
+  --arancio-chiaro:rgba(255,106,44,.14);
+  --grigio:#c9ccd1;
+  --grigio-chiaro:#1f2227;
+  --bordo:#353a42;
+  --testo:#e6e4df;
+  --testo-soft:#9aa0a8;
+  --in:#5fd08a;  --in-bg:rgba(95,208,138,.14);
+  --out:#ff8a80; --out-bg:rgba(255,138,128,.14);
+  --prima:#5fd08a; --prima-bg:rgba(95,208,138,.12);
+  --succ:#f0b35a;  --succ-bg:rgba(240,179,90,.12);
+  --ceiv:#7fb4f0;  --ceiv-bg:rgba(127,180,240,.12);
+  --ombra:0 20px 40px -20px rgba(0,0,0,.85);
+  --fondo:#16181c;
+  --superficie:#1f2227;
+  --superficie-2:#2a2e35;
+  --filetto:#2b2f36;
+  --barra-arancio:#b8440f;
+}
+
+:root[data-veste="scrivania"][data-tema="scuro"] body{background:var(--fondo);color:var(--testo)}
+:root[data-veste="scrivania"][data-tema="scuro"] a{color:var(--arancio)}
+:root[data-veste="scrivania"][data-tema="scuro"] kbd{background:var(--superficie-2);border-color:#3f444c;color:#c9ccd1}
+:root[data-veste="scrivania"][data-tema="scuro"] .hint,
+:root[data-veste="scrivania"][data-tema="scuro"] .empty{color:var(--testo-soft)}
+
+/* ── pulsanti e campi ───────────────────────────────────── */
+:root[data-veste="scrivania"][data-tema="scuro"] .btn{background:var(--superficie-2);color:var(--testo)}
+:root[data-veste="scrivania"][data-tema="scuro"] .btn-primary{background:var(--arancio);color:#fff}
+:root[data-veste="scrivania"][data-tema="scuro"] .btn-in{background:var(--in);color:#0f1114}
+:root[data-veste="scrivania"][data-tema="scuro"] .btn-out{background:var(--out);color:#0f1114}
+:root[data-veste="scrivania"][data-tema="scuro"] .btn-ghost{background:var(--superficie-2);border-color:#3f444c;color:var(--testo)}
+:root[data-veste="scrivania"][data-tema="scuro"] .btn-link{color:var(--arancio)}
+:root[data-veste="scrivania"][data-tema="scuro"] .icon-btn{color:var(--testo-soft)}
+:root[data-veste="scrivania"][data-tema="scuro"] .inp,
+:root[data-veste="scrivania"][data-tema="scuro"] input[type=text],:root[data-veste="scrivania"][data-tema="scuro"] input[type=email],
+:root[data-veste="scrivania"][data-tema="scuro"] input[type=password],:root[data-veste="scrivania"][data-tema="scuro"] input[type=date],
+:root[data-veste="scrivania"][data-tema="scuro"] input[type=search],:root[data-veste="scrivania"][data-tema="scuro"] input[type=number],
+:root[data-veste="scrivania"][data-tema="scuro"] input[type=file],
+:root[data-veste="scrivania"][data-tema="scuro"] select,:root[data-veste="scrivania"][data-tema="scuro"] textarea{background:#121417;border-color:var(--bordo);color:var(--testo)}
+:root[data-veste="scrivania"][data-tema="scuro"] select option{background:var(--superficie);color:var(--testo)}
+:root[data-veste="scrivania"][data-tema="scuro"] .readonly{background:#1a1c20;color:var(--testo-soft)}
+
+/* ── barre in alto ──────────────────────────────────────── */
+:root[data-veste="scrivania"][data-tema="scuro"] .topbar{background:var(--barra-arancio)}
+:root[data-veste="scrivania"][data-tema="scuro"] .topbar .veste-sel option{background:var(--superficie);color:var(--testo)}
+@media(min-width:901px){
+  :root[data-veste="scrivania"][data-tema="scuro"] .sidebar{background:var(--superficie-2)}
+  :root[data-veste="scrivania"][data-tema="scuro"] .nav-grp{color:#b4b9c0}
+  :root[data-veste="scrivania"][data-tema="scuro"] .nav-grp:hover{background:#343941;color:#fff}
+  :root[data-veste="scrivania"][data-tema="scuro"] .nav-gruppo:has(.nav-item.is-active) > .nav-grp{background:var(--superficie);color:#fff}
+  :root[data-veste="scrivania"][data-tema="scuro"] .nav-voci{background:var(--superficie);border-bottom-color:var(--filetto)}
+  :root[data-veste="scrivania"][data-tema="scuro"] .nav-item{color:#c9ccd1}
+  :root[data-veste="scrivania"][data-tema="scuro"] .nav-item:hover{background:var(--superficie-2)}
+  :root[data-veste="scrivania"][data-tema="scuro"] .nav-item.is-active{background:#121417;border-color:#3f444c;color:#fff;box-shadow:inset 0 -2px 0 #8f949c}
+  :root[data-veste="scrivania"][data-tema="scuro"] .nav-item[data-view="nuovo-in"]::after,
+  :root[data-veste="scrivania"][data-tema="scuro"] .nav-item[data-view="nuovo-out"]::after{background:var(--superficie-2);border-color:#3f444c;color:#c9ccd1}
+  :root[data-veste="scrivania"][data-tema="scuro"] .nav-n{background:#4a505a}
+  :root[data-veste="scrivania"][data-tema="scuro"] .nav-manuali{color:#b4b9c0}
+  :root[data-veste="scrivania"][data-tema="scuro"] .nav-manuali:hover{background:#343941;color:#fff}
+  :root[data-veste="scrivania"][data-tema="scuro"] .nav-foot{background:#0f1114;color:#9aa0a8}
+}
+@media(max-width:900px){
+  :root[data-veste="scrivania"][data-tema="scuro"] .sidebar{background:var(--superficie);border-right-color:var(--filetto)}
+  :root[data-veste="scrivania"][data-tema="scuro"] .nav-item,
+  :root[data-veste="scrivania"][data-tema="scuro"] .nav-manuali{color:#c9ccd1}
+  :root[data-veste="scrivania"][data-tema="scuro"] .nav-item:hover,
+  :root[data-veste="scrivania"][data-tema="scuro"] .nav-manuali:hover{background:var(--superficie-2)}
+  :root[data-veste="scrivania"][data-tema="scuro"] .nav-item.is-active{background:var(--superficie-2);color:#fff}
+  :root[data-veste="scrivania"][data-tema="scuro"] .nav-n{background:#4a505a}
+  :root[data-veste="scrivania"][data-tema="scuro"] .nav-foot{color:var(--testo-soft)}
+}
+
+/* ── pagine ─────────────────────────────────────────────── */
+:root[data-veste="scrivania"][data-tema="scuro"] .view-head h2{color:#fff;border-left-color:#6b7280}
+:root[data-veste="scrivania"][data-tema="scuro"] .filters{background:var(--superficie);border-color:var(--filetto)}
+:root[data-veste="scrivania"][data-tema="scuro"] .seg{border-color:var(--bordo)}
+:root[data-veste="scrivania"][data-tema="scuro"] .seg-btn{background:var(--superficie-2);color:#c9ccd1;border-right-color:var(--bordo)}
+:root[data-veste="scrivania"][data-tema="scuro"] .seg-btn.is-active{background:#e6e4df;color:#16181c}
+:root[data-veste="scrivania"][data-tema="scuro"] .seg-btn.seg-in.is-active{background:var(--in);color:#0f1114}
+:root[data-veste="scrivania"][data-tema="scuro"] .seg-btn.seg-out.is-active{background:var(--out);color:#0f1114}
+
+:root[data-veste="scrivania"][data-tema="scuro"] .table-wrap{background:var(--superficie);border-color:var(--filetto)}
+:root[data-veste="scrivania"][data-tema="scuro"] .tbl thead th{background:var(--superficie-2);color:#c9ccd1;border-bottom-color:var(--bordo)}
+:root[data-veste="scrivania"][data-tema="scuro"] .tbl tbody td{border-bottom-color:#262a30}
+:root[data-veste="scrivania"][data-tema="scuro"] .tbl tbody tr:hover{background:#2a2e35}
+:root[data-veste="scrivania"][data-tema="scuro"] .num{color:#fff}
+:root[data-veste="scrivania"][data-tema="scuro"] tr.riga-prima td:first-child{background:var(--prima-bg)}
+
+:root[data-veste="scrivania"][data-tema="scuro"] .form-host{background:var(--superficie);border-color:var(--filetto)}
+:root[data-veste="scrivania"][data-tema="scuro"] .fieldset{border-color:var(--bordo)}
+:root[data-veste="scrivania"][data-tema="scuro"] .fieldset legend{color:#c9ccd1}
+:root[data-veste="scrivania"][data-tema="scuro"] .field label{color:#b4b9c0}
+:root[data-veste="scrivania"][data-tema="scuro"] .numero-box{background:#121417;border-color:var(--bordo)}
+:root[data-veste="scrivania"][data-tema="scuro"] .ac-list{background:var(--superficie);border-color:var(--bordo)}
+:root[data-veste="scrivania"][data-tema="scuro"] .ac-item{border-bottom-color:var(--filetto)}
+
+/* cruscotto */
+:root[data-veste="scrivania"][data-tema="scuro"] .hm-card{background:var(--superficie);border-color:var(--filetto)}
+:root[data-veste="scrivania"][data-tema="scuro"] .hm-testa{background:var(--superficie-2);border-bottom-color:var(--bordo)}
+:root[data-veste="scrivania"][data-tema="scuro"] .hm-testa h3{color:#c9ccd1}
+:root[data-veste="scrivania"][data-tema="scuro"] .hm-n{color:#6f757d}
+:root[data-veste="scrivania"][data-tema="scuro"] .hm-n-attivo{color:var(--arancio)}
+:root[data-veste="scrivania"][data-tema="scuro"] .hm-riga{border-bottom-color:var(--filetto)}
+:root[data-veste="scrivania"][data-tema="scuro"] .hm-riga:hover{background:var(--superficie-2)}
+:root[data-veste="scrivania"][data-tema="scuro"] .hm-allarme{background:rgba(255,138,128,.1);border-color:rgba(255,138,128,.35);border-left-color:var(--out);color:var(--testo)}
+:root[data-veste="scrivania"][data-tema="scuro"] .hm-allarme strong{color:var(--out)}
+
+/* scheda laterale */
+:root[data-veste="scrivania"][data-tema="scuro"] .drawer-bg{background:rgba(0,0,0,.55)}
+:root[data-veste="scrivania"][data-tema="scuro"] .drawer{background:var(--superficie);box-shadow:-8px 0 30px rgba(0,0,0,.6)}
+:root[data-veste="scrivania"][data-tema="scuro"] .drawer-head,
+:root[data-veste="scrivania"][data-tema="scuro"] .drawer-head.dir-IN,
+:root[data-veste="scrivania"][data-tema="scuro"] .drawer-head.dir-OUT{background:var(--superficie-2);border-bottom-color:var(--bordo)}
+:root[data-veste="scrivania"][data-tema="scuro"] .drawer-head h3{color:#fff}
+:root[data-veste="scrivania"][data-tema="scuro"] .dl{border-color:var(--filetto)}
+:root[data-veste="scrivania"][data-tema="scuro"] .dl dt{background:#1a1d21;border-bottom-color:var(--filetto);color:var(--testo-soft)}
+:root[data-veste="scrivania"][data-tema="scuro"] .dl dd{border-bottom-color:var(--filetto)}
+:root[data-veste="scrivania"][data-tema="scuro"] .drawer-actions{border-top-color:var(--filetto)}
+:root[data-veste="scrivania"][data-tema="scuro"] .sect-title{background:var(--superficie-2);border-color:var(--bordo);color:#c9ccd1}
+:root[data-veste="scrivania"][data-tema="scuro"] .att-item{border-color:var(--filetto)}
+:root[data-veste="scrivania"][data-tema="scuro"] .avviso-scadenza{color:var(--testo)}
+
+/* riquadri vari */
+:root[data-veste="scrivania"][data-tema="scuro"] .sez,
+:root[data-veste="scrivania"][data-tema="scuro"] .card{background:var(--superficie);border-color:var(--filetto)}
+:root[data-veste="scrivania"][data-tema="scuro"] .sez h3{color:#c9ccd1;border-bottom-color:var(--bordo)}
+:root[data-veste="scrivania"][data-tema="scuro"] .kpi{background:var(--superficie);border-color:var(--filetto);border-left-color:#6b7280}
+:root[data-veste="scrivania"][data-tema="scuro"] .kpi .v{color:#fff}
+:root[data-veste="scrivania"][data-tema="scuro"] .bar-row .lb{color:#c9ccd1}
+:root[data-veste="scrivania"][data-tema="scuro"] .bar-row .br{background:#121417}
+:root[data-veste="scrivania"][data-tema="scuro"] .imp-head{background:var(--superficie);border-color:var(--filetto);border-top-color:var(--arancio)}
+:root[data-veste="scrivania"][data-tema="scuro"] .chip{background:var(--superficie-2);border-color:#3f444c;color:var(--testo)}
+:root[data-veste="scrivania"][data-tema="scuro"] .chip:hover{background:var(--arancio-chiaro)}
+:root[data-veste="scrivania"][data-tema="scuro"] .chip-logo{background:#fff}
+:root[data-veste="scrivania"][data-tema="scuro"] .tabs{border-bottom-color:var(--bordo)}
+:root[data-veste="scrivania"][data-tema="scuro"] .tab-btn{color:#c9ccd1}
+:root[data-veste="scrivania"][data-tema="scuro"] .tab-btn .cnt{background:var(--superficie-2);color:var(--testo-soft)}
+:root[data-veste="scrivania"][data-tema="scuro"] .man-riga,
+:root[data-veste="scrivania"][data-tema="scuro"] .sf-riga,
+:root[data-veste="scrivania"][data-tema="scuro"] .dt-quadro-riga{border-bottom-color:var(--filetto)}
+:root[data-veste="scrivania"][data-tema="scuro"] .sf-briciole{border-bottom-color:var(--filetto)}
+:root[data-veste="scrivania"][data-tema="scuro"] .dt-doc{background:var(--superficie);border-color:var(--filetto)}
+:root[data-veste="scrivania"][data-tema="scuro"] .dt-mancante{background:#1a1c20}
+:root[data-veste="scrivania"][data-tema="scuro"] .ant-box{background:var(--superficie)}
+:root[data-veste="scrivania"][data-tema="scuro"] .ant-testa,
+:root[data-veste="scrivania"][data-tema="scuro"] .ant-piede{border-color:var(--filetto)}
+:root[data-veste="scrivania"][data-tema="scuro"] .ant-foglio{background:#0f1114}
+:root[data-veste="scrivania"][data-tema="scuro"] .fmt-barra button,
+:root[data-veste="scrivania"][data-tema="scuro"] .fmt-barra select{background:var(--superficie-2);border-color:#3f444c;color:var(--testo)}
+:root[data-veste="scrivania"][data-tema="scuro"] .fmt-anteprima{background:var(--superficie);border-color:#3f444c}
+:root[data-veste="scrivania"][data-tema="scuro"] .fmt-anteprima.tg{background:#0e1621}
+:root[data-veste="scrivania"][data-tema="scuro"] .fmt-anteprima.tg .bolla{background:#182533;color:#e6e4df}
+
+:root[data-veste="scrivania"][data-tema="scuro"] .toast{background:#e6e4df;color:#16181c}
+:root[data-veste="scrivania"][data-tema="scuro"] .toast.ok{background:var(--in)}
+:root[data-veste="scrivania"][data-tema="scuro"] .toast.err{background:var(--out)}
+
+/* ricerca rapida */
+:root[data-veste="scrivania"][data-tema="scuro"] .vp-bg:not([hidden]){background:rgba(0,0,0,.55)}
+:root[data-veste="scrivania"][data-tema="scuro"] .vp{background:var(--superficie);border-color:#3f444c}
+:root[data-veste="scrivania"][data-tema="scuro"] .vp-in{border-bottom-color:var(--filetto)}
+:root[data-veste="scrivania"][data-tema="scuro"] .vp-segno{color:#c9ccd1}
+:root[data-veste="scrivania"][data-tema="scuro"] .vp-voce{color:#c9ccd1}
+:root[data-veste="scrivania"][data-tema="scuro"] .vp-voce.is-sel{background:var(--superficie-2);color:#fff;box-shadow:inset 3px 0 0 #8f949c}
+
+/* accesso */
+:root[data-veste="scrivania"][data-tema="scuro"] .login-wrap{background:var(--fondo)}
+:root[data-veste="scrivania"][data-tema="scuro"] .login-card{background:var(--superficie);border:1px solid var(--filetto)}
+:root[data-veste="scrivania"][data-tema="scuro"] .login-logo{background:#fff;padding:6px 10px}
+:root[data-veste="scrivania"][data-tema="scuro"] .login-card h1{color:#fff}
+:root[data-veste="scrivania"][data-tema="scuro"] .login-card label{color:#c9ccd1}
+
+/* ── isole con colori scritti a mano nei moduli ─────────────
+   Sfondi pastello (scadenze in imprese.js, oggi in presenze.js,
+   verifica in comunicazione.js, finestre in protocollo.js) e testi
+   rosso/ambra scuri: su fondo scuro diventano illeggibili. */
+:root[data-veste="scrivania"][data-tema="scuro"] [style*="background:#fff;"],
+:root[data-veste="scrivania"][data-tema="scuro"] [style$="background:#fff"]{background:var(--superficie) !important}
+:root[data-veste="scrivania"][data-tema="scuro"] [style*="background:#fde8e8"]{background:rgba(255,138,128,.16) !important}
+:root[data-veste="scrivania"][data-tema="scuro"] [style*="background:#fff3d6"],
+:root[data-veste="scrivania"][data-tema="scuro"] [style*="background:#fff8e6"]{background:rgba(240,179,90,.14) !important}
+:root[data-veste="scrivania"][data-tema="scuro"] [style*="background:#e8f5e9"]{background:rgba(95,208,138,.14) !important}
+:root[data-veste="scrivania"][data-tema="scuro"] [style*="background:#fff6ef"]{background:rgba(255,106,44,.12) !important}
+:root[data-veste="scrivania"][data-tema="scuro"] [style*="background:#eef0f3"]{background:var(--superficie-2) !important}
+:root[data-veste="scrivania"][data-tema="scuro"] [style*="color:#a01f00"],
+:root[data-veste="scrivania"][data-tema="scuro"] [style*="color:#b91c1c"],
+:root[data-veste="scrivania"][data-tema="scuro"] [style*="color:#c0392b"]{color:#ff8a80 !important}
+:root[data-veste="scrivania"][data-tema="scuro"] [style*="color:#b9770e"]{color:#f0b35a !important}

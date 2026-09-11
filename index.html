@@ -7,13 +7,16 @@
 <link rel="stylesheet" href="css/app.css">
 <!-- veste «Scrivania», predefinita dall'11/09/2026 (vedi js/veste.js) -->
 <link rel="stylesheet" href="css/veste-scrivania.css">
+<link rel="stylesheet" href="css/tema-scuro.css">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700;800&family=Barlow+Condensed:wght@600;700;800&family=JetBrains+Mono:wght@500;600&display=swap">
 <link rel="icon" href="img/logo.png">
 <script>
-/* chi ha scelto la veste «Precedente» la ritrova subito, prima che
-   la pagina si disegni: niente lampo della Scrivania */
+/* chi ha scelto la veste «Precedente» o la «Scrivania scura» la ritrova
+   subito, prima che la pagina si disegni: niente lampo della Scrivania chiara */
 try {
-  if (localStorage.getItem('segreteria.veste') === 'attuale') delete document.documentElement.dataset.veste;
+  var veste = localStorage.getItem('segreteria.veste');
+  if (veste === 'attuale') delete document.documentElement.dataset.veste;
+  if (veste === 'scrivania-scura') document.documentElement.dataset.tema = 'scuro';
 } catch (e) { /* senza memoria del browser vale la predefinita */ }
 </script>
 </head>
@@ -51,9 +54,9 @@ try {
       <span class="vc-segno">›</span><span class="vc-testo">Cerca una pagina, un protocollo, un'impresa…</span><kbd>Ctrl K</kbd>
     </button>
     <div class="topbar-right">
-      <label class="veste-scelta" title="La veste dell'app è la Scrivania. «Precedente» riporta per un periodo a quella di prima; la scelta vale solo su questo computer.">
+      <label class="veste-scelta" title="La veste dell'app è la Scrivania. «Scrivania scura» è la stessa veste per la sera; «Precedente» riporta per un periodo a quella di prima. La scelta vale solo su questo computer.">
         <span>🎨 Veste</span>
-        <select id="veste-sel" class="veste-sel"><option value="scrivania">Scrivania</option><option value="attuale">Precedente</option></select>
+        <select id="veste-sel" class="veste-sel"><option value="scrivania">Scrivania</option><option value="scrivania-scura">Scrivania scura</option><option value="attuale">Precedente</option></select>
       </label>
       <span id="user-email" class="user-email"></span>
       <button id="logout-btn" class="btn btn-ghost btn-sm">Esci</button>

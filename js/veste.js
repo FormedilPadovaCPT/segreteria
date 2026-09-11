@@ -6,6 +6,9 @@
    Scrivania, che da quel giorno è la PREDEFINITA. Le altre tre sono
    archiviate in proposte_grafiche/2026_09_11_app-segreteria/.
 
+   Dal selettore si sceglie anche «Scrivania scura», la stessa veste
+   col tema scuro per la sera (css/tema-scuro.css, attributo data-tema).
+
    La veste di prima resta raggiungibile dal selettore «Veste»
    («Precedente»), salvata solo su quel browser: serve a chi deve
    abituarsi, e si toglie quando non serve più (link del foglio,
@@ -22,6 +25,7 @@ const CHIAVE = 'segreteria.veste';
 const PREDEFINITA = 'scrivania';
 const VESTI = [
   ['scrivania', 'Scrivania'],
+  ['scrivania-scura', 'Scrivania scura'],
   ['attuale', 'Precedente'],
 ];
 
@@ -283,10 +287,13 @@ export function applicaVeste(v) {
   const root = document.documentElement;
   if (v === 'attuale') {
     delete root.dataset.veste;
+    delete root.dataset.tema;
     sciogli();
     chiudiPalette();
   } else {
-    root.dataset.veste = v;
+    /* «Scrivania scura» è la stessa veste col tema scuro (css/tema-scuro.css) */
+    root.dataset.veste = 'scrivania';
+    if (v === 'scrivania-scura') root.dataset.tema = 'scuro'; else delete root.dataset.tema;
     raggruppa();
   }
   const sel = document.getElementById('veste-sel');
