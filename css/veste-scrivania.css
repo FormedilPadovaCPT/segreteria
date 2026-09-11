@@ -1,13 +1,21 @@
 /* ============================================================
-   Veste «Scrivania» — PROVA, si sceglie dal selettore in alto
-   (11/09/2026). Fitta e da tastiera: menu a schede in alto
-   (gruppi sopra, pagine sotto), tabelle dense, barra di stato
-   in fondo coi contatori del registro e le scorciatoie
-   F2 nuovo IN, F3 nuovo OUT, Ctrl+K ricerca (js/veste.js).
+   Veste «Scrivania» — la veste PREDEFINITA dell'app dall'11/09/2026
+   (scelta dall'utente fra le quattro provate nell'app; le altre
+   sono archiviate in proposte_grafiche/2026_09_11_app-segreteria/).
+
+   Fitta e da tastiera:
+   - barra ARANCIONE in alto (logo, ricerca rapida, veste, utente);
+   - riga GRIGIA sotto coi gruppi del menu a schede;
+   - riga chiara con le pagine del gruppo aperto;
+   - tabelle e schede dense, barra di stato in fondo coi contatori;
+   - scorciatoie F2 nuovo IN, F3 nuovo OUT, Ctrl+K ricerca (js/veste.js).
+   Arancione SOLO la barra in alto (scelta dell'utente): i segni
+   del menu sono grigi. Restano arancioni i pulsanti d'azione e i
+   conteggi del cruscotto, come nella veste precedente.
 
    OGNI regola sta sotto :root[data-veste="scrivania"]: senza
-   l'attributo questo file non cambia niente. Il menu a schede
-   vale da 901 px in su; sotto resta il menu a scomparsa.
+   l'attributo vale app.css (la veste «Precedente» del selettore).
+   Il menu a schede vale da 901 px in su; sotto resta a scomparsa.
    ============================================================ */
 
 :root[data-veste="scrivania"]{
@@ -15,7 +23,7 @@
   --bordo:#dfe2e7;
   --grigio-chiaro:#f4f5f7;
   --mono:"JetBrains Mono",Consolas,monospace;
-  --barra:44px;
+  --barra:46px;
 }
 :root[data-veste="scrivania"] *:not(.spinner):not(.dot):not(.dt-dot):not(.man-pallino):not(kbd){border-radius:0 !important}
 
@@ -25,24 +33,47 @@
 :root[data-veste="scrivania"] .nav-item,:root[data-veste="scrivania"] .nav-manuali,
 :root[data-veste="scrivania"] .seg-btn,:root[data-veste="scrivania"] .tab-btn,:root[data-veste="scrivania"] .chip{font-family:Barlow,"Segoe UI",Arial,sans-serif}
 :root[data-veste="scrivania"] .num{font-family:var(--mono);font-size:12px;font-weight:600}
+:root[data-veste="scrivania"] kbd{
+  font:600 10px/1 var(--mono);padding:2px 5px;border-radius:3px;
+  background:#eceef1;border:1px solid #cfd3d8;border-bottom-width:2px;color:#3d434c;white-space:nowrap;
+}
 
 :root[data-veste="scrivania"] .btn{padding:6px 11px;font-size:13px}
 :root[data-veste="scrivania"] .btn-sm{padding:4px 9px;font-size:12.5px}
 :root[data-veste="scrivania"] .btn-ghost{background:#f4f5f7;border-color:#cfd3d8;color:#3d434c}
 
-/* ── barra grigia in alto ───────────────────────────────── */
+/* ── barra arancione in alto ────────────────────────────── */
 :root[data-veste="scrivania"] .topbar{
-  background:#565c66;color:#fff;box-shadow:none;height:var(--barra);padding:0 14px;gap:12px;
+  background:var(--arancio);color:#fff;box-shadow:none;height:var(--barra);padding:0 14px;gap:12px;
 }
-:root[data-veste="scrivania"] .topbar-logo{height:28px;padding:2px 4px;border-radius:0}
+:root[data-veste="scrivania"] .topbar-logo{height:32px;padding:2px 4px}
 :root[data-veste="scrivania"] .topbar-title strong{font:800 14px/1 "Barlow Condensed",Barlow,sans-serif;letter-spacing:.08em;text-transform:uppercase}
 :root[data-veste="scrivania"] .topbar-title span{display:none}
-:root[data-veste="scrivania"] .veste-cerca{background:#6a717b;border:0;color:#e4e6e9;padding:6px 12px;width:min(300px,28vw)}
-:root[data-veste="scrivania"] .veste-cerca .vc-segno{color:#fff}
-:root[data-veste="scrivania"] .veste-cerca kbd{background:#565c66;border-color:#7b828c;color:#e4e6e9}
-:root[data-veste="scrivania"] .topbar .veste-sel{background:#6a717b;border-color:#7b828c;color:#fff}
-:root[data-veste="scrivania"] .user-email{color:#dfe2e6}
-:root[data-veste="scrivania"] .topbar .btn-ghost{background:#6a717b;border-color:#7b828c;color:#fff}
+:root[data-veste="scrivania"] .topbar .veste-sel{background:rgba(255,255,255,.15);border-color:rgba(255,255,255,.45);color:#fff}
+:root[data-veste="scrivania"] .user-email{color:#fff}
+:root[data-veste="scrivania"] .topbar .btn-ghost{background:rgba(255,255,255,.15);border-color:rgba(255,255,255,.45);color:#fff}
+:root[data-veste="scrivania"] .menu-toggle{color:#fff}
+
+/* pulsante della ricerca rapida */
+:root[data-veste="scrivania"] .veste-cerca{
+  display:flex;align-items:center;gap:10px;margin-left:18px;width:min(320px,28vw);
+  padding:6px 12px;border:1px solid rgba(255,255,255,.45);background:rgba(255,255,255,.15);color:#fff;
+  font:inherit;font-size:12.5px;cursor:pointer;text-align:left;
+}
+:root[data-veste="scrivania"] .veste-cerca:hover{background:rgba(255,255,255,.24)}
+:root[data-veste="scrivania"] .veste-cerca .vc-segno{font-weight:700}
+:root[data-veste="scrivania"] .veste-cerca .vc-testo{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.9}
+:root[data-veste="scrivania"] .veste-cerca kbd{background:rgba(0,0,0,.12);border-color:rgba(255,255,255,.45);color:#fff}
+:root[data-veste="scrivania"] .veste-cerca:focus-visible{outline:2px solid #fff;outline-offset:2px}
+
+/* ── menu a gruppi (vale anche sul telefono) ────────────── */
+:root[data-veste="scrivania"] .nav-voci{display:block}
+:root[data-veste="scrivania"] .nav-ico{display:none}
+:root[data-veste="scrivania"] .nav-n::before,
+:root[data-veste="scrivania"] .nav-n::after{content:none}
+:root[data-veste="scrivania"] .nav-sep{display:none}
+/* il Direttore vede poche voci: un gruppo senza voci visibili sparisce */
+:root[data-veste="scrivania"] .nav-gruppo:not(:has(.nav-item:not([style*="none"]))){display:none}
 
 /* ── menu a schede ──────────────────────────────────────── */
 @media(min-width:901px){
@@ -50,20 +81,20 @@
   :root[data-veste="scrivania"] .sidebar{
     width:auto;flex:none;flex-direction:row;flex-wrap:nowrap;align-items:stretch;gap:2px;
     position:sticky;top:var(--barra);z-index:38;
-    background:#565c66;border:0;padding:0 14px 37px;
+    background:#565c66;border:0;padding:0 14px 35px;
   }
   :root[data-veste="scrivania"] .nav-gruppo{display:flex}
   :root[data-veste="scrivania"] .nav-grp{
     display:flex;align-items:center;padding:0 13px;height:36px;cursor:pointer;user-select:none;
     color:#dfe2e6;font:600 13px/1 Barlow,sans-serif;white-space:nowrap;
   }
-  :root[data-veste="scrivania"] .nav-grp:hover{background:#626973}
-  :root[data-veste="scrivania"] .nav-gruppo:has(.nav-item.is-active) > .nav-grp{background:#fff;color:#565c66;box-shadow:inset 0 3px 0 var(--arancio)}
+  :root[data-veste="scrivania"] .nav-grp:hover{background:#626973;color:#fff}
+  :root[data-veste="scrivania"] .nav-gruppo:has(.nav-item.is-active) > .nav-grp{background:#f4f5f7;color:#2b2f36;font-weight:700}
   /* le pagine del gruppo aperto: seconda riga, chiara */
   :root[data-veste="scrivania"] .nav-voci{
-    display:none;position:absolute;left:0;right:0;bottom:0;height:37px;
+    display:none;position:absolute;left:0;right:0;bottom:0;height:35px;
     align-items:center;gap:3px;padding:0 14px;overflow-x:auto;
-    background:#f4f5f7;border-top:3px solid var(--arancio);border-bottom:1px solid #dfe2e7;
+    background:#f4f5f7;border-bottom:1px solid #dfe2e7;
   }
   :root[data-veste="scrivania"] .nav-gruppo:has(.nav-item.is-active) .nav-voci,
   :root[data-veste="scrivania"] .sidebar:not(:has(.nav-item.is-active)) .nav-gruppo:first-child .nav-voci{display:flex}
@@ -72,7 +103,7 @@
     padding:4px 10px;font-size:13px;font-weight:500;color:#3d434c;border:1px solid transparent;
   }
   :root[data-veste="scrivania"] .nav-item:hover{background:#e9ebee}
-  :root[data-veste="scrivania"] .nav-item.is-active{background:#fff;border-color:#dfe2e7;color:var(--arancio);font-weight:700}
+  :root[data-veste="scrivania"] .nav-item.is-active{background:#fff;border-color:#cfd3d8;color:#2b2f36;font-weight:700;box-shadow:inset 0 -2px 0 #565c66}
   :root[data-veste="scrivania"] .nav-item[data-view="nuovo-in"]::after,
   :root[data-veste="scrivania"] .nav-item[data-view="nuovo-out"]::after{
     font:600 10px/1 var(--mono);padding:2px 4px;border-radius:3px;
@@ -80,11 +111,11 @@
   }
   :root[data-veste="scrivania"] .nav-item[data-view="nuovo-in"]::after{content:"F2"}
   :root[data-veste="scrivania"] .nav-item[data-view="nuovo-out"]::after{content:"F3"}
-  :root[data-veste="scrivania"] .nav-n{background:var(--arancio);color:#fff;font:600 10px/1.4 var(--mono);padding:0 5px}
+  :root[data-veste="scrivania"] .nav-n{background:#565c66;color:#fff;font:600 10px/1.4 var(--mono);padding:0 5px}
   :root[data-veste="scrivania"] .nav-manuali{
     width:auto;margin-left:auto;align-self:center;padding:6px 10px;color:#dfe2e6;font-size:12.5px;border-radius:0;
   }
-  :root[data-veste="scrivania"] .nav-manuali:hover{background:#626973}
+  :root[data-veste="scrivania"] .nav-manuali:hover{background:#626973;color:#fff}
 
   /* barra di stato in fondo */
   :root[data-veste="scrivania"] .nav-foot{
@@ -98,17 +129,21 @@
   :root[data-veste="scrivania"] .main{padding:12px 14px 42px}
 }
 @media(max-width:900px){
+  :root[data-veste="scrivania"] .sidebar{top:var(--barra)}
   :root[data-veste="scrivania"] .nav-grp{font:700 10px/1 Barlow,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:#6b7280;margin:12px 8px 4px}
   :root[data-veste="scrivania"] .nav-item{padding:7px 10px;font-size:13.5px}
-  :root[data-veste="scrivania"] .nav-item.is-active{background:#fdf0e9;color:var(--arancio)}
-  :root[data-veste="scrivania"] .menu-toggle{color:#fff}
-  :root[data-veste="scrivania"] .sidebar{top:var(--barra)}
+  :root[data-veste="scrivania"] .nav-item.is-active{background:#eceef1;color:#2b2f36}
+  :root[data-veste="scrivania"] .nav-n{margin-left:6px;background:#565c66;color:#fff;font-size:10px;padding:0 5px}
+  :root[data-veste="scrivania"] .veste-cerca{width:auto;margin-left:auto;padding:6px 9px}
+  :root[data-veste="scrivania"] .veste-cerca .vc-testo,
+  :root[data-veste="scrivania"] .veste-cerca kbd{display:none}
+  :root[data-veste="scrivania"] .topbar-right{margin-left:8px}
 }
 
 /* ── pagine dense ───────────────────────────────────────── */
 :root[data-veste="scrivania"] .view-head{margin-bottom:8px}
 :root[data-veste="scrivania"] .view-head h2{
-  border-bottom:0;padding:0 0 0 9px;border-left:4px solid var(--arancio);
+  border-bottom:0;padding:0 0 0 9px;border-left:4px solid #565c66;
   font:700 19px/1.15 "Barlow Condensed",Barlow,sans-serif;letter-spacing:.02em;color:#3d434c;
 }
 :root[data-veste="scrivania"] .filters{background:#f4f5f7;border:1px solid #dfe2e7;padding:6px 8px;gap:6px;margin-bottom:8px}
@@ -166,11 +201,29 @@
 
 :root[data-veste="scrivania"] .sez{border-color:#dfe2e7}
 :root[data-veste="scrivania"] .sez h3{color:#565c66;font-family:Barlow,sans-serif;letter-spacing:.08em;border-bottom-color:#dfe2e7}
-:root[data-veste="scrivania"] .kpi{border:1px solid #dfe2e7;border-left:4px solid var(--arancio);padding:10px 12px}
+:root[data-veste="scrivania"] .kpi{border:1px solid #dfe2e7;border-left:4px solid #565c66;padding:10px 12px}
 :root[data-veste="scrivania"] .kpi .v{font:600 24px/1.1 var(--mono)}
 :root[data-veste="scrivania"] .tabs{border-bottom:1px solid #dfe2e7;margin-bottom:10px}
 :root[data-veste="scrivania"] .tab-btn{padding:6px 12px;font-size:13px;border-bottom-width:2px;margin-bottom:-1px}
 
-:root[data-veste="scrivania"] .vp{border-color:#cfd3d8}
-:root[data-veste="scrivania"] .login-card{border-top:5px solid #565c66}
+/* ── ricerca rapida (Ctrl+K) ────────────────────────────── */
+:root[data-veste="scrivania"] .vp-bg:not([hidden]){
+  position:fixed;inset:0;z-index:90;background:rgba(20,22,26,.35);
+  display:flex;justify-content:center;align-items:flex-start;padding:12vh 16px 16px;
+}
+:root[data-veste="scrivania"] .vp{
+  width:min(620px,100%);background:#fff;color:var(--testo);border:1px solid #cfd3d8;
+  box-shadow:0 24px 60px -20px rgba(0,0,0,.45);overflow:hidden;
+}
+:root[data-veste="scrivania"] .vp-in{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--bordo)}
+:root[data-veste="scrivania"] .vp-segno{color:#565c66;font-weight:700;font-size:16px}
+:root[data-veste="scrivania"] .vp .vp-in input[type=text]{flex:1;border:0;padding:4px 0;font-size:15px;background:transparent;color:inherit;box-shadow:none}
+:root[data-veste="scrivania"] .vp .vp-in input[type=text]:focus{box-shadow:none}
+:root[data-veste="scrivania"] .vp-lista{list-style:none;margin:0;padding:6px 0;max-height:52vh;overflow-y:auto}
+:root[data-veste="scrivania"] .vp-voce{display:flex;justify-content:space-between;gap:12px;padding:8px 16px;cursor:pointer;font-size:13.5px}
+:root[data-veste="scrivania"] .vp-voce small{color:var(--testo-soft);white-space:nowrap}
+:root[data-veste="scrivania"] .vp-voce.is-sel{background:#eceef1;box-shadow:inset 3px 0 0 #565c66}
+:root[data-veste="scrivania"] .vp-vuoto{padding:10px 16px;color:var(--testo-soft);font-size:13px}
+
+/* ── accesso ────────────────────────────────────────────── */
 :root[data-veste="scrivania"] .login-card h1{font:800 22px/1.1 "Barlow Condensed",Barlow,sans-serif;letter-spacing:.06em;text-transform:uppercase;color:#565c66}
