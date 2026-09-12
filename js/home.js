@@ -74,7 +74,9 @@ export async function render() {
          dal backend dopo un quarto d'ora: la richiesta e' partita ma sul
          foglio non c'e'. Si calcola qui, non serve nessun lavoro batch. */
       sb.from('s_portale_ricezioni').select('id', { count: 'exact', head: true })
-        .is('sul_foglio', null)
+        /* vuoto = mai confermata; false = la strada diretta non e' riuscita a
+           scrivere la copia sul foglio (13/09/2026): sono due modi di non esserci */
+        .or('sul_foglio.is.null,sul_foglio.is.false')
         .lte('ricevuto_at', new Date(Date.now() - 15 * 60000).toISOString()),
     ]);
     const c = Object.fromEntries((cfg || []).map((r) => [r.chiave, r.valore]));

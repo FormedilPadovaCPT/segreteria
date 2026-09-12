@@ -222,8 +222,10 @@ export async function depositaRiepilogo(tipo, p, prot, percorso) {
     const nomeFile = nomeFileRiepilogo(tipo, p);
     const su = await caricaByte(prot, nomeFile, byte, 'application/pdf', cart.id);
 
-    const { count } = await sb.from('s_prot_allegati').select('id', { count: 'exact', head: true }).eq('protocollo_id', prot.id);
-    const principale = !count;
+    /* principale solo se si sa per certo che non c'e' altro: col conteggio in
+       errore non si ruba il posto a un documento vero */
+    const { count, error: errConta } = await sb.from('s_prot_allegati').select('id', { count: 'exact', head: true }).eq('protocollo_id', prot.id);
+    const principale = !errConta && !count;
     const { error } = await sb.from('s_prot_allegati').insert({
       protocollo_id: prot.id, nome: su.file_name || nomeFile, mime: 'application/pdf',
       dimensione: byte.length, principale, created_by: state.email,

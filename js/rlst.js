@@ -376,10 +376,16 @@ async function apriPratica(id) {
       }).eq('id', p.id);
       if (error) throw new Error(error.message);
       toast(`Protocollo ${codiceProtocollo(nuovo)} collegato alla richiesta n° ${p.progressivo ?? `m${p.id}`}.`, 'ok');
-      const { depositaRiepilogo } = await import('./riepilogo-modulo.js');
-      await depositaRiepilogo('rlst', p, nuovo, '2_AREE/Servizi_CPT/RLST');
+      /* solo per le richieste dal modulo: per quelle inserite a mano il
+         documento e' quello arrivato, non un riepilogo inventato */
+      if (p.fonte === 'modulo') {
+        const { depositaRiepilogo } = await import('./riepilogo-modulo.js');
+        await depositaRiepilogo('rlst', p, nuovo, '2_AREE/Servizi_CPT/RLST');
+      }
     });
-    toast('Maschera IN precompilata: salva e il riepilogo PDF del modulo nasce da solo, col numero nel nome. Se hai un documento originale allegalo pure: resta lui il principale.', 'ok');
+    toast(p.fonte === 'modulo'
+      ? 'Maschera IN precompilata: salva e il riepilogo PDF del modulo nasce da solo, col numero nel nome. Se hai un documento originale allegalo pure: resta lui il principale.'
+      : 'Maschera IN precompilata: allega il documento arrivato (verbale, PEC) e salva.', 'ok');
   });
 
   $('#rl-risposta')?.addEventListener('click', (ev) => preparaRisposta(p, imp, ev.currentTarget));

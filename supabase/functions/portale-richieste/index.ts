@@ -614,7 +614,15 @@ function leggiFoto(campo: unknown): { foto: Foto[]; scartate: string[] } {
   return { foto, scartate }
 }
 function decodifica(b64: string): Uint8Array | null {
-  try { return Uint8Array.from(atob(b64.replace(/^data:[^,]*,/, '').replace(/\s/g, '')), (c) => c.charCodeAt(0)) } catch { return null }
+  /* un ciclo semplice, non Uint8Array.from(…, fn): con due PDF da 8 MB la
+     funzione chiamata per ogni carattere rischiava il limite di CPU della
+     edge function (trovato in revisione il 13/09/2026) */
+  try {
+    const bin = atob(b64.replace(/^data:[^,]*,/, '').replace(/\s/g, ''))
+    const out = new Uint8Array(bin.length)
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
+    return out
+  } catch { return null }
 }
 
 async function caricaFile(token: string, cartella: string, nome: string, mime: string, byte: Uint8Array): Promise<string> {
@@ -680,6 +688,23 @@ async function schedaFoglio(sb: SB, token: string, m: Modulo): Promise<Foglio> {
 }
 const intervallo = (f: Foglio, a1: string) => encodeURIComponent(`'${f.titolo.replace(/'/g, "''")}'!${a1}`)
 const lettera = (i: number): string => (i < 26 ? '' : lettera(Math.floor(i / 26) - 1)) + String.fromCharCode(65 + (i % 26))
+
+/* per il battito: righe con contenuto sotto la testata (la stessa misura di
+   getLastRow in Apps Script) e numero piu' alto nella colonna PROGRESSIVO */
+async function statoFoglio(token: string, f: Foglio): Promise<{ ultimo: number; righe: number }> {
+  if (!f.testata.length) return { ultimo: 0, righe: 0 }
+  const i = f.testata.findIndex((h) => norma(h) === 'PROGRESSIVO')
+  if (i < 0) throw new Error(`nessuna colonna PROGRESSIVO nella scheda ${f.titolo}`)
+  const r = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${f.sheetId}/values/${encodeURIComponent(`'${f.titolo.replace(/'/g, "''")}'`)}`,
+    { headers: { Authorization: `Bearer ${token}` } })
+  const d = await r.json()
+  if (d.error) throw new Error('scheda non leggibile: ' + JSON.stringify(d.error).slice(0, 300))
+  const valori = (d.values || []) as unknown[][]
+  return {
+    righe: Math.max(valori.length - 1, 0),
+    ultimo: Math.max(0, ...valori.slice(1).map((row) => Number(row?.[i]) || 0)),
+  }
+}
 
 async function maxProgressivoFoglio(token: string, f: Foglio): Promise<number> {
   if (!f.testata.length) return 0                     // scheda vuota: nessun numero ancora
@@ -831,9 +856,20 @@ async function richiesta(sb: SB, sa: Dati, d: Dati): Promise<Response> {
        risponde con quel numero e non si rifa' niente: la pratica la crea
        l'import delle 6:30 da quella riga. (Trovato in revisione.) */
     const { data: ric } = await sb.from('s_portale_ricezioni')
-      .select('origine, sul_foglio, progressivo, pratica_id').eq('submission_id', subId).maybeSingle()
+      .select('origine, sul_foglio, progressivo, pratica_id, ricevuto_at').eq('submission_id', subId).maybeSingle()
     if (ric && ric.origine !== 'portale-diretto' && ric.sul_foglio === true && ric.progressivo && !ric.pratica_id) {
       return json({ status: 'ok', progressivo: ric.progressivo, submission_id: subId, duplicato: true, email: 'ok', strada: 'apps-script' })
+    }
+    /* ...o ancora IN VIAGGIO per la vecchia strada: lo specchio l'ha vista
+       partire per Apps Script da pochi minuti e la conferma non e' tornata.
+       Lavorarla adesso farebbe due pratiche (questa e quella dell'import dalla
+       riga di Apps Script): si aspetta. Se Apps Script e' morto, dopo 10
+       minuti la prende questa strada. Lo specchio parte solo per i moduli che
+       vanno ad Apps Script, quindi un invio diretto non cade mai qui.
+       (Trovato in revisione il 13/09/2026.) */
+    if (ric && ric.origine !== 'portale-diretto' && ric.sul_foglio == null && !ric.pratica_id &&
+        Date.now() - new Date(ric.ricevuto_at).getTime() < 10 * 60_000) {
+      return intoppo('la richiesta è ancora in consegna per l\'altra strada: riprova fra qualche minuto', 409)
     }
     return await lavora(sb, sa, d, tipo, m, subId)
   } finally {
@@ -904,16 +940,51 @@ async function lavora(sb: SB, sa: Dati, d: Dati, tipo: string, m: Modulo, subId:
     if (error) console.error('portale-richieste: esito non salvato sulla pratica', m.tabella, p.id, error.message)
   }
   const adesso = () => new Date().toISOString()
+  const fotoUrls: string[] = Array.isArray(esito.foto_caricate) ? [...(esito.foto_caricate as string[])] : []
+  const file: Record<string, string> = { ...((esito.file_caricati as Record<string, string>) || {}) }
+
+  /* 4. FOGLIO — la copia della riga, che prenota il numero. ⚠️ Apps Script
+        numera CONTANDO LE RIGHE della scheda (getLastRow), non leggendo il
+        numero piu' alto: una copia che manca gli farebbe dare a una richiesta
+        da una pagina vecchia un numero gia' usato, e l'import delle 6:30 la
+        salterebbe in silenzio (trovato in revisione il 13/09/2026). Per
+        questo la copia si scrive anche quando foto o file falliscono, si
+        ritenta una volta, e se non riesce la risposta e' «riprovabile». Una
+        riga doppia invece non fa danni: Apps Script salta un numero. */
+  const copiaFoglio = async () => {
+    if (esito.foglio_il) return
+    for (let t = 0; t < 2 && !esito.foglio_il; t++) {
+      try {
+        if (t) await attesa(1500)
+        const tok = await drive()
+        foglio ||= await schedaFoglio(sb, tok, m)
+        const ctx: Contesto = { prog: p.progressivo, fotoUrls, file }
+        const valori = Object.fromEntries(m.foglio.map(([h, s]) => [h, perFoglio(d, s, ctx)]))
+        const senzaColonna = await appendiFoglio(tok, foglio, valori, m.foglio.map(([h]) => h))
+        esito.foglio_il = adesso()
+        if (senzaColonna.length) esito.foglio_senza_colonna = senzaColonna
+        delete esito.foglio_errore
+        await sb.from('s_portale_ricezioni').update({ sul_foglio: true, controllato_il: adesso() }).eq('submission_id', subId)
+      } catch (e) {
+        esito.foglio_errore = errMsg(e)
+      }
+    }
+    if (!esito.foglio_il) {
+      await sb.from('s_portale_ricezioni').update({ sul_foglio: false, nota: 'copia sul foglio non scritta: ' + esito.foglio_errore })
+        .eq('submission_id', subId)
+    }
+    await salva()
+  }
   const fallito = async (cosa: string, e: unknown) => {
     esito[cosa + '_errore'] = errMsg(e)
     await salva()
+    await copiaFoglio()
     await sb.from('s_portale_ricezioni').update({ nota: `${cosa} non salvati: ${errMsg(e)}` }).eq('submission_id', subId)
     return intoppo(`la richiesta è registrata con il n° ${p.progressivo}, ma i file allegati non sono stati salvati (${errMsg(e)}): riprovando si completano, senza creare una seconda richiesta`)
   }
 
   /* 3a. FOTO — una per volta, e ognuna salvata appena caricata: un reinvio
          riparte da quelle che mancano, senza doppioni su Drive */
-  const fotoUrls: string[] = Array.isArray(esito.foto_caricate) ? [...(esito.foto_caricate as string[])] : []
   if (m.foto) {
     const { foto, scartate } = leggiFoto(d.seg_photo_base64)
     if (scartate.length) esito.foto_scartate = scartate
@@ -936,15 +1007,15 @@ async function lavora(sb: SB, sa: Dati, d: Dati, tipo: string, m: Modulo, subId:
 
   /* 3b. PDF ALLEGATI (RLST, RLS) — stesso nome e stesso posto di Apps Script
          (savePdfFromBase64), la colonna della pratica col link; uno per volta */
-  const file: Record<string, string> = { ...((esito.file_caricati as Record<string, string>) || {}) }
   const allegatiMail: [string, string][] = []
+  const scartati: string[] = []       // rifatto a ogni giro: un reinvio non ripete il messaggio
   for (const a of m.file || []) {
     if (!file[a.colonna]) {
       const b64 = d[a.base + '_base64']
       if (typeof b64 !== 'string' || !b64) continue
       const byte = decodifica(b64)
-      if (!byte || !byte.length) { (esito.file_scartati ||= []) as string[]; (esito.file_scartati as string[]).push(`${a.etichetta}: contenuto non decodificabile`); continue }
-      if (byte.length > MAX_ALLEGATO_BYTE) { (esito.file_scartati ||= []) as string[]; (esito.file_scartati as string[]).push(`${a.etichetta}: oltre ${MAX_ALLEGATO_BYTE / 1048576} MB`); continue }
+      if (!byte || !byte.length) { scartati.push(`${a.etichetta}: contenuto non decodificabile`); continue }
+      if (byte.length > MAX_ALLEGATO_BYTE) { scartati.push(`${a.etichetta}: oltre ${MAX_ALLEGATO_BYTE / 1048576} MB`); continue }
       try {
         const tok = await drive()
         const url = await caricaFile(tok, await cartellaFile(sb, tok), `${a.prefisso}_${sanitize(d.ragione_sociale, 'impresa')}_${stampino()}.pdf`, 'application/pdf', byte)
@@ -958,26 +1029,11 @@ async function lavora(sb: SB, sa: Dati, d: Dati, tipo: string, m: Modulo, subId:
     }
     if (file[a.colonna]) allegatiMail.push([a.etichetta, file[a.colonna]])
   }
+  if (scartati.length) esito.file_scartati = scartati
+  else if ((m.file || []).every((a) => file[a.colonna] || !d[a.base + '_base64'])) delete esito.file_scartati
 
-  /* 4. FOGLIO — la copia della riga, che prenota il numero */
-  if (!esito.foglio_il) {
-    try {
-      const tok = await drive()
-      foglio ||= await schedaFoglio(sb, tok, m)
-      const ctx: Contesto = { prog: p.progressivo, fotoUrls, file }
-      const valori = Object.fromEntries(m.foglio.map(([h, s]) => [h, perFoglio(d, s, ctx)]))
-      const senzaColonna = await appendiFoglio(tok, foglio, valori, m.foglio.map(([h]) => h))
-      esito.foglio_il = adesso()
-      if (senzaColonna.length) esito.foglio_senza_colonna = senzaColonna
-      delete esito.foglio_errore
-      await sb.from('s_portale_ricezioni').update({ sul_foglio: true, controllato_il: adesso() }).eq('submission_id', subId)
-    } catch (e) {
-      esito.foglio_errore = errMsg(e)
-      await sb.from('s_portale_ricezioni').update({ sul_foglio: false, nota: 'copia sul foglio non scritta: ' + errMsg(e) })
-        .eq('submission_id', subId)
-    }
-    await salva()
-  }
+  /* 4. FOGLIO (vedi copiaFoglio) */
+  await copiaFoglio()
 
   /* 5. MAIL — una volta sola ciascuna; un errore non fa fallire la risposta:
         la pratica c'e', e dire «non riuscito» farebbe reinviare per niente */
@@ -1015,10 +1071,14 @@ async function lavora(sb: SB, sa: Dati, d: Dati, tipo: string, m: Modulo, subId:
   await salva()
   /* la nota della scatola nera dice lo stato di adesso: un intoppo superato
      da un reinvio non deve restare scritto come se ci fosse ancora */
-  await sb.from('s_portale_ricezioni').update({
-    elaborata_at: adesso(),
-    nota: esito.foglio_errore ? 'copia sul foglio non scritta: ' + esito.foglio_errore : null,
-  }).eq('submission_id', subId)
+  if (!esito.foglio_il) {
+    /* le mail sono partite (l'ufficio deve saperlo), ma senza la copia sul
+       foglio il numero non e' prenotato: il telefono deve riprovare, e al
+       reinvio si ritenta solo la copia. «Non riuscito» per una cosa riuscita
+       e' il verso giusto in cui sbagliare. */
+    return intoppo(`la richiesta è registrata con il n° ${p.progressivo}, ma la copia sul foglio non è scritta (${esito.foglio_errore}): riprovando si completa, senza creare una seconda richiesta`)
+  }
+  await sb.from('s_portale_ricezioni').update({ elaborata_at: adesso(), nota: null }).eq('submission_id', subId)
 
   return json({ status: 'ok', progressivo: p.progressivo, submission_id: subId, duplicato, email })
 }
@@ -1049,7 +1109,19 @@ async function battito(req: Request, sb: SB, sa: Dati): Promise<Response> {
   for (const [tipo, m] of Object.entries(MODULI)) {
     await prova('foglio_' + tipo, async () => {
       const f = await schedaFoglio(sb, await drive(), m)
-      return `(${f.titolo}, ultimo n° ${await maxProgressivoFoglio(tok, f)})`
+      /* ⚠️ Apps Script numera contando le righe: se sulla scheda ci sono meno
+         righe del numero piu' alto (foglio o database), la prossima richiesta
+         da una pagina vecchia prenderebbe un numero gia' usato e l'import la
+         salterebbe. Finche' Apps Script e' acceso e' un guasto, non un dettaglio. */
+      const { ultimo, righe } = await statoFoglio(tok, f)
+      let q = sb.from(m.tabella).select('progressivo').not('progressivo', 'is', null)
+      for (const [k, v] of Object.entries(m.filtro || {})) q = q.eq(k, v)
+      const { data: u } = await q.order('progressivo', { ascending: false }).limit(1)
+      const massimo = Math.max(ultimo, Number(u?.[0]?.progressivo) || 0)
+      if (righe < massimo) {
+        throw new Error(`${f.titolo}: ${righe} righe ma ultimo n° ${massimo}, Apps Script darebbe un numero gia' usato (non togliere righe dalla scheda)`)
+      }
+      return `(${f.titolo}, ultimo n° ${massimo}, righe ${righe})`
     })
   }
   await prova('gmail', async () => {

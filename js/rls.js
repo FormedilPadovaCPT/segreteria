@@ -375,10 +375,16 @@ async function apriComunicazione(id) {
       }).eq('id', r.id);
       if (error) throw new Error(error.message);
       toast(`Protocollo ${codiceProtocollo(nuovo)} collegato alla comunicazione n° ${r.progressivo ?? `m${r.id}`}.`, 'ok');
-      const { depositaRiepilogo } = await import('./riepilogo-modulo.js');
-      await depositaRiepilogo('rls', r, nuovo, '2_AREE/Servizi_CPT/RLS/comunicazioni_imprese');
+      /* solo per le comunicazioni dal modulo: per quelle da Access o inserite a
+         mano il documento e' quello arrivato, non un riepilogo inventato */
+      if (r.fonte === 'modulo') {
+        const { depositaRiepilogo } = await import('./riepilogo-modulo.js');
+        await depositaRiepilogo('rls', r, nuovo, '2_AREE/Servizi_CPT/RLS/comunicazioni_imprese');
+      }
     });
-    toast('Maschera IN precompilata: salva e il riepilogo PDF del modulo nasce da solo, col numero nel nome. Se hai un documento originale allegalo pure: resta lui il principale.', 'ok');
+    toast(r.fonte === 'modulo'
+      ? 'Maschera IN precompilata: salva e il riepilogo PDF del modulo nasce da solo, col numero nel nome. Se hai un documento originale allegalo pure: resta lui il principale.'
+      : 'Maschera IN precompilata: allega il documento arrivato (verbale, PEC) e salva.', 'ok');
   });
 
   $('#rc-riscontro')?.addEventListener('click', (ev) => preparaRiscontro(r, imp, ev.currentTarget));
