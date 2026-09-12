@@ -1,26 +1,37 @@
 // Supabase Edge Function – portale-richieste
 //
-// LA STRADA DIRETTA DEL PORTALE SERVIZI (12/09/2026).
+// LA STRADA DIRETTA DEL PORTALE SERVIZI (12-13/09/2026).
 //
-// Fino a oggi ogni modulo del portale pubblico faceva quattro passaggi:
+// Fino al 12/09/2026 ogni modulo del portale pubblico faceva quattro passaggi:
 // portale → Apps Script → foglio Google → import delle 6:30 → tabelle. Il
 // foglio non aggiungeva niente ed era il punto piu' fragile: ad agosto il
 // deployment Apps Script e' rimasto morto cinque settimane, la cartella Drive
 // configurata non esisteva dal 1/07, un'autorizzazione mancante faceva fallire
 // in silenzio la chiamata a Supabase. Deciso dall'utente: le richieste vengono
-// qui, un modulo alla volta. Moduli che passano di qui (MODULI, sotto):
-//   seg — Segnalazione Cantiere  → s_segnalazioni       (12/09/2026)
-//   not — Notifica Cantiere      → s_notifiche_cantiere (12/09/2026)
-// Per aggiungerne uno: la tabella con submission_id e portale_esito, la voce
-// in MODULI con la mappa dei campi (la stessa dell'import delle 6:30), e il
-// prefisso in MODULI_DIRETTI del portale.
+// qui. Tutti e nove i moduli (tabella MODULI, sotto):
+//   seg  Segnalazione Cantiere      → s_segnalazioni             (foto)
+//   not  Notifica Cantiere          → s_notifiche_cantiere
+//   cons Richiesta Consulenza       → s_consulenze
+//   vis  Visita in Cantiere         → s_visite_richieste (tab_origine visita)
+//   conf Conferenza di Cantiere     → s_conferenze_cantiere
+//   att  Attestazione DM 132/2024   → s_attestazioni_dm132
+//   rlst Affidamento RLST           → s_rlst_pratiche            (verbale PDF)
+//   rls  Comunicazione RLS          → s_rls_anagrafe             (verbale e formazione PDF)
+//   qst  Questionario Sopralluogo   → s_questionari_sopralluogo
+// La mappa dei campi di ogni modulo e' la stessa dell'import delle 6:30
+// (import-rlst) e della riga che scriveva Apps Script (buildRow*): cambia la
+// strada, non il dato. I PDF di riepilogo che Apps Script generava dai modelli
+// Google Docs non si fanno piu' qui: li genera l'app segreteria al protocollo
+// (deciso dall'utente).
 //
 // Che cosa fa, in quest'ordine (si scrive prima e si elabora dopo):
 //  1. SCATOLA NERA  — il payload (senza base64) in s_portale_ricezioni,
 //                     prima di qualunque altra cosa
 //  2. PRATICA       — subito nella tabella del modulo, col numero di ricevuta
-//                     (progressivo) e la proposta del tecnico di zona
-//  3. FOTO          — solo la segnalazione: su Drive in SERVIZI/PDF_ricevuti
+//                     (progressivo) e la pre-istruttoria (CEIV, persona,
+//                     tecnico di zona) come la faceva l'import
+//  3. FILE          — foto della segnalazione, PDF di RLST e RLS: su Drive in
+//                     SERVIZI/PDF_ricevuti, uno per volta, ognuno salvato
 //  4. FOGLIO        — la copia della riga nella scheda del modulo. ⚠️ Non e'
 //                     un vezzo: prenota il numero. L'import salta le righe il
 //                     cui progressivo e' gia' nel database, e una richiesta
@@ -31,19 +42,16 @@
 //                     (grafica v4.6 di Apps Script, vedi mail.ts)
 //
 // Il reinvio e' sicuro: lo stesso submission_id ritrova la pratica e fa solo
-// quel che manca (portale_esito dice che cosa e' gia' fatto). Se le foto non
-// si salvano si risponde «riprovabile» dicendo il numero gia' assegnato: il
-// telefono tiene la richiesta in coda e riprova.
+// quel che manca (portale_esito dice che cosa e' gia' fatto). Se un file non
+// si salva si risponde «riprovabile» dicendo il numero gia' assegnato; se il
+// foglio non si legge il numero non si da' (vedi lavora). Il telefono tiene la
+// richiesta in coda e riprova.
 //
 // ⚠️ UNA LAVORAZIONE ALLA VOLTA PER OGNI INVIO (12/09/2026, dalla prima prova).
-// Lo stesso invio puo' arrivare due volte INSIEME: il portale svuota la coda
-// quattro secondi dopo l'apertura, e una richiesta appena salvata in coda e'
-// partita sia dal modulo sia dalla coda, a 83 millesimi l'una dall'altra.
-// Senza prenotazione tutte e due le lavorazioni hanno letto una pratica
-// «senza foto e senza mail» e hanno fatto tutto: due foto su Drive, due mail
-// alla segreteria, due conferme. Il numero di ricevuta invece era uno solo,
-// perche' lo teneva il vincolo del database — ed e' la stessa idea che serve
-// qui: la prenotazione si prende con un UPDATE condizionato
+// Lo stesso invio puo' arrivare due volte INSIEME (il modulo e la coda del
+// telefono, a 83 millesimi l'uno dall'altra): senza prenotazione tutte e due
+// le lavorazioni facevano tutto — due foto, due mail alla segreteria, due
+// conferme. La prenotazione si prende con un UPDATE condizionato
 // (s_portale_ricezioni.lavorazione_dal), che Postgres esegue una riga alla
 // volta. Chi arriva secondo aspetta che il primo finisca e risponde col suo
 // numero; se il primo muore, la prenotazione scade dopo 2 minuti.
@@ -53,7 +61,7 @@
 //   { status:'error', riprovabile:true|false, message }
 //
 // BATTITO: { battito:true } + intestazione X-Token (s_config.portale_battito_token)
-//   verifica davvero database, cartella delle foto, la scheda del foglio di
+//   verifica davvero database, cartella dei file, la scheda del foglio di
 //   ogni modulo e la delega Gmail, e solo se tutto risponde scrive
 //   s_config.portale_diretto_battito_al.
 //   Lo chiama pg_cron alle 05:20 UTC (job battito-portale-diretto).
@@ -75,10 +83,11 @@ const CORS = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
-const MAX_CARATTERI = 24 * 1024 * 1024   // tre foto da 4 MB in base64 ci stanno larghe
+const MAX_CARATTERI = 28 * 1024 * 1024   // RLS: due PDF da 8 MB in base64 ci stanno
 const MAX_ORA = 60                        // non e' una difesa, e' un freno a un errore che si ripete
 const MAX_FOTO = 3
 const MAX_FOTO_BYTE = 6 * 1024 * 1024
+const MAX_ALLEGATO_BYTE = 12 * 1024 * 1024
 const MAX_TESTO = 4000
 const MAX_ELENCO = 30                     // figure professionali / imprese di una notifica
 const EMAIL_VALIDA = /^[^\s@<>(),;:"\\]+@[^\s@<>(),;:"\\]+\.[A-Za-z]{2,}$/
@@ -121,6 +130,7 @@ function dataIso(v: unknown): string | null {
   if (a < 1900 || a > 2100 || d.getUTCFullYear() !== a || d.getUTCMonth() !== me - 1 || d.getUTCDate() !== g) return null
   return `${a}-${String(me).padStart(2, '0')}-${String(g).padStart(2, '0')}`
 }
+/* «gg/mm/aaaa», la forma che Apps Script scriveva sul foglio (fmtDate) */
 const dataFoglio = (v: unknown) => { const d = dataIso(v); return d ? d.split('-').reverse().join('/') : cella(v, 40) }
 
 /* Figure professionali e imprese della notifica: elenchi JSON dal portale.
@@ -154,16 +164,67 @@ function partiRoma(d = new Date()) {
 /* «12/09/2026 14:30:05»: la forma che l'import legge nella colonna TIMESTAMP */
 const adessoFoglio = () => { const r = partiRoma(); return `${r.g}/${r.m}/${r.a} ${r.h}:${r.mi}:${r.s}` }
 const stampino = () => { const r = partiRoma(); return `${r.a}${r.m}${r.g}_${r.h}${r.mi}` }
-const sanitize = (v: unknown) => (String(v || '').replace(/[^a-zA-Z0-9]/g, '_') || 'cantiere').substring(0, 40)
+const sanitize = (v: unknown, riserva = 'cantiere') => (String(v || '').replace(/[^a-zA-Z0-9]/g, '_') || riserva).substring(0, 40)
 
-/* ── tecnico di zona: la stessa regola di import-rlst ──────────────────────
-   Vince la zona PIU' SPECIFICA (i quartieri di Padova battono «PADOVA»);
-   con due candidati alla pari non si sceglie. */
+/* ══ LA MAPPA DEI CAMPI ═══════════════════════════════════════════════════
+   Una «spec» dice da quale campo del portale viene un valore e come va
+   letto: «chiave», oppure «tipo:chiave». Piu' chiavi separate da | = la
+   prima compilata (il portale manda alcuni dati con due nomi).
+     (niente)  testo            data    data vera (colonna date)
+     giorno    «gg/mm/aaaa»     cf      codice fiscale valido o vuoto
+     maiusc    maiuscolo        intero  solo cifre, come numero
+     scala     voto da 1 a 5    elenco  elenco JSON pulito
+   Solo per il foglio: #ts, #prog, #foto, #url:<colonna del file caricato>. */
+type Spec = string
+function parti(spec: Spec): [string, string] {
+  const i = spec.indexOf(':')
+  return i < 0 ? ['', spec] : [spec.slice(0, i), spec.slice(i + 1)]
+}
+function leggi(d: Dati, chiavi: string): unknown {
+  for (const k of chiavi.split('|')) {
+    const v = d[k]
+    if (v !== undefined && v !== null && String(v).trim() !== '') return v
+  }
+  return undefined
+}
+function perDb(d: Dati, spec: Spec): unknown {
+  const [tipo, chiavi] = parti(spec)
+  const v = leggi(d, chiavi)
+  switch (tipo) {
+    case 'data': return dataIso(v)
+    case 'giorno': return v === undefined ? null : dataFoglio(v) || null
+    case 'cf': { const t = maiuscolo(v); return t && /^[A-Z0-9]{16}$/.test(t) ? t : null }
+    case 'maiusc': return maiuscolo(v)
+    case 'intero': return Number(String(v ?? '').replace(/\D/g, '').slice(0, 9)) || null
+    case 'scala': { const n = Number(v); return Number.isInteger(n) && n >= 1 && n <= 5 ? n : null }
+    case 'elenco': return elenco(v)
+    default: return testo(v)
+  }
+}
+type Contesto = { prog: number; fotoUrls: string[]; file: Record<string, string> }
+function perFoglio(d: Dati, spec: Spec, ctx: Contesto): string | number {
+  if (spec === '#ts') return adessoFoglio()
+  if (spec === '#prog') return ctx.prog
+  if (spec === '#foto') return ctx.fotoUrls.join('\n')
+  if (spec.startsWith('#url:')) return ctx.file[spec.slice(5)] || ''
+  const [tipo, chiavi] = parti(spec)
+  const v = leggi(d, chiavi)
+  switch (tipo) {
+    case 'data': case 'giorno': return v === undefined ? '' : dataFoglio(v)
+    case 'cf': case 'maiusc': return maiuscolo(v) || ''
+    case 'elenco': { const e = elenco(v); return e ? JSON.stringify(e) : '' }
+    default: return cella(v)
+  }
+}
+
+/* ── pre-istruttoria: le stesse regole di import-rlst ───────────────────── */
 function normComune(v: string): string {
   return String(v || '').toUpperCase().replace(/\(.*$/, '').replace(/\s+/g, ' ').trim()
 }
-async function propostaTecnico(sb: SB, comune: string | null): Promise<string | null> {
-  const c = normComune(comune || '')
+/* tecnico di zona: vince la zona PIU' SPECIFICA (i quartieri di Padova
+   battono «PADOVA»); con due candidati alla pari non si sceglie */
+async function propostaTecnico(sb: SB, comune: unknown): Promise<string | null> {
+  const c = normComune(String(comune || ''))
   if (!c) return null
   const { data: zone } = await sb.from('tecnici_zone').select('email, comune_nome')
   const match = (zone || []).filter((z) => {
@@ -175,10 +236,6 @@ async function propostaTecnico(sb: SB, comune: string | null): Promise<string | 
   const email = [...new Set(match.filter((z) => normComune(z.comune_nome as string).length === maxLen).map((z) => z.email as string))]
   return email.length === 1 ? email[0] : null
 }
-
-/* ── controllo CEIV sulla P.IVA: la stessa regola di import-rlst ───────────
-   Impresa non in anagrafica → da_verificare, MAI non_iscritta: l'assenza
-   non e' una prova. */
 function pivaNorm(v: unknown): string | null {
   const t = String(v || '')
   const m = t.match(/\d{10,11}/)
@@ -187,7 +244,8 @@ function pivaNorm(v: unknown): string | null {
   if (cifre.length >= 8 && cifre.length <= 11) return cifre.padStart(11, '0')
   return null
 }
-async function esitoCeiv(sb: SB, piva: string | null): Promise<Dati> {
+/* CEIV: impresa non in anagrafica → da_verificare, MAI non_iscritta: l'assenza non e' una prova */
+async function esitoCeiv(sb: SB, piva: string | null): Promise<{ impresa_id: string | null; esito_ceiv: string; ceiv_verificato_il: string }> {
   let impresaId: string | null = null
   let esito = 'da_verificare'
   if (piva) {
@@ -200,156 +258,323 @@ async function esitoCeiv(sb: SB, piva: string | null): Promise<Dati> {
   }
   return { impresa_id: impresaId, esito_ceiv: esito, ceiv_verificato_il: new Date().toISOString() }
 }
+/* persona per codice fiscale: solo se ce n'e' UNA */
+async function personaPerCf(sb: SB, cf: unknown): Promise<string | null> {
+  if (!cf) return null
+  const { data } = await sb.from('persone').select('persona_id').eq('cf', cf).limit(2)
+  return data && data.length === 1 ? (data[0].persona_id as string) : null
+}
+/* moduli d'impresa: P.IVA (o CF impresa), CEIV, persona dal CF indicato */
+const conImpresa = (chiaveCf: string, ceiv = true) => async (sb: SB, d: Dati): Promise<Dati> => {
+  const piva = pivaNorm(d.piva) || pivaNorm(d.cf_impresa)
+  const e = await esitoCeiv(sb, piva)
+  const r: Dati = {
+    partita_iva: piva || testo(d.piva, 30),
+    impresa_id: e.impresa_id,
+    persona_id: await personaPerCf(sb, perDb(d, 'cf:' + chiaveCf)),
+  }
+  if (ceiv) { r.esito_ceiv = e.esito_ceiv; r.ceiv_verificato_il = e.ceiv_verificato_il }
+  return r
+}
+/* i quattro cantieri dell'attestazione DM 132 */
+function cantieriC(d: Dati): Dati[] | null {
+  const out: Dati[] = []
+  for (const n of [1, 2, 3, 4]) {
+    const c: Dati = {}
+    for (const k of ['indirizzo', 'comune', 'importo', 'committente', 'durata', 'qualita']) c[k] = testo(d[`c${n}_${k}`], 300)
+    if (Object.values(c).some(Boolean)) out.push(c)
+  }
+  return out.length ? out : null
+}
+const cantiereC = (n: number): [string, Spec][] => [
+  [`C${n} INDIRIZZO`, `c${n}_indirizzo`], [`C${n} COMUNE`, `c${n}_comune`], [`C${n} IMPORTO`, `c${n}_importo`],
+  [`C${n} COMMITTENTE`, `c${n}_committente`], [`C${n} DURATA`, `c${n}_durata`], [`C${n} QUALITÀ`, `c${n}_qualita`],
+]
 
-/* ══ I MODULI CHE PASSANO DI QUI ═════════════════════════════════════════
-   riga   → le colonne della pratica (progressivo, submission_id,
-            portale_esito e fonte li mette la lavorazione)
-   foglio → i valori per INTESTAZIONE di colonna, come li legge l'import:
-            la copia si scrive allineata alla testata vera della scheda,
-            non per posizione */
+/* ══ I MODULI ════════════════════════════════════════════════════════════
+   tabella   dove nasce la pratica
+   filtro    colonne fisse che distinguono la serie dei numeri (visite)
+   scheda    la scheda del foglio: per gid o per titolo (chiave di s_config)
+   colonne   colonna della tabella → spec
+   extra     pre-istruttoria e valori calcolati
+   foglio    [intestazione, spec] nell'ordine di Apps Script: e' anche la
+             testata di una scheda vuota
+   foto      la segnalazione porta foto
+   file      PDF allegati: <base>_base64 + <base>_nome → colonna della tabella */
+type File = { base: string; prefisso: string; colonna: string; etichetta: string }
 type Modulo = {
   tabella: string
-  scheda: { gid?: string; titolo?: string }     // chiavi di s_config
-  intestazioni: string[]                        // HEADERS di Apps Script, se la scheda e' vuota
-  foto: boolean
-  chi: (d: Dati) => string | null               // per la scatola nera
-  riga: (sb: SB, d: Dati) => Promise<Dati>
-  foglio: (d: Dati, prog: number, fotoUrls: string[]) => Record<string, string | number>
+  filtro?: Record<string, string>
+  scheda: { gid?: string; titolo?: string }
+  obbligatori: string[]
+  chi: string
+  colonne: Record<string, Spec>
+  extra?: (sb: SB, d: Dati) => Promise<Dati>
+  foglio: [string, Spec][]
+  foto?: boolean
+  file?: File[]
 }
 
 const MODULI: Record<string, Modulo> = {
   seg: {
     tabella: 's_segnalazioni',
     scheda: { gid: 'segn_sheet_gid' },
-    intestazioni: ['TIMESTAMP', 'PROGRESSIVO', 'NOTIFICANTE', 'TELEFONO', 'E-MAIL', 'IND. CANTIERE', 'COMUNE CANTIERE',
-      'MOTIVO', 'STATO LAVORI', 'IMPRESE PRESENTI', 'NOTE', 'FOTO URL', 'PRIVACY'],
-    foto: true,
-    chi: (d) => testo(d.notifica, 200),
-    riga: async (sb, d) => {
-      const comune = testo(d.comune_cantiere, 200)
-      return {
-        notificante: testo(d.notifica, 200),
-        telefono: testo(d.telefono, 60),
-        email: testo(d.email, 200),
-        ind_cantiere: testo(d.indirizzo_cantiere, 300),
-        comune_cantiere: comune,
-        motivo: testo(d.motivo),
-        stato_lavori: testo(d.stato_lavori),
-        imprese_presenti: testo(d.imprese_presenti),
-        note_modulo: testo(d.note),
-        privacy: testo(d.privacy, 200),
-        tecnico_proposto: await propostaTecnico(sb, comune),
-      }
+    obbligatori: ['indirizzo_cantiere', 'comune_cantiere'],
+    chi: 'notifica',
+    colonne: {
+      notificante: 'notifica', telefono: 'telefono', email: 'email', ind_cantiere: 'indirizzo_cantiere',
+      comune_cantiere: 'comune_cantiere', motivo: 'motivo', stato_lavori: 'stato_lavori',
+      imprese_presenti: 'imprese_presenti', note_modulo: 'note', privacy: 'privacy',
     },
-    foglio: (d, prog, fotoUrls) => ({
-      'TIMESTAMP': adessoFoglio(), 'PROGRESSIVO': prog,
-      'NOTIFICANTE': cella(d.notifica, 200), 'TELEFONO': cella(d.telefono, 60), 'E-MAIL': cella(d.email, 200),
-      'IND. CANTIERE': cella(d.indirizzo_cantiere, 300), 'COMUNE CANTIERE': cella(d.comune_cantiere, 200),
-      'MOTIVO': cella(d.motivo), 'STATO LAVORI': cella(d.stato_lavori), 'IMPRESE PRESENTI': cella(d.imprese_presenti),
-      'NOTE': cella(d.note), 'FOTO URL': fotoUrls.join('\n'), 'PRIVACY': cella(d.privacy, 200),
-    }),
+    extra: async (sb, d) => ({ tecnico_proposto: await propostaTecnico(sb, d.comune_cantiere) }),
+    foglio: [['TIMESTAMP', '#ts'], ['PROGRESSIVO', '#prog'], ['NOTIFICANTE', 'notifica'], ['TELEFONO', 'telefono'],
+      ['E-MAIL', 'email'], ['IND. CANTIERE', 'indirizzo_cantiere'], ['COMUNE CANTIERE', 'comune_cantiere'],
+      ['MOTIVO', 'motivo'], ['STATO LAVORI', 'stato_lavori'], ['IMPRESE PRESENTI', 'imprese_presenti'],
+      ['NOTE', 'note'], ['FOTO URL', '#foto'], ['PRIVACY', 'privacy']],
+    foto: true,
   },
 
-  /* NOTIFICA CANTIERE: stessa mappa della scheda «Notifica» in import-rlst.
-     Qui «rl_» e' il RESPONSABILE DEI LAVORI, non il legale rappresentante;
-     l'aggancio all'anagrafica si tenta sulla P.IVA del committente. */
+  /* notifica: «rl_» e' il RESPONSABILE DEI LAVORI, non il legale
+     rappresentante; il CEIV si controlla sulla P.IVA del committente */
   not: {
     tabella: 's_notifiche_cantiere',
     scheda: { titolo: 'notif_sheet_titolo' },
-    intestazioni: ['TIMESTAMP', 'PROGRESSIVO', 'DATA COM.', 'RAGIONE SOC.', 'TITOLO', 'COGNOME', 'NOME', 'CF', 'E-MAIL',
-      'TELEFONO', 'IND. CANTIERE', 'COMUNE CANTIERE', 'DATA INIZIO', 'DATA FINE', 'IMPORTO', 'DURATA GG', 'MAX LAV.',
-      'N. IMPRESE', 'N. AUTONOMI', 'NOTE CANTIERE', 'COMM. TIPO', 'COMM. RAG. SOC.', 'COMM. PIVA', 'COMM. CF',
-      'COMM. IND.', 'COMM. TEL', 'COMM. EMAIL', 'COMM. TITOLO', 'COMM. COGNOME', 'COMM. NOME', 'COMM. CF2',
-      'COMM. IND2', 'COMM. COM2', 'COMM. TEL2', 'RL TITOLO', 'RL NOME', 'RL COGNOME', 'RL CF', 'RL IND.', 'RL COMUNE',
-      'RL NOTE', 'PRIVACY', 'FIGURE JSON', 'IMPRESE JSON'],
-    foto: false,
-    chi: (d) => testo(d.ragione_sociale, 200) ||
-      testo([d.cognome, d.nome].map((x) => String(x ?? '').trim()).filter(Boolean).join(' '), 200),
-    riga: async (sb, d) => {
-      const comune = testo(d.comune_cantiere, 200)
+    obbligatori: ['indirizzo_cantiere', 'comune_cantiere'],
+    chi: 'ragione_sociale|cognome',
+    colonne: {
+      data_com: 'data:data_comunicazione', ragione_sociale: 'ragione_sociale', seg_titolo: 'titolo',
+      seg_cognome: 'cognome', seg_nome: 'nome', seg_cf: 'maiusc:codice_fiscale', email: 'email', telefono: 'telefono',
+      ind_cantiere: 'indirizzo_cantiere', comune_cantiere: 'comune_cantiere', data_inizio: 'data:data_inizio',
+      data_fine: 'data:data_fine', importo: 'importo_lavori', durata_gg: 'durata_giorni', max_lavoratori: 'max_lavoratori',
+      n_imprese: 'num_imprese', n_autonomi: 'num_autonomi', note_cantiere: 'note_cantiere', comm_tipo: 'committente_tipo',
+      comm_ragione_sociale: 'committente_ragione_sociale', comm_cf: 'maiusc:committente_cf',
+      comm_indirizzo: 'committente_indirizzo', comm_tel: 'committente_telefono', comm_email: 'committente_email',
+      comm_titolo: 'committente_titolo', comm_cognome: 'committente_cognome', comm_nome: 'committente_nome',
+      comm_cf2: 'maiusc:committente_cf_persona', comm_ind2: 'committente_indirizzo_persona',
+      comm_com2: 'committente_comune_persona', comm_tel2: 'committente_telefono_persona', rl_titolo: 'rl_titolo',
+      rl_nome: 'rl_nome', rl_cognome: 'rl_cognome', rl_cf: 'maiusc:rl_cf', rl_indirizzo: 'rl_indirizzo',
+      rl_comune: 'rl_comune', rl_note: 'rl_note', figure: 'elenco:figure_json', imprese: 'elenco:imprese_json',
+      privacy: 'privacy',
+    },
+    extra: async (sb, d) => {
       const piva = pivaNorm(d.committente_piva)
-      return {
-        data_com: dataIso(d.data_comunicazione),
-        ragione_sociale: testo(d.ragione_sociale, 200),
-        seg_titolo: testo(d.titolo, 60),
-        seg_cognome: testo(d.cognome, 120),
-        seg_nome: testo(d.nome, 120),
-        seg_cf: maiuscolo(d.codice_fiscale),
-        email: testo(d.email, 200),
-        telefono: testo(d.telefono, 60),
-        ind_cantiere: testo(d.indirizzo_cantiere, 300),
-        comune_cantiere: comune,
-        data_inizio: dataIso(d.data_inizio),
-        data_fine: dataIso(d.data_fine),
-        importo: testo(d.importo_lavori, 60),
-        durata_gg: testo(d.durata_giorni, 30),
-        max_lavoratori: testo(d.max_lavoratori, 30),
-        n_imprese: testo(d.num_imprese, 30),
-        n_autonomi: testo(d.num_autonomi, 30),
-        note_cantiere: testo(d.note_cantiere),
-        comm_tipo: testo(d.committente_tipo, 60),
-        comm_ragione_sociale: testo(d.committente_ragione_sociale, 200),
-        comm_piva: piva || testo(d.committente_piva, 30),
-        comm_cf: maiuscolo(d.committente_cf),
-        comm_indirizzo: testo(d.committente_indirizzo, 300),
-        comm_tel: testo(d.committente_telefono, 60),
-        comm_email: testo(d.committente_email, 200),
-        comm_titolo: testo(d.committente_titolo, 60),
-        comm_cognome: testo(d.committente_cognome, 120),
-        comm_nome: testo(d.committente_nome, 120),
-        comm_cf2: maiuscolo(d.committente_cf_persona),
-        comm_ind2: testo(d.committente_indirizzo_persona, 300),
-        comm_com2: testo(d.committente_comune_persona, 200),
-        comm_tel2: testo(d.committente_telefono_persona, 60),
-        rl_titolo: testo(d.rl_titolo, 60),
-        rl_nome: testo(d.rl_nome, 120),
-        rl_cognome: testo(d.rl_cognome, 120),
-        rl_cf: maiuscolo(d.rl_cf),
-        rl_indirizzo: testo(d.rl_indirizzo, 300),
-        rl_comune: testo(d.rl_comune, 200),
-        rl_note: testo(d.rl_note),
-        figure: elenco(d.figure_json),
-        imprese: elenco(d.imprese_json),
-        privacy: testo(d.privacy, 200),
-        ...(await esitoCeiv(sb, piva)),
-        tecnico_proposto: await propostaTecnico(sb, comune),
-      }
+      return { comm_piva: piva || testo(d.committente_piva, 30), ...(await esitoCeiv(sb, piva)),
+        tecnico_proposto: await propostaTecnico(sb, d.comune_cantiere) }
     },
-    foglio: (d, prog) => {
-      const fig = elenco(d.figure_json)
-      const imp = elenco(d.imprese_json)
-      return {
-        'TIMESTAMP': adessoFoglio(), 'PROGRESSIVO': prog, 'DATA COM.': dataFoglio(d.data_comunicazione),
-        'RAGIONE SOC.': cella(d.ragione_sociale, 200), 'TITOLO': cella(d.titolo, 60), 'COGNOME': cella(d.cognome, 120),
-        'NOME': cella(d.nome, 120), 'CF': maiuscolo(d.codice_fiscale) || '', 'E-MAIL': cella(d.email, 200),
-        'TELEFONO': cella(d.telefono, 60), 'IND. CANTIERE': cella(d.indirizzo_cantiere, 300),
-        'COMUNE CANTIERE': cella(d.comune_cantiere, 200), 'DATA INIZIO': dataFoglio(d.data_inizio),
-        'DATA FINE': dataFoglio(d.data_fine), 'IMPORTO': cella(d.importo_lavori, 60), 'DURATA GG': cella(d.durata_giorni, 30),
-        'MAX LAV.': cella(d.max_lavoratori, 30), 'N. IMPRESE': cella(d.num_imprese, 30), 'N. AUTONOMI': cella(d.num_autonomi, 30),
-        'NOTE CANTIERE': cella(d.note_cantiere), 'COMM. TIPO': cella(d.committente_tipo, 60),
-        'COMM. RAG. SOC.': cella(d.committente_ragione_sociale, 200), 'COMM. PIVA': cella(d.committente_piva, 30),
-        'COMM. CF': maiuscolo(d.committente_cf) || '', 'COMM. IND.': cella(d.committente_indirizzo, 300),
-        'COMM. TEL': cella(d.committente_telefono, 60), 'COMM. EMAIL': cella(d.committente_email, 200),
-        'COMM. TITOLO': cella(d.committente_titolo, 60), 'COMM. COGNOME': cella(d.committente_cognome, 120),
-        'COMM. NOME': cella(d.committente_nome, 120), 'COMM. CF2': maiuscolo(d.committente_cf_persona) || '',
-        'COMM. IND2': cella(d.committente_indirizzo_persona, 300), 'COMM. COM2': cella(d.committente_comune_persona, 200),
-        'COMM. TEL2': cella(d.committente_telefono_persona, 60), 'RL TITOLO': cella(d.rl_titolo, 60),
-        'RL NOME': cella(d.rl_nome, 120), 'RL COGNOME': cella(d.rl_cognome, 120), 'RL CF': maiuscolo(d.rl_cf) || '',
-        'RL IND.': cella(d.rl_indirizzo, 300), 'RL COMUNE': cella(d.rl_comune, 200), 'RL NOTE': cella(d.rl_note),
-        'PRIVACY': cella(d.privacy, 200),
-        'FIGURE JSON': fig ? JSON.stringify(fig) : '', 'IMPRESE JSON': imp ? JSON.stringify(imp) : '',
-      }
+    foglio: [['TIMESTAMP', '#ts'], ['PROGRESSIVO', '#prog'], ['DATA COM.', 'data:data_comunicazione'],
+      ['RAGIONE SOC.', 'ragione_sociale'], ['TITOLO', 'titolo'], ['COGNOME', 'cognome'], ['NOME', 'nome'],
+      ['CF', 'maiusc:codice_fiscale'], ['E-MAIL', 'email'], ['TELEFONO', 'telefono'], ['IND. CANTIERE', 'indirizzo_cantiere'],
+      ['COMUNE CANTIERE', 'comune_cantiere'], ['DATA INIZIO', 'data:data_inizio'], ['DATA FINE', 'data:data_fine'],
+      ['IMPORTO', 'importo_lavori'], ['DURATA GG', 'durata_giorni'], ['MAX LAV.', 'max_lavoratori'],
+      ['N. IMPRESE', 'num_imprese'], ['N. AUTONOMI', 'num_autonomi'], ['NOTE CANTIERE', 'note_cantiere'],
+      ['COMM. TIPO', 'committente_tipo'], ['COMM. RAG. SOC.', 'committente_ragione_sociale'],
+      ['COMM. PIVA', 'committente_piva'], ['COMM. CF', 'maiusc:committente_cf'], ['COMM. IND.', 'committente_indirizzo'],
+      ['COMM. TEL', 'committente_telefono'], ['COMM. EMAIL', 'committente_email'], ['COMM. TITOLO', 'committente_titolo'],
+      ['COMM. COGNOME', 'committente_cognome'], ['COMM. NOME', 'committente_nome'],
+      ['COMM. CF2', 'maiusc:committente_cf_persona'], ['COMM. IND2', 'committente_indirizzo_persona'],
+      ['COMM. COM2', 'committente_comune_persona'], ['COMM. TEL2', 'committente_telefono_persona'],
+      ['RL TITOLO', 'rl_titolo'], ['RL NOME', 'rl_nome'], ['RL COGNOME', 'rl_cognome'], ['RL CF', 'maiusc:rl_cf'],
+      ['RL IND.', 'rl_indirizzo'], ['RL COMUNE', 'rl_comune'], ['RL NOTE', 'rl_note'], ['PRIVACY', 'privacy'],
+      ['FIGURE JSON', 'elenco:figure_json'], ['IMPRESE JSON', 'elenco:imprese_json']],
+  },
+
+  /* consulenza: la nota del modulo e' anche il quesito (come l'import) */
+  cons: {
+    tabella: 's_consulenze',
+    scheda: { titolo: 'cons_sheet_titolo' },
+    obbligatori: ['ragione_sociale'],
+    chi: 'ragione_sociale',
+    colonne: {
+      ragione_sociale: 'ragione_sociale', codice_ceiv_dich: 'codice_ceiv', cf_impresa: 'cf_impresa',
+      rl_titolo: 'rl_titolo', rl_nome: 'rl_nome', rl_cognome: 'rl_cognome', rl_cf: 'cf:rl_cf', cellulare: 'cellulare',
+      email: 'email', rspp_ruolo: 'rspp_ruolo', tipi_consulenza: 'tipi_consulenza', note_modulo: 'note',
+      quesito: 'note', privacy: 'privacy',
     },
+    extra: conImpresa('rl_cf'),
+    foglio: [['TIMESTAMP', '#ts'], ['PROGRESSIVO', '#prog'], ['RAGIONE SOCIALE', 'ragione_sociale'],
+      ['CODICE CEIV', 'codice_ceiv'], ['PARTITA IVA', 'piva'], ['CF IMPRESA', 'cf_impresa'], ['RL TITOLO', 'rl_titolo'],
+      ['RL NOME', 'rl_nome'], ['RL COGNOME', 'rl_cognome'], ['RL CF', 'maiusc:rl_cf'], ['CELLULARE', 'cellulare'],
+      ['E-MAIL', 'email'], ['RSPP RUOLO', 'rspp_ruolo'], ['TIPI CONSULENZA', 'tipi_consulenza'], ['NOTE', 'note'],
+      ['PRIVACY', 'privacy']],
+  },
+
+  /* visita: la serie dei numeri e' quella di tab_origine «visita» */
+  vis: {
+    tabella: 's_visite_richieste',
+    filtro: { tab_origine: 'visita' },
+    scheda: { titolo: 'visita_sheet_titolo' },
+    obbligatori: ['ragione_sociale'],
+    chi: 'ragione_sociale',
+    colonne: {
+      ragione_sociale: 'ragione_sociale', codice_ceiv_dich: 'codice_ceiv', cf_impresa: 'cf_impresa',
+      ind_legale: 'indirizzo_legale', ind_amm: 'indirizzo_amm', telefono: 'telefono', cellulare: 'cellulare',
+      email: 'email', rl_titolo: 'rl_titolo', rl_nome: 'rl_nome', rl_cognome: 'rl_cognome', rl_cf: 'cf:rl_cf',
+      rspp_ruolo: 'rspp_ruolo', tipo_visita: 'vis_tipo_visita|tipo_visita', ref_titolo: 'ref_titolo',
+      ref_nome: 'ref_nome', ref_cognome: 'ref_cognome', ref_tel: 'ref_telefono|ref_cellulare', note_modulo: 'note',
+      privacy: 'privacy',
+    },
+    extra: async (sb, d) => {
+      const c = { indirizzo: testo(d.indirizzo_cantiere, 300), comune: testo(d.comune_cantiere, 200) }
+      return { tipo_richiesta: 'visita', cantieri: c.indirizzo || c.comune ? [c] : null,
+        ...(await conImpresa('rl_cf')(sb, d)), tecnico_proposto: await propostaTecnico(sb, d.comune_cantiere) }
+    },
+    foglio: [['TIMESTAMP', '#ts'], ['PROGRESSIVO', '#prog'], ['RAGIONE SOCIALE', 'ragione_sociale'],
+      ['CODICE CEIV', 'codice_ceiv'], ['PARTITA IVA', 'piva'], ['CF IMPRESA', 'cf_impresa'], ['IND. LEGALE', 'indirizzo_legale'],
+      ['IND. AMM.', 'indirizzo_amm'], ['TELEFONO', 'telefono'], ['CELLULARE', 'cellulare'], ['RL TITOLO', 'rl_titolo'],
+      ['RL NOME', 'rl_nome'], ['RL COGNOME', 'rl_cognome'], ['RL CF', 'maiusc:rl_cf'], ['IND. CANTIERE', 'indirizzo_cantiere'],
+      ['COMUNE CANTIERE', 'comune_cantiere'], ['REF TITOLO', 'ref_titolo'], ['REF. NOME', 'ref_nome'],
+      ['REF. COGNOME', 'ref_cognome'], ['REF. TEL', 'ref_telefono|ref_cellulare'], ['TIPO VISITA', 'vis_tipo_visita|tipo_visita'],
+      ['NOTE', 'note'], ['PRIVACY', 'privacy']],
+  },
+
+  conf: {
+    tabella: 's_conferenze_cantiere',
+    scheda: { titolo: 'confcant_sheet_titolo' },
+    obbligatori: ['ragione_sociale'],
+    chi: 'ragione_sociale',
+    colonne: {
+      ragione_sociale: 'ragione_sociale', codice_ceiv_dich: 'codice_ceiv', cf_impresa: 'cf_impresa',
+      ind_legale: 'indirizzo_legale', ind_amm: 'indirizzo_amm', telefono: 'telefono', cellulare: 'cellulare',
+      email: 'email', rl_titolo: 'rl_titolo', rl_nome: 'rl_nome', rl_cognome: 'rl_cognome', rl_cf: 'cf:rl_cf',
+      rspp_ruolo: 'rspp_ruolo', tipo_richiesta: 'tipo_richiesta', ind_cantiere: 'indirizzo_cantiere',
+      comune_cantiere: 'comune_cantiere', ref_titolo: 'ref_titolo', ref_nome: 'ref_nome', ref_cognome: 'ref_cognome',
+      ref_tel: 'ref_cellulare|ref_telefono', note_modulo: 'note', privacy: 'privacy',
+    },
+    extra: async (sb, d) => ({ ...(await conImpresa('rl_cf')(sb, d)), tecnico_proposto: await propostaTecnico(sb, d.comune_cantiere) }),
+    foglio: [['TIMESTAMP', '#ts'], ['PROGRESSIVO', '#prog'], ['RAGIONE SOCIALE', 'ragione_sociale'],
+      ['CODICE CEIV', 'codice_ceiv'], ['PARTITA IVA', 'piva'], ['CF IMPRESA', 'cf_impresa'], ['TELEFONO', 'telefono'],
+      ['CELLULARE', 'cellulare'], ['E-MAIL', 'email'], ['IND. LEGALE', 'indirizzo_legale'], ['IND. AMM.', 'indirizzo_amm'],
+      ['RL TITOLO', 'rl_titolo'], ['RL NOME', 'rl_nome'], ['RL COGNOME', 'rl_cognome'], ['RL CF', 'maiusc:rl_cf'],
+      ['RSPP RUOLO', 'rspp_ruolo'], ['TIPO RICHIESTA', 'tipo_richiesta'], ['IND. CANTIERE', 'indirizzo_cantiere'],
+      ['COMUNE CANTIERE', 'comune_cantiere'], ['REF TITOLO', 'ref_titolo'], ['REF. COGNOME', 'ref_cognome'],
+      ['REF. NOME', 'ref_nome'], ['REF. CELL', 'ref_cellulare|ref_telefono'], ['NOTE', 'note'], ['PRIVACY', 'privacy']],
+  },
+
+  att: {
+    tabella: 's_attestazioni_dm132',
+    scheda: { titolo: 'attest_sheet_titolo' },
+    obbligatori: ['ragione_sociale'],
+    chi: 'ragione_sociale',
+    colonne: {
+      ragione_sociale: 'ragione_sociale', codice_ceiv_dich: 'codice_ceiv', cassa_edile_prov: 'cassa_edile_provincia',
+      cf_impresa: 'cf_impresa', indirizzo: 'indirizzo_impresa', comune: 'comune_impresa', telefono: 'telefono_impresa',
+      email: 'email', rl_titolo: 'rl_titolo', rl_nome: 'rl_nome', rl_cognome: 'rl_cognome', rl_cf: 'cf:rl_cf',
+      decl_contributi: 'decl_contributi', decl_sicurezza: 'decl_sicurezza', decl_obblighi: 'decl_obblighi',
+      privacy: 'privacy',
+    },
+    extra: async (sb, d) => {
+      const cantieri = cantieriC(d)
+      return { cantieri, ...(await conImpresa('rl_cf')(sb, d)), tecnico_proposto: await propostaTecnico(sb, cantieri?.[0]?.comune) }
+    },
+    foglio: [['TIMESTAMP', '#ts'], ['PROGRESSIVO', '#prog'], ['RL TITOLO', 'rl_titolo'], ['RL NOME', 'rl_nome'],
+      ['RL COGNOME', 'rl_cognome'], ['RL CF', 'maiusc:rl_cf'], ['RAGIONE SOCIALE', 'ragione_sociale'], ['PARTITA IVA', 'piva'],
+      ['CF IMPRESA', 'cf_impresa'], ['INDIRIZZO', 'indirizzo_impresa'], ['COMUNE', 'comune_impresa'],
+      ['TELEFONO', 'telefono_impresa'], ['CODICE CEIV', 'codice_ceiv'], ['CASSA EDILE PROV.', 'cassa_edile_provincia'],
+      ...cantiereC(1), ...cantiereC(2), ...cantiereC(3), ...cantiereC(4),
+      ['DECL. CONTRIBUTI', 'decl_contributi'], ['DECL. SICUREZZA', 'decl_sicurezza'], ['DECL. OBBLIGHI', 'decl_obblighi'],
+      ['PRIVACY', 'privacy']],
+  },
+
+  rlst: {
+    tabella: 's_rlst_pratiche',
+    scheda: { gid: 'rlst_sheet_gid' },
+    obbligatori: ['ragione_sociale'],
+    chi: 'ragione_sociale',
+    colonne: {
+      data_comp: 'data:data_compilazione', ragione_sociale: 'ragione_sociale', codice_ceiv_dich: 'codice_ceiv',
+      cf_impresa: 'cf_impresa', n_lavoratori: 'intero:num_lavoratori', ccnl: 'ccnl', telefono: 'telefono',
+      cellulare: 'cellulare', email: 'email', ind_sede_legale: 'indirizzo_legale', comune_legale: 'comune_legale',
+      ind_sede_amm: 'indirizzo_amm', comune_amm: 'comune_amm', rl_titolo: 'rl_titolo', rl_nome: 'rl_nome',
+      rl_cognome: 'rl_cognome', rl_cf: 'cf:rl_cf', rspp_nome: 'rspp_nome', rspp_ruolo: 'rspp_ruolo',
+      data_verbale: 'giorno:data_verbale', luogo_riunione: 'luogo_riunione', note_modulo: 'note',
+    },
+    extra: conImpresa('rl_cf'),
+    foglio: [['TIMESTAMP', '#ts'], ['PROGRESSIVO', '#prog'], ['DATA COMP.', 'data:data_compilazione'],
+      ['RAGIONE SOCIALE', 'ragione_sociale'], ['CODICE CEIV', 'codice_ceiv'], ['PARTITA IVA', 'piva'],
+      ['CF IMPRESA', 'cf_impresa'], ['N. LAVORATORI', 'num_lavoratori'], ['CCNL', 'ccnl'], ['TELEFONO', 'telefono'],
+      ['CELLULARE', 'cellulare'], ['E-MAIL', 'email'], ['IND. SEDE LEGALE', 'indirizzo_legale'],
+      ['COMUNE LEGALE', 'comune_legale'], ['IND. SEDE AMM.', 'indirizzo_amm'], ['COMUNE AMM.', 'comune_amm'],
+      ['RL TITOLO', 'rl_titolo'], ['RL NOME', 'rl_nome'], ['RL COGNOME', 'rl_cognome'], ['RL CF', 'maiusc:rl_cf'],
+      ['RSPP NOME', 'rspp_nome'], ['RSPP RUOLO', 'rspp_ruolo'], ['DATA VERBALE', 'data:data_verbale'],
+      ['LUOGO RIUNIONE', 'luogo_riunione'], ['VERBALE URL', '#url:verbale_url'], ['NOTE', 'note'], ['PRIVACY', 'privacy']],
+    file: [{ base: 'pdf', prefisso: 'Verbale', colonna: 'verbale_url', etichetta: 'Verbale di riunione' }],
+  },
+
+  /* RLS: niente esito CEIV nella tabella; la persona si aggancia sul CF dell'RLS */
+  rls: {
+    tabella: 's_rls_anagrafe',
+    scheda: { gid: 'rls_sheet_gid' },
+    obbligatori: ['ragione_sociale'],
+    chi: 'ragione_sociale',
+    colonne: {
+      ragione_sociale: 'ragione_sociale', codice_ceiv_dich: 'codice_ceiv', cf_impresa: 'cf_impresa',
+      ind_sede: 'indirizzo_sede', telefono: 'telefono', email: 'email', lr_titolo: 'lr_titolo', lr_nome: 'lr_nome',
+      lr_cognome: 'lr_cognome', lr_cf: 'maiusc:lr_cf', tipo_elezione: 'rls_elezione', data_verbale: 'giorno:data_verbale',
+      protocollo_verbale: 'protocollo', rls_titolo: 'rls_titolo', rls_nome: 'rls_nome', rls_cognome: 'rls_cognome',
+      rls_cf: 'cf:rls_cf', nato_a: 'rls_nato_a', nato_il: 'giorno:rls_nato_il', residenza: 'rls_residenza',
+      comune_res: 'rls_comune_residenza', rls_tel: 'rls_telefono', rls_email: 'rls_email',
+      indeterminato: 'rls_indeterminato', lul: 'rls_lul', ceiv_operaio: 'rls_ceiv_operaio',
+      altra_ce: 'rls_altra_cassa_edile', mansione: 'rls_mansione', data_assunzione: 'giorno:rls_data_assunzione',
+      livello_ccnl: 'rls_livello_ccnl', ente_corso: 'rls_ente_corso', op_provincia: 'rls_op_provincia',
+      decorrenza: 'data:data_verbale',
+    },
+    extra: conImpresa('rls_cf', false),
+    foglio: [['TIMESTAMP', '#ts'], ['PROGRESSIVO', '#prog'], ['RAGIONE SOCIALE', 'ragione_sociale'],
+      ['CODICE CEIV', 'codice_ceiv'], ['PARTITA IVA', 'piva'], ['CF IMPRESA', 'cf_impresa'], ['IND. SEDE', 'indirizzo_sede'],
+      ['TELEFONO', 'telefono'], ['E-MAIL', 'email'], ['LR TITOLO', 'lr_titolo'], ['LR NOME', 'lr_nome'],
+      ['LR COGNOME', 'lr_cognome'], ['LR CF', 'maiusc:lr_cf'], ['DATA VERBALE', 'data:data_verbale'],
+      ['PROTOCOLLO', 'protocollo'], ['ELEZIONE', 'rls_elezione'], ['RLS TITOLO', 'rls_titolo'], ['RLS NOME', 'rls_nome'],
+      ['RLS COGNOME', 'rls_cognome'], ['RLS CF', 'maiusc:rls_cf'], ['NATO A', 'rls_nato_a'], ['NATO IL', 'data:rls_nato_il'],
+      ['RESIDENZA', 'rls_residenza'], ['COMUNE RES.', 'rls_comune_residenza'], ['RLS TEL', 'rls_telefono'],
+      ['RLS EMAIL', 'rls_email'], ['INDETERMINATO', 'rls_indeterminato'], ['LUL', 'rls_lul'],
+      ['CEIV OPERAIO', 'rls_ceiv_operaio'], ['ALTRA CE', 'rls_altra_cassa_edile'], ['MANSIONE', 'rls_mansione'],
+      ['DATA ASSUNZIONE', 'data:rls_data_assunzione'], ['LIVELLO CCNL', 'rls_livello_ccnl'],
+      ['ENTE CORSO', 'rls_ente_corso'], ['OP PROVINCIA', 'rls_op_provincia'], ['VERBALE URL', '#url:verbale_url'],
+      ['FORMAZIONE URL', '#url:formazione_url'], ['PRIVACY', 'privacy']],
+    file: [
+      { base: 'pdf_verbale', prefisso: 'Verbale_RLS', colonna: 'verbale_url', etichetta: 'Verbale di elezione' },
+      { base: 'pdf_formazione', prefisso: 'Formazione_RLS', colonna: 'formazione_url', etichetta: 'Attestato di formazione' },
+    ],
+  },
+
+  /* questionario: le scale arrivano come scala_<chiave> (e i servizi anche
+     coi nomi dei campi nascosti); le proposte come suggerimenti_testo, che
+     Apps Script non leggeva (cercava «suggerimenti») */
+  qst: {
+    tabella: 's_questionari_sopralluogo',
+    scheda: { titolo: 'qst_sheet_titolo' },
+    obbligatori: [],
+    chi: 'tecnico',
+    colonne: {
+      tecnico: 'tecnico', data_visita: 'data:data_visita', scopi: 'scopi_visita',
+      scala_aspettative: 'scala:scala_aspettative', ruolo_chiaro: 'qst_ruolo_chiaro',
+      scala_professionale: 'scala:scala_professionale', suggerimenti_pratici: 'qst_suggerimenti',
+      scala_facilita: 'scala:scala_facilita', nuovi_rischi: 'qst_nuovi_rischi', misure_sicurezza: 'qst_misure',
+      aree_monitorate: 'aree_monitorate', scala_serv_area: 'scala:scala_serv1|serv_area_sicurezza',
+      scala_serv_visite: 'scala:scala_serv2|serv_visite_cantiere', scala_serv_consulenza: 'scala:scala_serv3|serv_consulenza',
+      scala_serv_formazione: 'scala:scala_serv4|serv_formazione', scala_serv_corsi: 'scala:scala_serv5|serv_corsi',
+      proposte_miglioramento: 'suggerimenti_testo|suggerimenti', aggiornamenti: 'qst_aggiornamenti',
+      contatto_richiesto: 'qst_contatto', recapito_contatto: 'recapito_contatto', privacy: 'privacy',
+    },
+    foglio: [['TIMESTAMP', '#ts'], ['PROGRESSIVO', '#prog'], ['TECNICO', 'tecnico'], ['DATA VISITA', 'data:data_visita'],
+      ['SCOPI', 'scopi_visita'], ['SCALA ASPETTATIVE', 'scala_aspettative'], ['RUOLO CHIARO', 'qst_ruolo_chiaro'],
+      ['SCALA PROFESSIONALE', 'scala_professionale'], ['SUGGERIMENTI PRATICI', 'qst_suggerimenti'],
+      ['SCALA FACILITÀ', 'scala_facilita'], ['NUOVI RISCHI', 'qst_nuovi_rischi'], ['MISURE SICUREZZA', 'qst_misure'],
+      ['AREE MONITORATE', 'aree_monitorate'], ['SCALA SERV. SICUREZZA', 'scala_serv1|serv_area_sicurezza'],
+      ['SCALA VISITE', 'scala_serv2|serv_visite_cantiere'], ['SCALA CONSULENZA', 'scala_serv3|serv_consulenza'],
+      ['SCALA FORMAZIONE', 'scala_serv4|serv_formazione'], ['SCALA CORSI', 'scala_serv5|serv_corsi'],
+      ['PROPOSTE MIGLIORAMENTO', 'suggerimenti_testo|suggerimenti'], ['AGGIORNAMENTI', 'qst_aggiornamenti'],
+      ['CONTATTO RICHIESTO', 'qst_contatto'], ['RECAPITO CONTATTO', 'recapito_contatto'], ['PRIVACY', 'privacy']],
   },
 }
 
-/* ── Drive: la cartella delle foto ─────────────────────────────────────────
+/* ── Drive: la cartella dei file ───────────────────────────────────────────
    Si trova DENTRO la cartella SERVIZI indicata per id in s_config, mai con
    una ricerca per nome su tutto Drive: un ripiego che regge in silenzio e'
    un guasto che aspetta (lezione del 04/09/2026 sul backend Apps Script). */
-let cartellaFotoId: string | null = null
-async function cartellaFoto(sb: SB, token: string): Promise<string> {
-  if (cartellaFotoId) return cartellaFotoId
+let cartellaFileId: string | null = null
+async function cartellaFile(sb: SB, token: string): Promise<string> {
+  if (cartellaFileId) return cartellaFileId
   const { data } = await sb.from('s_config').select('valore').eq('chiave', 'portale_drive_servizi_id').maybeSingle()
   const servizi = data?.valore as string | undefined
   if (!servizi) throw new Error('portale_drive_servizi_id mancante in s_config')
@@ -360,7 +585,7 @@ async function cartellaFoto(sb: SB, token: string): Promise<string> {
   const d = await r.json()
   if (d.error) throw new Error('cartella SERVIZI non leggibile su Drive: ' + JSON.stringify(d.error))
   if (!d.files?.length) throw new Error(`nessuna cartella PDF_ricevuti dentro la cartella SERVIZI (${servizi})`)
-  return (cartellaFotoId = d.files[0].id as string)
+  return (cartellaFileId = d.files[0].id as string)
 }
 
 /* Le foto arrivano come elenco JSON di { name, data: 'data:image/...;base64,...' }
@@ -370,19 +595,17 @@ function leggiFoto(campo: unknown): { foto: Foto[]; scartate: string[] } {
   const foto: Foto[] = []
   const scartate: string[] = []
   if (!campo) return { foto, scartate }
-  let elenco: unknown
-  try { elenco = typeof campo === 'string' ? JSON.parse(campo) : campo } catch { return { foto, scartate: ['elenco delle foto illeggibile'] } }
-  if (!Array.isArray(elenco)) return { foto, scartate: ['elenco delle foto illeggibile'] }
-  if (elenco.length > MAX_FOTO) scartate.push(`arrivate ${elenco.length} foto, tenute le prime ${MAX_FOTO}`)
-  elenco.slice(0, MAX_FOTO).forEach((f, i) => {
+  let lista: unknown
+  try { lista = typeof campo === 'string' ? JSON.parse(campo) : campo } catch { return { foto, scartate: ['elenco delle foto illeggibile'] } }
+  if (!Array.isArray(lista)) return { foto, scartate: ['elenco delle foto illeggibile'] }
+  if (lista.length > MAX_FOTO) scartate.push(`arrivate ${lista.length} foto, tenute le prime ${MAX_FOTO}`)
+  lista.slice(0, MAX_FOTO).forEach((f, i) => {
     /* qualunque image/*, come Apps Script: una foto piccola (AVIF, BMP…) il
        portale la manda com'e', e scartarla vorrebbe dire perderla in silenzio */
     const m = /^data:image\/([a-z0-9.+-]+);base64,([A-Za-z0-9+/=\s]+)$/i.exec(String((f as Dati)?.data || ''))
     if (!m) { scartate.push(`foto ${i + 1}: non e' un'immagine in formato data URL`); return }
-    let byte: Uint8Array
-    try { byte = Uint8Array.from(atob(m[2].replace(/\s/g, '')), (c) => c.charCodeAt(0)) } catch {
-      scartate.push(`foto ${i + 1}: contenuto non decodificabile`); return
-    }
+    const byte = decodifica(m[2])
+    if (!byte) { scartate.push(`foto ${i + 1}: contenuto non decodificabile`); return }
     if (byte.length > MAX_FOTO_BYTE) { scartate.push(`foto ${i + 1}: oltre ${MAX_FOTO_BYTE / 1048576} MB`); return }
     const t = m[1].toLowerCase()
     const ext = t === 'png' ? 'png' : (t === 'jpeg' || t === 'jpg') ? 'jpg' : (t.replace(/[^a-z0-9].*$/, '') || 'img')
@@ -390,28 +613,30 @@ function leggiFoto(campo: unknown): { foto: Foto[]; scartate: string[] } {
   })
   return { foto, scartate }
 }
+function decodifica(b64: string): Uint8Array | null {
+  try { return Uint8Array.from(atob(b64.replace(/^data:[^,]*,/, '').replace(/\s/g, '')), (c) => c.charCodeAt(0)) } catch { return null }
+}
 
-async function caricaFoto(token: string, cartella: string, f: Foto, indirizzo: unknown, n: number): Promise<string> {
-  const nome = `Segnalazione_${sanitize(indirizzo)}_${n}_${stampino()}.${f.ext}`
-  const boundary = '-------FotoSegnalazione' + crypto.randomUUID()
+async function caricaFile(token: string, cartella: string, nome: string, mime: string, byte: Uint8Array): Promise<string> {
+  const boundary = '-------FilePortale' + crypto.randomUUID()
   const enc = new TextEncoder()
   const testa = enc.encode(
     `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n` +
     JSON.stringify({ name: nome, parents: [cartella] }) +
-    `\r\n--${boundary}\r\nContent-Type: ${f.mime}\r\n\r\n`)
+    `\r\n--${boundary}\r\nContent-Type: ${mime}\r\n\r\n`)
   const coda = enc.encode(`\r\n--${boundary}--`)
-  const corpo = new Uint8Array(testa.length + f.byte.length + coda.length)
-  corpo.set(testa, 0); corpo.set(f.byte, testa.length); corpo.set(coda, testa.length + f.byte.length)
+  const corpo = new Uint8Array(testa.length + byte.length + coda.length)
+  corpo.set(testa, 0); corpo.set(byte, testa.length); corpo.set(coda, testa.length + byte.length)
   const r = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id,webViewLink', {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': `multipart/related; boundary=${boundary}` },
     body: corpo,
   })
   const up = await r.json()
-  if (!up.id) throw new Error('caricamento della foto su Drive fallito: ' + JSON.stringify(up).slice(0, 300))
+  if (!up.id) throw new Error('caricamento su Drive fallito: ' + JSON.stringify(up).slice(0, 300))
   /* Stesso permesso che dava Apps Script: chi ha il link vede. La mail
      interna va a cpt@formedilpadova.it, che non e' una casella Google e
-     senza questo i link delle foto non si aprirebbero. */
+     senza questo i link non si aprirebbero. */
   const perm = await fetch(`https://www.googleapis.com/drive/v3/files/${up.id}/permissions?supportsAllDrives=true`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -422,8 +647,8 @@ async function caricaFoto(token: string, cartella: string, f: Foto, indirizzo: u
 }
 
 /* ── foglio: la scheda del modulo ──────────────────────────────────────────
-   La scheda si trova per gid (segnalazione) o per titolo (notifica), come
-   nell'import delle 6:30; con la scheda si legge la riga di testata. */
+   La scheda si trova per gid o per titolo come nell'import delle 6:30; con
+   la scheda si legge la riga di testata. */
 const norma = (h: unknown) => String(h ?? '').trim().toUpperCase()
 async function schedaFoglio(sb: SB, token: string, m: Modulo): Promise<Foglio> {
   const chiave = m.scheda.gid || m.scheda.titolo || ''
@@ -483,6 +708,15 @@ async function appendiFoglio(token: string, f: Foglio, valori: Record<string, st
   for (const k of Object.keys(valori)) {
     if (posto.has(k)) continue
     const i = testata.findIndex((h, j) => !presi.has(j) && norma(h).includes(k))
+    if (i >= 0) { posto.set(k, i); presi.add(i) }
+  }
+  /* e al contrario, per le intestazioni piu' corte del nome di Apps Script:
+     sulla scheda delle segnalazioni la colonna si chiama «FOTO», non «FOTO
+     URL» (trovato dalla prova del 13/09/2026). Solo sulle colonne rimaste
+     libere e con almeno 4 lettere, perche' non peschi a caso. */
+  for (const k of Object.keys(valori)) {
+    if (posto.has(k)) continue
+    const i = testata.findIndex((h, j) => !presi.has(j) && norma(h).length >= 4 && k.includes(norma(h)))
     if (i >= 0) { posto.set(k, i); presi.add(i) }
   }
   const riga: (string | number)[] = testata.map(() => '')
@@ -550,10 +784,11 @@ async function prendiLavorazione(sb: SB, subId: string): Promise<string | null> 
 async function richiesta(sb: SB, sa: Dati, d: Dati): Promise<Response> {
   const tipo = String(d.tipo_modulo || '').toLowerCase()
   const m = Object.hasOwn(MODULI, tipo) ? MODULI[tipo] : null
-  if (!m) return rifiuto(`il modulo «${tipo}» non passa ancora da questa strada`)
+  if (!m) return rifiuto(`il modulo «${tipo}» non passa da questa strada`)
   const subId = String(d.submission_id || '').trim()
   if (!/^[A-Za-z0-9-]{8,64}$/.test(subId)) return rifiuto('submission_id mancante o non valido')
-  if (!testo(d.indirizzo_cantiere) || !testo(d.comune_cantiere)) return rifiuto('indirizzo e comune del cantiere sono obbligatori')
+  const mancanti = m.obbligatori.filter((k) => !testo(leggi(d, k)))
+  if (mancanti.length) return rifiuto(`campi obbligatori mancanti: ${mancanti.join(', ')}`)
 
   const daUnOra = new Date(Date.now() - 3600_000).toISOString()
   const { count } = await sb.from('s_portale_ricezioni').select('id', { count: 'exact', head: true })
@@ -570,7 +805,7 @@ async function richiesta(sb: SB, sa: Dati, d: Dati): Promise<Response> {
   }
   const { error: errRic } = await sb.from('s_portale_ricezioni').upsert({
     submission_id: subId, tipo, timestamp_modulo: istante(d.timestamp),
-    ragione_sociale: m.chi(d), email: testo(d.email, 200),
+    ragione_sociale: testo(leggi(d, m.chi), 200), email: testo(d.email, 200),
     payload: snello, origine: 'portale-diretto',
   }, { onConflict: 'submission_id', ignoreDuplicates: true })
   if (errRic) throw new Error('scatola nera non scritta: ' + errRic.message)
@@ -617,7 +852,6 @@ async function lavora(sb: SB, sa: Dati, d: Dati, tipo: string, m: Modulo, subId:
   let pratica = await praticaPer(sb, m, subId)
   const duplicato = !!pratica
   if (!pratica) {
-    const esitoIniziale: Dati = { strada: 'portale-richieste', arrivata_il: new Date().toISOString() }
     /* Il numero parte dal piu' alto fra database e foglio: sul foglio ci sono
        ancora le righe scritte da Apps Script. */
     let maxFoglio = 0
@@ -636,15 +870,20 @@ async function lavora(sb: SB, sa: Dati, d: Dati, tipo: string, m: Modulo, subId:
         .eq('submission_id', subId)
       return intoppo(`richiesta ricevuta ma non ancora registrata: il foglio dei numeri non si legge (${errMsg(e)}). Riprovando si completa`)
     }
-    const { data: ult } = await sb.from(m.tabella).select('progressivo')
-      .not('progressivo', 'is', null).order('progressivo', { ascending: false }).limit(1)
+    let ultimo = sb.from(m.tabella).select('progressivo').not('progressivo', 'is', null)
+    for (const [k, v] of Object.entries(m.filtro || {})) ultimo = ultimo.eq(k, v)
+    const { data: ult } = await ultimo.order('progressivo', { ascending: false }).limit(1)
     let prog = Math.max(maxFoglio, Number(ult?.[0]?.progressivo) || 0) + 1
+    const campi: Dati = {}
+    for (const [col, spec] of Object.entries(m.colonne)) campi[col] = perDb(d, spec)
     const riga = {
       fonte: 'modulo',
       submission_id: subId,
       timestamp_modulo: istante(d.timestamp),
-      ...(await m.riga(sb, d)),
-      portale_esito: esitoIniziale,
+      ...campi,
+      ...(m.extra ? await m.extra(sb, d) : {}),
+      ...(m.filtro || {}),
+      portale_esito: { strada: 'portale-richieste', arrivata_il: new Date().toISOString() },
     }
     for (let t = 0; t < 6 && !pratica; t++) {
       const { data, error } = await sb.from(m.tabella).insert({ ...riga, progressivo: prog }).select('id, progressivo, portale_esito').single()
@@ -665,9 +904,15 @@ async function lavora(sb: SB, sa: Dati, d: Dati, tipo: string, m: Modulo, subId:
     if (error) console.error('portale-richieste: esito non salvato sulla pratica', m.tabella, p.id, error.message)
   }
   const adesso = () => new Date().toISOString()
+  const fallito = async (cosa: string, e: unknown) => {
+    esito[cosa + '_errore'] = errMsg(e)
+    await salva()
+    await sb.from('s_portale_ricezioni').update({ nota: `${cosa} non salvati: ${errMsg(e)}` }).eq('submission_id', subId)
+    return intoppo(`la richiesta è registrata con il n° ${p.progressivo}, ma i file allegati non sono stati salvati (${errMsg(e)}): riprovando si completano, senza creare una seconda richiesta`)
+  }
 
-  /* 3. FOTO — una per volta, e ognuna salvata appena caricata: un reinvio
-        riparte da quelle che mancano, senza doppioni su Drive */
+  /* 3a. FOTO — una per volta, e ognuna salvata appena caricata: un reinvio
+         riparte da quelle che mancano, senza doppioni su Drive */
   const fotoUrls: string[] = Array.isArray(esito.foto_caricate) ? [...(esito.foto_caricate as string[])] : []
   if (m.foto) {
     const { foto, scartate } = leggiFoto(d.seg_photo_base64)
@@ -675,20 +920,43 @@ async function lavora(sb: SB, sa: Dati, d: Dati, tipo: string, m: Modulo, subId:
     if (foto.length > fotoUrls.length) {
       try {
         const tok = await drive()
-        const cartella = await cartellaFoto(sb, tok)
+        const cartella = await cartellaFile(sb, tok)
         for (let i = fotoUrls.length; i < foto.length; i++) {
-          fotoUrls.push(await caricaFoto(tok, cartella, foto[i], d.indirizzo_cantiere, i + 1))
+          const f = foto[i]
+          fotoUrls.push(await caricaFile(tok, cartella, `Segnalazione_${sanitize(d.indirizzo_cantiere)}_${i + 1}_${stampino()}.${f.ext}`, f.mime, f.byte))
           esito.foto_caricate = [...fotoUrls]
           await salva({ foto_urls: fotoUrls.join('; ') })
         }
         delete esito.foto_errore
       } catch (e) {
-        esito.foto_errore = errMsg(e)
-        await salva()
-        await sb.from('s_portale_ricezioni').update({ nota: 'foto non salvate: ' + errMsg(e) }).eq('submission_id', subId)
-        return intoppo(`la richiesta è registrata con il n° ${p.progressivo}, ma le foto non sono state salvate (${errMsg(e)}): riprovando si completano, senza creare una seconda richiesta`)
+        return await fallito('foto', e)
       }
     }
+  }
+
+  /* 3b. PDF ALLEGATI (RLST, RLS) — stesso nome e stesso posto di Apps Script
+         (savePdfFromBase64), la colonna della pratica col link; uno per volta */
+  const file: Record<string, string> = { ...((esito.file_caricati as Record<string, string>) || {}) }
+  const allegatiMail: [string, string][] = []
+  for (const a of m.file || []) {
+    if (!file[a.colonna]) {
+      const b64 = d[a.base + '_base64']
+      if (typeof b64 !== 'string' || !b64) continue
+      const byte = decodifica(b64)
+      if (!byte || !byte.length) { (esito.file_scartati ||= []) as string[]; (esito.file_scartati as string[]).push(`${a.etichetta}: contenuto non decodificabile`); continue }
+      if (byte.length > MAX_ALLEGATO_BYTE) { (esito.file_scartati ||= []) as string[]; (esito.file_scartati as string[]).push(`${a.etichetta}: oltre ${MAX_ALLEGATO_BYTE / 1048576} MB`); continue }
+      try {
+        const tok = await drive()
+        const url = await caricaFile(tok, await cartellaFile(sb, tok), `${a.prefisso}_${sanitize(d.ragione_sociale, 'impresa')}_${stampino()}.pdf`, 'application/pdf', byte)
+        file[a.colonna] = url
+        esito.file_caricati = { ...file }
+        delete esito.file_errore
+        await salva({ [a.colonna]: url })
+      } catch (e) {
+        return await fallito('file', e)
+      }
+    }
+    if (file[a.colonna]) allegatiMail.push([a.etichetta, file[a.colonna]])
   }
 
   /* 4. FOGLIO — la copia della riga, che prenota il numero */
@@ -696,7 +964,9 @@ async function lavora(sb: SB, sa: Dati, d: Dati, tipo: string, m: Modulo, subId:
     try {
       const tok = await drive()
       foglio ||= await schedaFoglio(sb, tok, m)
-      const senzaColonna = await appendiFoglio(tok, foglio, m.foglio(d, p.progressivo, fotoUrls), m.intestazioni)
+      const ctx: Contesto = { prog: p.progressivo, fotoUrls, file }
+      const valori = Object.fromEntries(m.foglio.map(([h, s]) => [h, perFoglio(d, s, ctx)]))
+      const senzaColonna = await appendiFoglio(tok, foglio, valori, m.foglio.map(([h]) => h))
       esito.foglio_il = adesso()
       if (senzaColonna.length) esito.foglio_senza_colonna = senzaColonna
       delete esito.foglio_errore
@@ -717,7 +987,7 @@ async function lavora(sb: SB, sa: Dati, d: Dati, tipo: string, m: Modulo, subId:
   if (!esito.mail_interna_il) {
     try {
       const { data: cfg } = await sb.from('s_config').select('valore').eq('chiave', 'portale_mail_segreteria').maybeSingle()
-      const mi = mailInterna(tipo, d, p.progressivo, { praticaId: p.id, fotoUrls })
+      const mi = mailInterna(tipo, d, p.progressivo, { praticaId: p.id, fotoUrls, allegati: allegatiMail })
       await inviaMail(sa, messaggioMime({
         a: (cfg?.valore as string) || EMAIL_UFFICIO,
         rispondiA: emailValida ? emailCompilante! : undefined,
@@ -775,9 +1045,7 @@ async function battito(req: Request, sb: SB, sa: Dati): Promise<Response> {
     }
     return `(${conti.join(', ')})`
   })
-  if (Object.values(MODULI).some((m) => m.foto)) {
-    await prova('drive', async () => `(PDF_ricevuti ${await cartellaFoto(sb, await drive())})`)
-  }
+  await prova('drive', async () => `(PDF_ricevuti ${await cartellaFile(sb, await drive())})`)
   for (const [tipo, m] of Object.entries(MODULI)) {
     await prova('foglio_' + tipo, async () => {
       const f = await schedaFoglio(sb, await drive(), m)

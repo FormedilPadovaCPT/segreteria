@@ -170,6 +170,13 @@ async function vaiA(vista) {
     return mod.attestazioni.render();
   }
 
+  if (vista === 'questionari') {
+    mostraVista('questionari');
+    $('#questionari-host').innerHTML = '<p class="empty">Un istante…</p>';
+    mod.questionari = mod.questionari || await import('./questionari.js');
+    return mod.questionari.render();
+  }
+
   if (vista === 'home') {
     mostraVista('home');
     $('#home-host').innerHTML = '<p class="empty">Un istante…</p>';

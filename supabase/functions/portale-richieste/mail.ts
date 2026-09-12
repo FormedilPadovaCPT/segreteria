@@ -55,7 +55,11 @@ const TITOLO_CONFERMA: Record<string, string> = {
 }
 
 /* deep link dell'app segreteria per tipo: #<prefisso>-<id> apre la pratica */
-const LINK_PRATICA: Record<string, string> = { seg: 'segnalazione', not: 'notifica' }
+const LINK_PRATICA: Record<string, string> = {
+  seg: 'segnalazione', not: 'notifica', cons: 'consulenza', vis: 'visita', conf: 'conferenza', att: 'attestazione',
+}
+/* le viste che non aprono la singola pratica da link: si apre la vista */
+const LINK_VISTA: Record<string, string> = { rlst: 'rlst', rls: 'rls', qst: 'questionari' }
 
 type Dati = Record<string, unknown>
 const s = (v: unknown) => (v === null || v === undefined ? '' : String(v))
@@ -126,6 +130,14 @@ function nominativo(d: Dati, pre: string): string {
 /* Le tre caselle in testa alla mail interna: cambiano per servizio */
 function riassuntoCpt(tipo: string, d: Dati) {
   const c: { t: string; v: string; s?: string }[] = []
+  /* il questionario non ha impresa ne' cantiere: tecnico, voti, contatto */
+  if (tipo === 'qst') {
+    return [
+      { t: 'Tecnico', v: s(d.tecnico), s: d.data_visita ? 'visita del ' + fmtDate(d.data_visita) : '' },
+      { t: 'Voti (1-5)', v: [d.scala_aspettative, d.scala_professionale, d.scala_facilita].map(s).filter(Boolean).join(' · '), s: 'aspettative · professionalità · facilità' },
+      { t: 'Contatto', v: s(d.qst_contatto) || 'non indicato', s: s(d.recapito_contatto) },
+    ]
+  }
   if (d.piva || d.cf_impresa) {
     c.push({ t: 'P.IVA', v: s(d.piva || d.cf_impresa), s: d.codice_ceiv ? 'CEIV ' + s(d.codice_ceiv) : '' })
   } else {
@@ -180,6 +192,16 @@ const ETICHETTE_CAMPI: Record<string, string> = {
   codice_fiscale: 'Codice fiscale', cf: 'Codice fiscale', cf_persona: 'CF persona',
   tipo: 'Tipo', indirizzo: 'Indirizzo', comune: 'Comune', titolo: 'Titolo', nome: 'Nome', cognome: 'Cognome',
   indirizzo_persona: 'Indirizzo persona', comune_persona: 'Comune persona', telefono_persona: 'Telefono persona',
+  /* questionario sul sopralluogo */
+  tecnico: 'Tecnico', data_visita: 'Data della visita', scopi_visita: 'Scopo della visita',
+  scala_aspettative: 'Aspettative soddisfatte (1-5)', qst_ruolo_chiaro: 'Ruolo e obiettivi spiegati',
+  scala_professionale: 'Professionalità del tecnico (1-5)', qst_suggerimenti: 'Suggerimenti pratici',
+  scala_facilita: 'Suggerimenti facili da applicare (1-5)', qst_nuovi_rischi: 'Nuovi rischi individuati',
+  qst_misure: 'Misure adottate dopo la visita', aree_monitorate: 'Aree monitorate',
+  scala_serv1: 'Conosce l\'Area Sicurezza e Salute (1-5)', scala_serv2: 'Conosce le visite in cantiere (1-5)',
+  scala_serv3: 'Conosce la consulenza (1-5)', scala_serv4: 'Conosce la formazione (1-5)',
+  scala_serv5: 'Conosce corsi e seminari (1-5)', suggerimenti_testo: 'Proposte di miglioramento',
+  qst_aggiornamenti: 'Vuole ricevere aggiornamenti', qst_contatto: 'Vuole essere contattato', recapito_contatto: 'Recapito',
 }
 function etichettaCampo(key: string, prefisso: string, tipo: string): string {
   if (tipo === 'seg' && key === 'notifica') return 'Nome e cognome'
@@ -215,7 +237,9 @@ function impreseLeggibili(v: unknown): string {
 function gruppiCampiCpt(tipo: string, d: Dati): Gruppo[] {
   const ESCLUDI = ['tipo_modulo', 'timestamp', 'pdf_base64', 'pdf_nome',
     'pdf_verbale_base64', 'pdf_verbale_nome', 'pdf_formazione_base64', 'pdf_formazione_nome',
-    'seg_photo_base64', 'privacy', 'figure_json', 'imprese_json', 'submission_id', 'foto_url']
+    'seg_photo_base64', 'privacy', 'figure_json', 'imprese_json', 'submission_id', 'foto_url',
+    /* doppioni: il portale manda il tipo di visita e le scale dei servizi con due nomi */
+    'tipo_visita', 'serv_area_sicurezza', 'serv_visite_cantiere', 'serv_consulenza', 'serv_formazione', 'serv_corsi']
   const usati: Record<string, boolean> = {}
   const dati = Object.entries(d).filter(([k, v]) => v && !ESCLUDI.includes(k))
   const isData = (k: string) => /^data_|_il$|_nato_il$/.test(k)
@@ -274,9 +298,10 @@ function gruppiCampiCpt(tipo: string, d: Dati): Gruppo[] {
 
 /* ── MAIL ALLA SEGRETERIA: scheda pratica ───────────────────────────────── */
 export function mailInterna(tipo: string, d: Dati, prog: number,
-  o: { praticaId?: number | null; fotoUrls?: string[] } = {}): { oggetto: string; html: string } {
+  o: { praticaId?: number | null; fotoUrls?: string[]; allegati?: [string, string][] } = {}): { oggetto: string; html: string } {
   const label = TIPO_LABEL[tipo] || tipo
-  const impresa = s(d.ragione_sociale) || nominativo(d, '') || s(d.comune_cantiere) || 'Nuova richiesta'
+  const impresa = s(d.ragione_sociale) || nominativo(d, '') ||
+    (tipo === 'qst' && d.tecnico ? 'Sopralluogo di ' + s(d.tecnico) : '') || s(d.comune_cantiere) || 'Nuova richiesta'
   const quando = mailDataOra()
 
   const caselle = riassuntoCpt(tipo, d).map((c, i) => `
@@ -286,7 +311,8 @@ export function mailInterna(tipo: string, d: Dati, prog: number,
         ${c.s ? `<p style="margin:0;font-family:${MAIL.FONT};font-size:12.5px;color:${MAIL.GRIGIO_TESTO}">${escHtml(c.s)}</p>` : ''}
       </td>`).join('')
 
-  const urlApp = MAIL.APP_SEGRETERIA + (o.praticaId && LINK_PRATICA[tipo] ? `#${LINK_PRATICA[tipo]}-${o.praticaId}` : '')
+  const urlApp = MAIL.APP_SEGRETERIA + (o.praticaId && LINK_PRATICA[tipo] ? `#${LINK_PRATICA[tipo]}-${o.praticaId}`
+    : LINK_VISTA[tipo] ? `#vista-${LINK_VISTA[tipo]}` : '')
   const bottoni = `<td style="padding-right:8px">${mailBottone('Apri la pratica nell\'app segreteria', urlApp, 'arancio')}</td>` +
     (d.email ? `<td><a href="mailto:${escHtml(d.email)}" style="font-family:${MAIL.FONT};font-size:13px;color:${MAIL.GRIGIO_TESTO}">Rispondi a chi ha compilato</a></td>` : '')
 
@@ -303,6 +329,12 @@ export function mailInterna(tipo: string, d: Dati, prog: number,
     gruppi.push({
       titolo: 'Foto', html: true,
       righe: o.fotoUrls.map((u, i) => [`Foto ${i + 1}`, `<a href="${escHtml(u)}" style="color:${MAIL.ARANCIO}">Apri su Drive</a>`]),
+    })
+  }
+  if (o.allegati && o.allegati.length) {
+    gruppi.push({
+      titolo: 'Allegati', html: true,
+      righe: o.allegati.map(([et, u]) => [et, `<a href="${escHtml(u)}" style="color:${MAIL.ARANCIO}">Apri su Drive</a>`]),
     })
   }
 
@@ -348,7 +380,7 @@ export function mailInterna(tipo: string, d: Dati, prog: number,
     html: mailDocumento(righe, {
       senzaFirma: true,
       notaFinale: 'Inviato automaticamente dal Portale Formedil Padova. Rispondendo a questa mail si scrive a chi ha compilato il modulo. ' +
-        'La richiesta è arrivata direttamente al database: la pratica è già nell\'app segreteria, e una copia della riga è sul foglio Google.',
+        'La richiesta è arrivata direttamente al database: la pratica è già nell\'app segreteria (il riepilogo PDF lo genera l\'app al protocollo), e una copia della riga è sul foglio Google.',
     }),
   }
 }

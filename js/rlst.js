@@ -368,8 +368,18 @@ async function apriPratica(id) {
       tipo_doc_id: 52,
       mezzo: 'e-mail',
       cartella: '2_AREE/Servizi_CPT/RLST',
-    }, true);
-    toast('Maschera IN precompilata: allega il PDF di riepilogo e salva.', 'ok');
+    }, true, async (nuovo) => {
+      /* il numero si collega alla pratica e il riepilogo del modulo nasce da
+         solo (13/09/2026: il PDF non lo fa piu' il portale) */
+      const { error } = await sb.from('s_rlst_pratiche').update({
+        protocollo_in_id: nuovo.id, aggiornato_da: state.email, updated_at: new Date().toISOString(),
+      }).eq('id', p.id);
+      if (error) throw new Error(error.message);
+      toast(`Protocollo ${codiceProtocollo(nuovo)} collegato alla richiesta n° ${p.progressivo ?? `m${p.id}`}.`, 'ok');
+      const { depositaRiepilogo } = await import('./riepilogo-modulo.js');
+      await depositaRiepilogo('rlst', p, nuovo, '2_AREE/Servizi_CPT/RLST');
+    });
+    toast('Maschera IN precompilata: salva e il riepilogo PDF del modulo nasce da solo, col numero nel nome. Se hai un documento originale allegalo pure: resta lui il principale.', 'ok');
   });
 
   $('#rl-risposta')?.addEventListener('click', (ev) => preparaRisposta(p, imp, ev.currentTarget));

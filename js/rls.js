@@ -367,8 +367,18 @@ async function apriComunicazione(id) {
       note: `${r.tipo_elezione || 'Elezione'} RLS${r.data_verbale ? `, verbale del ${r.data_verbale}` : ''}${r.protocollo_verbale ? ` (Vs. Prot. ${r.protocollo_verbale})` : ''}. RLS: ${nomeRls(r)}${r.rls_cf ? ' — ' + r.rls_cf : ''}.${r.note_modulo ? ' Note: ' + r.note_modulo : ''}`,
       mezzo: 'e-mail',
       cartella: '2_AREE/Servizi_CPT/RLS/comunicazioni_imprese',
-    }, true);
-    toast('Maschera IN precompilata: allega il PDF di riepilogo e salva.', 'ok');
+    }, true, async (nuovo) => {
+      /* il numero si collega alla comunicazione e il riepilogo del modulo
+         nasce da solo (13/09/2026: il PDF non lo fa piu' il portale) */
+      const { error } = await sb.from('s_rls_anagrafe').update({
+        protocollo_in_id: nuovo.id, aggiornato_da: state.email, updated_at: new Date().toISOString(),
+      }).eq('id', r.id);
+      if (error) throw new Error(error.message);
+      toast(`Protocollo ${codiceProtocollo(nuovo)} collegato alla comunicazione n° ${r.progressivo ?? `m${r.id}`}.`, 'ok');
+      const { depositaRiepilogo } = await import('./riepilogo-modulo.js');
+      await depositaRiepilogo('rls', r, nuovo, '2_AREE/Servizi_CPT/RLS/comunicazioni_imprese');
+    });
+    toast('Maschera IN precompilata: salva e il riepilogo PDF del modulo nasce da solo, col numero nel nome. Se hai un documento originale allegalo pure: resta lui il principale.', 'ok');
   });
 
   $('#rc-riscontro')?.addEventListener('click', (ev) => preparaRiscontro(r, imp, ev.currentTarget));

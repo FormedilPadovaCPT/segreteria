@@ -90,6 +90,7 @@ export function mostraVista(nome) {
     notifiche: '#view-notifiche',
     conferenze: '#view-conferenze',
     attestazioni: '#view-attestazioni',
+    questionari: '#view-questionari',
     corsi: '#view-corsi',
     persone: '#view-persone',
     nomine: '#view-nomine',

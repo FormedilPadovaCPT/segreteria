@@ -812,6 +812,9 @@ async function protocollaIn(p) {
     }).eq('id', p.id);
     if (error) throw new Error(error.message);
     toast(`Protocollo ${codiceProtocollo(nuovo)} collegato alla richiesta n° ${p.progressivo ?? `m${p.id}`}.`, 'ok');
+    /* il riepilogo del modulo lo genera l'app (13/09/2026: il portale non fa piu' il PDF) */
+    const { depositaRiepilogo } = await import('./riepilogo-modulo.js');
+    await depositaRiepilogo('vis', p, nuovo, PERCORSO_VAULT);
   });
-  toast('Maschera IN precompilata: allega il PDF di riepilogo del modulo e salva — il numero si collega da solo.', 'ok');
+  toast('Maschera IN precompilata: salva e il riepilogo PDF del modulo nasce da solo, col numero nel nome. Se hai un documento originale (PEC, lettera) allegalo pure: resta lui il principale.', 'ok');
 }
