@@ -69,7 +69,7 @@ export async function render() {
   let canale = null;
   try {
     const [{ data: cfg }, { count: senzaRiscontro }] = await Promise.all([
-      sb.from('s_config').select('chiave, valore').in('chiave', ['portale_battito_al', 'portale_battito_ore']),
+      sb.from('s_config').select('chiave, valore').in('chiave', ['portale_battito_al', 'portale_battito_ore', 'portale_diretto_battito_al']),
       /* «senza riscontro» = copia arrivata allo specchio e mai confermata
          dal backend dopo un quarto d'ora: la richiesta e' partita ma sul
          foglio non c'e'. Si calcola qui, non serve nessun lavoro batch. */
@@ -81,10 +81,16 @@ export async function render() {
     const battito = c.portale_battito_al ? new Date(c.portale_battito_al) : null;
     const limite = Number(c.portale_battito_ore || 36);
     const ore = battito && !isNaN(battito) ? (Date.now() - battito.getTime()) / 3600000 : null;
+    /* la strada diretta (12/09/2026): i moduli che arrivano al database
+       senza passare da Apps Script hanno un battito loro, perche' un guasto
+       dell'una non si vede dal battito dell'altra */
+    const diretto = c.portale_diretto_battito_al ? new Date(c.portale_diretto_battito_al) : null;
+    const oreDiretto = diretto && !isNaN(diretto) ? (Date.now() - diretto.getTime()) / 3600000 : null;
     canale = {
-      battito, ore, limite,
+      battito, ore, limite, diretto, oreDiretto,
       senzaRiscontro: senzaRiscontro || 0,
       muto: ore === null || ore > limite,
+      mutoDiretto: oreDiretto === null || oreDiretto > limite,
     };
   } catch (e) {
     /* la tabella o le chiavi non ci sono ancora: si tace, non si inventa */
@@ -192,8 +198,13 @@ export async function render() {
         ? `il portale non dà segno di vita da ${Math.round(canale.ore)} ore (ultimo battito ${dataIt(canale.battito.toISOString().slice(0, 10))})`
         : 'non risulta nessun battito del portale');
     }
+    if (canale.mutoDiretto) {
+      guai.push(canale.diretto
+        ? `la strada diretta del portale (segnalazioni) non dà segno di vita da ${Math.round(canale.oreDiretto)} ore (ultimo battito ${dataIt(canale.diretto.toISOString().slice(0, 10))})`
+        : 'non risulta nessun battito della strada diretta del portale (segnalazioni)');
+    }
     if (canale.senzaRiscontro) {
-      guai.push(`${canale.senzaRiscontro} richiest${canale.senzaRiscontro === 1 ? 'a' : 'e'} risultano partite dal portale ma non sono arrivate al foglio`);
+      guai.push(`${canale.senzaRiscontro} richiest${canale.senzaRiscontro === 1 ? 'a' : 'e'} risultano partite dal portale ma non sono state registrate`);
     }
     if (!guai.length) return '';
     return `<div class="hm-allarme">
@@ -309,14 +320,17 @@ export async function render() {
             }).join('') + '<p class="hint" style="margin-top:6px">Eseguite nel gestionale, in attesa della chiusura della segreteria — da qui si decide se e a chi comunicare l\'esito.</p>'
           : '<p class="hint">Nessuna visita eseguita in attesa di chiusura.</p>')}
 
-      ${card('📡 Canale portale servizi', canale && !canale.muto && !canale.senzaRiscontro ? '✓' : '!',
+      ${card('📡 Canale portale servizi', canale && !canale.muto && !canale.mutoDiretto && !canale.senzaRiscontro ? '✓' : '!',
         !canale
           ? '<p class="hint">Stato non disponibile: il controllo del canale parte con l\'import delle 6:30.</p>'
           : `<div class="hm-riga"><span>${canale.muto ? '🔴' : '🟢'}</span>
                <span>Ultimo battito del portale</span>
                <span class="hint">${canale.battito ? dataIt(canale.battito.toISOString().slice(0, 10)) + ' · ' + Math.round(canale.ore) + ' ore fa' : 'mai'}</span></div>
+             <div class="hm-riga"><span>${canale.mutoDiretto ? '🔴' : '🟢'}</span>
+               <span>Ultimo battito della strada diretta (segnalazioni)</span>
+               <span class="hint">${canale.diretto ? dataIt(canale.diretto.toISOString().slice(0, 10)) + ' · ' + Math.round(canale.oreDiretto) + ' ore fa' : 'mai'}</span></div>
              <div class="hm-riga"><span>${canale.senzaRiscontro ? '🔴' : '🟢'}</span>
-               <span>Richieste partite ma non arrivate al foglio</span>
+               <span>Richieste partite ma non registrate</span>
                <span class="hm-mini">${canale.senzaRiscontro}</span></div>
              <p class="hint" style="margin-top:6px">Il battito lo scrive ogni notte un controllo automatico e lo rilegge
              l'import delle 6:30: serve a distinguere «nessuno ha inviato» da «il canale è rotto».</p>`)}
