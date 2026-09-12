@@ -200,8 +200,8 @@ export async function render() {
     }
     if (canale.mutoDiretto) {
       guai.push(canale.diretto
-        ? `la strada diretta del portale (segnalazioni) non dà segno di vita da ${Math.round(canale.oreDiretto)} ore (ultimo battito ${dataIt(canale.diretto.toISOString().slice(0, 10))})`
-        : 'non risulta nessun battito della strada diretta del portale (segnalazioni)');
+        ? `la strada diretta del portale (segnalazioni e notifiche) non dà segno di vita da ${Math.round(canale.oreDiretto)} ore (ultimo battito ${dataIt(canale.diretto.toISOString().slice(0, 10))})`
+        : 'non risulta nessun battito della strada diretta del portale (segnalazioni e notifiche)');
     }
     if (canale.senzaRiscontro) {
       guai.push(`${canale.senzaRiscontro} richiest${canale.senzaRiscontro === 1 ? 'a' : 'e'} risultano partite dal portale ma non sono state registrate`);
@@ -327,7 +327,7 @@ export async function render() {
                <span>Ultimo battito del portale</span>
                <span class="hint">${canale.battito ? dataIt(canale.battito.toISOString().slice(0, 10)) + ' · ' + Math.round(canale.ore) + ' ore fa' : 'mai'}</span></div>
              <div class="hm-riga"><span>${canale.mutoDiretto ? '🔴' : '🟢'}</span>
-               <span>Ultimo battito della strada diretta (segnalazioni)</span>
+               <span>Ultimo battito della strada diretta (segnalazioni e notifiche)</span>
                <span class="hint">${canale.diretto ? dataIt(canale.diretto.toISOString().slice(0, 10)) + ' · ' + Math.round(canale.oreDiretto) + ' ore fa' : 'mai'}</span></div>
              <div class="hm-riga"><span>${canale.senzaRiscontro ? '🔴' : '🟢'}</span>
                <span>Richieste partite ma non registrate</span>

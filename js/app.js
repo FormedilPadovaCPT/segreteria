@@ -303,8 +303,9 @@ try {
       state.tipiDoc = tipi || [];
 
       /* link profondo dalle mail: #segnalazione-<id>, #consulenza-<id>,
-         #visita-<id> o #conferenza-<id> apre la pratica */
-      const hashPratica = location.hash.match(/^#(segnalazione|consulenza|visita|conferenza|attestazione|ferie|fattura)-(\d+)$/);
+         #visita-<id> o #conferenza-<id> apre la pratica; #notifica-<id>
+         arriva dalla mail interna della strada diretta del portale (12/09/2026) */
+      const hashPratica = location.hash.match(/^#(segnalazione|notifica|consulenza|visita|conferenza|attestazione|ferie|fattura)-(\d+)$/);
       /* #vista-<nome> apre una vista senza pratica: e' il link della mail
          interna del portale servizi, che parte PRIMA dell'import delle 6:30
          e quindi non ha ancora un id di pratica da puntare (06/09/2026) */
@@ -312,7 +313,7 @@ try {
       const apriDaHash = async () => {
         if (hashVista) { await vaiA(hashVista[1]); return; }
         if (!hashPratica) return;
-        const vista = { segnalazione: 'segnalazioni', consulenza: 'consulenze', visita: 'visite', conferenza: 'conferenze', attestazione: 'attestazioni', ferie: 'presenze', fattura: 'fatture-tecnici' }[hashPratica[1]];
+        const vista = { segnalazione: 'segnalazioni', notifica: 'notifiche', consulenza:'consulenze', visita: 'visite', conferenza: 'conferenze', attestazione: 'attestazioni', ferie: 'presenze', fattura: 'fatture-tecnici' }[hashPratica[1]];
         await vaiA(vista);
         await mod[vista]?.apriPratica?.(Number(hashPratica[2]));
       };

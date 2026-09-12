@@ -11,7 +11,11 @@
 //    nasceva con l'import delle 6:30;
 //  - nella segnalazione il campo «notifica» e' il nome di chi segnala, e
 //    compare come tale in «Chi segnala» (in Apps Script finiva sotto
-//    Cantiere con l'etichetta «Notifica preliminare», che e' del modulo notifica).
+//    Cantiere con l'etichetta «Notifica preliminare», che e' del modulo notifica);
+//  - nella notifica cantiere (12/09/2026) «rl_» e' il RESPONSABILE DEI LAVORI:
+//    Apps Script lo etichettava «Legale rappresentante», lo metteva nella
+//    casella in testa e salutava lui nella conferma, che invece va a chi ha
+//    compilato. Qui la casella e il saluto sono di chi comunica.
 //
 // Solo tabelle e stili in linea: e' l'unica cosa che i client di posta rendono
 // in modo uniforme. Il logo e' un PNG RGB su GitHub Pages, non incorporato:
@@ -51,7 +55,7 @@ const TITOLO_CONFERMA: Record<string, string> = {
 }
 
 /* deep link dell'app segreteria per tipo: #<prefisso>-<id> apre la pratica */
-const LINK_PRATICA: Record<string, string> = { seg: 'segnalazione' }
+const LINK_PRATICA: Record<string, string> = { seg: 'segnalazione', not: 'notifica' }
 
 type Dati = Record<string, unknown>
 const s = (v: unknown) => (v === null || v === undefined ? '' : String(v))
@@ -143,6 +147,8 @@ function riassuntoCpt(tipo: string, d: Dati) {
 
   if (tipo === 'seg') {
     c.push({ t: 'Chi segnala', v: s(d.notifica) || s(d.email) || 'anonimo', s: s(d.telefono) || s(d.email) })
+  } else if (tipo === 'not') {
+    c.push({ t: 'Chi comunica', v: nominativo(d, '') || s(d.email), s: s(d.ragione_sociale) || s(d.telefono || d.email) })
   } else if (nominativo(d, 'ref_')) {
     c.push({ t: 'Referente', v: nominativo(d, 'ref_'), s: s(d.ref_cellulare || d.ref_telefono || d.cellulare || d.telefono) })
   } else if (nominativo(d, 'rl_') || nominativo(d, 'lr_')) {
@@ -185,6 +191,25 @@ function etichettaCampo(key: string, prefisso: string, tipo: string): string {
 
 type Gruppo = { titolo: string; righe: [string, string][]; html?: boolean }
 
+/* Notifica: gli elenchi JSON di figure professionali e imprese, una riga per
+   voce (come figureLeggibili/impreseLeggibili di Apps Script). Il testo esce
+   da qui NON escapato: lo escapa chi lo mette nella mail. */
+function voci(v: unknown): Dati[] {
+  try {
+    const a = typeof v === 'string' ? JSON.parse(v || '[]') : v
+    return Array.isArray(a) ? a.filter((x) => x && typeof x === 'object').slice(0, 30) : []
+  } catch { return [] }
+}
+function figureLeggibili(v: unknown): string {
+  return voci(v).map((f) => [f.ruolo, [f.titolo, f.nome, f.cognome].map(s).filter(Boolean).join(' '), f.cf, f.email, f.telefono]
+    .map(s).filter(Boolean).join(' – ')).filter(Boolean).join('\n')
+}
+function impreseLeggibili(v: unknown): string {
+  return voci(v).map((i) => [i.ruolo, i.ragione_sociale, i.piva ? 'P.IVA ' + s(i.piva) : '', i.cod_cassa ? 'Cassa Edile ' + s(i.cod_cassa) : '',
+    [i.indirizzo, i.comune].map(s).filter(Boolean).join(', '), i.email]
+    .map(s).filter(Boolean).join(' – ')).filter(Boolean).join('\n')
+}
+
 /* Raggruppa i campi compilati per soggetto; cio' che non rientra in
    nessun gruppo finisce in «Richiesta». */
 function gruppiCampiCpt(tipo: string, d: Dati): Gruppo[] {
@@ -208,9 +233,9 @@ function gruppiCampiCpt(tipo: string, d: Dati): Gruppo[] {
     tipo === 'seg'
       ? { titolo: 'Chi segnala', chiavi: ['notifica', ...CHIAVI_COMUNICANTE], nominativo: '' }
       : tipo === 'not'
-        ? { titolo: 'Chi comunica', chiavi: CHIAVI_COMUNICANTE, nominativo: '' }
+        ? { titolo: 'Chi comunica', chiavi: ['data_comunicazione', 'ragione_sociale', ...CHIAVI_COMUNICANTE], nominativo: '' }
         : { titolo: 'Impresa', chiavi: CHIAVI_IMPRESA },
-    { titolo: 'Legale rappresentante', prefisso: 'rl_', nominativo: 'rl_' },
+    { titolo: tipo === 'not' ? 'Responsabile dei lavori' : 'Legale rappresentante', prefisso: 'rl_', nominativo: 'rl_' },
     { titolo: 'Legale rappresentante', prefisso: 'lr_', nominativo: 'lr_' },
     { titolo: 'RSPP', prefisso: 'rspp_' },
     { titolo: 'Referente', prefisso: 'ref_', nominativo: 'ref_' },
@@ -266,6 +291,14 @@ export function mailInterna(tipo: string, d: Dati, prog: number,
     (d.email ? `<td><a href="mailto:${escHtml(d.email)}" style="font-family:${MAIL.FONT};font-size:13px;color:${MAIL.GRIGIO_TESTO}">Rispondi a chi ha compilato</a></td>` : '')
 
   const gruppi = gruppiCampiCpt(tipo, d)
+  /* Notifica cantiere: figure professionali e imprese come elenchi leggibili */
+  if (tipo === 'not') {
+    const aRighe = (t: string) => escHtml(t).replace(/\n/g, '<br>')
+    const fig = figureLeggibili(d.figure_json)
+    const imp = impreseLeggibili(d.imprese_json)
+    if (fig) gruppi.push({ titolo: 'Figure professionali', righe: [['Elenco', aRighe(fig)]], html: true })
+    if (imp) gruppi.push({ titolo: 'Imprese previste in cantiere', righe: [['Elenco', aRighe(imp)]], html: true })
+  }
   if (o.fotoUrls && o.fotoUrls.length) {
     gruppi.push({
       titolo: 'Foto', html: true,
@@ -324,7 +357,9 @@ export function mailInterna(tipo: string, d: Dati, prog: number,
 export function mailConferma(tipo: string, d: Dati, prog: number): { oggetto: string; html: string } {
   const label = TIPO_LABEL[tipo] || tipo
   const titolo = TITOLO_CONFERMA[tipo] || (label + ' ricevuta')
-  const nomeRL = nominativo(d, 'rl_') || nominativo(d, 'lr_') || nominativo(d, '')
+  /* nella notifica rl_ e' il responsabile dei lavori: la conferma va a chi ha compilato */
+  const nomeRL = tipo === 'not' ? nominativo(d, '')
+    : nominativo(d, 'rl_') || nominativo(d, 'lr_') || nominativo(d, '')
   const quando = mailDataOra()
 
   let corpo: string
@@ -340,7 +375,11 @@ export function mailConferma(tipo: string, d: Dati, prog: number): { oggetto: st
   } else {
     corpo = `
       <p style="margin:0 0 12px">Gentile <strong>${escHtml(nomeRL || 'Utente')}</strong>,</p>
-      <p style="margin:0 0 12px">abbiamo ricevuto la vostra richiesta <strong>${escHtml(label)}</strong>${d.ragione_sociale ? ` per l'impresa <strong>${escHtml(d.ragione_sociale)}</strong>` : ''}
+      <p style="margin:0 0 12px">abbiamo ricevuto la vostra richiesta <strong>${escHtml(label)}</strong>${
+        /* nella notifica la ragione sociale e' di chi comunica, non dell'impresa del cantiere */
+        tipo === 'not'
+          ? ((d.indirizzo_cantiere || d.comune_cantiere) ? ` per il cantiere di <strong>${escHtml([d.indirizzo_cantiere, d.comune_cantiere].map(s).filter(Boolean).join(', '))}</strong>` : '')
+          : d.ragione_sociale ? ` per l'impresa <strong>${escHtml(d.ragione_sociale)}</strong>` : ''}
         il <strong>${escHtml(quando)}</strong>.</p>
       <p style="margin:0">Il nostro ufficio prenderà in carico la pratica e vi contatterà a breve. Per qualsiasi comunicazione citate il numero di ricevuta.</p>`
   }
