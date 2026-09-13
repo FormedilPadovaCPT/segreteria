@@ -1,14 +1,18 @@
 // Supabase Edge Function – portale-richieste
 //
-// LA STRADA DIRETTA DEL PORTALE SERVIZI (12-13/09/2026).
+// LA LAVORAZIONE DEI MODULI DEL PORTALE SERVIZI (12-13/09/2026).
 //
-// Fino al 12/09/2026 ogni modulo del portale pubblico faceva quattro passaggi:
-// portale → Apps Script → foglio Google → import delle 6:30 → tabelle. Il
-// foglio non aggiungeva niente ed era il punto piu' fragile: ad agosto il
-// deployment Apps Script e' rimasto morto cinque settimane, la cartella Drive
-// configurata non esisteva dal 1/07, un'autorizzazione mancante faceva fallire
-// in silenzio la chiamata a Supabase. Deciso dall'utente: le richieste vengono
-// qui. Tutti e nove i moduli (tabella MODULI, sotto):
+// Storia in breve. Fino al 12/09/2026 ogni modulo del portale pubblico faceva
+// quattro passaggi: portale → Apps Script → foglio Google → import delle 6:30 →
+// tabelle. Il foglio non aggiungeva niente ed era il punto piu' fragile (ad
+// agosto il deployment Apps Script e' rimasto morto cinque settimane). Il
+// 12-13/09 i moduli sono passati alla «strada diretta» verso questa funzione;
+// il 13/09 alla cassetta delle lettere sul progetto Supabase Servizi; lo stesso
+// giorno, su decisione dell'utente, FOGLIO GOOGLE E APPS SCRIPT SONO STATI
+// SPENTI: il numero di ricevuta lo da' solo il database, e sul foglio non si
+// scrive piu' niente.
+//
+// I nove moduli (tabella MODULI, sotto):
 //   seg  Segnalazione Cantiere      → s_segnalazioni             (foto)
 //   not  Notifica Cantiere          → s_notifiche_cantiere
 //   cons Richiesta Consulenza       → s_consulenze
@@ -18,74 +22,64 @@
 //   rlst Affidamento RLST           → s_rlst_pratiche            (verbale PDF)
 //   rls  Comunicazione RLS          → s_rls_anagrafe             (verbale e formazione PDF)
 //   qst  Questionario Sopralluogo   → s_questionari_sopralluogo
-// La mappa dei campi di ogni modulo e' la stessa dell'import delle 6:30
-// (import-rlst) e della riga che scriveva Apps Script (buildRow*): cambia la
-// strada, non il dato. I PDF di riepilogo che Apps Script generava dai modelli
-// Google Docs non si fanno piu' qui: li genera l'app segreteria al protocollo
-// (deciso dall'utente).
+// La mappa dei campi di ogni modulo e' quella che usavano l'import delle 6:30
+// e Apps Script: e' cambiata la strada, non il dato. I PDF di riepilogo li
+// genera l'app segreteria al protocollo (deciso dall'utente).
+//
+// DA DOVE ARRIVANO LE RICHIESTE. Il portale le manda alla cassetta delle lettere
+// sul progetto Servizi (funzione portale-ricevi), che non ha ne' la chiave di
+// questo database ne' quella Google: il codice raggiungibile da internet non
+// deve avere in mano tutto. Questa funzione va a prendere le richieste, e da
+// fuori accetta solo due chiamate con la parola d'ordine
+// (X-Cassetta-Token = s_config.cassetta_token):
+//   { ritira: <submission_id> }  il campanello della cassetta, a richiesta arrivata
+//   { giro: true }               il giro di pg_cron ogni 3 minuti (job ritiro-cassetta)
+// I dati si leggono dalla cassetta (cassetta-consegna), mai dal corpo della
+// chiamata; a lavorazione finita la cassetta cancella dati e allegati.
+// La vecchia porta pubblica di questa funzione e' governata da
+// s_config.portale_diretto_pubblico: con «no» (dal 13/09/2026) risponde
+// «riprovabile» e la richiesta resta sul telefono, che dopo il ricaricamento
+// della pagina la manda alla cassetta.
 //
 // Che cosa fa, in quest'ordine (si scrive prima e si elabora dopo):
 //  1. SCATOLA NERA  — il payload (senza base64) in s_portale_ricezioni,
 //                     prima di qualunque altra cosa
 //  2. PRATICA       — subito nella tabella del modulo, col numero di ricevuta
-//                     (progressivo) e la pre-istruttoria (CEIV, persona,
-//                     tecnico di zona) come la faceva l'import
+//                     (progressivo, dal database) e la pre-istruttoria (CEIV,
+//                     persona, tecnico di zona)
 //  3. FILE          — foto della segnalazione, PDF di RLST e RLS: su Drive in
 //                     SERVIZI/PDF_ricevuti, uno per volta, ognuno salvato
-//  4. FOGLIO        — la copia della riga nella scheda del modulo. ⚠️ Non e'
-//                     un vezzo: prenota il numero. L'import salta le righe il
-//                     cui progressivo e' gia' nel database, e una richiesta
-//                     arrivata dalla vecchia strada (pagina aperta da prima
-//                     dell'aggiornamento) prenderebbe lo stesso numero e
-//                     sparirebbe in silenzio.
-//  5. MAIL          — scheda pratica alla segreteria, conferma a chi scrive
+//  4. MAIL          — scheda pratica alla segreteria, conferma a chi scrive
 //                     (grafica v4.6 di Apps Script, vedi mail.ts)
 //
 // Il reinvio e' sicuro: lo stesso submission_id ritrova la pratica e fa solo
 // quel che manca (portale_esito dice che cosa e' gia' fatto). Se un file non
-// si salva si risponde «riprovabile» dicendo il numero gia' assegnato; se il
-// foglio non si legge il numero non si da' (vedi lavora). Il telefono tiene la
-// richiesta in coda e riprova.
+// si salva si risponde «riprovabile» dicendo il numero gia' assegnato; la
+// cassetta ripresenta la richiesta al giro dopo.
 //
 // ⚠️ UNA LAVORAZIONE ALLA VOLTA PER OGNI INVIO (12/09/2026, dalla prima prova).
-// Lo stesso invio puo' arrivare due volte INSIEME (il modulo e la coda del
-// telefono, a 83 millesimi l'uno dall'altra): senza prenotazione tutte e due
-// le lavorazioni facevano tutto — due foto, due mail alla segreteria, due
-// conferme. La prenotazione si prende con un UPDATE condizionato
+// Lo stesso invio puo' arrivare due volte INSIEME (campanello e giro, o il
+// modulo e la coda del telefono): senza prenotazione tutte e due le lavorazioni
+// facevano tutto — due foto, due mail alla segreteria, due conferme. La
+// prenotazione si prende con un UPDATE condizionato
 // (s_portale_ricezioni.lavorazione_dal), che Postgres esegue una riga alla
 // volta. Chi arriva secondo aspetta che il primo finisca e risponde col suo
 // numero; se il primo muore, la prenotazione scade dopo 2 minuti.
 //
-// Risposta (letta dal portale, stessa forma di Apps Script):
+// Risposta (letta dalla cassetta, stessa forma di Apps Script):
 //   { status:'ok', progressivo, submission_id, duplicato, email }
 //   { status:'error', riprovabile:true|false, message }
 //
 // BATTITO: { battito:true } + intestazione X-Token (s_config.portale_battito_token)
-//   verifica davvero database, cartella dei file, la scheda del foglio di
-//   ogni modulo e la delega Gmail, e solo se tutto risponde scrive
-//   s_config.portale_diretto_battito_al.
+//   verifica davvero database, cartella dei file, delega Gmail e cassetta,
+//   e solo se tutto risponde scrive s_config.portale_diretto_battito_al.
 //   Lo chiama pg_cron alle 05:20 UTC (job battito-portale-diretto).
 //
-// ⚠️ DAL 13/09/2026 I MODULI NON ARRIVANO PIU' QUI DAL PORTALE, ma alla cassetta
-// delle lettere sul progetto Supabase Servizi (funzione portale-ricevi), che non
-// ha ne' la chiave di questo database ne' quella Google (deciso con l'utente dopo
-// le prove di sicurezza: il codice raggiungibile da internet non deve avere in
-// mano tutto). Questa funzione va a prendere le richieste, e da fuori accetta
-// solo due chiamate con la parola d'ordine (X-Cassetta-Token = s_config.cassetta_token):
-//   { ritira: <submission_id> }  il campanello della cassetta, a richiesta arrivata
-//   { giro: true }               il giro di pg_cron ogni 3 minuti (job ritiro-cassetta)
-// I dati si leggono dalla cassetta (cassetta-consegna), mai dal corpo della
-// chiamata; a lavorazione finita la cassetta cancella dati e allegati.
-// La vecchia strada pubblica resta aperta finche' s_config.portale_diretto_pubblico
-// vale «si» (pagine del portale ancora in cache); con «no» risponde «riprovabile»
-// e la richiesta resta sul telefono, che la rimanda alla cassetta.
-//
-// verify_jwt = false, di proposito: il portale e' pubblico e anonimo, come
-// l'endpoint Apps Script che sostituisce. Nessuna chiave viaggia nel sito.
-// In cambio: solo POST, tipi noti, submission_id obbligatorio, e le difese della
-// revisione di sicurezza del 13/09/2026: tetto per tutti e per IP contato dal
-// database (s_portale_quota), dimensione per modulo, solo le chiavi che il
-// modulo usa (con i testi tagliati) nella scatola nera e nella mail, foto e PDF
+// verify_jwt = false, di proposito: le chiamate arrivano da un'altra funzione
+// e da pg_cron, e la porta la chiudono le parole d'ordine. Difese della
+// revisione di sicurezza del 13/09/2026: tetto contato dal database
+// (s_portale_quota), dimensione per modulo, solo le chiavi che il modulo usa
+// (con i testi tagliati) nella scatola nera e nella mail, foto e PDF
 // controllati sul contenuto, conferma a testo fisso e al massimo 3 al giorno
 // per indirizzo.
 //
@@ -114,8 +108,6 @@ const MAX_ORA = 60                        // richieste nuove in un'ora, per tutt
 const MAX_ORA_IP = 15                     // ...e dallo stesso indirizzo IP
 const MAX_CONFERME_GIORNO = 3             // mail di conferma allo stesso indirizzo in 24 ore
 const MAX_ORA_CASSETTA = 120              // richieste nuove in un'ora dalla cassetta (difesa in profondita')
-/* le origini della scatola nera che lavorano qui (non Apps Script) */
-const STRADE_DIRETTE = ['portale-diretto', 'cassetta']
 const MAX_FOTO = 3
 const MAX_FOTO_BYTE = 6 * 1024 * 1024
 const MAX_ALLEGATO_BYTE = 12 * 1024 * 1024
@@ -126,7 +118,6 @@ const EMAIL_VALIDA = /^[^\s@<>(),;:"\\]+@[^\s@<>(),;:"\\]+\.[A-Za-z]{2,}$/
 type Dati = Record<string, unknown>
 type SB = ReturnType<typeof createClient>
 type Pratica = { id: number; progressivo: number; portale_esito: Dati | null }
-type Foglio = { sheetId: string; titolo: string; testata: string[] }
 type Foto = { nome: string; mime: string; ext: string; byte: Uint8Array }
 
 const json = (o: unknown, status = 200) =>
@@ -161,12 +152,13 @@ function dataIso(v: unknown): string | null {
   if (a < 1900 || a > 2100 || d.getUTCFullYear() !== a || d.getUTCMonth() !== me - 1 || d.getUTCDate() !== g) return null
   return `${a}-${String(me).padStart(2, '0')}-${String(g).padStart(2, '0')}`
 }
-/* «gg/mm/aaaa», la forma che Apps Script scriveva sul foglio (fmtDate) */
-const dataFoglio = (v: unknown) => { const d = dataIso(v); return d ? d.split('-').reverse().join('/') : cella(v, 40) }
+/* «gg/mm/aaaa», la forma testuale che le colonne di testo hanno sempre avuto
+   (la scriveva Apps Script sul foglio e l'import la copiava) */
+const dataGiorno = (v: unknown) => { const d = dataIso(v); return d ? d.split('-').reverse().join('/') : cella(v, 40) }
 
 /* Figure professionali e imprese della notifica: elenchi JSON dal portale.
    Si tengono solo oggetti con testi brevi; un elenco illeggibile non blocca
-   la notifica, si perde solo l'elenco (come nell'import delle 6:30). */
+   la notifica, si perde solo l'elenco. */
 function elenco(v: unknown): Dati[] | null {
   let a: unknown = v
   if (typeof v === 'string') { try { a = JSON.parse(v) } catch { return null } }
@@ -192,8 +184,6 @@ function partiRoma(d = new Date()) {
   const v = (t: string) => p.find((x) => x.type === t)?.value || ''
   return { g: v('day'), m: v('month'), a: v('year'), h: v('hour'), mi: v('minute'), s: v('second') }
 }
-/* «12/09/2026 14:30:05»: la forma che l'import legge nella colonna TIMESTAMP */
-const adessoFoglio = () => { const r = partiRoma(); return `${r.g}/${r.m}/${r.a} ${r.h}:${r.mi}:${r.s}` }
 const stampino = () => { const r = partiRoma(); return `${r.a}${r.m}${r.g}_${r.h}${r.mi}` }
 const sanitize = (v: unknown, riserva = 'cantiere') => (String(v || '').replace(/[^a-zA-Z0-9]/g, '_') || riserva).substring(0, 40)
 
@@ -205,7 +195,8 @@ const sanitize = (v: unknown, riserva = 'cantiere') => (String(v || '').replace(
      giorno    «gg/mm/aaaa»     cf      codice fiscale valido o vuoto
      maiusc    maiuscolo        intero  solo cifre, come numero
      scala     voto da 1 a 5    elenco  elenco JSON pulito
-   Solo per il foglio: #ts, #prog, #foto, #url:<colonna del file caricato>. */
+   Nelle liste «campi» compaiono anche #ts, #prog, #foto, #url:… : erano le
+   colonne calcolate del foglio, e soloNote le salta. */
 type Spec = string
 function parti(spec: Spec): [string, string] {
   const i = spec.indexOf(':')
@@ -223,7 +214,7 @@ function perDb(d: Dati, spec: Spec): unknown {
   const v = leggi(d, chiavi)
   switch (tipo) {
     case 'data': return dataIso(v)
-    case 'giorno': return v === undefined ? null : dataFoglio(v) || null
+    case 'giorno': return v === undefined ? null : dataGiorno(v) || null
     case 'cf': { const t = maiuscolo(v); return t && /^[A-Z0-9]{16}$/.test(t) ? t : null }
     case 'maiusc': return maiuscolo(v)
     case 'intero': return Number(String(v ?? '').replace(/\D/g, '').slice(0, 9)) || null
@@ -232,23 +223,8 @@ function perDb(d: Dati, spec: Spec): unknown {
     default: return testo(v)
   }
 }
-type Contesto = { prog: number; fotoUrls: string[]; file: Record<string, string> }
-function perFoglio(d: Dati, spec: Spec, ctx: Contesto): string | number {
-  if (spec === '#ts') return adessoFoglio()
-  if (spec === '#prog') return ctx.prog
-  if (spec === '#foto') return ctx.fotoUrls.join('\n')
-  if (spec.startsWith('#url:')) return ctx.file[spec.slice(5)] || ''
-  const [tipo, chiavi] = parti(spec)
-  const v = leggi(d, chiavi)
-  switch (tipo) {
-    case 'data': case 'giorno': return v === undefined ? '' : dataFoglio(v)
-    case 'cf': case 'maiusc': return maiuscolo(v) || ''
-    case 'elenco': { const e = elenco(v); return e ? JSON.stringify(e) : '' }
-    default: return cella(v)
-  }
-}
 
-/* ── pre-istruttoria: le stesse regole di import-rlst ───────────────────── */
+/* ── pre-istruttoria: le stesse regole che aveva import-rlst ─────────────── */
 function normComune(v: string): string {
   return String(v || '').toUpperCase().replace(/\(.*$/, '').replace(/\s+/g, ' ').trim()
 }
@@ -325,23 +301,23 @@ const cantiereC = (n: number): [string, Spec][] => [
 /* ══ I MODULI ════════════════════════════════════════════════════════════
    tabella   dove nasce la pratica
    filtro    colonne fisse che distinguono la serie dei numeri (visite)
-   scheda    la scheda del foglio: per gid o per titolo (chiave di s_config)
    colonne   colonna della tabella → spec
    extra     pre-istruttoria e valori calcolati
-   foglio    [intestazione, spec] nell'ordine di Apps Script: e' anche la
-             testata di una scheda vuota
+   campi     [intestazione, spec]: le colonne della vecchia scheda del foglio
+             (spento il 13/09/2026). Restano perche' dicono quali campi il
+             modulo manda: soloNote li lascia passare interi, e la mail alla
+             segreteria li mostra
    foto      la segnalazione porta foto
    file      PDF allegati: <base>_base64 + <base>_nome → colonna della tabella */
 type File = { base: string; prefisso: string; colonna: string; etichetta: string }
 type Modulo = {
   tabella: string
   filtro?: Record<string, string>
-  scheda: { gid?: string; titolo?: string }
   obbligatori: string[]
   chi: string
   colonne: Record<string, Spec>
   extra?: (sb: SB, d: Dati) => Promise<Dati>
-  foglio: [string, Spec][]
+  campi: [string, Spec][]
   foto?: boolean
   file?: File[]
 }
@@ -349,7 +325,6 @@ type Modulo = {
 const MODULI: Record<string, Modulo> = {
   seg: {
     tabella: 's_segnalazioni',
-    scheda: { gid: 'segn_sheet_gid' },
     obbligatori: ['indirizzo_cantiere', 'comune_cantiere'],
     chi: 'notifica',
     colonne: {
@@ -358,7 +333,7 @@ const MODULI: Record<string, Modulo> = {
       imprese_presenti: 'imprese_presenti', note_modulo: 'note', privacy: 'privacy',
     },
     extra: async (sb, d) => ({ tecnico_proposto: await propostaTecnico(sb, d.comune_cantiere) }),
-    foglio: [['TIMESTAMP', '#ts'], ['PROGRESSIVO', '#prog'], ['NOTIFICANTE', 'notifica'], ['TELEFONO', 'telefono'],
+    campi: [['TIMESTAMP', '#ts'], ['PROGRESSIVO', '#prog'], ['NOTIFICANTE', 'notifica'], ['TELEFONO', 'telefono'],
       ['E-MAIL', 'email'], ['IND. CANTIERE', 'indirizzo_cantiere'], ['COMUNE CANTIERE', 'comune_cantiere'],
       ['MOTIVO', 'motivo'], ['STATO LAVORI', 'stato_lavori'], ['IMPRESE PRESENTI', 'imprese_presenti'],
       ['NOTE', 'note'], ['FOTO URL', '#foto'], ['PRIVACY', 'privacy']],
@@ -369,7 +344,6 @@ const MODULI: Record<string, Modulo> = {
      rappresentante; il CEIV si controlla sulla P.IVA del committente */
   not: {
     tabella: 's_notifiche_cantiere',
-    scheda: { titolo: 'notif_sheet_titolo' },
     obbligatori: ['indirizzo_cantiere', 'comune_cantiere'],
     chi: 'ragione_sociale|cognome',
     colonne: {
@@ -392,7 +366,7 @@ const MODULI: Record<string, Modulo> = {
       return { comm_piva: piva || testo(d.committente_piva, 30), ...(await esitoCeiv(sb, piva)),
         tecnico_proposto: await propostaTecnico(sb, d.comune_cantiere) }
     },
-    foglio: [['TIMESTAMP', '#ts'], ['PROGRESSIVO', '#prog'], ['DATA COM.', 'data:data_comunicazione'],
+    campi: [['TIMESTAMP', '#ts'], ['PROGRESSIVO', '#prog'], ['DATA COM.', 'data:data_comunicazione'],
       ['RAGIONE SOC.', 'ragione_sociale'], ['TITOLO', 'titolo'], ['COGNOME', 'cognome'], ['NOME', 'nome'],
       ['CF', 'maiusc:codice_fiscale'], ['E-MAIL', 'email'], ['TELEFONO', 'telefono'], ['IND. CANTIERE', 'indirizzo_cantiere'],
       ['COMUNE CANTIERE', 'comune_cantiere'], ['DATA INIZIO', 'data:data_inizio'], ['DATA FINE', 'data:data_fine'],
@@ -409,10 +383,9 @@ const MODULI: Record<string, Modulo> = {
       ['FIGURE JSON', 'elenco:figure_json'], ['IMPRESE JSON', 'elenco:imprese_json']],
   },
 
-  /* consulenza: la nota del modulo e' anche il quesito (come l'import) */
+  /* consulenza: la nota del modulo e' anche il quesito */
   cons: {
     tabella: 's_consulenze',
-    scheda: { titolo: 'cons_sheet_titolo' },
     obbligatori: ['ragione_sociale'],
     chi: 'ragione_sociale',
     colonne: {
@@ -422,7 +395,7 @@ const MODULI: Record<string, Modulo> = {
       quesito: 'note', privacy: 'privacy',
     },
     extra: conImpresa('rl_cf'),
-    foglio: [['TIMESTAMP', '#ts'], ['PROGRESSIVO', '#prog'], ['RAGIONE SOCIALE', 'ragione_sociale'],
+    campi: [['TIMESTAMP', '#ts'], ['PROGRESSIVO', '#prog'], ['RAGIONE SOCIALE', 'ragione_sociale'],
       ['CODICE CEIV', 'codice_ceiv'], ['PARTITA IVA', 'piva'], ['CF IMPRESA', 'cf_impresa'], ['RL TITOLO', 'rl_titolo'],
       ['RL NOME', 'rl_nome'], ['RL COGNOME', 'rl_cognome'], ['RL CF', 'maiusc:rl_cf'], ['CELLULARE', 'cellulare'],
       ['E-MAIL', 'email'], ['RSPP RUOLO', 'rspp_ruolo'], ['TIPI CONSULENZA', 'tipi_consulenza'], ['NOTE', 'note'],
@@ -433,7 +406,6 @@ const MODULI: Record<string, Modulo> = {
   vis: {
     tabella: 's_visite_richieste',
     filtro: { tab_origine: 'visita' },
-    scheda: { titolo: 'visita_sheet_titolo' },
     obbligatori: ['ragione_sociale'],
     chi: 'ragione_sociale',
     colonne: {
@@ -449,7 +421,7 @@ const MODULI: Record<string, Modulo> = {
       return { tipo_richiesta: 'visita', cantieri: c.indirizzo || c.comune ? [c] : null,
         ...(await conImpresa('rl_cf')(sb, d)), tecnico_proposto: await propostaTecnico(sb, d.comune_cantiere) }
     },
-    foglio: [['TIMESTAMP', '#ts'], ['PROGRESSIVO', '#prog'], ['RAGIONE SOCIALE', 'ragione_sociale'],
+    campi: [['TIMESTAMP', '#ts'], ['PROGRESSIVO', '#prog'], ['RAGIONE SOCIALE', 'ragione_sociale'],
       ['CODICE CEIV', 'codice_ceiv'], ['PARTITA IVA', 'piva'], ['CF IMPRESA', 'cf_impresa'], ['IND. LEGALE', 'indirizzo_legale'],
       ['IND. AMM.', 'indirizzo_amm'], ['TELEFONO', 'telefono'], ['CELLULARE', 'cellulare'], ['RL TITOLO', 'rl_titolo'],
       ['RL NOME', 'rl_nome'], ['RL COGNOME', 'rl_cognome'], ['RL CF', 'maiusc:rl_cf'], ['IND. CANTIERE', 'indirizzo_cantiere'],
@@ -460,7 +432,6 @@ const MODULI: Record<string, Modulo> = {
 
   conf: {
     tabella: 's_conferenze_cantiere',
-    scheda: { titolo: 'confcant_sheet_titolo' },
     obbligatori: ['ragione_sociale'],
     chi: 'ragione_sociale',
     colonne: {
@@ -472,7 +443,7 @@ const MODULI: Record<string, Modulo> = {
       ref_tel: 'ref_cellulare|ref_telefono', note_modulo: 'note', privacy: 'privacy',
     },
     extra: async (sb, d) => ({ ...(await conImpresa('rl_cf')(sb, d)), tecnico_proposto: await propostaTecnico(sb, d.comune_cantiere) }),
-    foglio: [['TIMESTAMP', '#ts'], ['PROGRESSIVO', '#prog'], ['RAGIONE SOCIALE', 'ragione_sociale'],
+    campi: [['TIMESTAMP', '#ts'], ['PROGRESSIVO', '#prog'], ['RAGIONE SOCIALE', 'ragione_sociale'],
       ['CODICE CEIV', 'codice_ceiv'], ['PARTITA IVA', 'piva'], ['CF IMPRESA', 'cf_impresa'], ['TELEFONO', 'telefono'],
       ['CELLULARE', 'cellulare'], ['E-MAIL', 'email'], ['IND. LEGALE', 'indirizzo_legale'], ['IND. AMM.', 'indirizzo_amm'],
       ['RL TITOLO', 'rl_titolo'], ['RL NOME', 'rl_nome'], ['RL COGNOME', 'rl_cognome'], ['RL CF', 'maiusc:rl_cf'],
@@ -483,7 +454,6 @@ const MODULI: Record<string, Modulo> = {
 
   att: {
     tabella: 's_attestazioni_dm132',
-    scheda: { titolo: 'attest_sheet_titolo' },
     obbligatori: ['ragione_sociale'],
     chi: 'ragione_sociale',
     colonne: {
@@ -497,7 +467,7 @@ const MODULI: Record<string, Modulo> = {
       const cantieri = cantieriC(d)
       return { cantieri, ...(await conImpresa('rl_cf')(sb, d)), tecnico_proposto: await propostaTecnico(sb, cantieri?.[0]?.comune) }
     },
-    foglio: [['TIMESTAMP', '#ts'], ['PROGRESSIVO', '#prog'], ['RL TITOLO', 'rl_titolo'], ['RL NOME', 'rl_nome'],
+    campi: [['TIMESTAMP', '#ts'], ['PROGRESSIVO', '#prog'], ['RL TITOLO', 'rl_titolo'], ['RL NOME', 'rl_nome'],
       ['RL COGNOME', 'rl_cognome'], ['RL CF', 'maiusc:rl_cf'], ['RAGIONE SOCIALE', 'ragione_sociale'], ['PARTITA IVA', 'piva'],
       ['CF IMPRESA', 'cf_impresa'], ['INDIRIZZO', 'indirizzo_impresa'], ['COMUNE', 'comune_impresa'],
       ['TELEFONO', 'telefono_impresa'], ['CODICE CEIV', 'codice_ceiv'], ['CASSA EDILE PROV.', 'cassa_edile_provincia'],
@@ -508,7 +478,6 @@ const MODULI: Record<string, Modulo> = {
 
   rlst: {
     tabella: 's_rlst_pratiche',
-    scheda: { gid: 'rlst_sheet_gid' },
     obbligatori: ['ragione_sociale'],
     chi: 'ragione_sociale',
     colonne: {
@@ -520,7 +489,7 @@ const MODULI: Record<string, Modulo> = {
       data_verbale: 'giorno:data_verbale', luogo_riunione: 'luogo_riunione', note_modulo: 'note',
     },
     extra: conImpresa('rl_cf'),
-    foglio: [['TIMESTAMP', '#ts'], ['PROGRESSIVO', '#prog'], ['DATA COMP.', 'data:data_compilazione'],
+    campi: [['TIMESTAMP', '#ts'], ['PROGRESSIVO', '#prog'], ['DATA COMP.', 'data:data_compilazione'],
       ['RAGIONE SOCIALE', 'ragione_sociale'], ['CODICE CEIV', 'codice_ceiv'], ['PARTITA IVA', 'piva'],
       ['CF IMPRESA', 'cf_impresa'], ['N. LAVORATORI', 'num_lavoratori'], ['CCNL', 'ccnl'], ['TELEFONO', 'telefono'],
       ['CELLULARE', 'cellulare'], ['E-MAIL', 'email'], ['IND. SEDE LEGALE', 'indirizzo_legale'],
@@ -534,7 +503,6 @@ const MODULI: Record<string, Modulo> = {
   /* RLS: niente esito CEIV nella tabella; la persona si aggancia sul CF dell'RLS */
   rls: {
     tabella: 's_rls_anagrafe',
-    scheda: { gid: 'rls_sheet_gid' },
     obbligatori: ['ragione_sociale'],
     chi: 'ragione_sociale',
     colonne: {
@@ -550,7 +518,7 @@ const MODULI: Record<string, Modulo> = {
       decorrenza: 'data:data_verbale',
     },
     extra: conImpresa('rls_cf', false),
-    foglio: [['TIMESTAMP', '#ts'], ['PROGRESSIVO', '#prog'], ['RAGIONE SOCIALE', 'ragione_sociale'],
+    campi: [['TIMESTAMP', '#ts'], ['PROGRESSIVO', '#prog'], ['RAGIONE SOCIALE', 'ragione_sociale'],
       ['CODICE CEIV', 'codice_ceiv'], ['PARTITA IVA', 'piva'], ['CF IMPRESA', 'cf_impresa'], ['IND. SEDE', 'indirizzo_sede'],
       ['TELEFONO', 'telefono'], ['E-MAIL', 'email'], ['LR TITOLO', 'lr_titolo'], ['LR NOME', 'lr_nome'],
       ['LR COGNOME', 'lr_cognome'], ['LR CF', 'maiusc:lr_cf'], ['DATA VERBALE', 'data:data_verbale'],
@@ -569,11 +537,9 @@ const MODULI: Record<string, Modulo> = {
   },
 
   /* questionario: le scale arrivano come scala_<chiave> (e i servizi anche
-     coi nomi dei campi nascosti); le proposte come suggerimenti_testo, che
-     Apps Script non leggeva (cercava «suggerimenti») */
+     coi nomi dei campi nascosti); le proposte come suggerimenti_testo */
   qst: {
     tabella: 's_questionari_sopralluogo',
-    scheda: { titolo: 'qst_sheet_titolo' },
     obbligatori: [],
     chi: 'tecnico',
     colonne: {
@@ -587,7 +553,7 @@ const MODULI: Record<string, Modulo> = {
       proposte_miglioramento: 'suggerimenti_testo|suggerimenti', aggiornamenti: 'qst_aggiornamenti',
       contatto_richiesto: 'qst_contatto', recapito_contatto: 'recapito_contatto', privacy: 'privacy',
     },
-    foglio: [['TIMESTAMP', '#ts'], ['PROGRESSIVO', '#prog'], ['TECNICO', 'tecnico'], ['DATA VISITA', 'data:data_visita'],
+    campi: [['TIMESTAMP', '#ts'], ['PROGRESSIVO', '#prog'], ['TECNICO', 'tecnico'], ['DATA VISITA', 'data:data_visita'],
       ['SCOPI', 'scopi_visita'], ['SCALA ASPETTATIVE', 'scala_aspettative'], ['RUOLO CHIARO', 'qst_ruolo_chiaro'],
       ['SCALA PROFESSIONALE', 'scala_professionale'], ['SUGGERIMENTI PRATICI', 'qst_suggerimenti'],
       ['SCALA FACILITÀ', 'scala_facilita'], ['NUOVI RISCHI', 'qst_nuovi_rischi'], ['MISURE SICUREZZA', 'qst_misure'],
@@ -631,8 +597,8 @@ function leggiFoto(campo: unknown): { foto: Foto[]; scartate: string[] } {
   if (!Array.isArray(lista)) return { foto, scartate: ['elenco delle foto illeggibile'] }
   if (lista.length > MAX_FOTO) scartate.push(`arrivate ${lista.length} foto, tenute le prime ${MAX_FOTO}`)
   lista.slice(0, MAX_FOTO).forEach((f, i) => {
-    /* qualunque image/*, come Apps Script: una foto piccola (AVIF, BMP…) il
-       portale la manda com'e', e scartarla vorrebbe dire perderla in silenzio */
+    /* qualunque image/*: una foto piccola (AVIF, BMP…) il portale la manda
+       com'e', e scartarla vorrebbe dire perderla in silenzio */
     const m = /^data:image\/([a-z0-9.+-]+);base64,([A-Za-z0-9+/=\s]+)$/i.exec(String((f as Dati)?.data || ''))
     if (!m) { scartate.push(`foto ${i + 1}: non e' un'immagine in formato data URL`); return }
     const byte = decodifica(m[2])
@@ -702,114 +668,6 @@ async function caricaFile(token: string, cartella: string, nome: string, mime: s
   return (up.webViewLink as string) || `https://drive.google.com/file/d/${up.id}/view`
 }
 
-/* ── foglio: la scheda del modulo ──────────────────────────────────────────
-   La scheda si trova per gid o per titolo come nell'import delle 6:30; con
-   la scheda si legge la riga di testata. */
-const norma = (h: unknown) => String(h ?? '').trim().toUpperCase()
-async function schedaFoglio(sb: SB, token: string, m: Modulo): Promise<Foglio> {
-  const chiave = m.scheda.gid || m.scheda.titolo || ''
-  const { data } = await sb.from('s_config').select('chiave, valore').in('chiave', ['rlst_sheet_id', chiave])
-  const c = Object.fromEntries((data || []).map((r) => [r.chiave, r.valore]))
-  if (!c.rlst_sheet_id || !c[chiave]) throw new Error(`rlst_sheet_id o ${chiave} mancanti in s_config`)
-  const r = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${c.rlst_sheet_id}?fields=sheets.properties`,
-    { headers: { Authorization: `Bearer ${token}` } })
-  const meta = await r.json()
-  if (meta.error) throw new Error('foglio non leggibile: ' + JSON.stringify(meta.error).slice(0, 300))
-  const schede = (meta.sheets || []).map((x: { properties: { sheetId: number; title: string } }) => x.properties)
-  /* per titolo: la PRIMA scheda il cui titolo contiene la chiave, cioe' la
-     stessa lettura di gidPerTitolo in import-rlst. Deve essere identica,
-     altrimenti la copia prenoterebbe il numero su una scheda che l'import non
-     legge (trovato in revisione). Cercare il titolo esatto ha fatto fallire
-     la prima prova (12/09/2026): «Notifica» contro «Notifica Cantiere». */
-  const cercato = String(c[chiave]).toUpperCase()
-  const p = m.scheda.gid
-    ? schede.find((x: { sheetId: number }) => x.sheetId === Number(c[chiave]))
-    : schede.find((x: { title: string }) => String(x.title).toUpperCase().includes(cercato))
-  if (!p) throw new Error(`nessuna scheda ${m.scheda.gid ? 'con gid' : 'intitolata'} «${c[chiave]}» nel foglio`)
-  const f: Foglio = { sheetId: c.rlst_sheet_id as string, titolo: p.title as string, testata: [] }
-  const t = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${f.sheetId}/values/${intervallo(f, '1:1')}`,
-    { headers: { Authorization: `Bearer ${token}` } })
-  const td = await t.json()
-  if (td.error) throw new Error('testata della scheda non leggibile: ' + JSON.stringify(td.error).slice(0, 300))
-  f.testata = ((td.values?.[0] || []) as unknown[]).map((h) => String(h ?? ''))
-  return f
-}
-const intervallo = (f: Foglio, a1: string) => encodeURIComponent(`'${f.titolo.replace(/'/g, "''")}'!${a1}`)
-const lettera = (i: number): string => (i < 26 ? '' : lettera(Math.floor(i / 26) - 1)) + String.fromCharCode(65 + (i % 26))
-
-/* per il battito: righe con contenuto sotto la testata (la stessa misura di
-   getLastRow in Apps Script) e numero piu' alto nella colonna PROGRESSIVO */
-async function statoFoglio(token: string, f: Foglio): Promise<{ ultimo: number; righe: number }> {
-  if (!f.testata.length) return { ultimo: 0, righe: 0 }
-  const i = f.testata.findIndex((h) => norma(h) === 'PROGRESSIVO')
-  if (i < 0) throw new Error(`nessuna colonna PROGRESSIVO nella scheda ${f.titolo}`)
-  const r = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${f.sheetId}/values/${encodeURIComponent(`'${f.titolo.replace(/'/g, "''")}'`)}`,
-    { headers: { Authorization: `Bearer ${token}` } })
-  const d = await r.json()
-  if (d.error) throw new Error('scheda non leggibile: ' + JSON.stringify(d.error).slice(0, 300))
-  const valori = (d.values || []) as unknown[][]
-  return {
-    righe: Math.max(valori.length - 1, 0),
-    ultimo: Math.max(0, ...valori.slice(1).map((row) => Number(row?.[i]) || 0)),
-  }
-}
-
-async function maxProgressivoFoglio(token: string, f: Foglio): Promise<number> {
-  if (!f.testata.length) return 0                     // scheda vuota: nessun numero ancora
-  const i = f.testata.findIndex((h) => norma(h) === 'PROGRESSIVO')
-  if (i < 0) throw new Error(`nessuna colonna PROGRESSIVO nella scheda ${f.titolo}`)
-  const col = lettera(i)
-  const r = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${f.sheetId}/values/${intervallo(f, `${col}2:${col}`)}`,
-    { headers: { Authorization: `Bearer ${token}` } })
-  const d = await r.json()
-  if (d.error) throw new Error('colonna PROGRESSIVO non leggibile: ' + JSON.stringify(d.error).slice(0, 300))
-  return Math.max(0, ...((d.values || []) as unknown[][]).map((row) => Number(row?.[0]) || 0))
-}
-
-/* La riga si allinea alla testata VERA della scheda: prima le intestazioni
-   identiche, poi quelle che le contengono (la stessa lettura dell'import).
-   Restituisce i valori non vuoti che non hanno trovato una colonna: la
-   pratica li ha comunque, qui si annota soltanto. */
-async function appendiFoglio(token: string, f: Foglio, valori: Record<string, string | number>, intestazioni: string[]): Promise<string[]> {
-  const testata = f.testata.length ? f.testata : intestazioni
-  const posto = new Map<string, number>()
-  const presi = new Set<number>()
-  for (const k of Object.keys(valori)) {
-    const i = testata.findIndex((h, j) => !presi.has(j) && norma(h) === k)
-    if (i >= 0) { posto.set(k, i); presi.add(i) }
-  }
-  for (const k of Object.keys(valori)) {
-    if (posto.has(k)) continue
-    const i = testata.findIndex((h, j) => !presi.has(j) && norma(h).includes(k))
-    if (i >= 0) { posto.set(k, i); presi.add(i) }
-  }
-  /* e al contrario, per le intestazioni piu' corte del nome di Apps Script:
-     sulla scheda delle segnalazioni la colonna si chiama «FOTO», non «FOTO
-     URL» (trovato dalla prova del 13/09/2026). Solo sulle colonne rimaste
-     libere e con almeno 4 lettere, perche' non peschi a caso. */
-  for (const k of Object.keys(valori)) {
-    if (posto.has(k)) continue
-    const i = testata.findIndex((h, j) => !presi.has(j) && norma(h).length >= 4 && k.includes(norma(h)))
-    if (i >= 0) { posto.set(k, i); presi.add(i) }
-  }
-  const riga: (string | number)[] = testata.map(() => '')
-  for (const [k, i] of posto) riga[i] = valori[k]
-  const senzaColonna = Object.keys(valori).filter((k) => !posto.has(k) && valori[k] !== '')
-  /* RAW: quel che scrive chi compila resta testo. Con USER_ENTERED un campo
-     che comincia con «=» diventerebbe una formula. Una scheda vuota prende
-     prima la testata, altrimenti l'import non la saprebbe leggere. */
-  const righe = f.testata.length ? [riga] : [intestazioni, riga]
-  const r = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${f.sheetId}/values/${intervallo(f, 'A1')}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ values: righe }),
-  })
-  const d = await r.json()
-  if (!r.ok || d.error) throw new Error('riga non aggiunta al foglio: ' + JSON.stringify(d.error || d).slice(0, 300))
-  if (!f.testata.length) f.testata = [...intestazioni]
-  return senzaColonna
-}
-
 /* ── Gmail ───────────────────────────────────────────────────────────────── */
 async function inviaMail(sa: Dati, mime: string) {
   const tok = await getToken(sa as Record<string, string>, SCOPE_GMAIL)
@@ -870,7 +728,7 @@ function chiaviNote(m: Modulo): Set<string> {
   const s = new Set(CHIAVI_SEMPRE)
   const aggiungi = (spec: string) => { if (!spec.startsWith('#')) for (const k of parti(spec)[1].split('|')) s.add(k) }
   Object.values(m.colonne).forEach(aggiungi)
-  m.foglio.forEach(([, spec]) => aggiungi(spec))
+  m.campi.forEach(([, spec]) => aggiungi(spec))
   for (const a of m.file || []) { s.add(a.base + '_base64'); s.add(a.base + '_nome') }
   if (m.foto) s.add('seg_photo_base64')
   chiaviCache.set(m, s)
@@ -906,9 +764,9 @@ function scatolaNera(d: Dati): Dati {
   return JSON.stringify(pieno).length <= 64 * 1024 ? pieno : snello(500)
 }
 
-/* ══ UNA RICHIESTA DAL PORTALE ═══════════════════════════════════════════ */
-/* cassetta: null se la richiesta arriva direttamente dal portale; dalla cassetta
-   porta gli avvisi sugli allegati che portale-ricevi ha lasciato fuori */
+/* ══ UNA RICHIESTA ═══════════════════════════════════════════════════════ */
+/* cassetta: null se la richiesta arriva dalla vecchia porta pubblica; dalla
+   cassetta porta gli avvisi sugli allegati che portale-ricevi ha lasciato fuori */
 async function richiesta(sb: SB, sa: Dati, grezzo: Dati, dimensione: number, ipHash: string,
   cassetta: { avvisi: string[] } | null = null): Promise<Response> {
   const tipo = String(grezzo.tipo_modulo || '').toLowerCase()
@@ -922,16 +780,14 @@ async function richiesta(sb: SB, sa: Dati, grezzo: Dati, dimensione: number, ipH
   if (mancanti.length) return rifiuto(`campi obbligatori mancanti: ${mancanti.join(', ')}`)
 
   /* TETTO — solo per le richieste nuove (un reinvio non conta), contato e
-     segnato in un colpo solo dal database, per tutti e per indirizzo IP.
-     Prima si contava qui e si inseriva dopo: centinaia di richieste nello
-     stesso istante passavano tutte (revisione di sicurezza 13/09/2026). */
+     segnato in un colpo solo dal database. Dalla cassetta il tetto per IP
+     l'ha gia' contato portale-ricevi; qui ne resta uno complessivo piu'
+     largo, come difesa in profondita': se il progetto Servizi venisse
+     compromesso, da li' non si potrebbero comunque creare pratiche senza
+     limite (13/09/2026). Oltre il tetto la richiesta resta in cassetta e la
+     riprende il giro successivo. */
   const { data: gia } = await sb.from('s_portale_ricezioni').select('id').eq('submission_id', subId).maybeSingle()
   if (!gia) {
-    /* dalla cassetta il tetto per IP l'ha gia' contato portale-ricevi; qui ne
-       resta uno complessivo piu' largo, come difesa in profondita': se il
-       progetto Servizi venisse compromesso, da li' non si potrebbero comunque
-       creare pratiche senza limite (13/09/2026). Oltre il tetto la richiesta
-       resta in cassetta e la riprende il giro successivo. */
     const quota = cassetta
       ? { p_ip: 'cassetta', p_max_ora: MAX_ORA_CASSETTA, p_max_ora_ip: MAX_ORA_CASSETTA }
       : { p_ip: ipHash, p_max_ora: MAX_ORA, p_max_ora_ip: MAX_ORA_IP }
@@ -963,29 +819,6 @@ async function richiesta(sb: SB, sa: Dati, grezzo: Dati, dimensione: number, ipH
   }
   if (!presa) return intoppo('la stessa richiesta è già in lavorazione: riprova fra qualche secondo', 409)
   try {
-    /* 1c. GIA' CONSEGNATA DALLA VECCHIA STRADA — una richiesta partita prima
-       dell'aggiornamento puo' essere arrivata ad Apps Script (riga sul foglio,
-       mail, conferma allo specchio) senza che il telefono lo sapesse, ed
-       essere rimasta in coda: e' il 404 in lettura del 04/09/2026. Se la
-       scatola nera dice che il foglio l'ha gia' registrata col suo numero, si
-       risponde con quel numero e non si rifa' niente: la pratica la crea
-       l'import delle 6:30 da quella riga. (Trovato in revisione.) */
-    const { data: ric } = await sb.from('s_portale_ricezioni')
-      .select('origine, sul_foglio, progressivo, pratica_id, ricevuto_at').eq('submission_id', subId).maybeSingle()
-    if (ric && !STRADE_DIRETTE.includes(String(ric.origine)) && ric.sul_foglio === true && ric.progressivo && !ric.pratica_id) {
-      return json({ status: 'ok', progressivo: ric.progressivo, submission_id: subId, duplicato: true, email: 'ok', strada: 'apps-script' })
-    }
-    /* ...o ancora IN VIAGGIO per la vecchia strada: lo specchio l'ha vista
-       partire per Apps Script da pochi minuti e la conferma non e' tornata.
-       Lavorarla adesso farebbe due pratiche (questa e quella dell'import dalla
-       riga di Apps Script): si aspetta. Se Apps Script e' morto, dopo 10
-       minuti la prende questa strada. Lo specchio parte solo per i moduli che
-       vanno ad Apps Script, quindi un invio diretto non cade mai qui.
-       (Trovato in revisione il 13/09/2026.) */
-    if (ric && !STRADE_DIRETTE.includes(String(ric.origine)) && ric.sul_foglio == null && !ric.pratica_id &&
-        Date.now() - new Date(ric.ricevuto_at).getTime() < 10 * 60_000) {
-      return intoppo('la richiesta è ancora in consegna per l\'altra strada: riprova fra qualche minuto', 409)
-    }
     return await lavora(sb, sa, d, tipo, m, subId, cassetta)
   } finally {
     await sb.from('s_portale_ricezioni').update({ lavorazione_dal: null })
@@ -993,39 +826,27 @@ async function richiesta(sb: SB, sa: Dati, grezzo: Dati, dimensione: number, ipH
   }
 }
 
-/* ══ 2-5: LA LAVORAZIONE, con la prenotazione in mano ═════════════════════ */
+/* ══ 2-4: LA LAVORAZIONE, con la prenotazione in mano ═════════════════════ */
 async function lavora(sb: SB, sa: Dati, d: Dati, tipo: string, m: Modulo, subId: string,
   cassetta: { avvisi: string[] } | null = null): Promise<Response> {
   let tokDrive: string | null = null
   const drive = async () => (tokDrive ||= await getToken(sa as Record<string, string>, SCOPE_DRIVE))
-  let foglio: Foglio | null = null
 
   /* 2. PRATICA — esiste gia' (reinvio) o nasce adesso */
   let pratica = await praticaPer(sb, m, subId)
   const duplicato = !!pratica
   if (!pratica) {
-    /* Il numero parte dal piu' alto fra database e foglio: sul foglio ci sono
-       ancora le righe scritte da Apps Script. */
-    let maxFoglio = 0
-    try {
-      foglio = await schedaFoglio(sb, await drive(), m)
-      maxFoglio = await maxProgressivoFoglio(await drive(), foglio)
-    } catch (e) {
-      /* ⚠️ Senza il foglio il numero sarebbe solo quello del database, che non
-         conosce le righe scritte da Apps Script e non ancora importate: una di
-         quelle col numero uguale sparirebbe all'import delle 6:30. Trovato in
-         revisione il 12/09/2026, dopo che la prima prova della notifica era
-         passata proprio di qui (scheda cercata col titolo sbagliato). Meglio
-         non dare il numero: la richiesta e' nella scatola nera e nella coda
-         del telefono, e senza riscontro dopo 15 minuti accende l'allarme. */
-      await sb.from('s_portale_ricezioni').update({ nota: 'numero non assegnato, foglio non leggibile: ' + errMsg(e) })
-        .eq('submission_id', subId)
-      return intoppo(`richiesta ricevuta ma non ancora registrata: il foglio dei numeri non si legge (${errMsg(e)}). Riprovando si completa`)
-    }
+    /* Il numero di ricevuta lo da' il database: il piu' alto della serie + 1.
+       Fino al 13/09/2026 si guardava anche il foglio Google, perche' Apps
+       Script ci scriveva righe che il database vedeva solo con l'import delle
+       6:30; foglio e Apps Script sono spenti, e il database e' l'unico registro.
+       Due richieste nello stesso istante: il vincolo unique sul numero ne
+       ferma una, che prende il successivo. */
     let ultimo = sb.from(m.tabella).select('progressivo').not('progressivo', 'is', null)
     for (const [k, v] of Object.entries(m.filtro || {})) ultimo = ultimo.eq(k, v)
-    const { data: ult } = await ultimo.order('progressivo', { ascending: false }).limit(1)
-    let prog = Math.max(maxFoglio, Number(ult?.[0]?.progressivo) || 0) + 1
+    const { data: ult, error: errUlt } = await ultimo.order('progressivo', { ascending: false }).limit(1)
+    if (errUlt) throw new Error('numero di ricevuta non leggibile: ' + errUlt.message)
+    let prog = (Number(ult?.[0]?.progressivo) || 0) + 1
     const campi: Dati = {}
     for (const [col, spec] of Object.entries(m.colonne)) campi[col] = perDb(d, spec)
     const riga = {
@@ -1035,7 +856,7 @@ async function lavora(sb: SB, sa: Dati, d: Dati, tipo: string, m: Modulo, subId:
       ...campi,
       ...(m.extra ? await m.extra(sb, d) : {}),
       ...(m.filtro || {}),
-      portale_esito: { strada: 'portale-richieste', arrivata_il: new Date().toISOString() },
+      portale_esito: { strada: cassetta ? 'cassetta' : 'portale-richieste', arrivata_il: new Date().toISOString() },
     }
     for (let t = 0; t < 6 && !pratica; t++) {
       const { data, error } = await sb.from(m.tabella).insert({ ...riga, progressivo: prog }).select('id, progressivo, portale_esito').single()
@@ -1059,42 +880,9 @@ async function lavora(sb: SB, sa: Dati, d: Dati, tipo: string, m: Modulo, subId:
   const fotoUrls: string[] = Array.isArray(esito.foto_caricate) ? [...(esito.foto_caricate as string[])] : []
   const file: Record<string, string> = { ...((esito.file_caricati as Record<string, string>) || {}) }
 
-  /* 4. FOGLIO — la copia della riga, che prenota il numero. ⚠️ Apps Script
-        numera CONTANDO LE RIGHE della scheda (getLastRow), non leggendo il
-        numero piu' alto: una copia che manca gli farebbe dare a una richiesta
-        da una pagina vecchia un numero gia' usato, e l'import delle 6:30 la
-        salterebbe in silenzio (trovato in revisione il 13/09/2026). Per
-        questo la copia si scrive anche quando foto o file falliscono, si
-        ritenta una volta, e se non riesce la risposta e' «riprovabile». Una
-        riga doppia invece non fa danni: Apps Script salta un numero. */
-  const copiaFoglio = async () => {
-    if (esito.foglio_il) return
-    for (let t = 0; t < 2 && !esito.foglio_il; t++) {
-      try {
-        if (t) await attesa(1500)
-        const tok = await drive()
-        foglio ||= await schedaFoglio(sb, tok, m)
-        const ctx: Contesto = { prog: p.progressivo, fotoUrls, file }
-        const valori = Object.fromEntries(m.foglio.map(([h, s]) => [h, perFoglio(d, s, ctx)]))
-        const senzaColonna = await appendiFoglio(tok, foglio, valori, m.foglio.map(([h]) => h))
-        esito.foglio_il = adesso()
-        if (senzaColonna.length) esito.foglio_senza_colonna = senzaColonna
-        delete esito.foglio_errore
-        await sb.from('s_portale_ricezioni').update({ sul_foglio: true, controllato_il: adesso() }).eq('submission_id', subId)
-      } catch (e) {
-        esito.foglio_errore = errMsg(e)
-      }
-    }
-    if (!esito.foglio_il) {
-      await sb.from('s_portale_ricezioni').update({ sul_foglio: false, nota: 'copia sul foglio non scritta: ' + esito.foglio_errore })
-        .eq('submission_id', subId)
-    }
-    await salva()
-  }
   const fallito = async (cosa: string, e: unknown) => {
     esito[cosa + '_errore'] = errMsg(e)
     await salva()
-    await copiaFoglio()
     await sb.from('s_portale_ricezioni').update({ nota: `${cosa} non salvati: ${errMsg(e)}` }).eq('submission_id', subId)
     return intoppo(`la richiesta è registrata con il n° ${p.progressivo}, ma i file allegati non sono stati salvati (${errMsg(e)}): riprovando si completano, senza creare una seconda richiesta`)
   }
@@ -1121,8 +909,8 @@ async function lavora(sb: SB, sa: Dati, d: Dati, tipo: string, m: Modulo, subId:
     }
   }
 
-  /* 3b. PDF ALLEGATI (RLST, RLS) — stesso nome e stesso posto di Apps Script
-         (savePdfFromBase64), la colonna della pratica col link; uno per volta */
+  /* 3b. PDF ALLEGATI (RLST, RLS) — stesso nome e stesso posto che dava Apps
+         Script, la colonna della pratica col link; uno per volta */
   const allegatiMail: [string, string][] = []
   const scartati: string[] = []       // rifatto a ogni giro: un reinvio non ripete il messaggio
   for (const a of m.file || []) {
@@ -1154,10 +942,7 @@ async function lavora(sb: SB, sa: Dati, d: Dati, tipo: string, m: Modulo, subId:
   const nonAccettati = ['foto_scartate', 'file_scartati', 'allegati_scartati_cassetta']
     .flatMap((k) => (Array.isArray(esito[k]) ? (esito[k] as unknown[]).map(String) : []))
 
-  /* 4. FOGLIO (vedi copiaFoglio) */
-  await copiaFoglio()
-
-  /* 5. MAIL — una volta sola ciascuna; un errore non fa fallire la risposta:
+  /* 4. MAIL — una volta sola ciascuna; un errore non fa fallire la risposta:
         la pratica c'e', e dire «non riuscito» farebbe reinviare per niente */
   let email = 'ok'
   const emailCompilante = testo(d.email, 200)
@@ -1203,13 +988,6 @@ async function lavora(sb: SB, sa: Dati, d: Dati, tipo: string, m: Modulo, subId:
   await salva()
   /* la nota della scatola nera dice lo stato di adesso: un intoppo superato
      da un reinvio non deve restare scritto come se ci fosse ancora */
-  if (!esito.foglio_il) {
-    /* le mail sono partite (l'ufficio deve saperlo), ma senza la copia sul
-       foglio il numero non e' prenotato: il telefono deve riprovare, e al
-       reinvio si ritenta solo la copia. «Non riuscito» per una cosa riuscita
-       e' il verso giusto in cui sbagliare. */
-    return intoppo(`la richiesta è registrata con il n° ${p.progressivo}, ma la copia sul foglio non è scritta (${esito.foglio_errore}): riprovando si completa, senza creare una seconda richiesta`)
-  }
   await sb.from('s_portale_ricezioni').update({ elaborata_at: adesso(), nota: null }).eq('submission_id', subId)
 
   return json({ status: 'ok', progressivo: p.progressivo, submission_id: subId, duplicato, email })
@@ -1226,8 +1004,6 @@ async function battito(req: Request, sb: SB, sa: Dati): Promise<Response> {
   const prova = async (nome: string, fn: () => Promise<string>) => {
     try { verifiche[nome] = 'ok ' + await fn() } catch (e) { verifiche[nome] = 'ERRORE: ' + errMsg(e); tutto = false }
   }
-  let tok = ''
-  const drive = async () => (tok ||= await getToken(sa as Record<string, string>, SCOPE_DRIVE))
   await prova('database', async () => {
     const conti: string[] = []
     for (const m of Object.values(MODULI)) {
@@ -1237,25 +1013,7 @@ async function battito(req: Request, sb: SB, sa: Dati): Promise<Response> {
     }
     return `(${conti.join(', ')})`
   })
-  await prova('drive', async () => `(PDF_ricevuti ${await cartellaFile(sb, await drive())})`)
-  for (const [tipo, m] of Object.entries(MODULI)) {
-    await prova('foglio_' + tipo, async () => {
-      const f = await schedaFoglio(sb, await drive(), m)
-      /* ⚠️ Apps Script numera contando le righe: se sulla scheda ci sono meno
-         righe del numero piu' alto (foglio o database), la prossima richiesta
-         da una pagina vecchia prenderebbe un numero gia' usato e l'import la
-         salterebbe. Finche' Apps Script e' acceso e' un guasto, non un dettaglio. */
-      const { ultimo, righe } = await statoFoglio(tok, f)
-      let q = sb.from(m.tabella).select('progressivo').not('progressivo', 'is', null)
-      for (const [k, v] of Object.entries(m.filtro || {})) q = q.eq(k, v)
-      const { data: u } = await q.order('progressivo', { ascending: false }).limit(1)
-      const massimo = Math.max(ultimo, Number(u?.[0]?.progressivo) || 0)
-      if (righe < massimo) {
-        throw new Error(`${f.titolo}: ${righe} righe ma ultimo n° ${massimo}, Apps Script darebbe un numero gia' usato (non togliere righe dalla scheda)`)
-      }
-      return `(${f.titolo}, ultimo n° ${massimo}, righe ${righe})`
-    })
-  }
+  await prova('drive', async () => `(PDF_ricevuti ${await cartellaFile(sb, await getToken(sa as Record<string, string>, SCOPE_DRIVE))})`)
   await prova('gmail', async () => {
     await getToken(sa as Record<string, string>, SCOPE_GMAIL)
     return '(delega attiva)'
@@ -1274,7 +1032,7 @@ async function battito(req: Request, sb: SB, sa: Dati): Promise<Response> {
     const nota = Object.entries(verifiche).map(([k, v]) => `${k}: ${v}`).join(' | ')
     await sb.from('s_config').update({
       valore: new Date().toISOString(), updated_by: 'portale-richieste',
-      descrizione: 'Ultimo battito della strada diretta del portale (funzione portale-richieste). ' + nota,
+      descrizione: 'Ultimo battito del portale servizi (funzione portale-richieste). ' + nota,
     }).eq('chiave', 'portale_diretto_battito_al')
   }
   return json({ status: tutto ? 'ok' : 'error', verifiche }, tutto ? 200 : 500)
@@ -1311,9 +1069,9 @@ async function consegna(cfg: Record<string, string>, azione: string, extra: Dati
 }
 
 /* Il campanello: la richiesta si legge dalla cassetta (mai dal corpo della
-   chiamata), si lavora come se fosse arrivata dal portale, e alla cassetta si
-   dice com'e' andata: ritirata o scartata la cancella, altrimenti la ripresenta
-   al giro dopo. Un reinvio ritrova la pratica e non rifa' niente. */
+   chiamata), si lavora, e alla cassetta si dice com'e' andata: ritirata o
+   scartata la cancella, altrimenti la ripresenta al giro dopo. Un reinvio
+   ritrova la pratica e non rifa' niente. */
 async function ritiraDaCassetta(sb: SB, sa: Dati, cfg: Record<string, string>, subId: string): Promise<Response> {
   if (!/^[A-Za-z0-9-]{8,64}$/.test(subId)) return rifiuto('submission_id mancante o non valido')
   const busta = await consegna(cfg, 'leggi', { submission_id: subId })
@@ -1427,7 +1185,7 @@ serve(async (req) => {
       if (d.giro === true) return await giroCassetta(sb, sa, cfg)
       return rifiuto('azione della cassetta sconosciuta')
     }
-    /* la vecchia strada pubblica: aperta solo finche' serve alle pagine in cache */
+    /* la vecchia porta pubblica: chiusa dal 13/09/2026 (s_config.portale_diretto_pubblico = no) */
     const { data: pubblica } = await sb.from('s_config').select('valore').eq('chiave', 'portale_diretto_pubblico').maybeSingle()
     if (pubblica?.valore !== 'si') {
       return intoppo('i moduli ora arrivano da un\'altra strada: ricarica la pagina del portale. La richiesta resta salvata sul telefono e parte da sola', 503)

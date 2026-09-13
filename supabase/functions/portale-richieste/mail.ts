@@ -385,7 +385,7 @@ export function mailInterna(tipo: string, d: Dati, prog: number,
     html: mailDocumento(righe, {
       senzaFirma: true,
       notaFinale: 'Inviato automaticamente dal Portale Formedil Padova. Rispondendo a questa mail si scrive a chi ha compilato il modulo. ' +
-        'La richiesta è arrivata direttamente al database: la pratica è già nell\'app segreteria (il riepilogo PDF lo genera l\'app al protocollo), e una copia della riga è sul foglio Google.',
+        'La richiesta è arrivata dalla cassetta del portale direttamente al database: la pratica è già nell\'app segreteria (il riepilogo PDF lo genera l\'app al protocollo).',
     }),
   }
 }

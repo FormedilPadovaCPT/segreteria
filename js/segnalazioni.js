@@ -1,10 +1,10 @@
 /* ============================================================
    Segnalazioni di cantiere in arrivo dall'esterno.
 
-   Le segnalazioni arrivano dal modulo online (foglio Google dei
-   servizi CPT, scheda «Segnalazione Cantiere» — import alle 6:30
-   con pre-istruttoria: proposta del tecnico di zona da
-   tecnici_zone) oppure per telefono, mail, PEC: per quelle c'è
+   Le segnalazioni arrivano dal portale servizi (cassetta delle
+   lettere → portale-richieste, con pre-istruttoria: proposta del
+   tecnico di zona da tecnici_zone; fino al 13/09/2026 passavano dal
+   foglio Google) oppure per telefono, mail, PEC: per quelle c'è
    l'inserimento manuale.
 
    Il flusso segue la regola dei servizi CPT (2026-08-07): ogni
@@ -184,7 +184,6 @@ export async function render() {
           `<button class="seg-btn ${filtro === v ? 'is-active' : ''}" data-val="${v}">${l}</button>`).join('')}
       </div>
       <div style="display:flex;gap:6px">
-        <button class="btn btn-ghost btn-sm" id="sg-importa">⟳ Importa adesso dal foglio</button>
         <button class="btn btn-primary btn-sm" id="sg-nuova">+ Nuova segnalazione</button>
       </div>
     </div>
@@ -195,22 +194,13 @@ export async function render() {
       </table>
     </div>
     <p class="hint" style="margin-top:10px">
-      L'import dal foglio gira da solo ogni mattina alle 6:30. Ogni visita su segnalazione va
+      Le segnalazioni dal portale arrivano qui da sole, pochi secondi dopo l'invio. Ogni visita su segnalazione va
       autorizzata dal Direttore prima di essere avviata; il nome del segnalante non arriva mai all'impresa.
     </p>`;
 
   $('#sg-f').addEventListener('click', (e) => {
     const b = e.target.closest('[data-val]');
     if (b) { filtro = b.dataset.val; render(); }
-  });
-  $('#sg-importa').addEventListener('click', async (ev) => {
-    attendi(ev.currentTarget, true, 'Leggo il foglio…');
-    const { data, error } = await sb.functions.invoke('import-rlst', { body: {} });
-    attendi(ev.currentTarget, false);
-    if (error || data?.error) return toast('Import non riuscito: ' + (data?.error || error.message), 'err');
-    const n = data?.segnalazioni?.nuove || 0;
-    toast(n ? `${n} segnalazioni nuove importate.` : 'Nessuna segnalazione nuova.', 'ok');
-    if (n) render();
   });
   $('#sg-nuova').addEventListener('click', nuovaSegnalazione);
   host.querySelectorAll('tbody tr[data-id]').forEach((tr) =>

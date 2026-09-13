@@ -149,7 +149,6 @@ export async function render() {
       </div>
       <div style="display:flex;gap:6px">
         <button class="btn btn-ghost btn-sm" id="cf-storico">📜 Storico Access</button>
-        <button class="btn btn-ghost btn-sm" id="cf-importa">⟳ Importa adesso dal foglio</button>
         <button class="btn btn-primary btn-sm" id="cf-nuova">+ Nuova richiesta</button>
       </div>
     </div>
@@ -167,15 +166,6 @@ export async function render() {
   $('#cf-f').addEventListener('click', (e) => {
     const b = e.target.closest('[data-val]');
     if (b) { filtro = b.dataset.val; render(); }
-  });
-  $('#cf-importa').addEventListener('click', async (ev) => {
-    attendi(ev.currentTarget, true, 'Leggo il foglio…');
-    const { data, error } = await sb.functions.invoke('import-rlst', { body: {} });
-    attendi(ev.currentTarget, false);
-    if (error || data?.error) return toast('Import non riuscito: ' + (data?.error || error.message), 'err');
-    const n = data?.conferenze?.nuove || 0;
-    toast(n ? `${n} richieste nuove importate.` : 'Nessuna richiesta nuova.', 'ok');
-    if (n) render();
   });
   $('#cf-nuova').addEventListener('click', nuovaRichiesta);
   $('#cf-storico').addEventListener('click', async () => {

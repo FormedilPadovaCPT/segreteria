@@ -197,7 +197,6 @@ export async function render() {
       </div>
       <div style="display:flex;gap:6px">
         <button class="btn btn-ghost btn-sm" id="vs-storico">📜 Storico Access</button>
-        <button class="btn btn-ghost btn-sm" id="vs-importa">⟳ Importa adesso dal foglio</button>
         <button class="btn btn-primary btn-sm" id="vs-nuova">+ Nuova richiesta</button>
       </div>
     </div>
@@ -216,15 +215,6 @@ export async function render() {
   $('#vs-f').addEventListener('click', (e) => {
     const b = e.target.closest('[data-val]');
     if (b) { filtro = b.dataset.val; render(); }
-  });
-  $('#vs-importa').addEventListener('click', async (ev) => {
-    attendi(ev.currentTarget, true, 'Leggo il foglio…');
-    const { data, error } = await sb.functions.invoke('import-rlst', { body: {} });
-    attendi(ev.currentTarget, false);
-    if (error || data?.error) return toast('Import non riuscito: ' + (data?.error || error.message), 'err');
-    const n = data?.visite?.nuove || 0;
-    toast(n ? `${n} richieste di visita importate.` : 'Nessuna richiesta nuova.', 'ok');
-    if (n) render();
   });
   $('#vs-nuova').addEventListener('click', nuovaRichiesta);
   $('#vs-storico').addEventListener('click', async () => {

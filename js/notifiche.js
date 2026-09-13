@@ -117,7 +117,6 @@ export async function render() {
           `<button class="seg-btn ${filtro === v ? 'is-active' : ''}" data-val="${v}">${l}</button>`).join('')}
       </div>
       <div style="display:flex;gap:6px">
-        <button class="btn btn-ghost btn-sm" id="nt-importa">⟳ Importa adesso dal foglio</button>
         <button class="btn btn-primary btn-sm" id="nt-nuova">+ Nuova notifica</button>
       </div>
     </div>
@@ -136,15 +135,6 @@ export async function render() {
   $('#nt-f').addEventListener('click', (e) => {
     const b = e.target.closest('[data-val]');
     if (b) { filtro = b.dataset.val; render(); }
-  });
-  $('#nt-importa').addEventListener('click', async (ev) => {
-    attendi(ev.currentTarget, true, 'Leggo il foglio…');
-    const { data, error } = await sb.functions.invoke('import-rlst', { body: {} });
-    attendi(ev.currentTarget, false);
-    if (error || data?.error) return toast('Import non riuscito: ' + (data?.error || error.message), 'err');
-    const n = data?.notifiche?.nuove || 0;
-    toast(n ? `${n} notifiche nuove importate.` : 'Nessuna notifica nuova.', 'ok');
-    if (n) render();
   });
   $('#nt-nuova').addEventListener('click', nuovaNotifica);
   host.querySelectorAll('tbody tr[data-id]').forEach((tr) =>

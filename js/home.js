@@ -61,31 +61,26 @@ export async function render() {
     bacheca = { mail: bMail || [], eventi: bEventi || [], al: cfgB.bacheca_al || null, esito: esitoB };
   } catch { /* senza il ruolo segreteria la card non compare */ }
 
-  /* ── stato del canale del portale servizi (04/09/2026) ───────────────
-     Un foglio senza righe nuove e' ambiguo: puo' voler dire che non ha
-     scritto nessuno, o che il tubo e' rotto. Nell'incidente di agosto il
-     deployment Apps Script era morto da cinque settimane e in ufficio non
-     si poteva sapere. Il battito giornaliero toglie l'ambiguita'. */
+  /* ── stato del canale del portale servizi (04/09/2026, rifatto il 13/09/2026) ──
+     Un canale senza richieste nuove e' ambiguo: puo' voler dire che non ha
+     scritto nessuno, o che il tubo e' rotto (incidente di agosto: Apps Script
+     morto da cinque settimane e in ufficio non si poteva sapere). Dal 13/09/2026
+     foglio Google e Apps Script sono spenti: restano il battito della funzione
+     portale-richieste e il giro della cassetta delle lettere sul progetto Servizi. */
   let canale = null;
   try {
     const [{ data: cfg }, { count: senzaRiscontro }] = await Promise.all([
-      sb.from('s_config').select('chiave, valore').in('chiave', ['portale_battito_al', 'portale_battito_ore', 'portale_diretto_battito_al', 'cassetta_giro_al', 'cassetta_in_attesa']),
-      /* «senza riscontro» = copia arrivata allo specchio e mai confermata
-         dal backend dopo un quarto d'ora: la richiesta e' partita ma sul
-         foglio non c'e'. Si calcola qui, non serve nessun lavoro batch. */
+      sb.from('s_config').select('chiave, valore').in('chiave', ['portale_battito_ore', 'portale_diretto_battito_al', 'cassetta_giro_al', 'cassetta_in_attesa']),
+      /* «senza riscontro» = richiesta scritta nella scatola nera e non ancora
+         lavorata dopo un quarto d'ora: e' arrivata, ma la pratica non c'e'. */
       sb.from('s_portale_ricezioni').select('id', { count: 'exact', head: true })
-        /* vuoto = mai confermata; false = la strada diretta non e' riuscita a
-           scrivere la copia sul foglio (13/09/2026): sono due modi di non esserci */
-        .or('sul_foglio.is.null,sul_foglio.is.false')
+        .is('elaborata_at', null)
         .lte('ricevuto_at', new Date(Date.now() - 15 * 60000).toISOString()),
     ]);
     const c = Object.fromEntries((cfg || []).map((r) => [r.chiave, r.valore]));
-    const battito = c.portale_battito_al ? new Date(c.portale_battito_al) : null;
     const limite = Number(c.portale_battito_ore || 36);
-    const ore = battito && !isNaN(battito) ? (Date.now() - battito.getTime()) / 3600000 : null;
-    /* la strada diretta (12/09/2026): i moduli che arrivano al database
-       senza passare da Apps Script hanno un battito loro, perche' un guasto
-       dell'una non si vede dal battito dell'altra */
+    /* il battito notturno di portale-richieste: database, cartella dei file,
+       delega Gmail e cassetta rispondono davvero */
     const diretto = c.portale_diretto_battito_al ? new Date(c.portale_diretto_battito_al) : null;
     const oreDiretto = diretto && !isNaN(diretto) ? (Date.now() - diretto.getTime()) / 3600000 : null;
     /* la cassetta delle lettere sul progetto Servizi (13/09/2026): il giro
@@ -332,14 +327,11 @@ export async function render() {
             }).join('') + '<p class="hint" style="margin-top:6px">Eseguite nel gestionale, in attesa della chiusura della segreteria — da qui si decide se e a chi comunicare l\'esito.</p>'
           : '<p class="hint">Nessuna visita eseguita in attesa di chiusura.</p>')}
 
-      ${card('📡 Canale portale servizi', canale && !canale.muto && !canale.mutoDiretto && !canale.senzaRiscontro && !canale.mutoCassetta && !canale.ferme ? '✓' : '!',
+      ${card('📡 Canale portale servizi', canale && !canale.mutoDiretto && !canale.senzaRiscontro && !canale.mutoCassetta && !canale.ferme ? '✓' : '!',
         !canale
-          ? '<p class="hint">Stato non disponibile: il controllo del canale parte con l\'import delle 6:30.</p>'
-          : `<div class="hm-riga"><span>${canale.muto ? '🔴' : '🟢'}</span>
-               <span>Ultimo battito del portale</span>
-               <span class="hint">${canale.battito ? dataIt(canale.battito.toISOString().slice(0, 10)) + ' · ' + Math.round(canale.ore) + ' ore fa' : 'mai'}</span></div>
-             <div class="hm-riga"><span>${canale.mutoDiretto ? '🔴' : '🟢'}</span>
-               <span>Ultimo battito della strada diretta (tutti i moduli)</span>
+          ? '<p class="hint">Stato non disponibile.</p>'
+          : `<div class="hm-riga"><span>${canale.mutoDiretto ? '🔴' : '🟢'}</span>
+               <span>Ultimo battito del portale (database, Drive, posta, cassetta)</span>
                <span class="hint">${canale.diretto ? dataIt(canale.diretto.toISOString().slice(0, 10)) + ' · ' + Math.round(canale.oreDiretto) + ' ore fa' : 'mai'}</span></div>
              <div class="hm-riga"><span>${canale.mutoCassetta || canale.ferme ? '🔴' : '🟢'}</span>
                <span>Cassetta del portale (progetto Servizi): ritiro ogni 3 minuti</span>

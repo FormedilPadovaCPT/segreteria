@@ -91,7 +91,6 @@ export async function render() {
       </div>
       <input id="rls-cerca" class="inp inp-sm" type="search" placeholder="Cerca impresa, RLS, CF…" value="${esc(cerca)}">
       <div style="display:flex;gap:6px">
-        <button class="btn btn-ghost btn-sm" id="rls-importa">⟳ Importa adesso dal foglio</button>
         <button class="btn btn-primary btn-sm" id="rls-nuova">+ Nuova comunicazione</button>
       </div>
     </div>
@@ -103,7 +102,7 @@ export async function render() {
     </div>
     <p class="hint" style="margin-top:10px">
       Il mandato dura 3 anni (CCNL): la data col «?» è la scadenza teorica calcolata dalla
-      decorrenza, non una fine nomina comunicata. L'import dal foglio gira ogni mattina alle 6:30.
+      decorrenza, non una fine nomina comunicata. Le comunicazioni dal portale arrivano qui da sole.
     </p>`;
 
   $('#rls-f').addEventListener('click', (e) => {
@@ -114,15 +113,6 @@ export async function render() {
     cerca = e.target.value;
     clearTimeout(render._t);
     render._t = setTimeout(render, 350);
-  });
-  $('#rls-importa').addEventListener('click', async (ev) => {
-    attendi(ev.currentTarget, true, 'Leggo il foglio…');
-    const { data, error } = await sb.functions.invoke('import-rlst', { body: {} });
-    attendi(ev.currentTarget, false);
-    if (error || data?.error) return toast('Import non riuscito: ' + (data?.error || error.message), 'err');
-    const n = data?.rls?.nuove || 0;
-    toast(n ? `${n} comunicazioni nuove importate.` : 'Nessuna comunicazione nuova.', 'ok');
-    if (n) render();
   });
   $('#rls-nuova').addEventListener('click', nuovaComunicazione);
   host.querySelectorAll('tbody tr[data-id]').forEach((tr) =>

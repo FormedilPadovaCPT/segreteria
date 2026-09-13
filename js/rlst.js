@@ -1,10 +1,10 @@
 /* ============================================================
    Pratiche di affidamento al servizio RLST.
 
-   Le richieste arrivano dal modulo online e finiscono nel foglio
-   Google; la funzione import-rlst (schedulata ogni mattina alle
-   6:30, o il bottone «Importa adesso») le porta in s_rlst_pratiche
-   con la pre-istruttoria già fatta: controllo CEIV sull'anagrafica,
+   Le richieste arrivano dal portale servizi attraverso la cassetta
+   delle lettere (dal 13/09/2026: il foglio Google e l'import delle
+   6:30 sono spenti); la funzione portale-richieste le porta in
+   s_rlst_pratiche con la pre-istruttoria già fatta: controllo CEIV sull'anagrafica,
    aggancio impresa per P.IVA, aggancio del legale rappresentante
    per codice fiscale.
 
@@ -70,7 +70,6 @@ export async function render() {
           `<button class="seg-btn ${filtroStato === s ? 'is-active' : ''}" data-val="${s}">${s === 'aperte' ? 'Da lavorare' : s === 'tutte' ? 'Tutte' : 'Chiuse'}</button>`).join('')}
       </div>
       <div style="display:flex;gap:6px">
-        <button class="btn btn-ghost btn-sm" id="rlst-importa">⟳ Importa adesso dal foglio</button>
         <button class="btn btn-primary btn-sm" id="rlst-nuova">+ Nuova richiesta</button>
       </div>
     </div>
@@ -81,21 +80,13 @@ export async function render() {
       </table>
     </div>
     <p class="hint" style="margin-top:10px">
-      L'import dal foglio gira da solo ogni mattina alle 6:30. Il PDF di riepilogo che arriva
-      per mail resta il documento da protocollare: qui ci sono i dati, già controllati.
+      Le richieste dal portale arrivano qui da sole, pochi secondi dopo l'invio. Il riepilogo PDF
+      da protocollare lo genera l'app al protocollo: qui ci sono i dati, già controllati.
     </p>`;
 
   $('#rlst-f').addEventListener('click', (e) => {
     const b = e.target.closest('[data-val]');
     if (b) { filtroStato = b.dataset.val; render(); }
-  });
-  $('#rlst-importa').addEventListener('click', async (ev) => {
-    attendi(ev.currentTarget, true, 'Leggo il foglio…');
-    const { data, error } = await sb.functions.invoke('import-rlst', { body: {} });
-    attendi(ev.currentTarget, false);
-    if (error || data?.error) return toast('Import non riuscito: ' + (data?.error || error.message), 'err');
-    toast(data.nuove ? `${data.nuove} richieste nuove importate.` : 'Nessuna richiesta nuova.', 'ok');
-    if (data.nuove) render();
   });
   $('#rlst-nuova').addEventListener('click', nuovaRichiesta);
   host.querySelectorAll('tbody tr[data-id]').forEach((tr) =>
