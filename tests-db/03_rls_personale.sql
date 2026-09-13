@@ -18,7 +18,8 @@ begin
   -- nessuna policy USING (true) sulle tabelle con dati (restano solo le tabelle di riferimento)
   select string_agg(tablename || '.' || policyname, ', ') into t
     from pg_policies where schemaname = 'public' and (qual = 'true' or with_check = 'true')
-     and tablename not in ('checklist_voci', 'comuni_istat', 'comuni_catastali', 'ateco_codici');
+     and tablename not in ('checklist_voci', 'comuni_istat', 'comuni_catastali', 'ateco_codici',
+                           'comuni_cap', 'imprese_certificazioni_tipi');   -- consultazione, dal 08/09/2026
   assert t is null, 'policy USING (true) su tabelle con dati: ' || t;
   raise notice 'OK: estraneo a zero righe';
 end $$;

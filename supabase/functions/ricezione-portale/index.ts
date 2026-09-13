@@ -16,6 +16,8 @@
 //
 //  1. SPECCHIO  (il portale, subito prima di inviare al foglio)
 //     { tipo_modulo, submission_id, ...campi }  ->  riga in s_portale_ricezioni
+//     ⚠️ SPENTO dal 13/09/2026 (risponde 410): tutti i moduli vanno per la
+//     strada diretta, e aperto serviva solo ad abusarne.
 //
 //  2. CONFERMA  (il backend Apps Script, a riga scritta sul foglio)
 //     { conferma: '<submission_id>', progressivo: N }  ->  sul_foglio = true
@@ -48,9 +50,7 @@ const CORS = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
-const TIPI = ['rlst', 'rls', 'conf', 'vis', 'cons', 'att', 'not', 'seg', 'qst']
 const MAX_BYTE = 64 * 1024
-const MAX_ORA = 300
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
@@ -79,6 +79,7 @@ serve(async (req) => {
         },
       })
 
+    if (Number(req.headers.get('content-length') || 0) > MAX_BYTE) return rispondi({ error: 'corpo troppo grande' }, 413)
     const testo = await req.text()
     if (!testo) return rispondi({ error: 'corpo vuoto' }, 400)
     if (testo.length > MAX_BYTE) return rispondi({ error: 'corpo troppo grande' }, 413)
@@ -93,7 +94,11 @@ serve(async (req) => {
     // ── 2. CONFERMA dal backend: la riga è arrivata anche sul foglio ─────────
     if (d.conferma) {
       const id = String(d.conferma)
-      const r = await db(`s_portale_ricezioni?submission_id=eq.${encodeURIComponent(id)}`, {
+      /* solo righe arrivate dallo specchio, non ancora confermate e di oggi:
+         una conferma non deve poter toccare le righe della strada diretta ne'
+         quelle vecchie (revisione di sicurezza 13/09/2026) */
+      const ieri = new Date(Date.now() - 86400_000).toISOString()
+      const r = await db(`s_portale_ricezioni?submission_id=eq.${encodeURIComponent(id)}&origine=eq.portale&sul_foglio=is.null&ricevuto_at=gte.${ieri}`, {
         method: 'PATCH',
         body: JSON.stringify({
           sul_foglio: true,
@@ -128,58 +133,15 @@ serve(async (req) => {
       return rispondi({ ok: true, battito: new Date().toISOString() })
     }
 
-    // ── 1. SPECCHIO di un invio dal portale ─────────────────────────────────
-    const tipo = String(d.tipo_modulo || '').toLowerCase()
-    if (!TIPI.includes(tipo)) return rispondi({ error: 'tipo_modulo non riconosciuto' }, 400)
-    const submissionId = String(d.submission_id || '')
-    if (!submissionId) return rispondi({ error: 'submission_id mancante' }, 400)
-
-    /* tetto orario: non e' una difesa dai malintenzionati (nessuna lo
-       sarebbe su una porta pubblica) ma evita che un errore o uno script
-       impazzito riempia la tabella prima che qualcuno se ne accorga */
-    const daUnOra = new Date(Date.now() - 3600_000).toISOString()
-    const conta = await db(
-      `s_portale_ricezioni?select=id&ricevuto_at=gte.${daUnOra}&limit=${MAX_ORA + 1}`,
-    )
-    const righeUltimaOra = ((await conta.json()) as unknown[]).length
-    if (righeUltimaOra > MAX_ORA) {
-      return rispondi({ error: 'troppe ricezioni nell ultima ora, specchio sospeso' }, 429)
-    }
-
-    /* gli allegati non si specchiano: il file vero sta su Drive, qui
-       basta sapere che c'era e quanto pesava */
-    const payload: Record<string, unknown> = {}
-    for (const [k, v] of Object.entries(d)) {
-      if (/base64$/.test(k)) {
-        payload[k] = `[${typeof v === 'string' ? v.length : 0} caratteri base64, non copiati]`
-      } else {
-        payload[k] = v
-      }
-    }
-
-    const riga = {
-      submission_id: submissionId,
-      tipo,
-      timestamp_modulo: d.timestamp ? String(d.timestamp) : null,
-      ragione_sociale: (d.ragione_sociale as string) || (d.notifica as string) || null,
-      email: (d.email as string) || null,
-      payload,
-      origine: 'portale',
-    }
-
-    /* ignore-duplicates: il portale ritenta con lo stesso submission_id
-       finche' non ha conferma, ed e' giusto che lo specchio non protesti */
-    const ins = await db('s_portale_ricezioni', {
-      method: 'POST',
-      body: JSON.stringify(riga),
-      headers: { Prefer: 'resolution=ignore-duplicates,return=minimal' },
-    })
-    if (!ins.ok && ins.status !== 409) {
-      const t = await ins.text()
-      throw new Error(`insert fallito (${ins.status}): ${t}`)
-    }
-
-    return rispondi({ ok: true, submission_id: submissionId })
+    // ── 1. SPECCHIO: spento dal 13/09/2026 ───────────────────────────────────
+    /* Dal 13/09/2026 tutti i moduli vanno per la strada diretta
+       (portale-richieste), che scrive da se' la scatola nera: il portale non
+       chiama piu' lo specchio. Aperto, serviva soltanto a chi volesse riempire
+       la tabella o aggirare il tetto orario della strada diretta (revisione di
+       sicurezza 13/09/2026). Se un giorno un modulo torna ad Apps Script
+       (prefisso tolto da MODULI_DIRETTI), lo specchio va riacceso da qui:
+       il codice di prima e' nella storia del repository. */
+    return rispondi({ error: 'specchio disattivato: il portale scrive direttamente' }, 410)
   } catch (e) {
     console.error('ricezione-portale:', e)
     return rispondi({ error: (e as Error).message }, 400)

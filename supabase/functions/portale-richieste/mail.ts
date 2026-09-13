@@ -300,8 +300,8 @@ function gruppiCampiCpt(tipo: string, d: Dati): Gruppo[] {
 export function mailInterna(tipo: string, d: Dati, prog: number,
   o: { praticaId?: number | null; fotoUrls?: string[]; allegati?: [string, string][] } = {}): { oggetto: string; html: string } {
   const label = TIPO_LABEL[tipo] || tipo
-  const impresa = s(d.ragione_sociale) || nominativo(d, '') ||
-    (tipo === 'qst' && d.tecnico ? 'Sopralluogo di ' + s(d.tecnico) : '') || s(d.comune_cantiere) || 'Nuova richiesta'
+  const impresa = (s(d.ragione_sociale) || nominativo(d, '') ||
+    (tipo === 'qst' && d.tecnico ? 'Sopralluogo di ' + s(d.tecnico) : '') || s(d.comune_cantiere) || 'Nuova richiesta').slice(0, 120)
   const quando = mailDataOra()
 
   const caselle = riassuntoCpt(tipo, d).map((c, i) => `
@@ -389,32 +389,25 @@ export function mailInterna(tipo: string, d: Dati, prog: number,
 export function mailConferma(tipo: string, d: Dati, prog: number): { oggetto: string; html: string } {
   const label = TIPO_LABEL[tipo] || tipo
   const titolo = TITOLO_CONFERMA[tipo] || (label + ' ricevuta')
-  /* nella notifica rl_ e' il responsabile dei lavori: la conferma va a chi ha compilato */
-  const nomeRL = tipo === 'not' ? nominativo(d, '')
-    : nominativo(d, 'rl_') || nominativo(d, 'lr_') || nominativo(d, '')
   const quando = mailDataOra()
 
-  let corpo: string
-  if (tipo === 'seg') {
-    corpo = `
-      <p style="margin:0 0 12px">Gentile <strong>Utente</strong>,</p>
+  /* ⚠️ TESTO FISSO, senza niente di quel che ha scritto chi compila (revisione
+     di sicurezza 13/09/2026). L'indirizzo lo sceglie lui: nome, ragione sociale
+     o indirizzo del cantiere ripetuti qui farebbero della conferma un messaggio
+     a nome dell'ente con un testo scelto da chiunque — il veicolo perfetto per
+     un phishing. Prima il saluto era personale; e' il prezzo della difesa. */
+  const nonVoi = `<p style="margin:12px 0 0;font-size:13px;color:${MAIL.GRIGIO_TESTO}">Se non avete inviato voi questa richiesta, ignorate questo messaggio.</p>`
+  const corpo = tipo === 'seg' ? `
+      <p style="margin:0 0 12px">Gentile utente,</p>
       <p style="margin:0 0 12px">grazie per la collaborazione: abbiamo ricevuto la vostra Segnalazione Cantiere il <strong>${escHtml(quando)}</strong>.</p>
-      <p style="margin:0">Il nostro ufficio prenderà in carico la pratica nel più breve tempo possibile. Il nome di chi segnala resta riservato e non viene comunicato all'impresa.</p>`
-  } else if (tipo === 'qst') {
-    corpo = `
-      <p style="margin:0 0 12px">Gentile <strong>${escHtml(nomeRL || 'Utente')}</strong>,</p>
-      <p style="margin:0">grazie per il tempo dedicato al questionario, ricevuto il <strong>${escHtml(quando)}</strong>. Le vostre risposte ci aiutano a migliorare il servizio di sopralluogo.</p>`
-  } else {
-    corpo = `
-      <p style="margin:0 0 12px">Gentile <strong>${escHtml(nomeRL || 'Utente')}</strong>,</p>
-      <p style="margin:0 0 12px">abbiamo ricevuto la vostra richiesta <strong>${escHtml(label)}</strong>${
-        /* nella notifica la ragione sociale e' di chi comunica, non dell'impresa del cantiere */
-        tipo === 'not'
-          ? ((d.indirizzo_cantiere || d.comune_cantiere) ? ` per il cantiere di <strong>${escHtml([d.indirizzo_cantiere, d.comune_cantiere].map(s).filter(Boolean).join(', '))}</strong>` : '')
-          : d.ragione_sociale ? ` per l'impresa <strong>${escHtml(d.ragione_sociale)}</strong>` : ''}
-        il <strong>${escHtml(quando)}</strong>.</p>
-      <p style="margin:0">Il nostro ufficio prenderà in carico la pratica e vi contatterà a breve. Per qualsiasi comunicazione citate il numero di ricevuta.</p>`
-  }
+      <p style="margin:0">Il nostro ufficio prenderà in carico la pratica nel più breve tempo possibile. Il nome di chi segnala resta riservato e non viene comunicato all'impresa.</p>${nonVoi}`
+    : tipo === 'qst' ? `
+      <p style="margin:0 0 12px">Gentile utente,</p>
+      <p style="margin:0">grazie per il tempo dedicato al questionario, ricevuto il <strong>${escHtml(quando)}</strong>. Le vostre risposte ci aiutano a migliorare il servizio di sopralluogo.</p>${nonVoi}`
+    : `
+      <p style="margin:0 0 12px">Gentile utente,</p>
+      <p style="margin:0 0 12px">abbiamo ricevuto la vostra richiesta <strong>${escHtml(label)}</strong> il <strong>${escHtml(quando)}</strong>.</p>
+      <p style="margin:0">Il nostro ufficio prenderà in carico la pratica e vi contatterà a breve. Per qualsiasi comunicazione citate il numero di ricevuta.</p>${nonVoi}`
 
   const righe = `
   <tr><td style="background:${MAIL.ARANCIO};padding:24px 32px 22px">

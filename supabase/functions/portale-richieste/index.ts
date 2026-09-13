@@ -68,7 +68,12 @@
 //
 // verify_jwt = false, di proposito: il portale e' pubblico e anonimo, come
 // l'endpoint Apps Script che sostituisce. Nessuna chiave viaggia nel sito.
-// In cambio: solo POST, tipi noti, submission_id obbligatorio, tetto orario.
+// In cambio: solo POST, tipi noti, submission_id obbligatorio, e le difese della
+// revisione di sicurezza del 13/09/2026: tetto per tutti e per IP contato dal
+// database (s_portale_quota), dimensione per modulo, solo le chiavi che il
+// modulo usa (con i testi tagliati) nella scatola nera e nella mail, foto e PDF
+// controllati sul contenuto, conferma a testo fisso e al massimo 3 al giorno
+// per indirizzo.
 //
 // Secret: GOOGLE_SERVICE_ACCOUNT_JSON (lo stesso delle altre funzioni)
 
@@ -83,8 +88,17 @@ const CORS = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
-const MAX_CARATTERI = 28 * 1024 * 1024   // RLS: due PDF da 8 MB in base64 ci stanno
-const MAX_ORA = 60                        // non e' una difesa, e' un freno a un errore che si ripete
+const MAX_CARATTERI = 28 * 1024 * 1024   // tetto assoluto: RLS, due PDF da 8 MB in base64
+/* tetto per modulo sul corpo intero: solo chi porta allegati ha bisogno di MB.
+   Prima valeva 28 MB per tutti, e 28 MB di dati inventati su un questionario
+   finivano nella scatola nera (revisione di sicurezza 13/09/2026) */
+const MAX_CARATTERI_MODULO: Record<string, number> = {
+  rls: 28 * 1024 * 1024, rlst: 16 * 1024 * 1024, seg: 20 * 1024 * 1024, not: 768 * 1024,
+}
+const MAX_CARATTERI_ALTRI = 256 * 1024
+const MAX_ORA = 60                        // richieste nuove in un'ora, per tutti
+const MAX_ORA_IP = 15                     // ...e dallo stesso indirizzo IP
+const MAX_CONFERME_GIORNO = 3             // mail di conferma allo stesso indirizzo in 24 ore
 const MAX_FOTO = 3
 const MAX_FOTO_BYTE = 6 * 1024 * 1024
 const MAX_ALLEGATO_BYTE = 12 * 1024 * 1024
@@ -607,6 +621,7 @@ function leggiFoto(campo: unknown): { foto: Foto[]; scartate: string[] } {
     const byte = decodifica(m[2])
     if (!byte) { scartate.push(`foto ${i + 1}: contenuto non decodificabile`); return }
     if (byte.length > MAX_FOTO_BYTE) { scartate.push(`foto ${i + 1}: oltre ${MAX_FOTO_BYTE / 1048576} MB`); return }
+    if (!eImmagine(byte)) { scartate.push(`foto ${i + 1}: il contenuto non e' un'immagine`); return }
     const t = m[1].toLowerCase()
     const ext = t === 'png' ? 'png' : (t === 'jpeg' || t === 'jpg') ? 'jpg' : (t.replace(/[^a-z0-9].*$/, '') || 'img')
     foto.push({ nome: String((f as Dati)?.name || ''), mime: `image/${t === 'jpg' ? 'jpeg' : t}`, ext, byte })
@@ -624,6 +639,22 @@ function decodifica(b64: string): Uint8Array | null {
     return out
   } catch { return null }
 }
+/* Il tipo dichiarato non basta: si guarda l'inizio del file. Un «PDF» o una
+   «foto» che non lo sono finirebbero su Drive con un link aperto dalla mail
+   della segreteria (revisione di sicurezza 13/09/2026). SVG escluso: e' testo
+   che puo' contenere script. */
+const inizia = (b: Uint8Array, da: number, ...xs: number[]) => xs.every((x, i) => b[da + i] === x)
+const MARCHI_HEIF = ['heic', 'heix', 'hevc', 'heif', 'mif1', 'msf1', 'avif']
+function eImmagine(b: Uint8Array): boolean {
+  return inizia(b, 0, 0xff, 0xd8, 0xff)                                            // JPEG
+    || inizia(b, 0, 0x89, 0x50, 0x4e, 0x47)                                        // PNG
+    || inizia(b, 0, 0x47, 0x49, 0x46, 0x38)                                        // GIF
+    || inizia(b, 0, 0x42, 0x4d)                                                    // BMP
+    || (inizia(b, 0, 0x52, 0x49, 0x46, 0x46) && inizia(b, 8, 0x57, 0x45, 0x42, 0x50)) // WEBP
+    || (inizia(b, 4, 0x66, 0x74, 0x79, 0x70) && MARCHI_HEIF.includes(String.fromCharCode(b[8], b[9], b[10], b[11])))
+}
+/* «%PDF-» nei primi 1024 byte, come ammette la specifica */
+const ePdf = (b: Uint8Array) => new TextDecoder('latin1').decode(b.subarray(0, 1024)).includes('%PDF-')
 
 async function caricaFile(token: string, cartella: string, nome: string, mime: string, byte: Uint8Array): Promise<string> {
   const boundary = '-------FilePortale' + crypto.randomUUID()
@@ -805,39 +836,95 @@ async function prendiLavorazione(sb: SB, subId: string): Promise<string | null> 
   return (data || []).length === 1 ? segno : null
 }
 
+/* ══ SOLO QUEL CHE IL MODULO USA ═════════════════════════════════════════
+   (revisione di sicurezza 13/09/2026) Le chiavi della mappa del modulo passano
+   coi testi tagliati a MAX_TESTO; le altre — il portale ne manda qualcuna che
+   la mappa non conserva — passano al massimo in MAX_CHIAVI_EXTRA, corte e con
+   un nome pulito. Prima entrava tutto: una chiave inventata finiva nella scheda
+   pratica mandata alla segreteria, e 27 MB di dati casuali nel database. */
+const CHIAVI_SEMPRE = ['tipo_modulo', 'submission_id', 'timestamp', 'privacy', 'email']
+const MAX_CHIAVI_EXTRA = 15
+const MAX_TESTO_EXTRA = 300
+const MAX_ELENCO_JSON = 256 * 1024
+const chiaviCache = new Map<Modulo, Set<string>>()
+function chiaviNote(m: Modulo): Set<string> {
+  const pronte = chiaviCache.get(m)
+  if (pronte) return pronte
+  const s = new Set(CHIAVI_SEMPRE)
+  const aggiungi = (spec: string) => { if (!spec.startsWith('#')) for (const k of parti(spec)[1].split('|')) s.add(k) }
+  Object.values(m.colonne).forEach(aggiungi)
+  m.foglio.forEach(([, spec]) => aggiungi(spec))
+  for (const a of m.file || []) { s.add(a.base + '_base64'); s.add(a.base + '_nome') }
+  if (m.foto) s.add('seg_photo_base64')
+  chiaviCache.set(m, s)
+  return s
+}
+function soloNote(grezzo: Dati, m: Modulo): Dati {
+  const note = chiaviNote(m)
+  const d: Dati = {}
+  let extra = 0
+  for (const [k, v] of Object.entries(grezzo)) {
+    const nota = note.has(k)
+    if (!nota && (extra >= MAX_CHIAVI_EXTRA || !/^[a-z][a-z0-9_]{0,39}$/.test(k) || /base64$|_json$/.test(k))) continue
+    const max = nota ? MAX_TESTO : MAX_TESTO_EXTRA
+    let val: unknown
+    if (nota && /base64$/.test(k)) val = typeof v === 'string' ? v : undefined
+    else if (nota && /_json$/.test(k)) val = typeof v === 'string' && v.length <= MAX_ELENCO_JSON ? v : undefined
+    else if (typeof v === 'number' || typeof v === 'boolean') val = v
+    else if (typeof v === 'string') val = v.slice(0, max)
+    else if (Array.isArray(v)) val = v.map((x) => String(x ?? '')).join(', ').slice(0, max)
+    else if (v && typeof v === 'object') val = JSON.stringify(v).slice(0, max)
+    if (val === undefined || val === '') continue
+    d[k] = val
+    if (!nota) extra++
+  }
+  return d
+}
+/* la scatola nera: niente base64, e al massimo 64 KB a richiesta */
+function scatolaNera(d: Dati): Dati {
+  const snello = (max: number) => Object.fromEntries(Object.entries(d).map(([k, v]) => [k,
+    /base64$/.test(k) ? `[${typeof v === 'string' ? v.length : 0} caratteri base64, non copiati]`
+      : typeof v === 'string' && v.length > max ? v.slice(0, max) + ` […tagliato, ${v.length} caratteri]` : v]))
+  const pieno = snello(MAX_TESTO)
+  return JSON.stringify(pieno).length <= 64 * 1024 ? pieno : snello(500)
+}
+
 /* ══ UNA RICHIESTA DAL PORTALE ═══════════════════════════════════════════ */
-async function richiesta(sb: SB, sa: Dati, d: Dati): Promise<Response> {
-  const tipo = String(d.tipo_modulo || '').toLowerCase()
+async function richiesta(sb: SB, sa: Dati, grezzo: Dati, dimensione: number, ipHash: string): Promise<Response> {
+  const tipo = String(grezzo.tipo_modulo || '').toLowerCase()
   const m = Object.hasOwn(MODULI, tipo) ? MODULI[tipo] : null
   if (!m) return rifiuto(`il modulo «${tipo}» non passa da questa strada`)
-  const subId = String(d.submission_id || '').trim()
+  if (dimensione > (MAX_CARATTERI_MODULO[tipo] ?? MAX_CARATTERI_ALTRI)) return rifiuto(`richiesta troppo grande per il modulo «${tipo}»`)
+  const subId = String(grezzo.submission_id || '').trim()
   if (!/^[A-Za-z0-9-]{8,64}$/.test(subId)) return rifiuto('submission_id mancante o non valido')
+  const d = soloNote(grezzo, m)
   const mancanti = m.obbligatori.filter((k) => !testo(leggi(d, k)))
   if (mancanti.length) return rifiuto(`campi obbligatori mancanti: ${mancanti.join(', ')}`)
 
-  const daUnOra = new Date(Date.now() - 3600_000).toISOString()
-  const { count } = await sb.from('s_portale_ricezioni').select('id', { count: 'exact', head: true })
-    .eq('origine', 'portale-diretto').gte('ricevuto_at', daUnOra)
-  if ((count || 0) > MAX_ORA) return intoppo('troppe richieste nell\'ultima ora: riprova più tardi', 429)
+  /* TETTO — solo per le richieste nuove (un reinvio non conta), contato e
+     segnato in un colpo solo dal database, per tutti e per indirizzo IP.
+     Prima si contava qui e si inseriva dopo: centinaia di richieste nello
+     stesso istante passavano tutte (revisione di sicurezza 13/09/2026). */
+  const { data: gia } = await sb.from('s_portale_ricezioni').select('id').eq('submission_id', subId).maybeSingle()
+  if (!gia) {
+    const { data: ammesso, error: errQuota } = await sb.rpc('s_portale_quota', { p_ip: ipHash, p_max_ora: MAX_ORA, p_max_ora_ip: MAX_ORA_IP })
+    if (errQuota) throw new Error('tetto orario non verificato: ' + errQuota.message)
+    if (ammesso !== true) return intoppo('troppe richieste nell\'ultima ora: riprova più tardi', 429)
+  }
 
   /* 1. SCATOLA NERA — prima di tutto. Niente base64, e niente testi enormi:
         la scatola nera e' per ritrovare la richiesta, non per custodire
         quel che non sarebbe comunque entrato nella pratica */
-  const snello: Dati = {}
-  for (const [k, v] of Object.entries(d)) {
-    snello[k] = /base64$/.test(k) ? `[${typeof v === 'string' ? v.length : 0} caratteri base64, non copiati]`
-      : typeof v === 'string' && v.length > 20000 ? v.slice(0, 20000) + ` […tagliato, ${v.length} caratteri]` : v
-  }
   const { error: errRic } = await sb.from('s_portale_ricezioni').upsert({
     submission_id: subId, tipo, timestamp_modulo: istante(d.timestamp),
-    ragione_sociale: testo(leggi(d, m.chi), 200), email: testo(d.email, 200),
-    payload: snello, origine: 'portale-diretto',
+    ragione_sociale: testo(leggi(d, m.chi), 200), email: testo(d.email, 200)?.toLowerCase() ?? null,
+    payload: scatolaNera(d), origine: 'portale-diretto',
   }, { onConflict: 'submission_id', ignoreDuplicates: true })
   if (errRic) throw new Error('scatola nera non scritta: ' + errRic.message)
 
   /* 1b. UNA LAVORAZIONE ALLA VOLTA — chi arriva secondo aspetta il primo */
   let presa = await prendiLavorazione(sb, subId)
-  for (let i = 0; !presa && i < 20; i++) {
+  for (let i = 0; !presa && i < 10; i++) {
     await attesa(1000)
     const { data: r } = await sb.from('s_portale_ricezioni')
       .select('lavorazione_dal, elaborata_at, progressivo').eq('submission_id', subId).maybeSingle()
@@ -1016,6 +1103,7 @@ async function lavora(sb: SB, sa: Dati, d: Dati, tipo: string, m: Modulo, subId:
       const byte = decodifica(b64)
       if (!byte || !byte.length) { scartati.push(`${a.etichetta}: contenuto non decodificabile`); continue }
       if (byte.length > MAX_ALLEGATO_BYTE) { scartati.push(`${a.etichetta}: oltre ${MAX_ALLEGATO_BYTE / 1048576} MB`); continue }
+      if (!ePdf(byte)) { scartati.push(`${a.etichetta}: il file non e' un PDF`); continue }
       try {
         const tok = await drive()
         const url = await caricaFile(tok, await cartellaFile(sb, tok), `${a.prefisso}_${sanitize(d.ragione_sociale, 'impresa')}_${stampino()}.pdf`, 'application/pdf', byte)
@@ -1058,14 +1146,24 @@ async function lavora(sb: SB, sa: Dati, d: Dati, tipo: string, m: Modulo, subId:
   }
   if (emailCompilante && !emailValida) esito.mail_conferma_errore = 'indirizzo non valido: ' + emailCompilante
   if (emailValida && !esito.mail_conferma_il) {
-    try {
-      const mc = mailConferma(tipo, d, p.progressivo)
-      await inviaMail(sa, messaggioMime({ a: emailCompilante!, rispondiA: EMAIL_UFFICIO, oggetto: mc.oggetto, html: mc.html }))
-      esito.mail_conferma_il = adesso()
-      delete esito.mail_conferma_errore
-    } catch (e) {
-      esito.mail_conferma_errore = errMsg(e)
+    /* l'indirizzo lo scrive chiunque: senza un tetto il modulo diventerebbe un
+       modo di mandare posta a nome dell'ente a chi si vuole (revisione di
+       sicurezza 13/09/2026). Il conteggio comprende la richiesta di adesso. */
+    const { count: conferme } = await sb.from('s_portale_ricezioni').select('id', { count: 'exact', head: true })
+      .eq('email', emailCompilante!.toLowerCase()).gte('ricevuto_at', new Date(Date.now() - 86400_000).toISOString())
+    if ((conferme || 0) > MAX_CONFERME_GIORNO) {
+      esito.mail_conferma_errore = `non inviata: piu' di ${MAX_CONFERME_GIORNO} richieste in 24 ore dallo stesso indirizzo`
       email = email === 'ok' ? 'impresa-non-inviata' : 'nessuna-inviata'
+    } else {
+      try {
+        const mc = mailConferma(tipo, d, p.progressivo)
+        await inviaMail(sa, messaggioMime({ a: emailCompilante!, rispondiA: EMAIL_UFFICIO, oggetto: mc.oggetto, html: mc.html }))
+        esito.mail_conferma_il = adesso()
+        delete esito.mail_conferma_errore
+      } catch (e) {
+        esito.mail_conferma_errore = errMsg(e)
+        email = email === 'ok' ? 'impresa-non-inviata' : 'nessuna-inviata'
+      }
     }
   }
   await salva()
@@ -1138,9 +1236,19 @@ async function battito(req: Request, sb: SB, sa: Dati): Promise<Response> {
   return json({ status: tutto ? 'ok' : 'error', verifiche }, tutto ? 200 : 500)
 }
 
+/* l'indirizzo IP serve solo al tetto: se ne tiene un'impronta, non l'indirizzo */
+const indirizzoIp = (req: Request) =>
+  (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || req.headers.get('cf-connecting-ip') || 'sconosciuto'
+async function impronta(v: string): Promise<string> {
+  const h = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode('portale:' + v)))
+  return [...h.subarray(0, 12)].map((b) => b.toString(16).padStart(2, '0')).join('')
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
   if (req.method !== 'POST') return rifiuto('solo POST')
+  /* il corpo non si legge nemmeno, se chi manda dichiara piu' del tetto */
+  if (Number(req.headers.get('content-length') || 0) > MAX_CARATTERI) return rifiuto('richiesta troppo grande')
 
   const SA_JSON = Deno.env.get('GOOGLE_SERVICE_ACCOUNT_JSON')
   const SUPA = Deno.env.get('SUPABASE_URL')
@@ -1159,7 +1267,7 @@ serve(async (req) => {
   try {
     const sa = JSON.parse(SA_JSON)
     if (d.battito) return await battito(req, sb, sa)
-    return await richiesta(sb, sa, d)
+    return await richiesta(sb, sa, d, corpo.length, await impronta(indirizzoIp(req)))
   } catch (e) {
     console.error('portale-richieste:', e)
     return intoppo(errMsg(e))
