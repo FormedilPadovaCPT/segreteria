@@ -78,6 +78,10 @@ on conflict (chiave) do nothing;
 -- security definer perché la chiama la funzione edge col service role,
 -- ma è comunque letta anche dall'app (is_segreteria) per mostrare
 -- «con che numeri ha lavorato la routine».
+-- ⚠️ 13/09/2026: questo corpo ora si chiama s_redazione_materia_interna e
+-- s_redazione_materia e' un involucro che controlla il ruolo
+-- (2026_09_13_funzioni_controllo_ruolo.sql). Rieseguendo questo file si
+-- ricreerebbe la funzione SENZA controllo: non rieseguirlo cosi' com'e'.
 -- ------------------------------------------------------------
 create or replace function public.s_redazione_materia(p_mesi int default 12)
 returns jsonb

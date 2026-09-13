@@ -498,8 +498,12 @@ create policy sgr_prest_all on public.s_prestazioni for all using (public.is_seg
 drop policy if exists tec_prest_sel on public.s_prestazioni;
 create policy tec_prest_sel on public.s_prestazioni for select to authenticated using (tecnico_id = public.s_mio_tecnico_id() or public.is_coordinatore() or public.is_direttore());
 
-grant execute on function public.s_tariffa(text, date, text) to authenticated;
-grant execute on function public.s_regime_tecnico(text, date) to authenticated;
+-- 13/09/2026: nessuna app le chiama, le usa s_prestazioni_calcola_interna
+-- (security definer). Solo chiave di servizio: vedi 2026_09_13_funzioni_controllo_ruolo.sql
+revoke execute on function public.s_tariffa(text, date, text) from public, anon, authenticated;
+revoke execute on function public.s_regime_tecnico(text, date) from public, anon, authenticated;
+grant execute on function public.s_tariffa(text, date, text) to service_role;
+grant execute on function public.s_regime_tecnico(text, date) to service_role;
 grant execute on function public.is_coordinatore() to authenticated;
 grant execute on function public.s_mio_tecnico_id() to authenticated;
 grant execute on function public.s_prestazioni_calcola(text, int, int) to authenticated;
