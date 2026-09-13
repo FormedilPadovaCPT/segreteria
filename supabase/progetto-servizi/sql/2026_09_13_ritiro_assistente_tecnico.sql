@@ -27,5 +27,9 @@ drop table if exists public.tecnici;
 
 -- restano: notizie (+ trigger set_updated_at e funzione update_updated_at),
 -- cassetta, cassetta_impostazioni, cassetta_quota (+ funzione cassetta_quota),
--- bucket notizie-media e cassetta-allegati. L'estensione vector non serve piu'
--- a niente ma resta installata: toglierla e' facoltativo.
+-- bucket notizie-media e cassetta-allegati.
+
+-- l'estensione vector serviva solo ai vettori della base di conoscenza; tolta
+-- lo stesso giorno su richiesta dell'utente (migrazione togli_estensione_vector_2026_09_13).
+-- Senza cascade: se qualcosa la usasse ancora, il comando si fermerebbe.
+drop extension if exists vector;
