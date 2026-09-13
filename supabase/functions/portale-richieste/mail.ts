@@ -298,7 +298,7 @@ function gruppiCampiCpt(tipo: string, d: Dati): Gruppo[] {
 
 /* ── MAIL ALLA SEGRETERIA: scheda pratica ───────────────────────────────── */
 export function mailInterna(tipo: string, d: Dati, prog: number,
-  o: { praticaId?: number | null; fotoUrls?: string[]; allegati?: [string, string][] } = {}): { oggetto: string; html: string } {
+  o: { praticaId?: number | null; fotoUrls?: string[]; allegati?: [string, string][]; scartati?: string[] } = {}): { oggetto: string; html: string } {
   const label = TIPO_LABEL[tipo] || tipo
   const impresa = (s(d.ragione_sociale) || nominativo(d, '') ||
     (tipo === 'qst' && d.tecnico ? 'Sopralluogo di ' + s(d.tecnico) : '') || s(d.comune_cantiere) || 'Nuova richiesta').slice(0, 120)
@@ -336,6 +336,11 @@ export function mailInterna(tipo: string, d: Dati, prog: number,
       titolo: 'Allegati', html: true,
       righe: o.allegati.map(([et, u]) => [et, `<a href="${escHtml(u)}" style="color:${MAIL.ARANCIO}">Apri su Drive</a>`]),
     })
+  }
+  /* foto o PDF lasciati fuori perche' non validi: chi ha compilato crede di
+     averli mandati, e la segreteria deve saperlo per chiederli */
+  if (o.scartati && o.scartati.length) {
+    gruppi.push({ titolo: 'Allegati non accettati', righe: o.scartati.map((t, i) => [`Motivo ${i + 1}`, t]) })
   }
 
   const sezioni = gruppi.map((g) => `

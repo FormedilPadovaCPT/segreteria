@@ -66,6 +66,20 @@
 //   s_config.portale_diretto_battito_al.
 //   Lo chiama pg_cron alle 05:20 UTC (job battito-portale-diretto).
 //
+// ⚠️ DAL 13/09/2026 I MODULI NON ARRIVANO PIU' QUI DAL PORTALE, ma alla cassetta
+// delle lettere sul progetto Supabase Servizi (funzione portale-ricevi), che non
+// ha ne' la chiave di questo database ne' quella Google (deciso con l'utente dopo
+// le prove di sicurezza: il codice raggiungibile da internet non deve avere in
+// mano tutto). Questa funzione va a prendere le richieste, e da fuori accetta
+// solo due chiamate con la parola d'ordine (X-Cassetta-Token = s_config.cassetta_token):
+//   { ritira: <submission_id> }  il campanello della cassetta, a richiesta arrivata
+//   { giro: true }               il giro di pg_cron ogni 3 minuti (job ritiro-cassetta)
+// I dati si leggono dalla cassetta (cassetta-consegna), mai dal corpo della
+// chiamata; a lavorazione finita la cassetta cancella dati e allegati.
+// La vecchia strada pubblica resta aperta finche' s_config.portale_diretto_pubblico
+// vale «si» (pagine del portale ancora in cache); con «no» risponde «riprovabile»
+// e la richiesta resta sul telefono, che la rimanda alla cassetta.
+//
 // verify_jwt = false, di proposito: il portale e' pubblico e anonimo, come
 // l'endpoint Apps Script che sostituisce. Nessuna chiave viaggia nel sito.
 // In cambio: solo POST, tipi noti, submission_id obbligatorio, e le difese della
@@ -99,6 +113,9 @@ const MAX_CARATTERI_ALTRI = 256 * 1024
 const MAX_ORA = 60                        // richieste nuove in un'ora, per tutti
 const MAX_ORA_IP = 15                     // ...e dallo stesso indirizzo IP
 const MAX_CONFERME_GIORNO = 3             // mail di conferma allo stesso indirizzo in 24 ore
+const MAX_ORA_CASSETTA = 120              // richieste nuove in un'ora dalla cassetta (difesa in profondita')
+/* le origini della scatola nera che lavorano qui (non Apps Script) */
+const STRADE_DIRETTE = ['portale-diretto', 'cassetta']
 const MAX_FOTO = 3
 const MAX_FOTO_BYTE = 6 * 1024 * 1024
 const MAX_ALLEGATO_BYTE = 12 * 1024 * 1024
@@ -890,7 +907,10 @@ function scatolaNera(d: Dati): Dati {
 }
 
 /* ══ UNA RICHIESTA DAL PORTALE ═══════════════════════════════════════════ */
-async function richiesta(sb: SB, sa: Dati, grezzo: Dati, dimensione: number, ipHash: string): Promise<Response> {
+/* cassetta: null se la richiesta arriva direttamente dal portale; dalla cassetta
+   porta gli avvisi sugli allegati che portale-ricevi ha lasciato fuori */
+async function richiesta(sb: SB, sa: Dati, grezzo: Dati, dimensione: number, ipHash: string,
+  cassetta: { avvisi: string[] } | null = null): Promise<Response> {
   const tipo = String(grezzo.tipo_modulo || '').toLowerCase()
   const m = Object.hasOwn(MODULI, tipo) ? MODULI[tipo] : null
   if (!m) return rifiuto(`il modulo «${tipo}» non passa da questa strada`)
@@ -907,7 +927,15 @@ async function richiesta(sb: SB, sa: Dati, grezzo: Dati, dimensione: number, ipH
      stesso istante passavano tutte (revisione di sicurezza 13/09/2026). */
   const { data: gia } = await sb.from('s_portale_ricezioni').select('id').eq('submission_id', subId).maybeSingle()
   if (!gia) {
-    const { data: ammesso, error: errQuota } = await sb.rpc('s_portale_quota', { p_ip: ipHash, p_max_ora: MAX_ORA, p_max_ora_ip: MAX_ORA_IP })
+    /* dalla cassetta il tetto per IP l'ha gia' contato portale-ricevi; qui ne
+       resta uno complessivo piu' largo, come difesa in profondita': se il
+       progetto Servizi venisse compromesso, da li' non si potrebbero comunque
+       creare pratiche senza limite (13/09/2026). Oltre il tetto la richiesta
+       resta in cassetta e la riprende il giro successivo. */
+    const quota = cassetta
+      ? { p_ip: 'cassetta', p_max_ora: MAX_ORA_CASSETTA, p_max_ora_ip: MAX_ORA_CASSETTA }
+      : { p_ip: ipHash, p_max_ora: MAX_ORA, p_max_ora_ip: MAX_ORA_IP }
+    const { data: ammesso, error: errQuota } = await sb.rpc('s_portale_quota', quota)
     if (errQuota) throw new Error('tetto orario non verificato: ' + errQuota.message)
     if (ammesso !== true) return intoppo('troppe richieste nell\'ultima ora: riprova più tardi', 429)
   }
@@ -918,7 +946,7 @@ async function richiesta(sb: SB, sa: Dati, grezzo: Dati, dimensione: number, ipH
   const { error: errRic } = await sb.from('s_portale_ricezioni').upsert({
     submission_id: subId, tipo, timestamp_modulo: istante(d.timestamp),
     ragione_sociale: testo(leggi(d, m.chi), 200), email: testo(d.email, 200)?.toLowerCase() ?? null,
-    payload: scatolaNera(d), origine: 'portale-diretto',
+    payload: scatolaNera(d), origine: cassetta ? 'cassetta' : 'portale-diretto',
   }, { onConflict: 'submission_id', ignoreDuplicates: true })
   if (errRic) throw new Error('scatola nera non scritta: ' + errRic.message)
 
@@ -944,7 +972,7 @@ async function richiesta(sb: SB, sa: Dati, grezzo: Dati, dimensione: number, ipH
        l'import delle 6:30 da quella riga. (Trovato in revisione.) */
     const { data: ric } = await sb.from('s_portale_ricezioni')
       .select('origine, sul_foglio, progressivo, pratica_id, ricevuto_at').eq('submission_id', subId).maybeSingle()
-    if (ric && ric.origine !== 'portale-diretto' && ric.sul_foglio === true && ric.progressivo && !ric.pratica_id) {
+    if (ric && !STRADE_DIRETTE.includes(String(ric.origine)) && ric.sul_foglio === true && ric.progressivo && !ric.pratica_id) {
       return json({ status: 'ok', progressivo: ric.progressivo, submission_id: subId, duplicato: true, email: 'ok', strada: 'apps-script' })
     }
     /* ...o ancora IN VIAGGIO per la vecchia strada: lo specchio l'ha vista
@@ -954,11 +982,11 @@ async function richiesta(sb: SB, sa: Dati, grezzo: Dati, dimensione: number, ipH
        minuti la prende questa strada. Lo specchio parte solo per i moduli che
        vanno ad Apps Script, quindi un invio diretto non cade mai qui.
        (Trovato in revisione il 13/09/2026.) */
-    if (ric && ric.origine !== 'portale-diretto' && ric.sul_foglio == null && !ric.pratica_id &&
+    if (ric && !STRADE_DIRETTE.includes(String(ric.origine)) && ric.sul_foglio == null && !ric.pratica_id &&
         Date.now() - new Date(ric.ricevuto_at).getTime() < 10 * 60_000) {
       return intoppo('la richiesta è ancora in consegna per l\'altra strada: riprova fra qualche minuto', 409)
     }
-    return await lavora(sb, sa, d, tipo, m, subId)
+    return await lavora(sb, sa, d, tipo, m, subId, cassetta)
   } finally {
     await sb.from('s_portale_ricezioni').update({ lavorazione_dal: null })
       .eq('submission_id', subId).eq('lavorazione_dal', presa)
@@ -966,7 +994,8 @@ async function richiesta(sb: SB, sa: Dati, grezzo: Dati, dimensione: number, ipH
 }
 
 /* ══ 2-5: LA LAVORAZIONE, con la prenotazione in mano ═════════════════════ */
-async function lavora(sb: SB, sa: Dati, d: Dati, tipo: string, m: Modulo, subId: string): Promise<Response> {
+async function lavora(sb: SB, sa: Dati, d: Dati, tipo: string, m: Modulo, subId: string,
+  cassetta: { avvisi: string[] } | null = null): Promise<Response> {
   let tokDrive: string | null = null
   const drive = async () => (tokDrive ||= await getToken(sa as Record<string, string>, SCOPE_DRIVE))
   let foglio: Foglio | null = null
@@ -1119,6 +1148,11 @@ async function lavora(sb: SB, sa: Dati, d: Dati, tipo: string, m: Modulo, subId:
   }
   if (scartati.length) esito.file_scartati = scartati
   else if ((m.file || []).every((a) => file[a.colonna] || !d[a.base + '_base64'])) delete esito.file_scartati
+  /* dalla cassetta foto e PDF non validi non arrivano nemmeno: il motivo si
+     conserva sulla pratica e va nella mail alla segreteria */
+  if (cassetta?.avvisi.length) esito.allegati_scartati_cassetta = cassetta.avvisi
+  const nonAccettati = ['foto_scartate', 'file_scartati', 'allegati_scartati_cassetta']
+    .flatMap((k) => (Array.isArray(esito[k]) ? (esito[k] as unknown[]).map(String) : []))
 
   /* 4. FOGLIO (vedi copiaFoglio) */
   await copiaFoglio()
@@ -1131,7 +1165,7 @@ async function lavora(sb: SB, sa: Dati, d: Dati, tipo: string, m: Modulo, subId:
   if (!esito.mail_interna_il) {
     try {
       const { data: cfg } = await sb.from('s_config').select('valore').eq('chiave', 'portale_mail_segreteria').maybeSingle()
-      const mi = mailInterna(tipo, d, p.progressivo, { praticaId: p.id, fotoUrls, allegati: allegatiMail })
+      const mi = mailInterna(tipo, d, p.progressivo, { praticaId: p.id, fotoUrls, allegati: allegatiMail, scartati: nonAccettati })
       await inviaMail(sa, messaggioMime({
         a: (cfg?.valore as string) || EMAIL_UFFICIO,
         rispondiA: emailValida ? emailCompilante! : undefined,
@@ -1184,7 +1218,7 @@ async function lavora(sb: SB, sa: Dati, d: Dati, tipo: string, m: Modulo, subId:
 /* ══ BATTITO ═════════════════════════════════════════════════════════════ */
 async function battito(req: Request, sb: SB, sa: Dati): Promise<Response> {
   const { data: t } = await sb.from('s_config').select('valore').eq('chiave', 'portale_battito_token').maybeSingle()
-  if (!t?.valore || req.headers.get('x-token') !== t.valore) {
+  if (!t?.valore || !uguali(req.headers.get('x-token') || '', t.valore as string)) {
     return json({ status: 'error', message: 'token del battito non valido' }, 401)
   }
   const verifiche: Record<string, string> = {}
@@ -1226,6 +1260,16 @@ async function battito(req: Request, sb: SB, sa: Dati): Promise<Response> {
     await getToken(sa as Record<string, string>, SCOPE_GMAIL)
     return '(delega attiva)'
   })
+  /* la cassetta sul progetto Servizi: risponde davvero, non ha richieste ferme,
+     e la porta pubblica portale-ricevi e' in piedi */
+  await prova('cassetta', async () => {
+    const cfg = await configCassetta(sb)
+    const b = await consegna(cfg, 'battito')
+    if (Number(b.vecchie) > 0) throw new Error(`${b.vecchie} richieste ferme in cassetta da piu' di 15 minuti`)
+    const r = await fetch(cfg.cassetta_ricevi_url, { method: 'OPTIONS', signal: AbortSignal.timeout(20_000) })
+    if (!r.ok) throw new Error('portale-ricevi risponde ' + r.status)
+    return `(in attesa ${b.totali}, allegati ${b.bucket}, portale-ricevi raggiungibile)`
+  })
   if (tutto) {
     const nota = Object.entries(verifiche).map(([k, v]) => `${k}: ${v}`).join(' | ')
     await sb.from('s_config').update({
@@ -1234,6 +1278,113 @@ async function battito(req: Request, sb: SB, sa: Dati): Promise<Response> {
     }).eq('chiave', 'portale_diretto_battito_al')
   }
   return json({ status: tutto ? 'ok' : 'error', verifiche }, tutto ? 200 : 500)
+}
+
+/* ══ LA CASSETTA DELLE LETTERE (progetto Servizi, dal 13/09/2026) ═══════════ */
+/* confronto a tempo costante: la durata non deve dire quanti caratteri erano giusti */
+function uguali(a: string, b: string): boolean {
+  const x = new TextEncoder().encode(a)
+  const y = new TextEncoder().encode(b)
+  let diff = x.length ^ y.length
+  for (let i = 0; i < Math.max(x.length, y.length); i++) diff |= (x[i] ?? 0) ^ (y[i] ?? 0)
+  return diff === 0
+}
+
+async function configCassetta(sb: SB): Promise<Record<string, string>> {
+  const { data, error } = await sb.from('s_config').select('chiave, valore')
+    .in('chiave', ['cassetta_token', 'cassetta_consegna_url', 'cassetta_ricevi_url'])
+  if (error) throw new Error('configurazione della cassetta non leggibile: ' + error.message)
+  return Object.fromEntries((data || []).map((r) => [r.chiave as string, r.valore as string]))
+}
+
+async function consegna(cfg: Record<string, string>, azione: string, extra: Dati = {}): Promise<Dati> {
+  if (!cfg.cassetta_consegna_url || !cfg.cassetta_token) throw new Error('cassetta_consegna_url o cassetta_token mancanti in s_config')
+  const r = await fetch(cfg.cassetta_consegna_url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Cassetta-Token': cfg.cassetta_token },
+    body: JSON.stringify({ azione, ...extra }),
+    signal: AbortSignal.timeout(60_000),
+  })
+  const t = (await r.json().catch(() => null)) as Dati | null
+  if (!r.ok || !t || t.status !== 'ok') throw new Error(`cassetta, ${azione}: ${(t?.message as string) || 'risposta ' + r.status}`)
+  return t
+}
+
+/* Il campanello: la richiesta si legge dalla cassetta (mai dal corpo della
+   chiamata), si lavora come se fosse arrivata dal portale, e alla cassetta si
+   dice com'e' andata: ritirata o scartata la cancella, altrimenti la ripresenta
+   al giro dopo. Un reinvio ritrova la pratica e non rifa' niente. */
+async function ritiraDaCassetta(sb: SB, sa: Dati, cfg: Record<string, string>, subId: string): Promise<Response> {
+  if (!/^[A-Za-z0-9-]{8,64}$/.test(subId)) return rifiuto('submission_id mancante o non valido')
+  const busta = await consegna(cfg, 'leggi', { submission_id: subId })
+  const r = busta.richiesta as Dati | null
+  if (!r) return rifiuto('richiesta non trovata nella cassetta')
+  if (r.stato === 'ritirata') return json({ status: 'ok', progressivo: r.progressivo ?? null, submission_id: subId, duplicato: true, email: 'ok' })
+  if (r.stato === 'scartata') return rifiuto(String(r.motivo || 'richiesta scartata'))
+  const grezzo: Dati = { ...((r.payload as Dati) || {}), tipo_modulo: r.tipo, submission_id: subId }
+  const avvisi = (Array.isArray(r.avvisi) ? r.avvisi : []).slice(0, 10).map((x) => String(x).slice(0, 300))
+  let res: Response
+  try { res = await richiesta(sb, sa, grezzo, 0, 'cassetta', { avvisi }) } catch (e) { res = intoppo(errMsg(e)) }
+  const esito = (await res.clone().json().catch(() => ({}))) as Dati
+  try {
+    if (res.ok && esito.status === 'ok') await consegna(cfg, 'ritirata', { submission_id: subId, progressivo: esito.progressivo ?? null, email: esito.email ?? null })
+    else if (res.status === 400) await consegna(cfg, 'scartata', { submission_id: subId, motivo: esito.message ?? 'rifiutata' })
+    else await consegna(cfg, 'tentativo', { submission_id: subId, errore: esito.message ?? 'risposta ' + res.status })
+  } catch (e) {
+    /* la pratica c'e' comunque: al giro dopo la cassetta la ripresenta, e la
+       lavorazione risponde col numero senza rifare niente */
+    console.error('portale-richieste: esito non comunicato alla cassetta', subId, errMsg(e))
+  }
+  return res
+}
+
+/* Il giro (pg_cron ogni 3 minuti): la rete sotto il campanello. Scrive in
+   s_config lo stato della cassetta, che il cruscotto della segreteria mostra. */
+async function giroCassetta(sb: SB, sa: Dati, cfg: Record<string, string>): Promise<Response> {
+  const inizio = Date.now()
+  const lista = await consegna(cfg, 'in_attesa')
+  const ferme = new Set((lista.vecchie as string[]) || [])
+  const lavorate: Dati[] = []
+  for (const subId of (lista.submission_ids as string[]) || []) {
+    if (Date.now() - inizio > 90_000) break
+    let res: Response
+    try { res = await ritiraDaCassetta(sb, sa, cfg, subId) } catch (e) { res = intoppo(errMsg(e)) }
+    const e = (await res.clone().json().catch(() => ({}))) as Dati
+    if (res.ok && e.status === 'ok') ferme.delete(subId)
+    lavorate.push({ submission_id: subId, http: res.status, progressivo: e.progressivo ?? null, messaggio: e.message ?? null })
+  }
+  let pulizia: unknown = 'non in questo giro'
+  if (new Date().getUTCMinutes() < 3) {           // una volta l'ora basta
+    try { pulizia = await consegna(cfg, 'pulizia') } catch (e) { pulizia = 'ERRORE: ' + errMsg(e) }
+  }
+  const stato = { totali: lista.totali, ferme_oltre_15_min: ferme.size, piu_vecchia_min: lista.piu_vecchia_min, lavorate: lavorate.length }
+  const { error } = await sb.from('s_config').upsert([
+    { chiave: 'cassetta_giro_al', valore: new Date().toISOString(), updated_by: 'portale-richieste',
+      descrizione: 'Ultimo giro di ritiro dalla cassetta del portale (progetto Servizi), ogni 3 minuti da pg_cron.' },
+    { chiave: 'cassetta_in_attesa', valore: JSON.stringify(stato), updated_by: 'portale-richieste',
+      descrizione: 'Stato della cassetta del portale all\'ultimo giro: richieste in attesa e ferme da piu\' di 15 minuti (allarme del cruscotto).' },
+  ], { onConflict: 'chiave' })
+  if (error) console.error('portale-richieste: stato della cassetta non scritto', error.message)
+  return json({ status: 'ok', ...stato, dettaglio: lavorate, pulizia })
+}
+
+/* ⚠️ PostgREST risponde 504 per qualche secondo quando la funzione parte da
+   pg_cron allo scoccare del minuto: il 13/09/2026 l'hanno preso il giro della
+   cassetta, il battito delle 05:20 e l'import delle 04:30, sempre alla prima
+   lettura, e mai le chiamate a meta' minuto. Nel database non c'era nessuna
+   attesa: si ferma PostgREST. Le LETTURE si ritentano, perche' ripeterle non fa
+   danni; le scritture no, perche' un 504 non dice se la scrittura e' avvenuta. */
+async function fetchRiprova(input: string | URL | Request, init?: RequestInit): Promise<Response> {
+  const metodo = String(init?.method || (input instanceof Request ? input.method : 'GET')).toUpperCase()
+  if (metodo !== 'GET' && metodo !== 'HEAD') return fetch(input, init)
+  let r = await fetch(input, init)
+  for (const pausa of [1500, 3000, 6000]) {
+    if (r.status !== 502 && r.status !== 503 && r.status !== 504) return r
+    console.warn('portale-richieste: PostgREST', r.status, '- ritento fra', pausa, 'ms')
+    await attesa(pausa)
+    r = await fetch(input, init)
+  }
+  return r
 }
 
 /* l'indirizzo IP serve solo al tetto: se ne tiene un'impronta, non l'indirizzo */
@@ -1254,7 +1405,7 @@ serve(async (req) => {
   const SUPA = Deno.env.get('SUPABASE_URL')
   const SRV = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
   if (!SA_JSON || !SUPA || !SRV) return intoppo('configurazione della funzione incompleta', 500)
-  const sb = createClient(SUPA, SRV, { auth: { persistSession: false } })
+  const sb = createClient(SUPA, SRV, { auth: { persistSession: false }, global: { fetch: fetchRiprova } })
 
   let corpo: string
   try { corpo = await req.text() } catch { return intoppo('richiesta non leggibile') }
@@ -1267,6 +1418,20 @@ serve(async (req) => {
   try {
     const sa = JSON.parse(SA_JSON)
     if (d.battito) return await battito(req, sb, sa)
+    /* la cassetta: campanello e giro, solo con la parola d'ordine */
+    const parola = req.headers.get('x-cassetta-token')
+    if (parola !== null) {
+      const cfg = await configCassetta(sb)
+      if (!cfg.cassetta_token || !uguali(parola, cfg.cassetta_token)) return json({ status: 'error', message: 'non autorizzato' }, 401)
+      if (typeof d.ritira === 'string') return await ritiraDaCassetta(sb, sa, cfg, d.ritira)
+      if (d.giro === true) return await giroCassetta(sb, sa, cfg)
+      return rifiuto('azione della cassetta sconosciuta')
+    }
+    /* la vecchia strada pubblica: aperta solo finche' serve alle pagine in cache */
+    const { data: pubblica } = await sb.from('s_config').select('valore').eq('chiave', 'portale_diretto_pubblico').maybeSingle()
+    if (pubblica?.valore !== 'si') {
+      return intoppo('i moduli ora arrivano da un\'altra strada: ricarica la pagina del portale. La richiesta resta salvata sul telefono e parte da sola', 503)
+    }
     return await richiesta(sb, sa, d, corpo.length, await impronta(indirizzoIp(req)))
   } catch (e) {
     console.error('portale-richieste:', e)

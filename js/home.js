@@ -69,7 +69,7 @@ export async function render() {
   let canale = null;
   try {
     const [{ data: cfg }, { count: senzaRiscontro }] = await Promise.all([
-      sb.from('s_config').select('chiave, valore').in('chiave', ['portale_battito_al', 'portale_battito_ore', 'portale_diretto_battito_al']),
+      sb.from('s_config').select('chiave, valore').in('chiave', ['portale_battito_al', 'portale_battito_ore', 'portale_diretto_battito_al', 'cassetta_giro_al', 'cassetta_in_attesa']),
       /* «senza riscontro» = copia arrivata allo specchio e mai confermata
          dal backend dopo un quarto d'ora: la richiesta e' partita ma sul
          foglio non c'e'. Si calcola qui, non serve nessun lavoro batch. */
@@ -88,11 +88,21 @@ export async function render() {
        dell'una non si vede dal battito dell'altra */
     const diretto = c.portale_diretto_battito_al ? new Date(c.portale_diretto_battito_al) : null;
     const oreDiretto = diretto && !isNaN(diretto) ? (Date.now() - diretto.getTime()) / 3600000 : null;
+    /* la cassetta delle lettere sul progetto Servizi (13/09/2026): il giro
+       di ritiro gira ogni 3 minuti e scrive qui il suo stato. Fermo da piu' di
+       15 minuti, o con richieste ferme in cassetta, e' un allarme */
+    const giro = c.cassetta_giro_al ? new Date(c.cassetta_giro_al) : null;
+    const minGiro = giro && !isNaN(giro) ? (Date.now() - giro.getTime()) / 60000 : null;
+    let cassetta = null;
+    try { cassetta = c.cassetta_in_attesa ? JSON.parse(c.cassetta_in_attesa) : null; } catch { cassetta = null; }
     canale = {
-      battito, ore, limite, diretto, oreDiretto,
+      battito, ore, limite, diretto, oreDiretto, giro, minGiro,
       senzaRiscontro: senzaRiscontro || 0,
       muto: ore === null || ore > limite,
       mutoDiretto: oreDiretto === null || oreDiretto > limite,
+      mutoCassetta: minGiro === null || minGiro > 15,
+      ferme: Number(cassetta?.ferme_oltre_15_min) || 0,
+      inAttesa: Number(cassetta?.totali) || 0,
     };
   } catch (e) {
     /* la tabella o le chiavi non ci sono ancora: si tace, non si inventa */
@@ -322,7 +332,7 @@ export async function render() {
             }).join('') + '<p class="hint" style="margin-top:6px">Eseguite nel gestionale, in attesa della chiusura della segreteria — da qui si decide se e a chi comunicare l\'esito.</p>'
           : '<p class="hint">Nessuna visita eseguita in attesa di chiusura.</p>')}
 
-      ${card('📡 Canale portale servizi', canale && !canale.muto && !canale.mutoDiretto && !canale.senzaRiscontro ? '✓' : '!',
+      ${card('📡 Canale portale servizi', canale && !canale.muto && !canale.mutoDiretto && !canale.senzaRiscontro && !canale.mutoCassetta && !canale.ferme ? '✓' : '!',
         !canale
           ? '<p class="hint">Stato non disponibile: il controllo del canale parte con l\'import delle 6:30.</p>'
           : `<div class="hm-riga"><span>${canale.muto ? '🔴' : '🟢'}</span>
@@ -331,6 +341,9 @@ export async function render() {
              <div class="hm-riga"><span>${canale.mutoDiretto ? '🔴' : '🟢'}</span>
                <span>Ultimo battito della strada diretta (tutti i moduli)</span>
                <span class="hint">${canale.diretto ? dataIt(canale.diretto.toISOString().slice(0, 10)) + ' · ' + Math.round(canale.oreDiretto) + ' ore fa' : 'mai'}</span></div>
+             <div class="hm-riga"><span>${canale.mutoCassetta || canale.ferme ? '🔴' : '🟢'}</span>
+               <span>Cassetta del portale (progetto Servizi): ritiro ogni 3 minuti</span>
+               <span class="hint">${canale.giro ? 'ultimo giro ' + Math.round(canale.minGiro) + ' min fa' : 'mai'} · in attesa ${canale.inAttesa}${canale.ferme ? ' · <strong>ferme da oltre 15 min: ' + canale.ferme + '</strong>' : ''}</span></div>
              <div class="hm-riga"><span>${canale.senzaRiscontro ? '🔴' : '🟢'}</span>
                <span>Richieste partite ma non registrate</span>
                <span class="hm-mini">${canale.senzaRiscontro}</span></div>
