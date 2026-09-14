@@ -40,7 +40,9 @@
    ============================================================ */
 
 import { sb, $, esc, dataIt, toast, attendi, codiceProtocollo } from './core.js';
-import { RUBRICA_INTERNA, emailAssegnatario, testoProposto } from './lookups.js';
+import {
+  RUBRICA_INTERNA, emailAssegnatario, testoProposto, salutoProposto, modelloProtocollato,
+} from './lookups.js';
 import {
   paroleNominativo, vociIndirizzi, raccogliDestinatari, dividiIndirizzi, nomeDiPersona, E_NOTA, EMAIL_VALIDA,
 } from './mail-indirizzi.js';
@@ -83,6 +85,35 @@ async function anagraficaControparte(p) {
   return { impresa, nominativi, personeTrovate, personeImpresa };
 }
 
+/* Il gruppo di verifica della pratica di asseverazione a cui appartiene il
+   protocollo (a_pratica_protocollo → a_pratica_gdv → tecnici): serve ai
+   documenti che vanno ai tecnici, come il piano 5.D.4. La segreteria lo
+   legge da utente «ufficio» dell'app asseverazione. Prima i verificatori,
+   poi gli osservatori. */
+async function gruppoVerificaDelProtocollo(p) {
+  const { data: legami } = await sb.from('a_pratica_protocollo').select('pratica_id').eq('protocollo_id', p.id);
+  const pratiche = [...new Set((legami || []).map((l) => l.pratica_id).filter(Boolean))];
+  if (!pratiche.length) return [];
+  const { data: gdv } = await sb.from('a_pratica_gdv')
+    .select('tecnico_id, ruolo, rgv, ordine').in('pratica_id', pratiche);
+  const righe = (gdv || []).filter((g) => g.tecnico_id)
+    .sort((a, b) => (a.ruolo === 'osservatore') - (b.ruolo === 'osservatore') || (a.ordine ?? 0) - (b.ordine ?? 0));
+  if (!righe.length) return [];
+  const { data: tecnici } = await sb.from('tecnici')
+    .select('tecnico_id, tecnico_cognome, tecnico_nome, titolo, email')
+    .in('tecnico_id', [...new Set(righe.map((g) => g.tecnico_id))]);
+  const perId = new Map((tecnici || []).map((t) => [t.tecnico_id, t]));
+  return righe.map((g) => {
+    const t = perId.get(g.tecnico_id) || {};
+    return {
+      email: t.email || '',
+      nome: [t.tecnico_cognome, t.titolo, t.tecnico_nome].filter(Boolean).join(' '),
+      ruolo: g.ruolo,
+      rgv: !!g.rgv,
+    };
+  });
+}
+
 export async function apriDialogoMail(p, modo = 'avviso') {
   const avviso = modo === 'avviso';
   const protocollato = modo === 'protocollato';
@@ -97,20 +128,34 @@ export async function apriDialogoMail(p, modo = 'avviso') {
   /* le note del vault (.md) non sono documenti da allegare */
   const conDrive = (allegati || []).filter((a) => a.drive_file_id && !E_NOTA(a.nome));
 
+  /* il modello del tipo di documento: testo, saluto, a chi va e che cosa
+     parte sempre con lui (lookups.js, dal 14/09/2026) */
+  const modello = protocollato ? modelloProtocollato(p) : {};
+  const fissi = (modello.allegati || [])
+    .filter((f) => !conDrive.some((a) => a.drive_file_id === f.drive_file_id))
+    .map((f) => ({ ...f, fisso: true }));
+  const documenti = [...conDrive, ...fissi];
+
   /* Quali allegati proporre gia' spuntati, secondo il verso:
      - avviso: nessuno (il documento e' del mittente, ce l'ha gia');
      - inoltro: il primo (principale o timbrato);
-     - protocollato: i timbrati; se non ce ne sono, tutti. */
+     - protocollato: i timbrati; se non ce ne sono, tutti; e sempre quelli
+       che il tipo di documento si porta dietro (la UNI 11751-1 col 5.D.3). */
   const preselezione = (a, i) => {
     if (avviso) return false;
+    if (a.fisso) return true;
     if (protocollato) return conDrive.some((x) => x.timbrato) ? !!a.timbrato : true;
     return i === 0;
   };
 
   /* A chi si scrive, secondo il verso: fuori (anagrafica), o dentro (ufficio). */
   let voci;
+  let gdvMancante = false;
   if (avviso || protocollato) {
-    voci = vociIndirizzi(await anagraficaControparte(p));
+    const serveGdv = modello.a === 'gdv' || modello.cc === 'gdv';
+    const gruppoVerifica = serveGdv ? await gruppoVerificaDelProtocollo(p) : [];
+    gdvMancante = serveGdv && !gruppoVerifica.some((g) => EMAIL_VALIDA.test(String(g.email || '').trim()));
+    voci = vociIndirizzi({ ...(await anagraficaControparte(p)), gruppoVerifica, modello });
   } else {
     const interno = emailAssegnatario(p.alla_ca);
     voci = vociIndirizzi({ interni: interno ? [{ email: interno, nome: p.alla_ca || '' }] : [] });
@@ -133,7 +178,9 @@ export async function apriDialogoMail(p, modo = 'avviso') {
           ? `Va <strong>al mittente</strong> — ${chi || 'chi ci ha scritto'} —
              per dirgli che la sua comunicazione è stata protocollata.`
           : protocollato
-            ? `Va <strong>all'impresa e alle persone indicate</strong> — ${chi || 'il destinatario del protocollo'} —
+            ? `${modello.a === 'gdv'
+                ? `Va <strong>al gruppo di verifica</strong> e per conoscenza all'impresa — ${chi || 'il destinatario del protocollo'} —`
+                : `Va <strong>all'impresa e alle persone indicate</strong> — ${chi || 'il destinatario del protocollo'} —${modello.cc === 'gdv' ? ' in copia al gruppo di verifica —' : ''}`}
                con la stampa del protocollo in testa, i documenti allegati e la firma dell'ufficio in piede.`
             : 'Va a chi in ufficio deve vederlo, col documento allegato.'}
       </p>
@@ -141,6 +188,7 @@ export async function apriDialogoMail(p, modo = 'avviso') {
       <div class="field" style="margin-bottom:10px">
         <label>Indirizzi <span class="hint" style="font-weight:400">— spunta <strong>A</strong> per i destinatari, <strong>Cc</strong> per la copia</span></label>
         <div id="m-indirizzi" style="display:flex;flex-direction:column;gap:2px"></div>
+        ${gdvMancante ? `<span class="hint" style="color:#b42318">Questo documento va anche al gruppo di verifica, ma non trovo la pratica di asseverazione collegata al protocollo (o i tecnici non hanno e-mail in anagrafica): aggiungili a mano.</span>` : ''}
       </div>
 
       <div class="field" style="margin-bottom:10px">
@@ -167,24 +215,30 @@ export async function apriDialogoMail(p, modo = 'avviso') {
         </div>
       </div>
 
-      ${conDrive.length ? `
+      ${documenti.length ? `
       <div class="field" style="margin-bottom:12px">
         <label>Documenti da allegare</label>
         <div id="m-att" style="display:flex;flex-direction:column;gap:4px">
-          ${conDrive.map((a, i) => `
+          ${documenti.map((a, i) => `
             <label style="font-weight:400;display:flex;gap:8px;align-items:center">
               <input type="checkbox" style="width:auto" value="${esc(a.drive_file_id)}" ${preselezione(a, i) ? 'checked' : ''}>
-              <span>${esc(a.nome)}${a.timbrato ? ' <span class="tag">timbrato</span>' : ''}${a.principale ? ' <span class="tag">principale</span>' : ''}</span>
+              <span>${esc(a.nome)}${a.timbrato ? ' <span class="tag">timbrato</span>' : ''}${a.principale ? ' <span class="tag">principale</span>' : ''}${a.fisso ? ' <span class="tag">va sempre con questo documento</span>' : ''}</span>
             </label>`).join('')}
         </div>
         ${avviso ? '<span class="hint">Di norma non serve: il documento è suo, ce l&rsquo;ha già.</span>'
           : protocollato ? '<span class="hint">Proposti i timbrati: è la copia protocollata che deve uscire.</span>' : ''}
       </div>` : `<p class="hint" style="margin:0 0 12px">Nessun documento su Drive collegato a questo protocollo${protocollato ? ': la mail partirebbe senza allegati' : ''}.</p>`}
 
+      ${protocollato ? `
+      <div class="field" style="margin-bottom:10px">
+        <label for="m-saluto">Saluto iniziale</label>
+        <textarea id="m-saluto" rows="3">${esc(salutoProposto(p))}</textarea>
+      </div>` : ''}
+
       <div class="field" style="margin-bottom:14px">
         <label for="m-msg">${protocollato ? 'Testo della comunicazione' : 'Il tuo testo (facoltativo)'}</label>
         <textarea id="m-msg" ${protocollato ? 'rows="6"' : ''} placeholder="${avviso ? 'Righe da aggiungere prima dei saluti…' : protocollato ? 'Es. «vogliate trovare in allegato…»' : 'Es. «Ti giro questa, scade il 18 settembre»…'}">${protocollato ? esc(testoProposto(p)) : ''}</textarea>
-        ${protocollato ? '<span class="hint">Proposto il testo delle note del protocollo, o quello standard del tipo di documento. Saluto iniziale e «Cordialmente» li mette la mail. <strong>Quello che scrivi qui resta nel protocollo</strong>: se poi lo cambi in Outlook, correggilo anche qui dal dettaglio.</span>' : ''}
+        ${protocollato ? '<span class="hint">Proposti il testo delle note del protocollo o, se sono vuote, quello usuale per questo tipo di documento. «Cordialmente» lo aggiunge la mail: se lo scrivi tu in fondo, non si ripete. <strong>Quello che scrivi qui resta nel protocollo</strong>: se poi lo cambi in Outlook, correggilo anche qui dal dettaglio.</span>' : ''}
       </div>
 
       ${protocollato ? `
@@ -328,6 +382,7 @@ export async function apriDialogoMail(p, modo = 'avviso') {
         to,
         cc,
         messaggio: $('#m-msg', bg).value.trim(),
+        saluto: protocollato ? $('#m-saluto', bg).value.trim() : undefined,
         driveFileIds,
       },
     });
@@ -356,6 +411,7 @@ export async function apriDialogoMail(p, modo = 'avviso') {
       cc,
       oggetto: data?.oggetto || null,
       testo: $('#m-msg', bg).value.trim() || null,
+      saluto: protocollato ? ($('#m-saluto', bg).value.trim() || null) : null,
       allegati: nomiAllegati,
       preparata_da: (await sb.auth.getUser()).data?.user?.email || null,
     });

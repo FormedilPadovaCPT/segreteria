@@ -62,6 +62,13 @@ export function nomeDiPersona(p) {
  *   - altrimenti la e-mail principale dell'impresa in «A»;
  *   - PEC, seconde e-mail e persone dell'impresa restano da spuntare.
  *   - per l'inoltro interno, gli indirizzi dell'ufficio proposti in «A».
+ *
+ * Il modello del tipo di documento (lookups.js, MODELLI_PROTOCOLLATO) può
+ * spostare i ruoli (14/09/2026): con `modello.a = 'gdv'` il gruppo di
+ * verifica va in «A» e quello che sarebbe andato in «A» dell'impresa passa
+ * in «Cc» (il piano 5.D.4); con `modello.cc = 'gdv'` il gruppo di verifica
+ * va in «Cc» (il programma 5.D.3). Senza gruppo di verifica non si sposta
+ * niente: meglio l'impresa in «A» che una mail senza destinatari.
  */
 export function vociIndirizzi({
   impresa = null,
@@ -69,8 +76,18 @@ export function vociIndirizzi({
   personeTrovate = [],
   personeImpresa = [],
   interni = [],
+  gruppoVerifica = [],
+  modello = {},
 } = {}) {
+  const gdvInA = modello.a === 'gdv' && gruppoVerifica.some((g) => EMAIL_VALIDA.test(String(g.email ?? '').trim()));
+  const gdvInCc = modello.cc === 'gdv';
   const voci = [];
+  const aggiungiGdv = () => {
+    for (const g of gruppoVerifica) {
+      const ruolo = g.ruolo === 'osservatore' ? 'osservatore' : `verificatore${g.rgv ? ' (RGV)' : ''}`;
+      aggiungi(g.email, `${g.nome || ''} — ${ruolo}`.trim(), 'Gruppo di verifica', gdvInA ? 'to' : gdvInCc ? 'cc' : null);
+    }
+  };
   const aggiungi = (email, etichetta, gruppo, ruolo = null) => {
     const e = String(email ?? '').trim();
     if (!EMAIL_VALIDA.test(e)) return;
@@ -83,6 +100,9 @@ export function vociIndirizzi({
   };
 
   for (const i of interni) aggiungi(i.email, i.nome || '', 'Ufficio', 'to');
+
+  /* il piano 5.D.4: il gruppo di verifica in testa, in «A» */
+  if (gdvInA) aggiungiGdv();
 
   /* le persone nominate nel protocollo, riconosciute per nome e cognome */
   let personaPreselezionata = false;
@@ -111,6 +131,10 @@ export function vociIndirizzi({
   for (const p of personeImpresa) {
     [p.email, p.email2, p.email3].forEach((e) => aggiungi(e, nomeDiPersona(p), 'Altre persone dell\'impresa'));
   }
+
+  if (!gdvInA) aggiungiGdv();
+  /* col gruppo di verifica in «A», impresa e persone sono per conoscenza */
+  if (gdvInA) voci.forEach((v) => { if (v.gruppo !== 'Gruppo di verifica' && v.ruolo === 'to') v.ruolo = 'cc'; });
 
   return voci;
 }

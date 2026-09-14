@@ -113,19 +113,82 @@ export const PERCHE_NIENTE_TIMBRO =
    registro restava «nessun testo». È successo col preventivo di VILNAI
    (Prot. 2566-out del 09/09/2026), ed è la ragione di questo elenco.
 
-   Si accostano al `tipo_doc_id`. Il saluto iniziale e «Cordialmente» li
-   mette la mail: qui sta solo il corpo.
+   Si accostano al `tipo_doc_id`. «Cordialmente» lo mette la mail (e non
+   lo ripete se è già in fondo al testo): qui sta il corpo.
+
+   DAL 14/09/2026 (chiesto dall'utente) il modello dice anche A CHI va la
+   mail di quel tipo di documento e con quale saluto, perché non tutti
+   vanno all'impresa:
+     - `saluto`   la riga d'apertura, se non è «Gent.le <nome>, buongiorno,».
+                  {impresa} diventa il nome dell'impresa del protocollo;
+     - `a`, `cc`  'gdv' = il gruppo di verifica della pratica di
+                  asseverazione, 'impresa' = impresa e persone del protocollo;
+     - `allegati` documenti che partono sempre con quel tipo (su Drive:
+                  spostare un file non ne cambia l'id).
    ============================================================ */
-export const TESTO_PROTOCOLLATO = {
+export const MODELLI_PROTOCOLLATO = {
   /* 66 — Asseverazione Preventivo / contratto (5.D.2). Testo usato
      davvero nell'invio a VILNAI del 09/09/2026. */
-  66: 'con la presente siamo a trasmettere il preventivo relativo alla richiesta di asseverazione, che potete trovare in allegato. In attesa di ricevere copia firmata per accettazione rimaniamo a disposizione per qualsiasi chiarimento o necessità di ulteriori dettagli.',
+  66: {
+    testo: 'con la presente siamo a trasmettere il preventivo relativo alla richiesta di asseverazione, che potete trovare in allegato. In attesa di ricevere copia firmata per accettazione rimaniamo a disposizione per qualsiasi chiarimento o necessità di ulteriori dettagli.',
+  },
+  /* 51 — Asseverazione Piano di verifica (5.D.4): al gruppo di verifica,
+     per conoscenza all'impresa. */
+  51: {
+    saluto: 'G.d.V.\ne.p.c.\nSpett.le {impresa},',
+    testo: 'Trasmetto modulo per il piano di verifica da concordare con l\'Impresa.',
+    a: 'gdv',
+    cc: 'impresa',
+  },
+  /* 34 — Asseverazione Programma di verifica (5.D.3): all'impresa, in
+     copia al gruppo di verifica, con la norma. */
+  34: {
+    testo: 'Trasmetto modulo per il programma di verifica e copia UNI 11751-1.',
+    a: 'impresa',
+    cc: 'gdv',
+    allegati: [
+      /* la norma protocollata in entrata col Prot. 1224 del 21/10/2019 */
+      { nome: '2019-10-21_NORM_UNI-11751-1_asseverazione_Prot_1224.pdf', drive_file_id: '1AMQLhAc8uxE-i4jDkB7L4OxZeIPXyZHo' },
+    ],
+  },
 };
+
+/** Il modello del tipo di documento del protocollo (oggetto vuoto se non c'è). */
+export function modelloProtocollato(p) {
+  return MODELLI_PROTOCOLLATO[p?.tipo_doc_id] || {};
+}
 
 /** Il testo da proporre nella maschera: le note del protocollo, se ci
  *  sono; altrimenti quello standard del tipo di documento. */
 export function testoProposto(p) {
   const note = (p?.note || '').trim();
   if (note) return note;
-  return TESTO_PROTOCOLLATO[p?.tipo_doc_id] || '';
+  return modelloProtocollato(p).testo || '';
+}
+
+/** Forme giuridiche come si scrivono in una lettera. */
+const FORME = {
+  srl: 'S.r.l.', srls: 'S.r.l.s.', snc: 'S.n.c.', sas: 'S.a.s.', spa: 'S.p.A.',
+  scarl: 'S.c.a r.l.', sc: 'S.c.', coop: 'Coop.',
+};
+
+/** «VILNAI S.R.L.» → «Vilnai S.r.l.»: il nome tutto maiuscolo dell'anagrafica
+ *  come lo si scrive in un saluto. Se ha già delle minuscole resta com'è. */
+export function nomeImpresaLeggibile(nome) {
+  const s = String(nome ?? '').trim().replace(/\s+/g, ' ');
+  if (!s || /[a-zà-ù]/.test(s)) return s;
+  return s.split(' ').map((w) => {
+    const forma = FORME[w.toLowerCase().replace(/\./g, '')];
+    if (forma) return forma;
+    return w.toLowerCase().replace(/(^|['\-&/])([a-zà-ù])/g, (_, a, b) => a + b.toUpperCase());
+  }).join(' ');
+}
+
+/** La riga d'apertura della mail: quella del modello, altrimenti la
+ *  solita «Gent.le <nome>, buongiorno,». */
+export function salutoProposto(p) {
+  const m = modelloProtocollato(p);
+  if (m.saluto) return m.saluto.replace('{impresa}', nomeImpresaLeggibile(p?.impresa_nome) || 'Impresa');
+  const chi = (p?.persona || p?.alla_ca || p?.impresa_nome || '').trim();
+  return `Gent.le ${chi},\nbuongiorno,`;
 }

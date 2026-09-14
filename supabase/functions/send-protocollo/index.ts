@@ -221,43 +221,66 @@ function htmlInoltra(p: Record<string, unknown>, messaggio: string, allegatoNomi
       la tabellina della macro Access «Protocollo in USCITA» (Protocollo
       N° / Del / Ufficio), poi il saluto, il testo della comunicazione,
       «Cordialmente» e la firma dell'ufficio ── */
-function htmlProtocollato(p: Record<string, unknown>, messaggio: string): string {
+/* La riga d'apertura: quella scelta nel dialogo — dal 14/09/2026 il modello
+   del tipo di documento, es. «G.d.V. / e.p.c. / Spett.le …» per il piano
+   5.D.4 — altrimenti la solita «Gent.le <nome>, buongiorno,». */
+function aperturaDi(p: Record<string, unknown>, saluto?: string): string {
+  const scelta = String(saluto ?? '').trim()
+  if (scelta) return scelta
   const chi = (p.persona as string) || (p.alla_ca as string) || (p.impresa_nome as string) || ''
+  return `Gent.le ${chi},\nbuongiorno,`
+}
+/* «Cordialmente» lo mette la mail, ma non se chi scrive l'ha già messo in
+   fondo: negli invii del 14/09/2026 usciva due volte. */
+const chiusuraScritta = (m: string) => /(cordialmente|distinti saluti|cordiali saluti)[\s.!,]*$/i.test(String(m ?? '').trim())
+
+function htmlProtocollato(p: Record<string, unknown>, messaggio: string, saluto?: string): string {
   /* in testa il timbro come sul cartaceo: banda arancione, numero, data,
      QR e la griglia — vedi timbro-mail.js */
   return `<!DOCTYPE html><html><head><meta charset="UTF-8"></head>
 <body style="margin:0;padding:22px;background:#fff">
 <div style="margin:0 0 20px">${timbroHtml(p, { qrSrc: `cid:${QR_CID}` })}</div>
 <p style="font-family:${FONT_MAIL};font-size:14px;color:#000;line-height:1.6;margin:0">
-  Gent.le ${esc(chi)},<br>buongiorno,
+  ${esc(aperturaDi(p, saluto)).replace(/\n/g, '<br>')}
 </p>
 ${messaggio ? `<p style="font-family:${FONT_MAIL};font-size:14px;color:#000;line-height:1.6;margin:12px 0 0;white-space:pre-line">${esc(messaggio)}</p>` : ''}
-<p style="font-family:${FONT_MAIL};font-size:14px;color:#000;margin:16px 0 0">Cordialmente.</p>
+${chiusuraScritta(messaggio) ? '' : `<p style="font-family:${FONT_MAIL};font-size:14px;color:#000;margin:16px 0 0">Cordialmente.</p>`}
 ${PIEDE}
 </body></html>`
 }
 /* la stessa lettera in righe, per la parte text/plain */
-function testoProtocollato(p: Record<string, unknown>, messaggio: string): string {
-  const chi = (p.persona as string) || (p.alla_ca as string) || (p.impresa_nome as string) || ''
+function testoProtocollato(p: Record<string, unknown>, messaggio: string, saluto?: string): string {
   return [
     timbroTesto(p),
     '',
-    `Gent.le ${chi},`,
-    'buongiorno,',
+    aperturaDi(p, saluto),
     messaggio ? '\n' + messaggio : '',
-    '',
-    'Cordialmente.',
+    ...(chiusuraScritta(messaggio) ? [] : ['', 'Cordialmente.']),
   ].join('\n')
 }
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
   try {
+    /* Solo la segreteria (14/09/2026). verify_jwt lascia passare anche la
+       chiave anon, che sta nel repository pubblico dell'app: senza questo
+       controllo chiunque poteva farsi preparare una mail con dentro un file
+       qualunque del Drive dell'ente, letto col service account. */
+    const sbUtente = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, {
+      global: { headers: { Authorization: req.headers.get('Authorization') || '' } },
+      auth: { persistSession: false },
+    })
+    const { data: eSegreteria, error: eRuolo } = await sbUtente.rpc('is_segreteria')
+    if (eRuolo || eSegreteria !== true) {
+      return new Response(JSON.stringify({ error: 'Le mail del protocollo le prepara solo la segreteria.' }),
+        { status: 403, headers: { 'Content-Type': 'application/json', ...CORS } })
+    }
+
     const SA_JSON = Deno.env.get('GOOGLE_SERVICE_ACCOUNT_JSON')
     if (!SA_JSON) throw new Error('GOOGLE_SERVICE_ACCOUNT_JSON non configurato')
     const sa = JSON.parse(SA_JSON)
 
-    const { protocolloId, modo, azione, to, cc, oggetto, messaggio, driveFileId, driveFileIds } = await req.json()
+    const { protocolloId, modo, azione, to, cc, oggetto, messaggio, saluto, driveFileId, driveFileIds } = await req.json()
     if (!protocolloId) throw new Error('protocolloId mancante')
     const quale: 'avviso' | 'inoltra' | 'protocollato' =
       modo === 'avviso' ? 'avviso' : modo === 'protocollato' ? 'protocollato' : 'inoltra'
@@ -318,7 +341,7 @@ serve(async (req) => {
     let html = quale === 'avviso'
       ? htmlAvviso(p, messaggio || '')
       : quale === 'protocollato'
-        ? htmlProtocollato(p, messaggio || '')
+        ? htmlProtocollato(p, messaggio || '', saluto)
         : htmlInoltra(p, messaggio || '', allegatoNomi)
     if (!logo.ok) {
       console.error('send-protocollo: logo non caricato —', logo.motivo)
@@ -339,7 +362,7 @@ serve(async (req) => {
       oggetto: soggetto,
       /* la versione in righe, per chi non legge l'HTML: la firma la
          accoda componiEml */
-      corpo: quale === 'protocollato' ? testoProtocollato(p, messaggio || '') : '',
+      corpo: quale === 'protocollato' ? testoProtocollato(p, messaggio || '', saluto) : '',
       html,
       allegati,
       inline: quale === 'protocollato'
