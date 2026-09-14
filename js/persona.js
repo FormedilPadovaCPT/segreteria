@@ -142,6 +142,21 @@ async function scheda(host) {
       .eq('rls_cf', p.cf).order('decorrenza', { ascending: false, nullsFirst: false });
     rls = data || [];
   }
+  /* i verbali di sopralluogo in cui la persona compare (CSP, CSE, RL,
+     presente), abbinati per nominativo come le nomine dai verbali: dicono
+     anche per quali imprese ha lavorato (14/09/2026) */
+  let verbali = [];
+  if (!nuova) {
+    const { data } = await sb.rpc('persona_verbali', { p_persona_id: p.persona_id });
+    verbali = data || [];
+  }
+  const impreseVerbali = [];
+  for (const v of verbali) {
+    const x = impreseVerbali.find((y) => y.id === v.impresa_id);
+    if (x) x.n++;
+    else impreseVerbali.push({ id: v.impresa_id, nome: v.impresa_nome || v.impresa_id || '—', n: 1 });
+  }
+  impreseVerbali.sort((a, b) => b.n - a.n);
   const inCorso = (n) => !n.data_fine || n.data_fine >= oggiIso();
 
   host.innerHTML = `
@@ -221,6 +236,36 @@ async function scheda(host) {
         </tbody></table></div>
     </div>` : ''}
 
+    ${verbali.length ? `
+    <div class="sez">
+      <h3>Nei verbali di sopralluogo — ${verbali.length}</h3>
+      <p class="hint" style="margin:0 0 8px">
+        Verbali in cui la persona compare come CSP, CSE, responsabile dei lavori o persona presente.
+        Sono abbinati per nome e cognome: due omonimi qui si confondono.
+      </p>
+      <div style="margin:0 0 10px;font-size:13px;line-height:1.7">
+        <strong>Imprese (${impreseVerbali.length}):</strong>
+        ${impreseVerbali.map((x) => `<span ${x.id ? `data-imp-link="${esc(x.id)}" style="cursor:pointer;text-decoration:underline" title="Apri la scheda impresa"` : ''}>${esc(x.nome)}</span> (${x.n})`).join(' · ')}
+      </div>
+      <details${verbali.length <= 10 ? ' open' : ''}>
+        <summary style="cursor:pointer">Elenco dei verbali</summary>
+        <div class="table-wrap"><table class="tbl">
+          <thead><tr>
+            <th style="width:100px">Data</th><th style="width:140px">Verbale</th>
+            <th style="width:170px">Figura</th><th>Impresa</th><th>Cantiere</th>
+          </tr></thead>
+          <tbody>${verbali.map((v) => `
+            <tr ${v.impresa_id ? `data-imp="${esc(v.impresa_id)}" style="cursor:pointer" title="Apri la scheda impresa"` : ''}>
+              <td>${dataIt(v.data_visita)}</td>
+              <td>${esc(v.nr_verbale || v.visita_id)}</td>
+              <td>${esc(v.figura || '')}${v.qualifica ? `<br><span style="font-size:12px">${esc(v.qualifica)}</span>` : ''}</td>
+              <td><strong>${esc(v.impresa_nome || v.impresa_id || '—')}</strong></td>
+              <td style="font-size:12px">${esc([v.indirizzo, v.comune].filter(Boolean).join(', '))}</td>
+            </tr>`).join('')}
+          </tbody></table></div>
+      </details>
+    </div>` : ''}
+
     ${rls.length ? `
     <div class="sez">
       <h3>Comunicazioni RLS — ${rls.length}</h3>
@@ -242,6 +287,11 @@ async function scheda(host) {
     tr.addEventListener('click', async () => {
       const mod = await import('./imprese.js');
       mod.apriScheda(tr.dataset.imp);
+    }));
+  host.querySelectorAll('[data-imp-link]').forEach((el) =>
+    el.addEventListener('click', async () => {
+      const mod = await import('./imprese.js');
+      mod.apriScheda(el.dataset.impLink);
     }));
 
   /* la riga di una nomina apre la nomina, non l'impresa: la scheda
