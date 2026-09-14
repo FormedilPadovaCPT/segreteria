@@ -23,9 +23,13 @@
 //
 // { percorso, esegui?, giorni?, token? }
 //   esegui  assente o false → non scrive niente, dice solo cosa farebbe
-//   token   obbligatorio per scrivere: è il valore di s_config.riconcilia_token.
-//           La chiave anon dell'app sta in un repository pubblico, quindi
-//           senza questo chiunque potrebbe far scrivere questa funzione.
+//   token   OBBLIGATORIO SEMPRE, anche in sola prova: è il valore di
+//           s_config.riconcilia_token, che si crea prima del lotto e si
+//           cancella subito dopo. La chiave anon dell'app sta in un
+//           repository pubblico, e fino al 14/09/2026 la prova a vuoto
+//           girava senza parola d'ordine: restituiva a chiunque nomi di file
+//           del Drive e protocolli abbinati. Senza token la funzione non fa
+//           nemmeno firmare le credenziali Google.
 //
 // Secret: GOOGLE_SERVICE_ACCOUNT_JSON (lo stesso di allegati-protocollo)
 
@@ -61,11 +65,7 @@ serve(async (req) => {
     if (!SA_JSON) throw new Error('GOOGLE_SERVICE_ACCOUNT_JSON non configurato')
     if (!SUPA || !SRV) throw new Error('Chiavi Supabase non disponibili nella funzione')
 
-    const body = await req.json()
-    const percorsoTesto = String(body.percorso || '').trim()
-    if (!percorsoTesto) throw new Error('percorso mancante')
-    const esegui = body.esegui === true
-    const giorni = Number(body.giorni ?? 60)
+    const body = await req.json().catch(() => ({}))
 
     const db = async (rotta: string, init?: RequestInit) => {
       const rr = await fetch(`${SUPA}/rest/v1/${rotta}`, {
@@ -81,13 +81,20 @@ serve(async (req) => {
       return testo ? JSON.parse(testo) : []
     }
 
-    /* Per scrivere serve la parola d'ordine: la chiave anon dell'app e'
-       pubblica, questa no. In sola prova non serve niente. */
-    if (esegui) {
-      const cfg = await db('s_config?chiave=eq.riconcilia_token&select=valore') as { valore: string }[]
-      if (!cfg.length) throw new Error('La riconciliazione e\' chiusa: manca s_config.riconcilia_token')
-      if (String(body.token || '') !== cfg[0].valore) throw new Error('Parola d\'ordine non valida')
+    /* La parola d'ordine serve SEMPRE, anche in sola prova (14/09/2026):
+       la prova a vuoto elenca nomi di file del Drive e protocolli, e la
+       chiave anon dell'app e' pubblica. Si controlla prima di ogni altra
+       cosa, credenziali Google comprese. */
+    const cfg = await db('s_config?chiave=eq.riconcilia_token&select=valore') as { valore: string }[]
+    if (!cfg.length || !cfg[0].valore || String(body.token || '') !== cfg[0].valore) {
+      return new Response(JSON.stringify({ error: 'La riconciliazione e\' chiusa o la parola d\'ordine non e\' valida' }),
+        { status: 401, headers: { 'Content-Type': 'application/json', ...CORS } })
     }
+
+    const percorsoTesto = String(body.percorso || '').trim()
+    if (!percorsoTesto) throw new Error('percorso mancante')
+    const esegui = body.esegui === true
+    const giorni = Number(body.giorni ?? 60)
 
     const token = await getAccessToken(JSON.parse(SA_JSON))
 

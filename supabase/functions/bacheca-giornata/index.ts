@@ -11,8 +11,14 @@
 //                       e l'anteprima che Gmail stesso mostra in elenco: MAI il corpo.
 //   s_bacheca_eventi  → gli eventi dei prossimi 7 giorni.
 // Nessun input della richiesta viene onorato tranne ?dryRun=1: caselle,
-// calendari e regole stanno in s_config, così la funzione può girare dal cron
-// con la sola chiave anon senza che nessuno possa farle leggere altro.
+// calendari e regole stanno in s_config.
+//
+// ⚠️ CHI PUO' CHIAMARLA (14/09/2026). Prima bastava la chiave anon, che sta
+// nel repository pubblico: con ?dryRun=1 chiunque si faceva restituire
+// mittenti e oggetti delle mail d'ufficio e titoli degli appuntamenti. Ora
+// passano solo: (a) il job pg_cron «bacheca-giornata», con l'header
+// X-Bacheca-Token uguale a s_config.bacheca_cron_token; (b) un utente
+// autenticato con is_segreteria (bottone «Aggiorna adesso» del cruscotto).
 // La funzione LEGGE e SEGNALA: non risponde, non archivia, non sposta niente.
 // Chi decide resta la persona, e la mail si apre in Gmail dal collegamento.
 
@@ -22,7 +28,7 @@ import { getToken, SOGGETTO_ENTE } from '../_shared/google.ts'
 
 const SCOPE_GMAIL_RO = 'https://www.googleapis.com/auth/gmail.readonly'
 const SCOPE_CALENDAR = 'https://www.googleapis.com/auth/calendar.readonly'
-const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type' }
+const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-bacheca-token' }
 const json = (b: unknown, status = 200) => new Response(JSON.stringify(b, null, 2), { status, headers: { ...CORS, 'Content-Type': 'application/json' } })
 
 type Regole = {
@@ -66,6 +72,29 @@ serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
   try {
     const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
+
+    /* Chi chiama, prima di leggere qualunque cosa: il cron con la sua
+       parola d'ordine, oppure la segreteria autenticata. La chiave anon
+       da sola non basta piu' (14/09/2026). */
+    let ammesso = false
+    const dato = req.headers.get('x-bacheca-token') || ''
+    if (dato) {
+      const { data: t } = await admin.from('s_config').select('valore').eq('chiave', 'bacheca_cron_token').maybeSingle()
+      ammesso = !!t?.valore && dato === t.valore
+    }
+    if (!ammesso) {
+      const utente = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, {
+        global: { headers: { Authorization: req.headers.get('Authorization') || '' } },
+        auth: { persistSession: false, autoRefreshToken: false },
+      })
+      const { data: u } = await utente.auth.getUser()
+      if (u?.user?.email) {
+        const { data: segr, error: eSegr } = await utente.rpc('is_segreteria')
+        ammesso = !eSegr && segr === true
+      }
+    }
+    if (!ammesso) return json({ error: 'accesso non autorizzato' }, 401)
+
     const dryRun = new URL(req.url).searchParams.get('dryRun') === '1'
     const saRaw = Deno.env.get('GOOGLE_SERVICE_ACCOUNT_JSON')
     if (!saRaw) return json({ error: 'secret GOOGLE_SERVICE_ACCOUNT_JSON assente' }, 500)
