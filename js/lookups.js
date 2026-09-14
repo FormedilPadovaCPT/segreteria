@@ -124,13 +124,32 @@ export const PERCHE_NIENTE_TIMBRO =
      - `a`, `cc`  'gdv' = il gruppo di verifica della pratica di
                   asseverazione, 'impresa' = impresa e persone del protocollo;
      - `allegati` documenti che partono sempre con quel tipo (su Drive:
-                  spostare un file non ne cambia l'id).
+                  spostare un file non ne cambia l'id);
+     - `oggetto`  la parte centrale dell'oggetto della mail, al posto
+                  dell'oggetto del protocollo (davanti «FORMEDIL Padova
+                  -AREA SICUREZZA E SALUTE-», dopo «Prot. N - email del … -
+                  alla c.a. …»: li mette la mail);
+     - `quando`   se c'è, il modello vale solo quando risponde sì: il tipo 5
+                  «Lettera di incarico» copre anche docenze e pre-verifiche;
+     - `a: 'incaricato'` il tecnico a cui è intestata la lettera.
    ============================================================ */
 export const MODELLI_PROTOCOLLATO = {
   /* 66 — Asseverazione Preventivo / contratto (5.D.2). Testo usato
      davvero nell'invio a VILNAI del 09/09/2026. */
   66: {
     testo: 'con la presente siamo a trasmettere il preventivo relativo alla richiesta di asseverazione, che potete trovare in allegato. In attesa di ricevere copia firmata per accettazione rimaniamo a disposizione per qualsiasi chiarimento o necessità di ulteriori dettagli.',
+  },
+  /* 5 — Lettera di incarico, ma SOLO quella per l'asseverazione (14/09/2026,
+     dall'invio del Prot. 2493 a Parasiliti): il tipo 5 copre anche docenze e
+     pre-verifiche, che hanno altri testi. Si riconosce dal gruppo di
+     verifica che la cita (le lettere fatte dall'app asseverazione) o
+     dall'oggetto scritto in Access «…attività di asseverazione». */
+  5: {
+    quando: (p, contesto) => !!contesto?.incaricoAsseverazione
+      || /attivit[aà] di asseverazione/i.test(p?.oggetto || ''),
+    oggetto: 'Invio Lettera di incarico per attività di asseverazione',
+    testo: 'si trasmette pdf da ritornare firmato.',
+    a: 'incaricato',
   },
   /* 51 — Asseverazione Piano di verifica (5.D.4): al gruppo di verifica,
      per conoscenza all'impresa. */
@@ -153,17 +172,27 @@ export const MODELLI_PROTOCOLLATO = {
   },
 };
 
-/** Il modello del tipo di documento del protocollo (oggetto vuoto se non c'è). */
-export function modelloProtocollato(p) {
-  return MODELLI_PROTOCOLLATO[p?.tipo_doc_id] || {};
+/** Il modello del tipo di documento del protocollo (oggetto vuoto se non c'è,
+ *  o se la sua condizione `quando` non vale). `contesto` = ciò che il dialogo
+ *  sa oltre al protocollo, es. { incaricoAsseverazione: true }. */
+export function modelloProtocollato(p, contesto = {}) {
+  const m = MODELLI_PROTOCOLLATO[p?.tipo_doc_id];
+  if (!m || (m.quando && !m.quando(p, contesto))) return {};
+  return m;
 }
 
 /** Il testo da proporre nella maschera: le note del protocollo, se ci
  *  sono; altrimenti quello standard del tipo di documento. */
-export function testoProposto(p) {
+export function testoProposto(p, contesto = {}) {
   const note = (p?.note || '').trim();
   if (note) return note;
-  return modelloProtocollato(p).testo || '';
+  return modelloProtocollato(p, contesto).testo || '';
+}
+
+/** La parte centrale dell'oggetto della mail: quella del modello, altrimenti
+ *  l'oggetto del protocollo. */
+export function oggettoProposto(p, contesto = {}) {
+  return modelloProtocollato(p, contesto).oggetto || (p?.oggetto || '').trim();
 }
 
 /** Forme giuridiche come si scrivono in una lettera. */
@@ -186,8 +215,8 @@ export function nomeImpresaLeggibile(nome) {
 
 /** La riga d'apertura della mail: quella del modello, altrimenti la
  *  solita «Gent.le <nome>, buongiorno,». */
-export function salutoProposto(p) {
-  const m = modelloProtocollato(p);
+export function salutoProposto(p, contesto = {}) {
+  const m = modelloProtocollato(p, contesto);
   if (m.saluto) return m.saluto.replace('{impresa}', nomeImpresaLeggibile(p?.impresa_nome) || 'Impresa');
   const chi = (p?.persona || p?.alla_ca || p?.impresa_nome || '').trim();
   return `Gent.le ${chi},\nbuongiorno,`;

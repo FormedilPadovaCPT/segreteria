@@ -449,7 +449,8 @@ export function mailConferma(tipo: string, d: Dati, prog: number): { oggetto: st
     </tr></table>
   </td></tr>`
 
-  return { oggetto: `${label} – ricevuta n. ${prog} – Formedil Padova`, html: mailDocumento(righe) }
+  /* «FORMEDIL Padova -AREA SICUREZZA E SALUTE-» davanti lo mette messaggioMime */
+  return { oggetto: `${label} – ricevuta n. ${prog}`, html: mailDocumento(righe) }
 }
 
 /* ── messaggio MIME per l'API Gmail ─────────────────────────────────────── */
@@ -467,6 +468,16 @@ const indirizzo = (t: string) => {
   return v
 }
 
+/* ogni oggetto comincia con «FORMEDIL Padova -AREA SICUREZZA E SALUTE-»
+   (regola dell'utente, 14/09/2026): la stessa di firma.js, qui per le mail
+   del portale */
+const OGGETTO_UFFICIO = 'FORMEDIL Padova -AREA SICUREZZA E SALUTE-'
+export function oggettoUfficio(oggetto: string): string {
+  const resto = String(oggetto ?? '').replace(/[\r\n]+/g, ' ').trim()
+    .replace(/^formedil\s+padova\b(\s*[-–—]\s*area\s+sicurezza\s+e\s+salute\b)?\s*[-–—]?\s*/i, '')
+  return resto ? `${OGGETTO_UFFICIO} ${resto}` : OGGETTO_UFFICIO
+}
+
 export function messaggioMime(m: { a: string; rispondiA?: string; oggetto: string; html: string }): string {
   const righe = [
     `From: ${parolaIntestazione(NOME_MITTENTE)} <${MITTENTE}>`,
@@ -474,7 +485,7 @@ export function messaggioMime(m: { a: string; rispondiA?: string; oggetto: strin
   ]
   if (m.rispondiA) righe.push(`Reply-To: ${indirizzo(m.rispondiA)}`)
   righe.push(
-    `Subject: ${parolaIntestazione(m.oggetto.replace(/[\r\n]+/g, ' '))}`,
+    `Subject: ${parolaIntestazione(oggettoUfficio(m.oggetto))}`,
     'MIME-Version: 1.0',
     'Content-Type: text/html; charset=UTF-8',
     'Content-Transfer-Encoding: base64',

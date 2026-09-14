@@ -42,9 +42,10 @@
 import { sb, $, esc, dataIt, toast, attendi, codiceProtocollo } from './core.js';
 import {
   RUBRICA_INTERNA, emailAssegnatario, testoProposto, salutoProposto, modelloProtocollato,
+  oggettoProposto, MODELLI_PROTOCOLLATO,
 } from './lookups.js';
 import {
-  paroleNominativo, vociIndirizzi, raccogliDestinatari, dividiIndirizzi, nomeDiPersona, E_NOTA, EMAIL_VALIDA,
+  paroleNominativo, chiaveNominativo, vociIndirizzi, raccogliDestinatari, dividiIndirizzi, nomeDiPersona, E_NOTA, EMAIL_VALIDA,
 } from './mail-indirizzi.js';
 
 const CAMPI_PERSONA = 'persona_id, nome, cognome, titolo, email, email2, email3';
@@ -77,10 +78,31 @@ async function anagraficaControparte(p) {
   const parole = [...new Set(nominativi.flatMap(paroleNominativo))];
   let personeTrovate = [];
   if (parole.length) {
-    const { data } = await sb.from('persone').select(CAMPI_PERSONA)
-      .or(parole.map((w) => `cognome.ilike.${w}`).join(','))
-      .limit(60);
-    personeTrovate = data || [];
+    /* anche i tecnici (14/09/2026): la lettera di incarico va a loro, e in
+       `persone` spesso non ci sono o non hanno la e-mail dell'ufficio */
+    const [{ data: pers }, { data: tec }] = await Promise.all([
+      sb.from('persone').select(CAMPI_PERSONA)
+        .or(parole.map((w) => `cognome.ilike.${w}`).join(','))
+        .limit(60),
+      sb.from('tecnici').select('tecnico_nome, tecnico_cognome, titolo, email')
+        .or(parole.map((w) => `tecnico_cognome.ilike.%${w}%`).join(','))
+        .limit(20),
+    ]);
+    /* chi non ha e-mail non aggiunge indirizzi e farebbe solo sembrare
+       ambiguo un nome; la stessa persona in `persone` e in `tecnici` con la
+       stessa e-mail conta una volta */
+    const visti = new Set();
+    personeTrovate = [
+      ...(pers || []),
+      ...(tec || []).map((t) => ({ nome: t.tecnico_nome, cognome: t.tecnico_cognome, titolo: t.titolo, email: t.email })),
+    ].filter((r) => {
+      const mail = [r.email, r.email2, r.email3].map((e) => String(e || '').trim().toLowerCase()).filter(Boolean);
+      if (!mail.length) return false;
+      const k = `${chiaveNominativo(`${r.nome || ''} ${r.cognome || ''}`)}|${mail[0]}`;
+      if (visti.has(k)) return false;
+      visti.add(k);
+      return true;
+    });
   }
   return { impresa, nominativi, personeTrovate, personeImpresa };
 }
@@ -114,6 +136,22 @@ async function gruppoVerificaDelProtocollo(p) {
   });
 }
 
+/* Il tecnico a cui è intestata una lettera di incarico fatta dall'app
+   asseverazione: la riga del gruppo di verifica porta il protocollo della
+   sua lettera (a_pratica_gdv.incarico_protocollo_id). Le lettere di Access
+   non ce l'hanno: lì il tecnico si trova dal nominativo del protocollo. */
+async function incaricatiDelProtocollo(p) {
+  const { data: righe } = await sb.from('a_pratica_gdv').select('tecnico_id').eq('incarico_protocollo_id', p.id);
+  const ids = [...new Set((righe || []).map((r) => r.tecnico_id).filter(Boolean))];
+  if (!ids.length) return [];
+  const { data: tecnici } = await sb.from('tecnici')
+    .select('tecnico_id, tecnico_cognome, tecnico_nome, titolo, email').in('tecnico_id', ids);
+  return (tecnici || []).map((t) => ({
+    email: t.email || '',
+    nome: [t.tecnico_cognome, t.titolo, t.tecnico_nome].filter(Boolean).join(' '),
+  }));
+}
+
 export async function apriDialogoMail(p, modo = 'avviso') {
   const avviso = modo === 'avviso';
   const protocollato = modo === 'protocollato';
@@ -130,7 +168,12 @@ export async function apriDialogoMail(p, modo = 'avviso') {
 
   /* il modello del tipo di documento: testo, saluto, a chi va e che cosa
      parte sempre con lui (lookups.js, dal 14/09/2026) */
-  const modello = protocollato ? modelloProtocollato(p) : {};
+  /* la lettera di incarico dell'asseverazione si riconosce anche dal gruppo
+     di verifica che la cita: va saputo prima di scegliere il modello */
+  const incaricati = protocollato && MODELLI_PROTOCOLLATO[p.tipo_doc_id]?.a === 'incaricato'
+    ? await incaricatiDelProtocollo(p) : [];
+  const contesto = { incaricoAsseverazione: incaricati.length > 0 };
+  const modello = protocollato ? modelloProtocollato(p, contesto) : {};
   const fissi = (modello.allegati || [])
     .filter((f) => !conDrive.some((a) => a.drive_file_id === f.drive_file_id))
     .map((f) => ({ ...f, fisso: true }));
@@ -155,7 +198,7 @@ export async function apriDialogoMail(p, modo = 'avviso') {
     const serveGdv = modello.a === 'gdv' || modello.cc === 'gdv';
     const gruppoVerifica = serveGdv ? await gruppoVerificaDelProtocollo(p) : [];
     gdvMancante = serveGdv && !gruppoVerifica.some((g) => EMAIL_VALIDA.test(String(g.email || '').trim()));
-    voci = vociIndirizzi({ ...(await anagraficaControparte(p)), gruppoVerifica, modello });
+    voci = vociIndirizzi({ ...(await anagraficaControparte(p)), gruppoVerifica, incaricati, modello });
   } else {
     const interno = emailAssegnatario(p.alla_ca);
     voci = vociIndirizzi({ interni: interno ? [{ email: interno, nome: p.alla_ca || '' }] : [] });
@@ -178,7 +221,9 @@ export async function apriDialogoMail(p, modo = 'avviso') {
           ? `Va <strong>al mittente</strong> — ${chi || 'chi ci ha scritto'} —
              per dirgli che la sua comunicazione è stata protocollata.`
           : protocollato
-            ? `${modello.a === 'gdv'
+            ? `${modello.a === 'incaricato'
+                ? `Va <strong>al tecnico incaricato</strong> — ${chi || 'il destinatario del protocollo'} —`
+                : modello.a === 'gdv'
                 ? `Va <strong>al gruppo di verifica</strong> e per conoscenza all'impresa — ${chi || 'il destinatario del protocollo'} —`
                 : `Va <strong>all'impresa e alle persone indicate</strong> — ${chi || 'il destinatario del protocollo'} —${modello.cc === 'gdv' ? ' in copia al gruppo di verifica —' : ''}`}
                con la stampa del protocollo in testa, i documenti allegati e la firma dell'ufficio in piede.`
@@ -231,13 +276,18 @@ export async function apriDialogoMail(p, modo = 'avviso') {
 
       ${protocollato ? `
       <div class="field" style="margin-bottom:10px">
+        <label for="m-oggetto">Oggetto della mail</label>
+        <input type="text" id="m-oggetto" value="${esc(oggettoProposto(p, contesto))}">
+        <span class="hint">Davanti la mail mette sempre «FORMEDIL Padova -AREA SICUREZZA E SALUTE-», dopo «Prot. N - email del … - alla c.a. …».</span>
+      </div>
+      <div class="field" style="margin-bottom:10px">
         <label for="m-saluto">Saluto iniziale</label>
-        <textarea id="m-saluto" rows="3">${esc(salutoProposto(p))}</textarea>
+        <textarea id="m-saluto" rows="3">${esc(salutoProposto(p, contesto))}</textarea>
       </div>` : ''}
 
       <div class="field" style="margin-bottom:14px">
         <label for="m-msg">${protocollato ? 'Testo della comunicazione' : 'Il tuo testo (facoltativo)'}</label>
-        <textarea id="m-msg" ${protocollato ? 'rows="6"' : ''} placeholder="${avviso ? 'Righe da aggiungere prima dei saluti…' : protocollato ? 'Es. «vogliate trovare in allegato…»' : 'Es. «Ti giro questa, scade il 18 settembre»…'}">${protocollato ? esc(testoProposto(p)) : ''}</textarea>
+        <textarea id="m-msg" ${protocollato ? 'rows="6"' : ''} placeholder="${avviso ? 'Righe da aggiungere prima dei saluti…' : protocollato ? 'Es. «vogliate trovare in allegato…»' : 'Es. «Ti giro questa, scade il 18 settembre»…'}">${protocollato ? esc(testoProposto(p, contesto)) : ''}</textarea>
         ${protocollato ? '<span class="hint">Proposti il testo delle note del protocollo o, se sono vuote, quello usuale per questo tipo di documento. «Cordialmente» lo aggiunge la mail: se lo scrivi tu in fondo, non si ripete. <strong>Quello che scrivi qui resta nel protocollo</strong>: se poi lo cambi in Outlook, correggilo anche qui dal dettaglio.</span>' : ''}
       </div>
 
@@ -383,6 +433,7 @@ export async function apriDialogoMail(p, modo = 'avviso') {
         cc,
         messaggio: $('#m-msg', bg).value.trim(),
         saluto: protocollato ? $('#m-saluto', bg).value.trim() : undefined,
+        oggettoMail: protocollato ? $('#m-oggetto', bg).value.trim() : undefined,
         driveFileIds,
       },
     });

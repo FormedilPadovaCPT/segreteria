@@ -14,7 +14,7 @@
    protocollo (edge function send-protocollo): una firma sola.
    ============================================================ */
 
-import { componiEml, FIRMA_SEGRETERIA } from './firma.js';
+import { componiEml, FIRMA_SEGRETERIA, oggettoUfficio } from './firma.js';
 import { toast } from './core.js';
 
 export { FIRMA_SEGRETERIA };
@@ -27,7 +27,7 @@ export { FIRMA_SEGRETERIA };
 export function apriMailto({ to = '', cc = [], oggetto = '', corpo = '' }) {
   const p = new URLSearchParams();
   if (cc.length) p.set('cc', cc.join(','));
-  p.set('subject', oggetto);
+  p.set('subject', oggettoUfficio(oggetto));
   p.set('body', corpo);
   /* URLSearchParams codifica gli spazi come «+», che i client di posta
      leggono alla lettera: si riportano alla forma %20 */
@@ -57,7 +57,7 @@ export function bozzaMailRapida(indirizzo, chi) {
   scaricaEml({
     to: indirizzo,
     cc: ['direzione@formedilpadova.it'],
-    oggetto: `FORMEDIL PADOVA - Area Sicurezza e Salute - Invio - del ${quando} - ${nome}.`,
+    oggetto: `FORMEDIL Padova -AREA SICUREZZA E SALUTE- Invio - del ${quando} - ${nome}.`,
     corpo: `Gent.le ${nome},
 buongiorno,
 

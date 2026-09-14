@@ -205,6 +205,18 @@ const aRighe = (s) => s.replace(/(.{76})/g, '$1\r\n');
 
 export const codificaOggetto = (s) => /^[\x20-\x7e]*$/.test(s) ? s : `=?utf-8?B?${b64testo(s)}?=`;
 
+/* ── l'oggetto di OGNI mail dell'ufficio comincia così (regola dell'utente,
+      14/09/2026): «FORMEDIL Padova -AREA SICUREZZA E SALUTE-». Le forme che
+      giravano prima («Formedil Padova - Area Sicurezza e Salute -»,
+      «FORMEDIL PADOVA - Area…», «Formedil Padova - …») si riconoscono e si
+      riscrivono: la regola sta qui, e nessun modulo deve ricordarsene ── */
+export const OGGETTO_UFFICIO = 'FORMEDIL Padova -AREA SICUREZZA E SALUTE-';
+export function oggettoUfficio(oggetto) {
+  const resto = String(oggetto ?? '').replace(/[\r\n]+/g, ' ').trim()
+    .replace(/^formedil\s+padova\b(\s*[-–—]\s*area\s+sicurezza\s+e\s+salute\b)?\s*[-–—]?\s*/i, '');
+  return resto ? `${OGGETTO_UFFICIO} ${resto}` : OGGETTO_UFFICIO;
+}
+
 /* Toglie dal corpo la firma in righe, se un modulo l'ha già accodata:
    nel messaggio ci pensa componiEml a metterla, in tutte e due le
    versioni. */
@@ -287,7 +299,7 @@ export function componiEml({ from = '', replyTo = '', to = '', cc = [], oggetto 
     ...(replyTo ? [`Reply-To: ${replyTo}`] : []),
     `To: ${to}`,
     ...(ccList.length ? [`Cc: ${ccList.join(', ')}`] : []),
-    `Subject: ${codificaOggetto(oggetto)}`,
+    `Subject: ${codificaOggetto(oggettoUfficio(oggetto))}`,
     'MIME-Version: 1.0',
     `Content-Type: multipart/mixed; boundary="${B_MIX}"`,
     '',

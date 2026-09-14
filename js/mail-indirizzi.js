@@ -77,9 +77,14 @@ export function vociIndirizzi({
   personeImpresa = [],
   interni = [],
   gruppoVerifica = [],
+  incaricati = [],
   modello = {},
 } = {}) {
-  const gdvInA = modello.a === 'gdv' && gruppoVerifica.some((g) => EMAIL_VALIDA.test(String(g.email ?? '').trim()));
+  /* con `modello.a = 'incaricato'` (la lettera di incarico) va in «A» il
+     tecnico a cui la lettera è intestata, e il resto torna da spuntare */
+  const conEmail = (l) => l.some((g) => EMAIL_VALIDA.test(String(g.email ?? '').trim()));
+  const gdvInA = modello.a === 'gdv' && conEmail(gruppoVerifica);
+  const incaricatoInA = modello.a === 'incaricato' && conEmail(incaricati);
   const gdvInCc = modello.cc === 'gdv';
   const voci = [];
   const aggiungiGdv = () => {
@@ -100,6 +105,11 @@ export function vociIndirizzi({
   };
 
   for (const i of interni) aggiungi(i.email, i.nome || '', 'Ufficio', 'to');
+
+  /* la lettera di incarico: il tecnico incaricato in testa, in «A» */
+  if (incaricatoInA) {
+    for (const t of incaricati) aggiungi(t.email, t.nome ? `${t.nome} — incaricato` : 'incaricato', 'Tecnico incaricato', 'to');
+  }
 
   /* il piano 5.D.4: il gruppo di verifica in testa, in «A» */
   if (gdvInA) aggiungiGdv();
@@ -133,8 +143,13 @@ export function vociIndirizzi({
   }
 
   if (!gdvInA) aggiungiGdv();
-  /* col gruppo di verifica in «A», impresa e persone sono per conoscenza */
-  if (gdvInA) voci.forEach((v) => { if (v.gruppo !== 'Gruppo di verifica' && v.ruolo === 'to') v.ruolo = 'cc'; });
+  /* col gruppo di verifica o l'incaricato in «A», il resto va per conoscenza
+     se il modello lo dice (il piano: l'impresa in «Cc»), altrimenti torna
+     da spuntare */
+  if (gdvInA || incaricatoInA) {
+    const inA = new Set(['Gruppo di verifica', 'Tecnico incaricato']);
+    voci.forEach((v) => { if (!inA.has(v.gruppo) && v.ruolo === 'to') v.ruolo = modello.cc === 'impresa' ? 'cc' : null; });
+  }
 
   return voci;
 }

@@ -56,7 +56,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
 // Il perche' e' scritto in quel file: la stringa base64 del logo si e'
 // gia' troncata una volta nel passaggio di distribuzione.
 // @ts-ignore modulo JS condiviso con la webapp, senza tipi
-import { componiEml, firmaHtml } from './firma.js'
+import { componiEml, firmaHtml, oggettoUfficio } from './firma.js'
 // @ts-ignore modulo JS condiviso con la webapp, senza tipi
 import { caricaLogo } from './firma-logo.js'
 // il timbro di protocollo in HTML da posta: stesso disegno del cartaceo
@@ -280,7 +280,7 @@ serve(async (req) => {
     if (!SA_JSON) throw new Error('GOOGLE_SERVICE_ACCOUNT_JSON non configurato')
     const sa = JSON.parse(SA_JSON)
 
-    const { protocolloId, modo, azione, to, cc, oggetto, messaggio, saluto, driveFileId, driveFileIds } = await req.json()
+    const { protocolloId, modo, azione, to, cc, oggetto, oggettoMail, messaggio, saluto, driveFileId, driveFileIds } = await req.json()
     if (!protocolloId) throw new Error('protocolloId mancante')
     const quale: 'avviso' | 'inoltra' | 'protocollato' =
       modo === 'avviso' ? 'avviso' : modo === 'protocollato' ? 'protocollato' : 'inoltra'
@@ -325,14 +325,21 @@ serve(async (req) => {
     const allegatoNomi = allegati.map((a) => a.nome)
 
     const cod = codiceDi(p)
-    const soggetto = oggetto || (
+    /* L'oggetto comincia sempre con «FORMEDIL Padova -AREA SICUREZZA E
+       SALUTE-» (oggettoUfficio, in firma.js: regola dell'utente 14/09/2026).
+       Per il protocollato la parte centrale può arrivare dal dialogo
+       (`oggettoMail`, il modello del tipo di documento: per la lettera di
+       incarico «Invio Lettera di incarico per attività di asseverazione");
+       altrimenti è l'oggetto del protocollo. */
+    const centrale = String(oggettoMail ?? '').replace(/[\r\n]+/g, ' ').trim() || p.oggetto || ''
+    const soggetto = oggettoUfficio(oggetto || (
       quale === 'avviso'
-        ? `FORMEDIL PADOVA -AREA SICUREZZA E SALUTE- Notifica avvenuta registrazione protocollo - Prot. ${cod} del ${dataIt(p.data_prot)}`
+        ? `FORMEDIL Padova -AREA SICUREZZA E SALUTE- Notifica avvenuta registrazione protocollo - Prot. ${cod} del ${dataIt(p.data_prot)}`
         : quale === 'protocollato'
           /* la forma della macro Access, parola per parola: e' quella che
              imprese ed enti riconoscono da anni */
-          ? `FORMEDIL Padova -AREA SICUREZZA E SALUTE- ${p.oggetto || ''} Prot. ${numeroVisibile(p)} - email del ${adessoRoma()} - alla c.a. ${p.persona || p.alla_ca || p.impresa_nome || ''}`
-          : `FORMEDIL PADOVA -AREA SICUREZZA E SALUTE- Prot. ${cod} del ${dataIt(p.data_prot)} - ${p.oggetto || ''}`)
+          ? `FORMEDIL Padova -AREA SICUREZZA E SALUTE- ${centrale} Prot. ${numeroVisibile(p)} - email del ${adessoRoma()} - alla c.a. ${p.persona || p.alla_ca || p.impresa_nome || ''}`
+          : `FORMEDIL Padova -AREA SICUREZZA E SALUTE- Prot. ${cod} del ${dataIt(p.data_prot)} - ${p.oggetto || ''}`))
 
     /* Il logo arriva dal sito e si controlla con lo SHA-256 (vedi
        firma-logo.js): se non e' quello giusto si toglie l'immagine
