@@ -28,10 +28,21 @@
 //   { action:'agganci',  codice }                 → i file che portano il protocollo nel nome
 //   { action:'delete',   drive_file_id }          → cestino, non cancella
 //
+// ⚠️ CHI PUO' CHIAMARLA (14/09/2026). verify_jwt=true NON basta: la chiave
+// anon e' un JWT valido e sta in chiaro nel repository pubblico, e con lei
+// si sfogliava, scaricava e cestinava qualunque file del Drive dell'ente.
+// Ora serve un utente autenticato che sia personale dell'ente: segreteria,
+// Direttore (approva e deposita le autorizzazioni), coordinatore, tecnici
+// (gruppo di verifica nell'app asseverazione). Il cestino, che dalle app
+// usa solo la segreteria (cestina in js/drive.js), resta alla segreteria.
+// I ruoli li dice il database, eseguiti COME l'utente: con la sola chiave
+// anon le funzioni rispondono errore, e l'errore vale «no».
+//
 // Secret: GOOGLE_SERVICE_ACCOUNT_JSON (lo stesso di allegati-ass)
 //         DRIVE_PROTOCOLLO_FOLDER_ID facoltativo
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -40,6 +51,38 @@ const CORS = {
 
 import { getAccessToken } from '../_shared/google.ts'
 // (audit 05/09/2026: il token Google viene dal modulo condiviso, non piu' copiato qui)
+
+const RUOLI_PERSONALE = [
+  'is_personale', 'is_segreteria', 'is_direttore', 'is_coordinatore',
+  'a_is_office_or_coordinator', 'a_is_asseveratore',
+]
+
+/* null = chiamante ammesso; altrimenti la risposta di rifiuto */
+async function rifiuto(req: Request, action: string): Promise<Response | null> {
+  const nega = (status: number, error: string) => new Response(JSON.stringify({ error }), {
+    status, headers: { 'Content-Type': 'application/json', ...CORS },
+  })
+  const auth = req.headers.get('Authorization') || ''
+  if (!auth.startsWith('Bearer ')) return nega(401, 'accesso non autorizzato')
+  const sb = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, {
+    global: { headers: { Authorization: auth } },
+    auth: { persistSession: false, autoRefreshToken: false },
+  })
+  /* la chiave anon non ha un utente dietro: qui si ferma */
+  const { data: u, error: eu } = await sb.auth.getUser()
+  if (eu || !u?.user?.email) return nega(401, 'accesso non autorizzato')
+
+  const esiti = await Promise.all(RUOLI_PERSONALE.map(async (f) => {
+    const { data, error } = await sb.rpc(f)
+    return !error && data === true
+  }))
+  const ha = (f: string) => esiti[RUOLI_PERSONALE.indexOf(f)]
+  if (!esiti.some(Boolean)) return nega(403, "utente non abilitato ai documenti dell'ente")
+  if (action === 'delete' && !ha('is_segreteria')) {
+    return nega(403, 'solo la segreteria può spostare documenti nel cestino')
+  }
+  return null
+}
 
 const esc = (s: string) => s.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
 const pulito = (s: string) => String(s || '').replace(/[\\/:*?"<>|]/g, '_').trim()
@@ -134,12 +177,17 @@ function bytesToB64(bytes: Uint8Array): string {
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
   try {
+    const body = await req.json().catch(() => ({}))
+    const action = String(body.action || '')
+
+    /* Prima chi chiama, poi il token Google: un anonimo non deve arrivare
+       nemmeno a far firmare le credenziali del service account. */
+    const no = await rifiuto(req, action)
+    if (no) return no
+
     const SA_JSON = Deno.env.get('GOOGLE_SERVICE_ACCOUNT_JSON')
     if (!SA_JSON) throw new Error('GOOGLE_SERVICE_ACCOUNT_JSON non configurato')
     const token = await getAccessToken(JSON.parse(SA_JSON))
-
-    const body = await req.json()
-    const action = body.action as string
 
     if (action === 'upload') {
       const { codice, filename, mime_type, base64, parent_id } = body
