@@ -300,6 +300,12 @@ serve(async (req) => {
       const trovati = []
       for (const f of (d.files || [])) {
         if (f.mimeType === 'application/vnd.google-apps.folder') continue
+        /* Le note del vault (companion .md, viste .base e .canvas) portano
+           lo stesso protocollo nel nome del documento che descrivono, ma
+           non sono documenti protocollati: non si agganciano mai, né in
+           entrata né in uscita (regola dell'utente, 14/09/2026 — il piano
+           2569-out era finito con la sua nota come documento principale). */
+        if (/\.(md|base|canvas)$/i.test(f.name)) continue
         if (!dentro.test(f.name)) continue
         let cartella = ''
         try { cartella = (await percorso(token, f.id)).cartella } catch { /* si mostra lo stesso */ }

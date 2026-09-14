@@ -19,6 +19,13 @@
    SICUREZZA E SALUTE- <oggetto> Prot. <N> - email del <data ora> -
    alla c.a. <persona>».
 
+   DESTINATARI (14/09/2026, chiesto dall'utente): gli indirizzi che
+   l'anagrafica conosce — impresa del protocollo, persone indicate in
+   «persona» e «alla c.a.», persone collegate all'impresa — sono righe
+   da spuntare, «A» o «Cc». Altre persone si aggiungono in copia
+   cercandole in anagrafica; restano i campi liberi per chi non c'è.
+   La logica sta in mail-indirizzi.js, provata con node --test.
+
    ⚠️ Di norma l'app NON spedisce. Prepara il messaggio — intestazione,
    firma istituzionale, nota privacy, allegati — e lo consegna come
    file .eml: si apre in Outlook nella finestra di composizione, con
@@ -34,28 +41,46 @@
 
 import { sb, $, esc, dataIt, toast, attendi, codiceProtocollo } from './core.js';
 import { RUBRICA_INTERNA, emailAssegnatario, testoProposto } from './lookups.js';
+import {
+  paroleNominativo, vociIndirizzi, raccogliDestinatari, dividiIndirizzi, nomeDiPersona, E_NOTA, EMAIL_VALIDA,
+} from './mail-indirizzi.js';
 
-/* Indirizzi già noti dell'impresa e delle persone del protocollo, per
-   non riscriverli a mano: l'impresa (referente, seconda mail, PEC) e
-   le persone citate come «persona» e «alla c.a.», cercate per cognome. */
-async function indirizziControparte(p) {
-  const trovati = new Set();
+const CAMPI_PERSONA = 'persona_id, nome, cognome, titolo, email, email2, email3';
+
+/* Quello che l'anagrafica sa della controparte del protocollo: la riga
+   dell'impresa, le persone il cui cognome compare in «persona» e «alla
+   c.a.» (il confronto per nome e cognome lo fa mail-indirizzi.js) e le
+   persone collegate all'impresa che hanno una e-mail. */
+async function anagraficaControparte(p) {
+  let impresa = null;
+  let personeImpresa = [];
   if (p.impresa_id) {
     const { data: imp } = await sb.from('imprese')
-      .select('impresa_email_ref, impresa_email2, pec')
+      .select('impresa_nome, impresa_email_ref, impresa_email2, impresa_email3, pec')
       .eq('impresa_id', p.impresa_id).maybeSingle();
-    [imp?.impresa_email_ref, imp?.impresa_email2, imp?.pec].forEach((e) => e && trovati.add(e.trim()));
+    impresa = imp || null;
+
+    const { data: legami } = await sb.from('persone_imprese')
+      .select('persona_id').eq('impresa_id', p.impresa_id).limit(300);
+    const ids = [...new Set((legami || []).map((l) => l.persona_id).filter(Boolean))];
+    for (let i = 0; i < ids.length; i += 100) {
+      const { data } = await sb.from('persone').select(CAMPI_PERSONA)
+        .in('persona_id', ids.slice(i, i + 100))
+        .or('email.not.is.null,email2.not.is.null,email3.not.is.null');
+      personeImpresa.push(...(data || []));
+    }
   }
-  const nomi = [p.persona, p.alla_ca].filter(Boolean);
-  for (const n of nomi) {
-    /* il cognome: la prima parola che non sia un titolo */
-    const parole = n.split(/\s+/).filter((w) => !/^(sig\.?ra?|dott\.?(ssa)?|dr\.?(ssa)?|ing\.?|arch\.?|geom\.?|rag\.?|avv\.?|prof\.?|p\.?i\.?)$/i.test(w));
-    const cognome = parole[0];
-    if (!cognome || cognome.length < 3) continue;
-    const { data: per } = await sb.from('persone').select('email, email2').ilike('cognome', cognome).limit(3);
-    (per || []).forEach((x) => { if (x.email) trovati.add(x.email.trim()); });
+
+  const nominativi = [p.persona, p.alla_ca].filter(Boolean);
+  const parole = [...new Set(nominativi.flatMap(paroleNominativo))];
+  let personeTrovate = [];
+  if (parole.length) {
+    const { data } = await sb.from('persone').select(CAMPI_PERSONA)
+      .or(parole.map((w) => `cognome.ilike.${w}`).join(','))
+      .limit(60);
+    personeTrovate = data || [];
   }
-  return [...trovati];
+  return { impresa, nominativi, personeTrovate, personeImpresa };
 }
 
 export async function apriDialogoMail(p, modo = 'avviso') {
@@ -69,7 +94,8 @@ export async function apriDialogoMail(p, modo = 'avviso') {
     .order('principale', { ascending: false })
     .order('timbrato', { ascending: false })
     .order('id');
-  const conDrive = (allegati || []).filter((a) => a.drive_file_id);
+  /* le note del vault (.md) non sono documenti da allegare */
+  const conDrive = (allegati || []).filter((a) => a.drive_file_id && !E_NOTA(a.nome));
 
   /* Quali allegati proporre gia' spuntati, secondo il verso:
      - avviso: nessuno (il documento e' del mittente, ce l'ha gia');
@@ -81,10 +107,14 @@ export async function apriDialogoMail(p, modo = 'avviso') {
     return i === 0;
   };
 
-  /* A chi si scrive, secondo il verso: fuori, o dentro. */
-  const suggeriti = (avviso || protocollato)
-    ? await indirizziControparte(p)
-    : [emailAssegnatario(p.alla_ca)].filter(Boolean);
+  /* A chi si scrive, secondo il verso: fuori (anagrafica), o dentro (ufficio). */
+  let voci;
+  if (avviso || protocollato) {
+    voci = vociIndirizzi(await anagraficaControparte(p));
+  } else {
+    const interno = emailAssegnatario(p.alla_ca);
+    voci = vociIndirizzi({ interni: interno ? [{ email: interno, nome: p.alla_ca || '' }] : [] });
+  }
 
   const titolo = avviso ? 'Avviso di protocollazione'
     : protocollato ? 'Invia il documento protocollato' : 'Inoltra il documento protocollato';
@@ -95,7 +125,7 @@ export async function apriDialogoMail(p, modo = 'avviso') {
   bg.style.zIndex = 62;
   bg.innerHTML = `
     <div style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff;border-radius:10px;
-                padding:22px;width:min(640px,95vw);max-height:92vh;overflow-y:auto;box-shadow:var(--ombra)">
+                padding:22px;width:min(680px,95vw);max-height:92vh;overflow-y:auto;box-shadow:var(--ombra)">
       <h3 style="margin:0 0 4px;font-size:17px">${titolo}</h3>
       <p style="margin:0 0 16px;color:var(--testo-soft);font-size:13px;line-height:1.5">
         Protocollo <strong>${esc(codice)}</strong> del ${dataIt(p.data_prot)}.
@@ -109,23 +139,32 @@ export async function apriDialogoMail(p, modo = 'avviso') {
       </p>
 
       <div class="field" style="margin-bottom:10px">
-        <label>${protocollato ? 'Aggiungi in copia (ufficio)' : 'Aggiungi in fretta'}</label>
-        <div class="chip-riga" id="m-rubrica" data-campo="${protocollato ? 'm-cc' : 'm-to'}">
-          ${RUBRICA_INTERNA.map((r) => `<button type="button" class="chip" data-mail="${esc(r.email)}">${esc(r.nome)}</button>`).join('')}
+        <label>Indirizzi <span class="hint" style="font-weight:400">— spunta <strong>A</strong> per i destinatari, <strong>Cc</strong> per la copia</span></label>
+        <div id="m-indirizzi" style="display:flex;flex-direction:column;gap:2px"></div>
+      </div>
+
+      <div class="field" style="margin-bottom:10px">
+        <label>${protocollato ? 'Aggiungi dall&rsquo;ufficio (in copia)' : 'Aggiungi dall&rsquo;ufficio'}</label>
+        <div class="chip-riga" id="m-rubrica">
+          ${RUBRICA_INTERNA.map((r) => `<button type="button" class="chip" data-mail="${esc(r.email)}" data-nome="${esc(r.nome)}">${esc(r.nome)}</button>`).join('')}
         </div>
       </div>
 
-      <div class="field" style="margin-bottom:12px">
-        <label for="m-to">Destinatari (separati da virgola)</label>
-        <input type="text" id="m-to" value="${esc(suggeriti.join(', '))}" placeholder="nome@dominio.it">
-        <span class="hint">${suggeriti.length
-          ? 'Indirizzi presi dall&rsquo;anagrafica (impresa e persone del protocollo): controllali prima di inviare.'
-          : 'Nessun indirizzo trovato in anagrafica: scrivilo a mano.'}</span>
+      <div class="field" style="margin-bottom:10px">
+        <label for="m-cerca-persona">Aggiungi una persona dall&rsquo;anagrafica (in copia)</label>
+        <input type="text" id="m-cerca-persona" placeholder="Cognome, nome o codice fiscale…" autocomplete="off">
+        <div id="m-cerca-esito"></div>
       </div>
 
-      <div class="field" style="margin-bottom:12px">
-        <label for="m-cc">Copia conoscenza (facoltativa)</label>
-        <input type="text" id="m-cc" placeholder="${avviso ? 'es. l&rsquo;ente mittente' : protocollato ? 'es. il coordinatore, il tecnico incaricato' : 'es. cptpd@did.formedilpadova.it'}">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+        <div class="field">
+          <label for="m-to">Altri destinatari (a mano)</label>
+          <input type="text" id="m-to" placeholder="nome@dominio.it">
+        </div>
+        <div class="field">
+          <label for="m-cc">Altri in copia (a mano)</label>
+          <input type="text" id="m-cc" placeholder="${avviso ? 'es. l&rsquo;ente mittente' : protocollato ? 'es. il tecnico incaricato' : 'es. cptpd@did.formedilpadova.it'}">
+        </div>
       </div>
 
       ${conDrive.length ? `
@@ -181,14 +220,89 @@ export async function apriDialogoMail(p, modo = 'avviso') {
   bg.addEventListener('click', (e) => { if (e.target === bg) chiudi(); });
   $('#m-annulla', bg).addEventListener('click', chiudi);
 
-  /* i pulsantini della rubrica aggiungono, non sostituiscono */
+  /* ── le righe degli indirizzi: A e Cc si escludono a vicenda ── */
+  const disegnaIndirizzi = () => {
+    const box = $('#m-indirizzi', bg);
+    if (!voci.length) {
+      box.innerHTML = `<p class="hint" style="margin:0">Nessun indirizzo in anagrafica per ${chi || 'questo protocollo'}: aggiungilo dall&rsquo;ufficio, dalla ricerca o scrivilo a mano qui sotto.</p>`;
+      return;
+    }
+    let gruppo = null;
+    box.innerHTML = voci.map((v, i) => {
+      const intesta = v.gruppo !== gruppo
+        ? `<div class="hint" style="margin:${gruppo === null ? 0 : 8}px 0 2px;font-weight:600">${esc(v.gruppo)}</div>` : '';
+      gruppo = v.gruppo;
+      return `${intesta}
+        <div style="display:flex;gap:10px;align-items:center;padding:3px 6px;border-radius:6px;${v.ruolo ? 'background:var(--sfondo-soft,#f5f6f7)' : ''}">
+          <label style="font-weight:400;display:flex;gap:4px;align-items:center;margin:0">
+            <input type="checkbox" style="width:auto" data-i="${i}" data-ruolo="to" ${v.ruolo === 'to' ? 'checked' : ''}> A
+          </label>
+          <label style="font-weight:400;display:flex;gap:4px;align-items:center;margin:0">
+            <input type="checkbox" style="width:auto" data-i="${i}" data-ruolo="cc" ${v.ruolo === 'cc' ? 'checked' : ''}> Cc
+          </label>
+          <span style="flex:1;min-width:0;overflow-wrap:anywhere"><strong>${esc(v.email)}</strong>
+            ${v.etichetta ? `<span class="hint"> · ${esc(v.etichetta)}</span>` : ''}</span>
+        </div>`;
+    }).join('');
+  };
+  disegnaIndirizzi();
+
+  $('#m-indirizzi', bg).addEventListener('change', (e) => {
+    const c = e.target.closest('input[data-ruolo]');
+    if (!c) return;
+    const v = voci[Number(c.dataset.i)];
+    v.ruolo = c.checked ? c.dataset.ruolo : null;
+    disegnaIndirizzi();
+  });
+
+  /* aggiunge (o sposta) un indirizzo nelle righe, già spuntato */
+  const aggiungiVoce = (email, etichetta, gruppo, ruolo) => {
+    const e = String(email || '').trim();
+    if (!EMAIL_VALIDA.test(e)) return false;
+    const gia = voci.find((v) => v.email.toLowerCase() === e.toLowerCase());
+    if (gia) { gia.ruolo = gia.ruolo || ruolo; }
+    else voci.push({ email: e, etichetta, gruppo, ruolo });
+    disegnaIndirizzi();
+    return true;
+  };
+
+  /* i pulsantini dell'ufficio: in copia per il protocollato, in «A» altrimenti */
   $('#m-rubrica', bg)?.addEventListener('click', (e) => {
     const b = e.target.closest('[data-mail]');
     if (!b) return;
-    const campo = $('#' + $('#m-rubrica', bg).dataset.campo, bg);
-    const gia = campo.value.split(',').map((x) => x.trim()).filter(Boolean);
-    if (gia.includes(b.dataset.mail)) return;
-    campo.value = [...gia, b.dataset.mail].join(', ');
+    aggiungiVoce(b.dataset.mail, b.dataset.nome, 'Ufficio', protocollato || avviso ? 'cc' : 'to');
+  });
+
+  /* ricerca di una persona in anagrafica: tutte le sue e-mail entrano
+     nelle righe, la prima già in copia */
+  let timerCerca = null;
+  $('#m-cerca-persona', bg).addEventListener('input', (ev) => {
+    clearTimeout(timerCerca);
+    const q = ev.target.value.trim().replace(/[(),]/g, ' ');
+    const esito = $('#m-cerca-esito', bg);
+    if (q.length < 3) { esito.innerHTML = ''; return; }
+    timerCerca = setTimeout(async () => {
+      const { data } = await sb.from('persone').select(CAMPI_PERSONA + ', cf, qualifica')
+        .or(`cognome.ilike.%${q}%,nome.ilike.%${q}%,cf.ilike.%${q}%`)
+        .order('cognome').limit(8);
+      const righe = data || [];
+      esito.innerHTML = righe.length
+        ? righe.map((r, k) => {
+            const mail = [r.email, r.email2, r.email3].filter(Boolean);
+            return `<button type="button" class="btn btn-ghost btn-sm" data-k="${k}" ${mail.length ? '' : 'disabled'}
+                      style="display:block;width:100%;text-align:left;margin-top:4px">
+                      ${esc(nomeDiPersona(r))} <span class="hint">${mail.length ? esc(mail.join(', ')) : 'nessuna e-mail in anagrafica'}${r.qualifica ? ' · ' + esc(r.qualifica) : ''}</span>
+                    </button>`;
+          }).join('')
+        : '<p class="hint">Nessuna persona in anagrafica con questo nome: scrivi l&rsquo;indirizzo a mano.</p>';
+      esito.querySelectorAll('[data-k]').forEach((b) => b.addEventListener('click', () => {
+        const r = righe[Number(b.dataset.k)];
+        [r.email, r.email2, r.email3].filter(Boolean)
+          .forEach((m, n) => aggiungiVoce(m, nomeDiPersona(r), 'Aggiunte dalla ricerca', n === 0 ? 'cc' : null));
+        $('#m-cerca-persona', bg).value = '';
+        esito.innerHTML = '';
+      }));
+    }, 250);
   });
 
   /* l'etichetta del bottone segue il canale scelto */
@@ -197,9 +311,9 @@ export async function apriDialogoMail(p, modo = 'avviso') {
   }));
 
   $('#m-invia', bg).addEventListener('click', async (ev) => {
-    const to = $('#m-to', bg).value.split(',').map((x) => x.trim()).filter(Boolean);
-    if (!to.length) return toast('Serve almeno un destinatario.', 'err');
-    const cc = $('#m-cc', bg).value.split(',').map((x) => x.trim()).filter(Boolean);
+    const { to, cc, nonValidi } = raccogliDestinatari(voci, dividiIndirizzi($('#m-to', bg).value), dividiIndirizzi($('#m-cc', bg).value));
+    if (nonValidi.length) return toast(`Questi non sembrano indirizzi e-mail: ${nonValidi.join(', ')}`, 'err');
+    if (!to.length) return toast('Serve almeno un destinatario: spunta «A» su un indirizzo o scrivilo a mano.', 'err');
     const driveFileIds = [...bg.querySelectorAll('#m-att input:checked')].map((c) => c.value);
     const canale = bg.querySelector('input[name="m-canale"]:checked')?.value || 'bozza';
     const gmail = protocollato && canale === 'gmail';
@@ -264,7 +378,7 @@ export async function apriDialogoMail(p, modo = 'avviso') {
        e' una bozza — la riga «X-Unsent: 1» serve a questo. */
     scarica(data.eml, data.nomeFile || 'protocollo.eml');
     chiudi();
-    toast(`Bozza pronta: aprila da Outlook e premi Invia. A ${to.join(', ')}`, 'ok');
+    toast(`Bozza pronta: aprila da Outlook e premi Invia. A ${to.join(', ')}${cc.length ? ` · Cc ${cc.join(', ')}` : ''}`, 'ok');
   });
 }
 

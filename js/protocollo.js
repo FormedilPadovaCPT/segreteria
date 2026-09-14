@@ -366,7 +366,11 @@ async function agganciaDalNome(p, gia) {
   catch { return; }                       /* silenzioso: e' un aiuto, non un obbligo */
 
   const noti = new Set((gia || []).map((a) => a.drive_file_id).filter(Boolean));
-  const nuovi = trovati.filter((v) => !noti.has(v.id));
+  /* Le note del vault (.md, .base, .canvas) portano lo stesso protocollo
+     nel nome ma non sono documenti: non si agganciano mai (14/09/2026).
+     Il filtro sta anche nella funzione: qui vale pure con una versione
+     vecchia di quella. */
+  const nuovi = trovati.filter((v) => !noti.has(v.id) && !/\.(md|base|canvas)$/i.test(v.nome || ''));
   if (!nuovi.length) return;
 
   const { error } = await sb.from('s_prot_allegati').insert(nuovi.map((v) => ({
