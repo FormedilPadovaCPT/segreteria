@@ -16,12 +16,12 @@ import { UFFICI, MEZZI, normalizzaMezzo, vuoleTimbro, PERCHE_NIENTE_TIMBRO } fro
 import { CARTELLE_VAULT } from './cartelle-vault.js';
 
 /* ── stato del modulo ─────────────────────────────────────── */
-const f = { direzione: '', testo: '', anno: '', tipo: '', ufficio: '' };
+const f = { direzione: '', testo: '', anno: '', tipo: '', ufficio: '', invio: '' };
 let pagina = 0;
 let totale = 0;
 /* ordinamento del registro: lo chiede il server, perché l'elenco è paginato.
    Indice di colonna dell'intestazione → colonna di s_protocollo. */
-const COLONNE_ORDINE = ['numero', null, 'data_prot', 'impresa_nome', 'oggetto', 'tipo_doc_txt', 'mezzo', null];
+const COLONNE_ORDINE = ['numero', null, 'data_prot', 'impresa_nome', 'oggetto', 'tipo_doc_txt', 'mezzo', 'inviato_il', null];
 let ordine = { col: 'data_prot', asc: false };
 let cartelleNote = [];
 let referentiNoti = [];
@@ -59,12 +59,13 @@ export async function init() {
     clearTimeout(timerRicerca);
     timerRicerca = setTimeout(() => { f.testo = e.target.value.trim(); pagina = 0; caricaElenco(); }, 320);
   });
-  ['anno', 'tipo', 'ufficio'].forEach((k) => {
+  ['anno', 'tipo', 'ufficio', 'invio'].forEach((k) => {
     $(`#f-${k}`).addEventListener('change', (e) => { f[k] = e.target.value; pagina = 0; caricaElenco(); });
   });
   $('#f-reset').addEventListener('click', () => {
     Object.keys(f).forEach((k) => (f[k] = ''));
     $('#f-testo').value = ''; $('#f-anno').value = ''; $('#f-tipo').value = ''; $('#f-ufficio').value = '';
+    $('#f-invio').value = '';
     $$('#f-direzione .seg-btn').forEach((x, i) => x.classList.toggle('is-active', i === 0));
     pagina = 0; caricaElenco();
   });
@@ -121,15 +122,18 @@ async function caricaValoriNoti() {
 /* ══════════════ ELENCO ══════════════ */
 async function caricaElenco() {
   const tb = $('#tb-registro');
-  tb.innerHTML = `<tr><td colspan="8" class="empty">Caricamento…</td></tr>`;
+  tb.innerHTML = `<tr><td colspan="9" class="empty">Caricamento…</td></tr>`;
 
   let q = sb.from('s_protocollo')
-    .select('id,direzione,numero,esercizio,codice,data_prot,data_doc,impresa_nome,persona,alla_ca,oggetto,tipo_doc_txt,tipo_doc_id,mezzo,ufficio,annullato,drive_url', { count: 'exact' });
+    .select('id,direzione,numero,esercizio,codice,data_prot,data_doc,impresa_nome,persona,alla_ca,oggetto,tipo_doc_txt,tipo_doc_id,mezzo,ufficio,annullato,inviato_il,drive_url', { count: 'exact' });
 
   if (f.direzione) q = q.eq('direzione', f.direzione);
   if (f.tipo) q = q.eq('tipo_doc_id', Number(f.tipo));
   if (f.ufficio) q = q.eq('ufficio', f.ufficio);
   if (f.anno) q = q.gte('data_prot', `${f.anno}-01-01`).lte('data_prot', `${f.anno}-12-31`);
+  /* l'invio riguarda solo l'uscita: il filtro si porta dietro la direzione */
+  if (f.invio === 'da') q = q.eq('direzione', 'OUT').eq('annullato', false).is('inviato_il', null);
+  if (f.invio === 'si') q = q.eq('direzione', 'OUT').not('inviato_il', 'is', null);
 
   if (f.testo) {
     const t = f.testo.replace(/[%,()]/g, ' ').trim();
@@ -154,7 +158,7 @@ async function caricaElenco() {
   const { data, count, error } = await q.range(da, da + PAGE_SIZE - 1);
 
   if (error) {
-    tb.innerHTML = `<tr><td colspan="8" class="empty">Errore di lettura: ${esc(error.message)}</td></tr>`;
+    tb.innerHTML = `<tr><td colspan="9" class="empty">Errore di lettura: ${esc(error.message)}</td></tr>`;
     return;
   }
 
@@ -167,7 +171,7 @@ async function caricaElenco() {
   $('#pg-next').disabled = (pagina + 1) * PAGE_SIZE >= totale;
 
   tb.innerHTML = (data || []).map(riga).join('') ||
-    `<tr><td colspan="8" class="empty">Nessun protocollo con questi filtri.</td></tr>`;
+    `<tr><td colspan="9" class="empty">Nessun protocollo con questi filtri.</td></tr>`;
 
   aggiornaContatori();
 }
@@ -188,8 +192,19 @@ function riga(p) {
     <td><div class="clamp">${esc(p.oggetto || '')}</div></td>
     <td>${esc(p.tipo_doc_txt || '')}</td>
     <td>${esc(normalizzaMezzo(p.mezzo))}</td>
+    <td>${cellaInvio(p)}</td>
     <td>${p.drive_url ? '📎' : ''}</td>
   </tr>`;
+}
+
+/* Protocollo in uscita: partito o no (15/09/2026). «L'ho inviata» su una
+   mail preparata lo segna da solo (trigger sul database); per posta, PEC,
+   consegna a mano si segna dal dettaglio. In entrata la cella resta vuota. */
+function cellaInvio(p) {
+  if (p.direzione !== 'OUT' || p.annullato) return '';
+  return p.inviato_il
+    ? `<span class="tag" style="background:var(--ok-bg,#e6f4ea);color:var(--ok,#1e7b34)" title="Inviato il ${dataIt(p.inviato_il)}">✓ ${dataIt(p.inviato_il)}</span>`
+    : '<span class="tag" title="Non ancora segnato come inviato">da inviare</span>';
 }
 
 async function aggiornaContatori() {
@@ -235,6 +250,9 @@ export async function apriDettaglio(id) {
       ${voce('Vostro protocollo', p.vostro_protocollo)}
       ${voce('Tipo documento', p.tipo_doc_txt)}
       ${voce('Mezzo', p.mezzo)}
+      ${inn ? '' : `<dt>Inviato</dt><dd>${p.inviato_il
+        ? `il ${dataIt(p.inviato_il)}${p.inviato_da ? `<span class="cell-sub">${esc(p.inviato_da)}</span>` : ''}`
+        : '<span class="tag">non ancora</span>'}</dd>`}
       ${voce('Ufficio', p.ufficio)}
       ${voce('Referente', p.referente)}
       ${voce('Cartella archivio', p.cartella)}
@@ -314,6 +332,11 @@ export async function apriDettaglio(id) {
       <button class="btn btn-ghost btn-sm" data-az="timbra-doc">🖃 Timbra un documento</button>
       ${p.direzione === 'IN' ? '<button class="btn btn-ghost btn-sm" data-az="avviso">✉️ Avviso al mittente</button>' : ''}
       ${p.direzione === 'OUT' && !p.annullato ? '<button class="btn btn-out btn-sm" data-az="invia-prot">📤 Invia protocollato</button>' : ''}
+      ${p.direzione === 'OUT' && !p.annullato
+        ? (p.inviato_il
+          ? '<button class="btn btn-ghost btn-sm" data-az="togli-inviato">Togli «inviato»</button>'
+          : '<button class="btn btn-ghost btn-sm" data-az="segna-inviato">✅ Segna come inviato oggi</button>')
+        : ''}
       <button class="btn btn-ghost btn-sm" data-az="inoltra">📨 Inoltra</button>
       <button class="btn btn-ghost btn-sm" data-az="copia">Duplica come nuovo</button>
       ${p.impresa_id ? '<button class="btn btn-ghost btn-sm" data-az="impresa">🏢 Scheda impresa</button>' : ''}
@@ -479,7 +502,24 @@ async function gestisciAzioneDrawer(e) {
       .eq('id', Number(btn.dataset.invio));
     if (error) { toast('Non riuscito: ' + error.message, 'err'); return; }
     toast('Segnata come inviata.', 'ok');
-    apriDettaglio(p.id);
+    apriDettaglio(p.id); caricaElenco();
+    return;
+  }
+
+  /* Invio del protocollo in uscita (15/09/2026): si segna quando il
+     documento è partito, con qualunque mezzo. Una data diversa da oggi
+     si scrive da «Modifica». */
+  if (az === 'segna-inviato' || az === 'togli-inviato') {
+    const segna = az === 'segna-inviato';
+    if (!segna && !confirm('Togliere l\'indicazione che il protocollo è stato inviato?')) return;
+    const { error } = await sb.from('s_protocollo').update({
+      inviato_il: segna ? oggiIso() : null,
+      inviato_da: segna ? state.email : null,
+      aggiornato_da: state.email,
+    }).eq('id', p.id);
+    if (error) { toast('Non riuscito: ' + error.message, 'err'); return; }
+    toast(segna ? 'Segnato come inviato.' : 'Tolta l\'indicazione di invio.', 'ok');
+    apriDettaglio(p.id); caricaElenco();
     return;
   }
 
@@ -902,6 +942,12 @@ export async function apriForm(direzione, record = null, duplica = false, dopoSa
               <label for="c-mezzo">Mezzo</label>
               <select id="c-mezzo">${optMezzi}</select>
             </div>
+            ${inn ? '' : `
+            <div class="field">
+              <label for="c-inviato_il">Inviato il</label>
+              <input type="date" id="c-inviato_il" value="${modificaId ? (r.inviato_il || '') : ''}" data-prima="${modificaId ? (r.inviato_il || '') : ''}">
+              <span class="hint">Vuoto finché il documento non è partito.</span>
+            </div>`}
             <div class="field full">
               <label for="c-referente">Referente</label>
               <input type="text" id="c-referente" list="dl-referenti" value="${esc(r.referente || 'Squizzato Sig. Renato')}">
@@ -1041,6 +1087,14 @@ async function salva(ev) {
     drive_url: $('#c-drive').value.trim() || null,
   };
 
+  /* invio del protocollo in uscita: si scrive solo se il campo c'è ed è cambiato */
+  const campoInvio = $('#c-inviato_il');
+  const invioCambiato = !!campoInvio && campoInvio.value !== (campoInvio.dataset.prima || '');
+  if (invioCambiato) {
+    dati.inviato_il = campoInvio.value || null;
+    dati.inviato_da = campoInvio.value ? state.email : null;
+  }
+
   if (!dati.oggetto) { toast('L\'oggetto è obbligatorio.', 'err'); $('#c-oggetto').focus(); return; }
 
   attendi(btn, true, 'Salvataggio…');
@@ -1060,6 +1114,11 @@ async function salva(ev) {
   const direzione = $('#form-host').classList.contains('dir-IN') ? 'IN' : 'OUT';
   const { data: nuovo, error } = await sb.rpc('s_crea_protocollo', { p: { ...dati, direzione } });
   if (error) { attendi(btn, false); return toast('Protocollazione non riuscita: ' + error.message, 'err'); }
+
+  /* s_crea_protocollo non conosce l'invio: se è già partito, si segna subito dopo */
+  if (invioCambiato && dati.inviato_il) {
+    await sb.from('s_protocollo').update({ inviato_il: dati.inviato_il, inviato_da: dati.inviato_da }).eq('id', nuovo.id);
+  }
 
   /* allegato + timbro */
   const file = $('#c-file')?.files?.[0];

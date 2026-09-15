@@ -125,6 +125,11 @@ try {
           <select id="f-anno" class="inp inp-sm"><option value="">Tutti gli anni</option></select>
           <select id="f-tipo" class="inp inp-sm"><option value="">Tutti i tipi doc.</option></select>
           <select id="f-ufficio" class="inp inp-sm"><option value="">Tutti gli uffici</option></select>
+          <select id="f-invio" class="inp inp-sm" title="Solo protocolli in uscita">
+            <option value="">Uscita: inviati e no</option>
+            <option value="da">Uscita: da inviare</option>
+            <option value="si">Uscita: inviati</option>
+          </select>
           <button id="f-reset" class="btn btn-ghost btn-sm">Azzera</button>
         </div>
 
@@ -139,6 +144,7 @@ try {
                 <th>Oggetto</th>
                 <th class="col-tipo">Tipo doc.</th>
                 <th class="col-mezzo">Mezzo</th>
+                <th class="col-inviato" title="Solo protocolli in uscita">Inviato</th>
                 <th class="col-icon"></th>
               </tr>
             </thead>
