@@ -402,6 +402,10 @@ export function mailConferma(tipo: string, d: Dati, prog: number): { oggetto: st
      a nome dell'ente con un testo scelto da chiunque — il veicolo perfetto per
      un phishing. Prima il saluto era personale; e' il prezzo della difesa. */
   const nonVoi = `<p style="margin:12px 0 0;font-size:13px;color:${MAIL.GRIGIO_TESTO}">Se non avete inviato voi questa richiesta, ignorate questo messaggio.</p>`
+  /* Comunicazione RLS e Notifica Cantiere non sono richieste: «la vostra
+     Comunicazione RLS», non «la vostra richiesta Comunicazione RLS»
+     (utente, 15/09/2026) */
+  const cosa = tipo === 'rls' || tipo === 'not' ? '' : 'richiesta '
   const corpo = tipo === 'seg' ? `
       <p style="margin:0 0 12px">Gentile utente,</p>
       <p style="margin:0 0 12px">grazie per la collaborazione: abbiamo ricevuto la vostra Segnalazione Cantiere il <strong>${escHtml(quando)}</strong>.</p>
@@ -411,7 +415,7 @@ export function mailConferma(tipo: string, d: Dati, prog: number): { oggetto: st
       <p style="margin:0">grazie per il tempo dedicato al questionario, ricevuto il <strong>${escHtml(quando)}</strong>. Le vostre risposte ci aiutano a migliorare il servizio di sopralluogo.</p>${nonVoi}`
     : `
       <p style="margin:0 0 12px">Gentile utente,</p>
-      <p style="margin:0 0 12px">abbiamo ricevuto la vostra richiesta <strong>${escHtml(label)}</strong> il <strong>${escHtml(quando)}</strong>.</p>
+      <p style="margin:0 0 12px">abbiamo ricevuto la vostra ${cosa}<strong>${escHtml(label)}</strong> il <strong>${escHtml(quando)}</strong>.</p>
       <p style="margin:0">Il nostro ufficio prenderà in carico la pratica e vi contatterà a breve. Per qualsiasi comunicazione citate il numero di ricevuta.</p>${nonVoi}`
 
   const righe = `
