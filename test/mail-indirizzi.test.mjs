@@ -3,8 +3,33 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  chiaveNominativo, dividiIndirizzi, vociIndirizzi, raccogliDestinatari, E_NOTA,
+  chiaveNominativo, dividiIndirizzi, vociIndirizzi, raccogliDestinatari, E_NOTA, vociDaGruppo,
 } from '../js/mail-indirizzi.js';
+
+test('un gruppo entra tutto in «A»; chi non ha indirizzo resta fuori e si dice', () => {
+  const { voci, senzaEmail, dominioVecchio } = vociDaGruppo([
+    { nominativo: 'Rossi Arch. Mario', mansione: 'Consigliere', email: 'mario.rossi@esempio.example' },
+    { nominativo: 'Verdi Ing. Luca', mansione: 'Presidente', email: 'presidente@scuolaedilepadova.net' },
+    { nominativo: 'Neri Sig. Paolo', mansione: 'Consigliere', email: '' },
+    { nominativo: 'Gialli Geom. Anna', mansione: null, email: 'non-e-un-indirizzo' },
+  ], 'Commissione di prova');
+  assert.deepEqual(voci.map((v) => [v.email, v.ruolo, v.gruppo]), [
+    ['mario.rossi@esempio.example', 'to', 'Gruppo «Commissione di prova»'],
+    ['presidente@scuolaedilepadova.net', 'to', 'Gruppo «Commissione di prova»'],
+  ]);
+  assert.equal(voci[0].etichetta, 'Rossi Arch. Mario — Consigliere');
+  assert.match(voci[1].etichetta, /dominio vecchio/);
+  assert.deepEqual(senzaEmail, ['Neri Sig. Paolo', 'Gialli Geom. Anna']);
+  assert.deepEqual(dominioVecchio, ['Verdi Ing. Luca']);
+});
+
+test('i membri del gruppo passano per la stessa raccolta dei destinatari', () => {
+  const { voci } = vociDaGruppo([
+    { nominativo: 'Rossi Mario', email: 'Mario.Rossi@esempio.example' },
+    { nominativo: 'Rossi Mario (doppione)', email: 'mario.rossi@esempio.example' },
+  ], 'Prova');
+  assert.deepEqual(raccogliDestinatari(voci).to, ['Mario.Rossi@esempio.example']);
+});
 
 const impresa = {
   impresa_nome: 'EDILPROVA S.R.L.',

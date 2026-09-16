@@ -177,5 +177,32 @@ export function raccogliDestinatari(voci, liberiTo = [], liberiCc = []) {
   return { to, cc, nonValidi };
 }
 
+/** Il dominio dismesso dopo il passaggio a Formedil Padova: le nomine vecchie
+    lo portano ancora, e l'app non ci ha mai spedito niente. */
+export const DOMINIO_VECCHIO = /@(did\.)?scuolaedilepadova\.net$/i;
+
+/**
+ * I membri di un gruppo (funzione s_gruppo_destinatari: chi ha oggi la
+ * nomina) diventano righe d'indirizzo, tutte in «A». Chi non ha un indirizzo
+ * valido non entra ma si dice; l'indirizzo sul dominio vecchio entra, perché
+ * è quello scritto sulla nomina, ma porta l'avvertimento.
+ */
+export function vociDaGruppo(membri, nomeGruppo) {
+  const voci = [];
+  const senzaEmail = [];
+  const dominioVecchio = [];
+  for (const m of membri || []) {
+    const email = String(m.email || '').trim();
+    const nome = String(m.nominativo || '').trim();
+    if (!EMAIL_VALIDA.test(email)) { senzaEmail.push(nome || '(senza nome)'); continue; }
+    const vecchio = DOMINIO_VECCHIO.test(email);
+    if (vecchio) dominioVecchio.push(nome);
+    const etichetta = [nome, m.mansione, vecchio ? '⚠ dominio vecchio scuolaedilepadova.net' : '']
+      .filter(Boolean).join(' — ');
+    voci.push({ email, etichetta, gruppo: `Gruppo «${nomeGruppo}»`, ruolo: 'to' });
+  }
+  return { voci, senzaEmail, dominioVecchio };
+}
+
 /** Le note del vault non sono documenti da allegare (né da agganciare). */
 export const E_NOTA = (nome) => /\.(md|base|canvas)$/i.test(String(nome ?? ''));

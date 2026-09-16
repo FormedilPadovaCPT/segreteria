@@ -46,6 +46,7 @@ import {
 } from './lookups.js';
 import {
   paroleNominativo, chiaveNominativo, vociIndirizzi, raccogliDestinatari, dividiIndirizzi, nomeDiPersona, E_NOTA, EMAIL_VALIDA,
+  vociDaGruppo,
 } from './mail-indirizzi.js';
 
 const CAMPI_PERSONA = 'persona_id, nome, cognome, titolo, email, email2, email3';
@@ -204,6 +205,11 @@ export async function apriDialogoMail(p, modo = 'avviso') {
     voci = vociIndirizzi({ interni: interno ? [{ email: interno, nome: p.alla_ca || '' }] : [] });
   }
 
+  /* i gruppi di destinatari: chi ha oggi una certa nomina (tabella
+     s_gruppi_destinatari, dal 16/09/2026). I membri si leggono al clic. */
+  const { data: gruppi } = await sb.from('s_gruppi_destinatari')
+    .select('codice, nome').eq('attivo', true).order('ordine');
+
   const titolo = avviso ? 'Avviso di protocollazione'
     : protocollato ? 'Invia il documento protocollato' : 'Inoltra il documento protocollato';
   const chi = esc(p.impresa_nome || p.persona || p.alla_ca || '');
@@ -242,6 +248,15 @@ export async function apriDialogoMail(p, modo = 'avviso') {
           ${RUBRICA_INTERNA.map((r) => `<button type="button" class="chip" data-mail="${esc(r.email)}" data-nome="${esc(r.nome)}">${esc(r.nome)}</button>`).join('')}
         </div>
       </div>
+
+      ${(gruppi || []).length ? `
+      <div class="field" style="margin-bottom:10px">
+        <label>Aggiungi un gruppo <span class="hint" style="font-weight:400">— chi ha oggi la nomina, tutti in <strong>A</strong></span></label>
+        <div class="chip-riga" id="m-gruppi">
+          ${gruppi.map((g) => `<button type="button" class="chip" data-gruppo="${esc(g.codice)}" data-nome="${esc(g.nome)}">👥 ${esc(g.nome)}</button>`).join('')}
+        </div>
+        <div id="m-gruppi-esito"></div>
+      </div>` : ''}
 
       <div class="field" style="margin-bottom:10px">
         <label for="m-cerca-persona">Aggiungi una persona dall&rsquo;anagrafica (in copia)</label>
@@ -375,6 +390,25 @@ export async function apriDialogoMail(p, modo = 'avviso') {
     const b = e.target.closest('[data-mail]');
     if (!b) return;
     aggiungiVoce(b.dataset.mail, b.dataset.nome, 'Ufficio', protocollato || avviso ? 'cc' : 'to');
+  });
+
+  /* un gruppo: i membri si chiedono al database adesso, non all'apertura,
+     così una nomina chiusa un minuto fa non c'è più */
+  $('#m-gruppi', bg)?.addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-gruppo]');
+    if (!b) return;
+    const esito = $('#m-gruppi-esito', bg);
+    attendi(b, true, 'Carico…');
+    const { data: membri, error } = await sb.rpc('s_gruppo_destinatari', { p_codice: b.dataset.gruppo });
+    attendi(b, false);
+    if (error) { esito.innerHTML = `<p class="hint" style="color:#b42318">Non riesco a leggere il gruppo: ${esc(error.message)}</p>`; return; }
+    const { voci: nuove, senzaEmail, dominioVecchio } = vociDaGruppo(membri, b.dataset.nome);
+    nuove.forEach((v) => aggiungiVoce(v.email, v.etichetta, v.gruppo, v.ruolo));
+    const righe = [`«${esc(b.dataset.nome)}»: ${nuove.length} ${nuove.length === 1 ? 'indirizzo aggiunto' : 'indirizzi aggiunti'}.`];
+    if (!(membri || []).length) righe[0] = `«${esc(b.dataset.nome)}»: nessuno ha oggi questa nomina in corso.`;
+    if (senzaEmail.length) righe.push(`<span style="color:#b42318">Senza indirizzo in anagrafica: ${esc(senzaEmail.join(', '))}.</span>`);
+    if (dominioVecchio.length) righe.push(`<span style="color:#b42318">Indirizzo sul vecchio dominio scuolaedilepadova.net: ${esc(dominioVecchio.join(', '))} — controlla prima di inviare.</span>`);
+    esito.innerHTML = `<p class="hint" style="margin:4px 0 0;line-height:1.5">${righe.join('<br>')}</p>`;
   });
 
   /* ricerca di una persona in anagrafica: tutte le sue e-mail entrano
