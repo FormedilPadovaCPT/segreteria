@@ -108,6 +108,10 @@ export async function render() {
      poi la segreteria decide se e a chi comunicare (deciso 01/09/2026) */
   let eseguiti = [];
   let rifiutati = [];
+  /* accessi negati al cantiere segnalati dal tecnico (16/09/2026): la
+     segnalazione nasce nel gestionale, la gestione è della segreteria */
+  let dinieghi = [];
+  try { dinieghi = await (await import('./dinieghi.js')).aperti(); } catch { /* senza accesso la card resta vuota */ }
   const praticaDi = {};
   try {
     const { data } = await sb.from('incarichi')
@@ -308,6 +312,19 @@ export async function render() {
             }).join('') + '<p class="hint" style="margin-top:6px">Il tecnico ha dichiarato di non essere disponibile: riassegnando, l\'incarico torna «da vedere» per il nuovo.</p>'
           : '<p class="hint">Nessun incarico rifiutato.</p>')}
 
+      ${card('🚫 Accessi negati al cantiere', dinieghi.length,
+        (dinieghi.length
+          ? dinieghi.slice(0, 8).map((d) => `
+            <div class="hm-riga" data-diniego="${d.id}">
+              <span>🚫</span>
+              <span><strong>${esc(d.impresa_nome)}</strong> — ${esc(d.cantiere_desc)}
+                <span class="hint">(${esc((d.tecnico_nome || '').split(' ')[0])})</span>
+                <br><span class="hint">«${esc(String(d.note || '').slice(0, 90))}${String(d.note || '').length > 90 ? '…' : ''}»</span></span>
+              <span class="hint">${dataIt(d.data_diniego)}${d.stato === 'nuovo' ? ' · <strong style="color:#a01f00">nuova</strong>' : ' · in gestione'}</span>
+            </div>`).join('') + (dinieghi.length > 8 ? `<p class="hint">…e altre ${dinieghi.length - 8}.</p>` : '')
+          : '<p class="hint">Nessuna segnalazione da gestire.</p>')
+        + '<p class="hint" style="margin-top:6px"><a href="#" id="hm-dinieghi-tutti">Tutte le segnalazioni, anche quelle chiuse</a></p>')}
+
       ${card('✅ Autorizzate — da eseguire', daEseguire.length,
         daEseguire.length
           ? daEseguire.slice(0, 8).map(rigaPratica).join('') + (daEseguire.length > 8 ? `<p class="hint">…e altre ${daEseguire.length - 8}.</p>` : '')
@@ -437,6 +454,12 @@ export async function render() {
       ev.stopPropagation();
       if (await riassegnaIncarico(Number(b.dataset.riassegna), praticaDi[Number(b.dataset.riassegna)] || null)) render();
     }));
+  host.querySelectorAll('[data-diniego]').forEach((r) =>
+    r.addEventListener('click', async () => (await import('./dinieghi.js')).dettaglio(Number(r.dataset.diniego), render)));
+  host.querySelector('#hm-dinieghi-tutti')?.addEventListener('click', async (ev) => {
+    ev.preventDefault();
+    (await import('./dinieghi.js')).elenco(render);
+  });
   host.querySelectorAll('[data-vista-corso]').forEach((r) =>
     r.addEventListener('click', async () => {
       document.dispatchEvent(new CustomEvent('apri-pratica', { detail: { vista: 'corsi', id: Number(r.dataset.vistaCorso) } }));
