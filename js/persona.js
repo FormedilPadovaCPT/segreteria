@@ -22,6 +22,7 @@ import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, mostraVista } from 
 import { collegaDoppioClickMail } from './eml.js';
 
 let corrente = null;   // persona aperta (null = ricerca)
+let daImpresa = null;  // impresa da cui si è aperta la scheda: precompila la nomina nuova
 
 /* I campi della tabella persone, raggruppati come nella maschera
    Access. Quelli d'impresa (ruolo, mansione, assunzione...) NON
@@ -95,11 +96,14 @@ async function cerca(testo) {
     tr.addEventListener('click', () => apriPersona(tr.dataset.id)));
 }
 
-/* Apre la scheda (anche da altri moduli: RLS, imprese). */
-export async function apriPersona(personaId) {
+/* Apre la scheda (anche da altri moduli: RLS, imprese).
+   `contesto` = { impresa_id, impresa_nome } quando ci si arriva da una
+   scheda impresa: la nomina nuova nasce già per quell'impresa. */
+export async function apriPersona(personaId, contesto = null) {
   const { data, error } = await sb.from('persone').select('*').eq('persona_id', personaId).single();
   if (error || !data) return toast('Persona non trovata: ' + (error?.message || personaId), 'err');
   corrente = data;
+  daImpresa = contesto;
   mostraVista('persone');
   render();
 }
@@ -189,11 +193,15 @@ async function scheda(host) {
     ${nuova ? '' : `
     <div class="sez">
       <h3>Nomine e rapporti — ${nomine.length}</h3>
-      <p class="hint" style="margin:0 0 8px">
-        Sono le nomine ad agganciare la persona alle imprese: quando cambia ditta se ne
-        aggiunge una nuova e la vecchia si chiude con la data — degli spostamenti resta traccia.
-        Clicca una riga per aprire la nomina.
-      </p>
+      <div style="display:flex;gap:12px;align-items:flex-start;margin:0 0 8px">
+        <p class="hint" style="margin:0;flex:1">
+          Sono le nomine ad agganciare la persona alle imprese: quando cambia ditta se ne
+          aggiunge una nuova e la vecchia si chiude con la data — degli spostamenti resta traccia.
+          Clicca una riga per aprire la nomina.
+        </p>
+        <button class="btn btn-primary btn-sm" id="pe-nomina" style="white-space:nowrap"
+                title="${daImpresa ? `Nuova nomina per ${esc(daImpresa.impresa_nome || daImpresa.impresa_id)}` : 'Nuova nomina: impresa da scegliere'}">+ Nuova nomina</button>
+      </div>
       ${nomine.length ? `
       <div class="table-wrap"><table class="tbl">
         <thead><tr>
@@ -276,8 +284,27 @@ async function scheda(host) {
     </div>` : ''}`}
   `;
 
-  $('#pe-indietro').addEventListener('click', () => { corrente = null; render(); });
-  $('#pe-nuova2')?.addEventListener('click', () => { corrente = { persona_id: null }; render(); });
+  $('#pe-indietro').addEventListener('click', () => { corrente = null; daImpresa = null; render(); });
+  $('#pe-nuova2')?.addEventListener('click', () => { corrente = { persona_id: null }; daImpresa = null; render(); });
+
+  /* dopo una nomina salvata si ridisegna questa scheda, e la scheda
+     impresa rimasta in memoria si ricarica al ritorno */
+  const dopoNomina = async () => {
+    (await import('./imprese.js')).invalidaScheda();
+    render();
+  };
+
+  /* nomina nuova partendo dalla persona (15/09/2026, chiesto dall'utente):
+     persona agganciata, impresa precompilata se si arriva da una scheda impresa */
+  $('#pe-nomina')?.addEventListener('click', async () => {
+    const { nuovaNomina } = await import('./nomine.js');
+    nuovaNomina({
+      persona_id: p.persona_id,
+      persona_txt: [p.cognome, p.titolo, p.nome].filter(Boolean).join(' '),
+      impresa_id: daImpresa?.impresa_id || null,
+      impresa_txt: daImpresa?.impresa_nome || null,
+    }, dopoNomina);
+  });
 
   /* doppio clic su una mail → bozza Outlook già strutturata,
      come il doppio clic della maschera Access */
@@ -299,7 +326,7 @@ async function scheda(host) {
   host.querySelectorAll('tr[data-nomina]').forEach((tr) =>
     tr.addEventListener('click', async () => {
       const mod = await import('./nomine.js');
-      mod.apriNomina(Number(tr.dataset.nomina));
+      mod.apriNomina(Number(tr.dataset.nomina), dopoNomina);
     }));
 
   $('#pe-salva').addEventListener('click', async (ev) => {

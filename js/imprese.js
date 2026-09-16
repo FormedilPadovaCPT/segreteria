@@ -15,12 +15,21 @@ import { collegaDoppioClickMail } from './eml.js';
 
 let scheda = null;          // ultimo JSON caricato
 let schedaTab = 'anagrafica';
+let daRicaricare = false;   // un'altra maschera ha cambiato dati della scheda in memoria
+
+/* Chiamata da chi modifica nomine o persone fuori da qui (es. la
+   scheda persona): al ritorno la scheda si rilegge dal database. */
+export function invalidaScheda() { daRicaricare = true; }
 
 /* ══════════════ RICERCA ══════════════ */
 export function render() {
   /* come le maschere aperte di Access: se una scheda era aperta,
      tornando su questa vista la si ritrova — alla ricerca si torna
      col bottone «Torna alla ricerca» */
+  if (scheda && daRicaricare) {
+    daRicaricare = false;
+    return apriScheda(scheda.impresa.impresa_id, schedaTab);
+  }
   if (scheda) return disegnaScheda();
   const host = $('#imprese-host');
   host.innerHTML = `
@@ -301,15 +310,18 @@ function disegnaTab() {
     }));
 
   /* dalle persone dell'impresa alle loro schede */
+  /* l'impresa viaggia con la persona: la nomina nuova aperta dalla
+     scheda persona nasce già per quest'impresa */
   host.querySelectorAll('tr[data-pers]').forEach((tr) =>
     tr.addEventListener('click', async () => {
       const { apriPersona } = await import('./persona.js');
-      apriPersona(tr.dataset.pers);
+      apriPersona(tr.dataset.pers, { impresa_id: scheda.impresa.impresa_id, impresa_nome: scheda.impresa.impresa_nome });
     }));
   host.querySelectorAll('tr[data-nomina]').forEach((tr) =>
     tr.addEventListener('click', async () => {
       const { apriNomina } = await import('./nomine.js');
-      apriNomina(Number(tr.dataset.nomina));
+      const id = scheda.impresa.impresa_id;
+      apriNomina(Number(tr.dataset.nomina), () => apriScheda(id, 'persone'));
     }));
   host.querySelectorAll('tr[data-rlscom]').forEach((tr) =>
     tr.addEventListener('click', async () => {

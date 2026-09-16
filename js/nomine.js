@@ -130,16 +130,29 @@ export async function render() {
     }));
 }
 
+async function caricaRuoli() {
+  if (ruoli.length) return;
+  const { data } = await sb.from('s_ruoli').select('id_ruolo, ruolo').order('ruolo');
+  ruoli = data || [];
+}
+
 /* Apertura di una singola nomina da un'altra maschera (es. dalla
-   scheda impresa): carica i ruoli se servono e apre il drawer. */
-export async function apriNomina(accessId) {
-  if (!ruoli.length) {
-    const { data } = await sb.from('s_ruoli').select('id_ruolo, ruolo').order('ruolo');
-    ruoli = data || [];
-  }
+   scheda impresa): carica i ruoli se servono e apre il drawer.
+   `dopo` ridisegna la maschera di partenza a salvataggio fatto. */
+export async function apriNomina(accessId, dopo) {
+  await caricaRuoli();
   const { data: n, error } = await sb.from('s_nomine').select('*').eq('access_id', accessId).maybeSingle();
   if (error || !n) return toast('Nomina non trovata: ' + (error?.message || accessId), 'err');
-  formNomina(n);
+  formNomina(n, { dopo });
+}
+
+/* Nuova nomina aperta da un'altra maschera (scheda persona, 15/09/2026):
+   la persona — e l'impresa, se ci si arriva dalla pagina Imprese — sono
+   già compilate. Con `dopo` si ridisegna la maschera di partenza invece
+   di questa vista, che non è a video. */
+export async function nuovaNomina(prefill = {}, dopo) {
+  await caricaRuoli();
+  formNomina(null, { prefill, dopo });
 }
 
 /* ── stampe ───────────────────────────────────────────────── */
@@ -182,10 +195,11 @@ async function stampa(tipo, btn, visibili = []) {
 }
 
 /* ── inserimento e modifica ───────────────────────────────── */
-function formNomina(n) {
+function formNomina(n, { prefill = {}, dopo } = {}) {
   const nuova = !n;
-  const d = n || {};
-  apriDrawer(nuova ? 'Nuova nomina' : `Nomina — ${nominativo(d)}`, '', `
+  const d = n || prefill;
+  const ridisegna = () => { tutte = null; if (dopo) dopo(); else render(); };
+  apriDrawer(nuova ? `Nuova nomina${d.persona_txt ? ' — ' + d.persona_txt : ''}` : `Nomina — ${nominativo(d)}`, '', `
     <div class="field ac-wrap"><label>Persona *</label>
       <input type="text" id="fn-persona" value="${esc(d.persona_txt || '')}" placeholder="Cognome (almeno 3 lettere per cercare in anagrafica)…">
       <input type="hidden" id="fn-persona-id" value="${esc(d.persona_id || '')}">
@@ -216,6 +230,8 @@ function formNomina(n) {
   /* il select dei ruoli si riempie dal vivo (la lista è già caricata) */
   $('#fn-ruolo').innerHTML = '<option value="">—</option>' +
     ruoli.map((r) => `<option ${d.ruolo_txt === r.ruolo ? 'selected' : ''} data-id="${r.id_ruolo}">${esc(r.ruolo)}</option>`).join('');
+  /* persona già scelta dalla scheda: si parte dal ruolo */
+  if (nuova && d.persona_id) $('#fn-ruolo').focus();
 
   /* ricerca persone in anagrafica */
   $('#fn-persona').addEventListener('input', (e) => {
@@ -265,11 +281,11 @@ function formNomina(n) {
     if (error) return toast('Chiusura non riuscita: ' + error.message, 'err');
     toast('Nomina chiusa a oggi.', 'ok');
     chiudiDrawer();
-    tutte = null;
-    render();
+    ridisegna();
   });
 
   $('#fn-salva').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;   // dopo un await ev.currentTarget vale null
     const personaTxt = $('#fn-persona').value.trim();
     const sel = $('#fn-ruolo');
     const ruoloTxt = sel.value;
@@ -288,9 +304,21 @@ function formNomina(n) {
       note: $('#fn-note').value.trim() || null,
       updated_at: new Date().toISOString(),
     };
-    attendi(ev.currentTarget, true);
+    attendi(btn, true);
     let error;
     if (nuova) {
+      /* mai doppioni: la stessa persona, nello stesso ruolo, per la stessa
+         impresa e ancora in corso è quasi sempre un secondo clic */
+      if (riga.persona_id) {
+        let q = sb.from('s_nomine').select('access_id').eq('persona_id', riga.persona_id)
+          .eq('ruolo_txt', riga.ruolo_txt).or(`data_fine.is.null,data_fine.gte.${oggiIso()}`);
+        q = riga.impresa_id ? q.eq('impresa_id', riga.impresa_id) : q.is('impresa_id', null);
+        const { data: gia } = await q.limit(1);
+        if (gia?.length && !confirm('Questa persona ha già una nomina in corso con lo stesso ruolo per la stessa impresa. La registro comunque?')) {
+          attendi(btn, false);
+          return;
+        }
+      }
       /* access_id: la tabella è uno specchio di Access senza serial —
          si continua la numerazione manuale sopra i 90000, la fascia
          già usata per gli import fuori-Access */
@@ -302,11 +330,10 @@ function formNomina(n) {
     } else {
       ({ error } = await sb.from('s_nomine').update(riga).eq('access_id', d.access_id));
     }
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast('Salvataggio non riuscito: ' + error.message, 'err');
     toast(nuova ? 'Nomina registrata.' : 'Modifiche salvate.', 'ok');
     chiudiDrawer();
-    tutte = null;
-    render();
+    ridisegna();
   });
 }
