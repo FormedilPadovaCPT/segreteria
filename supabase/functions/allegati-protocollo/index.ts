@@ -252,7 +252,13 @@ serve(async (req) => {
       const r = await fetch(u, { headers: { Authorization: `Bearer ${token}` } })
       const d = await r.json()
       if (d.error) throw new Error('Non riesco a leggere la cartella: ' + JSON.stringify(d.error))
-      const voci = (d.files || []).map((f: Record<string, string>) => ({
+      /* Le note del vault (.md, .base, .canvas) non sono documenti da
+         allegare: nel selettore non compaiono, come negli agganci
+         (regola dell'utente, 16/09/2026). Le cartelle restano tutte. */
+      const voci = (d.files || [])
+        .filter((f: Record<string, string>) =>
+          f.mimeType === 'application/vnd.google-apps.folder' || !/\.(md|base|canvas)$/i.test(f.name))
+        .map((f: Record<string, string>) => ({
         id: f.id,
         nome: f.name,
         cartella: f.mimeType === 'application/vnd.google-apps.folder',
