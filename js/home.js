@@ -91,9 +91,8 @@ export async function render() {
     let cassetta = null;
     try { cassetta = c.cassetta_in_attesa ? JSON.parse(c.cassetta_in_attesa) : null; } catch { cassetta = null; }
     canale = {
-      battito, ore, limite, diretto, oreDiretto, giro, minGiro,
+      limite, diretto, oreDiretto, giro, minGiro,
       senzaRiscontro: senzaRiscontro || 0,
-      muto: ore === null || ore > limite,
       mutoDiretto: oreDiretto === null || oreDiretto > limite,
       mutoCassetta: minGiro === null || minGiro > 15,
       ferme: Number(cassetta?.ferme_oltre_15_min) || 0,
@@ -215,15 +214,18 @@ export async function render() {
   const bannerCanale = (() => {
     if (!canale) return '';
     const guai = [];
-    if (canale.muto) {
-      guai.push(canale.battito
-        ? `il portale non dà segno di vita da ${Math.round(canale.ore)} ore (ultimo battito ${dataIt(canale.battito.toISOString().slice(0, 10))})`
-        : 'non risulta nessun battito del portale');
-    }
     if (canale.mutoDiretto) {
       guai.push(canale.diretto
         ? `la strada diretta del portale (tutti i moduli) non dà segno di vita da ${Math.round(canale.oreDiretto)} ore (ultimo battito ${dataIt(canale.diretto.toISOString().slice(0, 10))})`
         : 'non risulta nessun battito della strada diretta del portale (tutti i moduli)');
+    }
+    if (canale.mutoCassetta) {
+      guai.push(canale.giro
+        ? `il giro della cassetta delle lettere è fermo da ${Math.round(canale.minGiro)} minuti`
+        : 'non risulta nessun giro della cassetta delle lettere');
+    }
+    if (canale.ferme) {
+      guai.push(`${canale.ferme} richiest${canale.ferme === 1 ? 'a è ferma' : 'e sono ferme'} in cassetta da oltre 15 minuti`);
     }
     if (canale.senzaRiscontro) {
       guai.push(`${canale.senzaRiscontro} richiest${canale.senzaRiscontro === 1 ? 'a' : 'e'} risultano partite dal portale ma non sono state registrate`);
@@ -232,9 +234,9 @@ export async function render() {
     return `<div class="hm-allarme">
       <strong>⚠️ Canale del portale servizi da controllare</strong><br>
       ${esc(guai.join('; '))}.<br>
-      <span class="hint">I moduli inviati dalle imprese potrebbero non arrivare. Controllare il workflow
-      «Battito portale servizi» su GitHub e, se serve, ripubblicare il deployment Apps Script
-      (Gestisci deployment → <em>modifica</em> quello esistente, mai crearne uno nuovo).</span>
+      <span class="hint">I moduli inviati dalle imprese potrebbero non arrivare. Controllare su Supabase
+      i log della funzione <em>portale-richieste</em> e i job pg_cron <em>ritiro-cassetta</em> e
+      <em>battito-portale-diretto</em>.</span>
     </div>`;
   })();
 
