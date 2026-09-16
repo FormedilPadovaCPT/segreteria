@@ -207,7 +207,7 @@ export async function apriDialogoMail(p, modo = 'avviso') {
 
   /* i gruppi di destinatari: chi ha oggi una certa nomina (tabella
      s_gruppi_destinatari, dal 16/09/2026). I membri si leggono al clic. */
-  const { data: gruppi } = await sb.from('s_gruppi_destinatari')
+  const { data: gruppi, error: erroreGruppi } = await sb.from('s_gruppi_destinatari')
     .select('codice, nome').eq('attivo', true).order('ordine');
 
   const titolo = avviso ? 'Avviso di protocollazione'
@@ -249,14 +249,18 @@ export async function apriDialogoMail(p, modo = 'avviso') {
         </div>
       </div>
 
-      ${(gruppi || []).length ? `
       <div class="field" style="margin-bottom:10px">
         <label>Aggiungi un gruppo <span class="hint" style="font-weight:400">— chi ha oggi la nomina, tutti in <strong>A</strong></span></label>
+        ${(gruppi || []).length ? `
         <div class="chip-riga" id="m-gruppi">
           ${gruppi.map((g) => `<button type="button" class="chip" data-gruppo="${esc(g.codice)}" data-nome="${esc(g.nome)}">👥 ${esc(g.nome)}</button>`).join('')}
         </div>
-        <div id="m-gruppi-esito"></div>
-      </div>` : ''}
+        <div id="m-gruppi-esito"></div>`
+        /* mai sparire in silenzio: se i gruppi non si leggono, si dice perché */
+        : `<p class="hint" style="margin:0;color:#b42318">${erroreGruppi
+            ? `Non riesco a leggere i gruppi: ${esc(erroreGruppi.message)}`
+            : 'Nessun gruppo disponibile per questo account: i gruppi li vede solo chi ha il ruolo di segreteria.'}</p>`}
+      </div>
 
       <div class="field" style="margin-bottom:10px">
         <label for="m-cerca-persona">Aggiungi una persona dall&rsquo;anagrafica (in copia)</label>
