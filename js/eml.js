@@ -38,8 +38,8 @@ export function apriMailto({ to = '', cc = [], oggetto = '', corpo = '' }) {
    Il corpo si scrive in righe; se un modulo ci ha già accodato
    FIRMA_SEGRETERIA non fa danno, viene riconosciuta e sostituita
    dalla firma completa. `firma: false` per una mail senza firma. */
-export function scaricaEml({ to = '', cc = [], oggetto, corpo, allegati = [], nomeFile = 'bozza.eml', firma = true }) {
-  const eml = componiEml({ to, cc, oggetto, corpo, allegati, firma, unsent: true });
+export function scaricaEml({ to = '', cc = [], oggetto, corpo, html = '', allegati = [], nomeFile = 'bozza.eml', firma = true }) {
+  const eml = componiEml({ to, cc, oggetto, corpo, html, allegati, firma, unsent: true });
   scaricaTesto(eml, nomeFile);
 }
 

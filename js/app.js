@@ -212,6 +212,13 @@ async function vaiA(vista) {
     return mod['fatture-tecnici'].render();
   }
 
+  if (vista === 'amministrazione') {
+    mostraVista('amministrazione');
+    $('#amministrazione-host').innerHTML = '<p class="empty">Un istante…</p>';
+    mod.amministrazione = mod.amministrazione || await import('./amministrazione.js');
+    return mod.amministrazione.render();
+  }
+
   if (vista === 'comunicazione') {
     mostraVista('comunicazione');
     mod.comunicazione = mod.comunicazione || await import('./comunicazione.js');
@@ -288,18 +295,23 @@ try {
     state.email = session.user.email || '';
 
     /* l'app è riservata alla segreteria; il Direttore ha un ingresso
-       suo, limitato alle autorizzazioni (pagina Segnalazioni) */
+       suo, limitato alle autorizzazioni (pagina Segnalazioni), e
+       l'Amministrazione il suo, limitato ai mandati di pagamento
+       (16/09/2026) */
     const { data: abilitato, error: errRuolo } = await sb.rpc('is_segreteria');
     let soloDirettore = false;
+    let soloAmministrazione = false;
     if (errRuolo || !abilitato) {
-      const { data: dir } = await sb.rpc('is_direttore');
+      const [{ data: dir }, { data: amm }] = await Promise.all([sb.rpc('is_direttore'), sb.rpc('is_amministrazione')]);
       soloDirettore = !!dir;
+      soloAmministrazione = !dir && !!amm;
     }
-    if ((errRuolo || !abilitato) && !soloDirettore) {
+    if ((errRuolo || !abilitato) && !soloDirettore && !soloAmministrazione) {
       await sb.auth.signOut();
       mostraLogin(`L'indirizzo ${state.email} non è abilitato all'app Segreteria. Chiedi l'abilitazione al coordinatore.`);
     } else {
       state.soloDirettore = soloDirettore;
+      state.soloAmministrazione = soloAmministrazione;
       $('#login').classList.add('hidden');
       $('#app').classList.remove('hidden');
       $('#user-email').textContent = state.email;
@@ -312,7 +324,7 @@ try {
       /* link profondo dalle mail: #segnalazione-<id>, #consulenza-<id>,
          #visita-<id> o #conferenza-<id> apre la pratica; #notifica-<id>
          arriva dalla mail interna della strada diretta del portale (12/09/2026) */
-      const hashPratica = location.hash.match(/^#(segnalazione|notifica|consulenza|visita|conferenza|attestazione|ferie|fattura)-(\d+)$/);
+      const hashPratica = location.hash.match(/^#(segnalazione|notifica|consulenza|visita|conferenza|attestazione|ferie|fattura|mandato)-(\d+)$/);
       /* #vista-<nome> apre una vista senza pratica: e' il link della mail
          interna del portale servizi, che parte PRIMA dell'import delle 6:30
          e quindi non ha ancora un id di pratica da puntare (06/09/2026) */
@@ -320,12 +332,20 @@ try {
       const apriDaHash = async () => {
         if (hashVista) { await vaiA(hashVista[1]); return; }
         if (!hashPratica) return;
-        const vista = { segnalazione: 'segnalazioni', notifica: 'notifiche', consulenza:'consulenze', visita: 'visite', conferenza: 'conferenze', attestazione: 'attestazioni', ferie: 'presenze', fattura: 'fatture-tecnici' }[hashPratica[1]];
+        const vista = { segnalazione: 'segnalazioni', notifica: 'notifiche', consulenza:'consulenze', visita: 'visite', conferenza: 'conferenze', attestazione: 'attestazioni', ferie: 'presenze', fattura: 'fatture-tecnici', mandato: 'amministrazione' }[hashPratica[1]];
         await vaiA(vista);
         await mod[vista]?.apriPratica?.(Number(hashPratica[2]));
       };
 
-      if (soloDirettore) {
+      if (soloAmministrazione) {
+        /* l'Amministrazione vede solo i mandati di pagamento: il resto è
+           chiuso dalle policy (non è «personale»), qui si toglie dal menu */
+        $('#topbar-sub').textContent = 'Mandati di pagamento — Amministrazione';
+        $$('.nav-item').forEach((b) => { if (b.dataset.view !== 'amministrazione') b.style.display = 'none'; });
+        $$('.nav-sep').forEach((s) => { s.style.display = 'none'; });
+        if (hashPratica?.[1] === 'mandato') await apriDaHash();
+        else await vaiA('amministrazione');
+      } else if (soloDirettore) {
         /* il Direttore vede solo le pratiche da autorizzare: le altre
            viste sono comunque chiuse dalle policy del database */
         $('#topbar-sub').textContent = 'Autorizzazioni — Direzione';

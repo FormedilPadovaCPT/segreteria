@@ -96,6 +96,7 @@ export function mostraVista(nome) {
     nomine: '#view-nomine',
     presenze: '#view-presenze',
     'fatture-tecnici': '#view-fatture-tecnici',
+    amministrazione: '#view-amministrazione',
     comunicazione: '#view-comunicazione',
     statistiche: '#view-statistiche',
   };

@@ -313,8 +313,12 @@ export async function pdfRiepilogo(inc, prot, d) {
 
 /* ── 3. mandato di pagamento ──
    fatture = righe s_fatture_tecnici approvate, ognuna con
-   { incarico: riga s_incarichi_mensili | null, cantieri_visitati } */
-export async function pdfMandato(mandato, fatture) {
+   { incarico: riga s_incarichi_mensili | null, cantieri_visitati }
+   visto = null per il mandato che parte; dopo la presa visione
+   dell'Amministrazione (16/09/2026) { nome, data_ora, utente } e la
+   firma scansionata, se c'è: si stampano nel riquadro «Per ricevuta
+   Amministrazione». Il documento è lo stesso, rigenerato col visto. */
+export async function pdfMandato(mandato, fatture, visto = null, firmaByte = null) {
   const c = await apriCarta();
   c.stato.pagina.drawText(dataIt(mandato.data), { x: DX - 60, y: c.stato.y + 8, size: 9, font: c.font, color: c.grigio });
   c.scrivi('Riepilogo delle visite in cantiere effettuate dai Tecnici di FORMEDIL PADOVA. Per ogni incaricato sono indicati: il numero dei cantieri assegnati per mese di riferimento, il totale dei cantieri effettivamente visitati, la data di ricevimento della fattura e la data di approvazione per il pagamento da parte del Coordinatore.', c.font, 8.5, c.grigio);
@@ -370,11 +374,34 @@ export async function pdfMandato(mandato, fatture) {
   c.stato.pagina.drawText(testoPdf(`Importo totale in lettere: ${euro(totale)} .=(${inLettere(totale)})`), { x: SX + 10, y: y0 + h - 31, size: 8.5, font: c.italic, color: c.nero });
   c.stato.y = y0 - 30;
 
-  c.serve(60);
+  c.serve(visto ? 110 : 60);
   c.stato.pagina.drawText('Il Coordinatore / Il Direttore', { x: SX, y: c.stato.y, size: 9, font: c.font, color: c.grigio });
   c.stato.pagina.drawText('Per ricevuta Amministrazione', { x: 380, y: c.stato.y, size: 9, font: c.font, color: c.grigio });
-  c.stato.y -= 26;
+  const yTitoli = c.stato.y;
+  c.stato.y -= visto ? 58 : 26;
   c.stato.pagina.drawLine({ start: { x: SX, y: c.stato.y }, end: { x: SX + 160, y: c.stato.y }, thickness: 0.6, color: c.grigio });
   c.stato.pagina.drawLine({ start: { x: 380, y: c.stato.y }, end: { x: DX, y: c.stato.y }, thickness: 0.6, color: c.grigio });
+  if (visto) {
+    /* la firma sta sopra la linea, fra il titolo e la linea; sotto,
+       nome, data-ora e utente: è quello che lega il visto all'accesso
+       all'app, e vale anche se la firma scansionata non c'è */
+    if (firmaByte) {
+      try {
+        let img;
+        try { img = await c.doc.embedPng(firmaByte); } catch { img = await c.doc.embedJpg(firmaByte); }
+        const alto = yTitoli - 6 - (c.stato.y + 2);
+        const scala = Math.min((DX - 380) / img.width, alto / img.height);
+        const w = img.width * scala;
+        c.stato.pagina.drawImage(img, { x: 380 + ((DX - 380) - w) / 2, y: c.stato.y + 2, width: w, height: img.height * scala });
+      } catch { /* firma non leggibile: il visto vale lo stesso */ }
+    }
+    const riga = (testo, dy, font, size, colore) => c.stato.pagina.drawText(
+      taglia(font, size, testoPdf(testo), DX - 380), { x: 380, y: c.stato.y - dy, size, font, color: colore });
+    riga(visto.nome, 12, c.bold, 9, c.nero);
+    riga(`Presa visione: ${visto.data_ora}`, 23, c.font, 8, c.nero);
+    riga("Registrata dall'app Segreteria dall'utente", 33, c.font, 6.8, c.grigio);
+    riga(visto.utente || '', 41, c.font, 6.8, c.grigio);
+    c.stato.y -= 48;
+  }
   return salva(c.doc);
 }

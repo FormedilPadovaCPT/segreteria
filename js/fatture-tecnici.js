@@ -26,7 +26,10 @@
      prestazioni del mese, poi il giro: verifica segreteria →
      approvazione del coordinatore (o stand-by, con motivo) → mandato.
    - MANDATI: il mandato di pagamento all'Amministrazione (Patrizia):
-     documento interno senza protocollo, PDF + bozza .eml.
+     documento interno senza protocollo, PDF + bozza .eml col link
+     all'app. Dal 16/09/2026 Patrizia entra nell'app (pagina
+     «Amministrazione», js/amministrazione.js): presa visione con firma,
+     pagamento, e l'avviso al tecnico parte da solo.
    - PRESTAZIONI: la situazione storica, per tecnico e anno: cosa è
      stato pagato con quale fattura e cosa è ancora aperto. Anche
      inserimento manuale (regola delle maschere).
@@ -41,6 +44,9 @@ import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiD
 import { risolviCartella, creaCartella, caricaByte } from './drive.js';
 import { scaricaEml, FIRMA_SEGRETERIA } from './eml.js';
 import { MESI, TIPI_PRESTAZIONE, euro, lordoDi } from './fatture-tecnici-doc.js';
+import { APP_URL } from './config.js';
+import { paginaHtml, testoInHtml } from './firma.js';
+import { datiMandato, inviaAvvisoPagamento, dettaglioMandato } from './amministrazione.js';
 
 const CARTELLA_INCARICHI = '2_AREE/Sopralluoghi/incarichi_visite';
 const CARTELLA_FATTURE = '2_AREE/Amministrazione/fatture/tecnici';
@@ -932,9 +938,11 @@ export async function dettaglioFattura(id) {
       ${['ricevuta', 'verificata', 'standby'].includes(f.stato) ? '<button class="btn btn-primary btn-sm" id="df-appr">✅ Approva (coordinatore)</button>' : ''}
       ${['ricevuta', 'verificata', 'approvata'].includes(f.stato) ? '<button class="btn btn-ghost btn-sm" id="df-standby">⏸ Stand-by</button>' : ''}
       ${f.stato === 'mandato' ? '<button class="btn btn-ghost btn-sm" id="df-pagata">💰 Segna pagata</button>' : ''}
+      ${f.mandato_id ? `<button class="btn btn-ghost btn-sm" id="df-mandato">🏦 Mandato n° ${f.mandato_id}</button>` : ''}
       <button class="btn btn-ghost btn-sm" id="df-mod">✏️ Modifica</button>
     </div>
-    <p class="hint" style="margin-top:8px">Il mandato si prepara dalla scheda «Mandati» con le fatture approvate. Tutti i pagamenti li firma il Direttore, fuori dall'app.</p>`);
+    ${f.pagata_il ? `<div class="dt-doc-riga"><strong>Pagata il</strong> ${dataIt(f.pagata_il)}${f.pagamento_estremi ? ` · ${esc(f.pagamento_estremi)}` : ''} · <strong>avviso al tecnico:</strong> ${f.avviso_pagamento_il ? `inviato il ${dataIt(String(f.avviso_pagamento_il).slice(0, 10))}` : esc(f.avviso_pagamento_esito || 'non ancora')}</div>` : ''}
+    <p class="hint" style="margin-top:8px">Il mandato si prepara dalla scheda «Mandati» con le fatture approvate. Lo firma l'Amministrazione con la presa visione nell'app; il pagamento lo segna lei, o la segreteria da qui, e il tecnico riceve l'avviso da solo.</p>`);
 
   $('#drawer-body').querySelector('[data-inc]')?.addEventListener('click', () => dettaglioIncarico(inc, t));
   $('#df-prot')?.addEventListener('click', () => protocollaFattura(f, inc, t));
@@ -959,11 +967,34 @@ export async function dettaglioFattura(id) {
     if (error) return toast(error.message, 'err');
     toast('Fattura in stand-by: il mandato non parte.', 'ok'); await renderFatture(); dettaglioFattura(f.id);
   });
-  $('#df-pagata')?.addEventListener('click', async () => {
-    await sb.from('s_fatture_tecnici').update({ stato: 'pagata', aggiornato_da: state.email, updated_at: new Date().toISOString() }).eq('id', f.id);
-    if (inc) await sb.from('s_incarichi_mensili').update({ stato: 'pagato' }).eq('id', inc.id);
-    toast('Fattura segnata pagata.', 'ok'); await renderFatture(); dettaglioFattura(f.id);
+  $('#df-pagata')?.addEventListener('click', async (ev) => {
+    const risposta = prompt("Data del pagamento (gg/mm/aaaa). Il tecnico riceve subito l'avviso via mail.", dataIt(oggiIso()));
+    if (risposta == null) return;
+    const m = risposta.trim().match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/);
+    const data = m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : '';
+    if (!data || data > oggiIso()) return toast('Data non valida (e non può essere nel futuro).', 'err');
+    const btn = ev.currentTarget;
+    attendi(btn, true, 'Registro…');
+    try {
+      if (f.mandato_id) {
+        const { data: pagate, error } = await sb.rpc('s_fatture_segna_pagate', { p_mandato_id: f.mandato_id, p_fatture: [f.id], p_data: data, p_estremi: null });
+        if (error) throw new Error(error.message);
+        if ((pagate || []).length) await inviaAvvisoPagamento((pagate || []).map(Number));
+      } else {
+        /* fatture dello storico Access in mandato senza numero di mandato
+           dell'app: si chiudono come prima, con la data, senza avviso */
+        const { error } = await sb.from('s_fatture_tecnici').update({ stato: 'pagata', pagata_il: data, pagata_da: state.email,
+          avviso_pagamento_esito: "non inviato: mandato fuori dall'app (storico Access)", aggiornato_da: state.email, updated_at: new Date().toISOString() }).eq('id', f.id);
+        if (error) throw new Error(error.message);
+      }
+      if (inc) await sb.from('s_incarichi_mensili').update({ stato: 'pagato' }).eq('id', inc.id);
+      toast('Fattura segnata pagata.', 'ok');
+    } catch (e) { toast(e.message, 'err'); } finally {
+      attendi(btn, false);
+      await renderFatture(); dettaglioFattura(f.id);
+    }
   });
+  $('#df-mandato')?.addEventListener('click', () => dettaglioMandato(f.mandato_id));
   $('#df-mod')?.addEventListener('click', () => formFattura(f));
 }
 
@@ -1079,16 +1110,22 @@ async function renderMandati(hostArg) {
         <td>${f.data_ricevimento ? dataIt(f.data_ricevimento) : '—'}</td><td>${f.approvata_il ? dataIt(f.approvata_il) : '—'}</td><td><strong>${euro(f.importo)}</strong></td></tr>`).join('')}</tbody></table></div>` : ''}
     <h4 style="margin:6px 0">Mandati emessi</h4>
     <div class="table-wrap"><table class="tbl" style="min-width:0">
-      <thead><tr><th>N°</th><th>Data</th><th>Totale</th><th>Note</th><th>Documento</th></tr></thead>
-      <tbody>${(mm || []).map((m) => `<tr><td>${m.id}</td><td>${dataIt(m.data)}</td><td><strong>${euro(m.totale)}</strong></td><td class="hint">${esc(m.note || '')}</td>
-        <td>${m.drive_url ? `<a href="${esc(m.drive_url)}" target="_blank" rel="noopener">PDF</a>` : '—'}${m.mail_at ? ' · 📧' : ''}</td></tr>`).join('') || '<tr><td colspan="5" class="empty">Nessun mandato ancora emesso dall\'app.</td></tr>'}</tbody></table></div>
-    <p class="hint" style="margin-top:8px">Il mandato è un documento interno: non prende protocollo. Va all'Amministrazione (Patrizia) come PDF con la bozza mail;
-      le fatture passano a «in mandato» e il mese a «pagato». I pagamenti li firma il Direttore.</p>`;
+      <thead><tr><th>N°</th><th>Data</th><th>Totale</th><th>Note</th><th>Documento</th><th>Visto Amministrazione</th><th>Pagato</th></tr></thead>
+      <tbody>${(mm || []).map((m) => `<tr data-m="${m.id}" style="cursor:pointer"><td>${m.id}</td><td>${dataIt(m.data)}</td><td><strong>${euro(m.totale)}</strong></td><td class="hint">${esc(m.note || '')}</td>
+        <td>${m.drive_url ? `<a href="${esc(m.drive_url)}" target="_blank" rel="noopener">PDF</a>` : '—'}${m.visto_drive_url ? ` · <a href="${esc(m.visto_drive_url)}" target="_blank" rel="noopener">firmato</a>` : ''}${m.mail_at ? ' · 📧' : ''}</td>
+        <td>${m.visto_il ? `<span class="dt-cella dt-ok" style="padding:1px 6px">${dataIt(String(m.visto_il).slice(0, 10))}</span>` : '<span class="dt-cella dt-senzadata" style="padding:1px 6px">da vedere</span>'}</td>
+        <td>${m.pagato_il ? `<span class="dt-cella dt-ok" style="padding:1px 6px">${dataIt(m.pagato_il)}</span>` : '—'}</td></tr>`).join('') || '<tr><td colspan="7" class="empty">Nessun mandato ancora emesso dall\'app.</td></tr>'}</tbody></table></div>
+    <p class="hint" style="margin-top:8px">Il mandato è un documento interno: non prende protocollo. Va all'Amministrazione (Patrizia) con la bozza mail e il link all'app,
+      dove lei mette la presa visione con la firma e segna i pagamenti; le fatture passano a «in mandato» e il mese a «pagato». Clic su un mandato per il dettaglio.</p>`;
   $('#md-nuovo')?.addEventListener('click', (ev) => {
     const ids = [...host.querySelectorAll('input[data-f]:checked')].map((i) => Number(i.dataset.f));
     if (!ids.length) return toast('Seleziona almeno una fattura.', 'err');
     emettiMandato(approvate.filter((f) => ids.includes(f.id)), ev.currentTarget);
   });
+  host.querySelectorAll('tr[data-m]').forEach((tr) => tr.addEventListener('click', (e) => {
+    if (e.target.closest('a')) return;
+    dettaglioMandato(Number(tr.dataset.m));
+  }));
 }
 
 async function emettiMandato(sel, btn) {
@@ -1097,14 +1134,9 @@ async function emettiMandato(sel, btn) {
   attendi(btn, true, 'Preparo il mandato…');
   try {
     const ids = sel.map((f) => f.id);
-    const { data: ff } = await sb.from('s_fatture_tecnici').select('*').in('id', ids);
-    const incIds = [...new Set((ff || []).map((f) => f.incarico_mensile_id).filter(Boolean))];
-    const { data: inc } = incIds.length ? await sb.from('s_incarichi_mensili').select('*').in('id', incIds) : { data: [] };
-    const incDi = Object.fromEntries((inc || []).map((i) => [i.id, i]));
-    const { data: pp } = await sb.from('s_prestazioni').select('fattura_id, visita_id').in('fattura_id', ids);
-    const visitati = {};
-    for (const p of pp || []) if (p.visita_id) visitati[p.fattura_id] = (visitati[p.fattura_id] || 0) + 1;
-    const fatture = (ff || []).map((f) => ({ ...f, incarico: incDi[f.incarico_mensile_id] || null, cantieri_visitati: visitati[f.id] || f.cantieri_fatturati }));
+    /* gli stessi dati servono alla presa visione, che rigenera il PDF
+       col visto: si leggono in un posto solo (amministrazione.js) */
+    const { fatture, incIds } = await datiMandato(ids);
 
     const { data: m, error } = await sb.from('s_mandati_pagamento').insert({ data: oggiIso(), totale, note: `${sel.length} fatture: ${[...new Set(fatture.map((f) => f.tecnico_nome))].join(', ')}`, creato_da: state.email }).select('*').single();
     if (error) throw new Error(error.message);
@@ -1134,21 +1166,31 @@ async function emettiMandato(sel, btn) {
     await sb.from('s_fatture_tecnici').update({ stato: 'mandato', mandato_id: m.id, mandato_data: oggiIso(), aggiornato_da: state.email, updated_at: new Date().toISOString() }).in('id', ids);
     if (incIds.length) await sb.from('s_incarichi_mensili').update({ stato: 'pagato', aggiornato_da: state.email, updated_at: new Date().toISOString() }).in('id', incIds);
 
-    scaricaEml({
-      to: conf.amministrazione_email || 'amministrazione@formedilpadova.it',
-      cc: [conf.direttore_email].filter(Boolean),
-      oggetto: `FORMEDIL PADOVA - Area Sicurezza e Salute - Mandato di pagamento n° ${m.id} del ${dataIt(m.data)} - fatture tecnici`,
-      corpo: `Buongiorno,
+    /* La mail porta il LINK AL MANDATO nell'app (16/09/2026): è lì che
+       l'Amministrazione mette la presa visione con la firma e segna i
+       pagamenti, senza stampare e riportare il foglio. Il PDF resta
+       allegato per chi lo vuole leggere subito. */
+    const link = `${APP_URL}#mandato-${m.id}`;
+    const prima = `Buongiorno,
 
 in allegato il mandato di pagamento n° ${m.id} per le fatture dei tecnici approvate dal coordinatore:
 ${fatture.map((f) => `- ${f.tecnico_nome}: fattura n° ${f.numero || '?'}${f.incarico ? ` (${MESI[f.incarico.mese - 1]} ${f.incarico.anno})` : ''} — ${euro(f.importo)}`).join('\n')}
 
 Importo totale: ${euro(totale)}.
-Il PDF è anche depositato in archivio (Amministrazione/fatture/tecnici).
 
-Cordiali saluti.
+Per la presa visione con la firma, e poi per segnare i pagamenti, aprite il mandato nell'app Segreteria:`;
+    const dopo = `A pagamento registrato, ogni tecnico riceve da solo l'avviso via mail.
 
-${FIRMA_SEGRETERIA}`,
+Cordiali saluti.`;
+    const bottone = `<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:4px 0 16px;"><tr>
+<td style="background:#E7500F;border-radius:4px;padding:10px 18px;"><a href="${link}" style="color:#FFFFFF;text-decoration:none;font-weight:600;font-family:Barlow,'Segoe UI',Arial,sans-serif;font-size:14px;">Apri il mandato n° ${m.id} nell'app &rsaquo;</a></td>
+</tr></table>`;
+    scaricaEml({
+      to: conf.amministrazione_email || 'amministrazione@formedilpadova.it',
+      cc: [conf.direttore_email].filter(Boolean),
+      oggetto: `Mandato di pagamento n° ${m.id} del ${dataIt(m.data)} - fatture tecnici - alla c.a. Bertin Patrizia`,
+      corpo: `${prima}\n${link}\n\n${dopo}`,
+      html: paginaHtml(`${testoInHtml(prima)}\n${bottone}\n${testoInHtml(dopo)}`),
       allegati: [{ nome: su.file_name || nomeFile, byte }],
       nomeFile: `mandato-${m.id}.eml`,
     });

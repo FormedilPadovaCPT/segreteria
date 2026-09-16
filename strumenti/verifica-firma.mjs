@@ -26,11 +26,15 @@ const sincronizza = process.argv.includes('--sincronizza');
    SHA-256. Il perché sta in supabase/functions/send-protocollo/firma-logo.js
    — la stringa base64 di 18.688 caratteri si era troncata nel passaggio
    di distribuzione, e la mail usciva senza logo senza dire niente. */
-const COPIE = ['firma.js'].map((f) => ({
+/* Le funzioni che compongono posta con la firma dell'ufficio: ognuna ha
+   la sua copia di firma.js e la sua firma-logo.js che scarica il logo.
+   avviso-pagamento aggiunta il 16/09/2026. */
+const FUNZIONI_POSTA = ['send-protocollo', 'avviso-pagamento'];
+const COPIE = FUNZIONI_POSTA.flatMap((fn) => ['firma.js'].map((f) => ({
   orig: join(radice, 'js', f),
-  copia: join(radice, 'supabase', 'functions', 'send-protocollo', f),
-  nome: f,
-}));
+  copia: join(radice, 'supabase', 'functions', fn, f),
+  nome: `${fn}/${f}`,
+})));
 
 let errori = 0;
 const ko = (m) => { errori++; console.error('✗ ' + m); };
@@ -39,9 +43,9 @@ const ok = (m) => console.log('✓ ' + m);
 for (const c of COPIE) {
   const o = readFileSync(c.orig, 'utf8');
   const k = existsSync(c.copia) ? readFileSync(c.copia, 'utf8') : null;
-  if (k === o) { ok(`copia allineata: send-protocollo/${c.nome}`); continue; }
-  if (sincronizza) { copyFileSync(c.orig, c.copia); ok(`copia rigenerata: send-protocollo/${c.nome}`); }
-  else ko(`send-protocollo/${c.nome} ${k === null ? 'manca' : 'diverge da js/' + c.nome} — esegui: npm run firma-sync`);
+  if (k === o) { ok(`copia allineata: ${c.nome}`); continue; }
+  if (sincronizza) { copyFileSync(c.orig, c.copia); ok(`copia rigenerata: ${c.nome}`); }
+  else ko(`${c.nome} ${k === null ? 'manca' : 'diverge da js/firma.js'} — esegui: npm run firma-sync`);
 }
 
 const { componiEml, FIRMA_SEGRETERIA, LOGO_FIRMA_CID, paginaHtml, testoInHtml, senzaFirma } = await import('../js/firma.js');
@@ -59,12 +63,14 @@ const { LOGO_FIRMA_B64, LOGO_FIRMA_MIME } = await import('../js/firma-logo.js');
   else ok(`logo incorporato = img/logo-firma.jpg (${jpg.length} byte)`);
 
   const attesa = createHash('sha256').update(jpg).digest('hex');
-  const sorgenteFunzione = readFileSync(join(radice, 'supabase', 'functions', 'send-protocollo', 'firma-logo.js'), 'utf8');
-  if (!sorgenteFunzione.includes(attesa)) ko(`send-protocollo/firma-logo.js: LOGO_SHA256 non è l'impronta di img/logo-firma.jpg (${attesa})`);
-  else ok('send-protocollo/firma-logo.js: impronta del logo aggiornata');
-  const lunga = sorgenteFunzione.match(/['"`][A-Za-z0-9+/=]{500,}['"`]/);
-  if (lunga) ko('send-protocollo/firma-logo.js contiene di nuovo una stringa lunga: non deve, si tronca al deploy');
-  else ok('send-protocollo/firma-logo.js: nessuna stringa lunga da ricopiare al deploy');
+  for (const fn of FUNZIONI_POSTA) {
+    const sorgenteFunzione = readFileSync(join(radice, 'supabase', 'functions', fn, 'firma-logo.js'), 'utf8');
+    if (!sorgenteFunzione.includes(attesa)) ko(`${fn}/firma-logo.js: LOGO_SHA256 non è l'impronta di img/logo-firma.jpg (${attesa})`);
+    else ok(`${fn}/firma-logo.js: impronta del logo aggiornata`);
+    const lunga = sorgenteFunzione.match(/['"`][A-Za-z0-9+/=]{500,}['"`]/);
+    if (lunga) ko(`${fn}/firma-logo.js contiene di nuovo una stringa lunga: non deve, si tronca al deploy`);
+    else ok(`${fn}/firma-logo.js: nessuna stringa lunga da ricopiare al deploy`);
+  }
 }
 
 const corpo = `Gent.le Sig. Rossi,

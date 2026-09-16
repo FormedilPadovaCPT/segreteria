@@ -38,6 +38,12 @@
 // I ruoli li dice il database, eseguiti COME l'utente: con la sola chiave
 // anon le funzioni rispondono errore, e l'errore vale «no».
 //
+// ⚠️ L'AMMINISTRAZIONE (16/09/2026) non è «personale»: entra solo per i
+// mandati di pagamento. Può leggere un file di cui conosce l'id (il PDF del
+// mandato, la firma), risolvere la cartella delle fatture dei tecnici e
+// depositarci il mandato col visto. Niente sfoglia, agganci né cestino:
+// il Drive dell'ente non si naviga da lì.
+//
 // Secret: GOOGLE_SERVICE_ACCOUNT_JSON (lo stesso di allegati-ass)
 //         DRIVE_PROTOCOLLO_FOLDER_ID facoltativo
 
@@ -54,8 +60,9 @@ import { getAccessToken } from '../_shared/google.ts'
 
 const RUOLI_PERSONALE = [
   'is_personale', 'is_segreteria', 'is_direttore', 'is_coordinatore',
-  'a_is_office_or_coordinator', 'a_is_asseveratore',
+  'a_is_office_or_coordinator', 'a_is_asseveratore', 'is_amministrazione',
 ]
+const AZIONI_AMMINISTRAZIONE = ['download', 'cartella', 'crea_cartella', 'upload']
 
 /* null = chiamante ammesso; altrimenti la risposta di rifiuto */
 async function rifiuto(req: Request, action: string): Promise<Response | null> {
@@ -78,6 +85,11 @@ async function rifiuto(req: Request, action: string): Promise<Response | null> {
   }))
   const ha = (f: string) => esiti[RUOLI_PERSONALE.indexOf(f)]
   if (!esiti.some(Boolean)) return nega(403, "utente non abilitato ai documenti dell'ente")
+  const soloAmministrazione = ha('is_amministrazione') &&
+    !RUOLI_PERSONALE.filter((f) => f !== 'is_amministrazione').some(ha)
+  if (soloAmministrazione && !AZIONI_AMMINISTRAZIONE.includes(action)) {
+    return nega(403, "l'Amministrazione accede ai soli documenti dei mandati di pagamento")
+  }
   if (action === 'delete' && !ha('is_segreteria')) {
     return nega(403, 'solo la segreteria può spostare documenti nel cestino')
   }

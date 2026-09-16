@@ -134,6 +134,10 @@ export async function render() {
   /* incarichi mensili e fatture dei tecnici: i mesi passati ancora aperti,
      le fatture da verificare/approvare, quelle approvate senza mandato */
   let ftMesiAperti = [], ftDaLavorare = [], ftDaMandato = 0, ftStandby = 0;
+  /* dal 16/09/2026: mandati che aspettano la presa visione
+     dell'Amministrazione, e fatture pagate il cui avviso automatico al
+     tecnico non è partito — un canale che parte da solo va sorvegliato */
+  let mandDaVedere = 0, avvisiNonPartiti = [];
   try {
     const meseCorr = oggi.slice(0, 7);
     const [{ data: im }, { data: ft }] = await Promise.all([
@@ -144,6 +148,13 @@ export async function render() {
     ftDaLavorare = (ft || []).filter((f) => ['ricevuta', 'verificata'].includes(f.stato));
     ftDaMandato = (ft || []).filter((f) => f.stato === 'approvata').length;
     ftStandby = (ft || []).filter((f) => f.stato === 'standby').length;
+    const [{ count: nv }, { data: av }] = await Promise.all([
+      sb.from('s_mandati_pagamento').select('id', { count: 'exact', head: true }).is('visto_il', null),
+      sb.from('s_fatture_tecnici').select('id, tecnico_nome, numero, mandato_id, avviso_pagamento_esito')
+        .eq('stato', 'pagata').not('pagata_il', 'is', null).not('mandato_id', 'is', null).is('avviso_pagamento_il', null).limit(50),
+    ]);
+    mandDaVedere = nv || 0;
+    avvisiNonPartiti = av || [];
   } catch { /* senza accesso il riquadro resta vuoto */ }
 
   /* contano solo i documenti dei tecnici ATTIVI: gli altri sono storia */
@@ -373,7 +384,7 @@ export async function render() {
           : '<p class="hint">Nessun corso aperto.</p>',
         vai('corsi', 'Apri i corsi'))}
 
-      ${card('💶 Incarichi e fatture tecnici', ftMesiAperti.length + ftDaLavorare.length + ftDaMandato + ftStandby, `
+      ${card('💶 Incarichi e fatture tecnici', ftMesiAperti.length + ftDaLavorare.length + ftDaMandato + ftStandby + mandDaVedere + avvisiNonPartiti.length, `
         ${ftMesiAperti.slice(0, 4).map((i) => `
           <div class="hm-riga" data-goto="fatture-tecnici"><span>📅</span>
             <span>Mese da chiudere: <strong>${esc(i.tecnico_nome || '?')}</strong> — ${['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic'][i.mese - 1]} ${i.anno}</span>
@@ -384,7 +395,12 @@ export async function render() {
             <span><strong>${esc(f.tecnico_nome || '?')}</strong> — fattura n° ${esc(f.numero || '?')} · ${Number(f.importo || 0).toLocaleString('it-IT', { minimumFractionDigits: 2 })} €</span>
             <span class="hint">${esc(f.stato)}</span></div>`).join('')}
         <div class="hm-riga" data-goto="fatture-tecnici"><span>✅</span><span>Approvate dal coordinatore, da mettere in mandato</span><span class="hm-mini">${ftDaMandato}</span></div>
-        ${ftStandby ? `<div class="hm-riga" data-goto="fatture-tecnici"><span>⏸</span><span>In stand-by (anomalia da risolvere col tecnico)</span><span class="hm-mini">${ftStandby}</span></div>` : ''}`,
+        ${ftStandby ? `<div class="hm-riga" data-goto="fatture-tecnici"><span>⏸</span><span>In stand-by (anomalia da risolvere col tecnico)</span><span class="hm-mini">${ftStandby}</span></div>` : ''}
+        ${mandDaVedere ? `<div class="hm-riga" data-goto="amministrazione"><span>✍️</span><span>Mandati in attesa della presa visione dell'Amministrazione</span><span class="hm-mini">${mandDaVedere}</span></div>` : ''}
+        ${avvisiNonPartiti.slice(0, 4).map((f) => `
+          <div class="hm-riga" data-vista="amministrazione" data-id="${f.mandato_id}" style="color:#a01f00"><span>📧</span>
+            <span>Pagata, <strong>avviso al tecnico non partito</strong>: ${esc(f.tecnico_nome || '?')} — fattura n° ${esc(f.numero || '?')}</span>
+            <span class="hint" title="${esc(f.avviso_pagamento_esito || '')}">${esc((f.avviso_pagamento_esito || 'in corso').slice(0, 40))}</span></div>`).join('')}`,
         vai('fatture-tecnici', 'Apri incarichi e fatture'))}
 
       ${card('📚 Ultimi protocolli', '', `
