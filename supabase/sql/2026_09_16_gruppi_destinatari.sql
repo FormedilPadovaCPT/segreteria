@@ -172,3 +172,29 @@ begin
             'TECNICO VERIFICATORE', 76, 'Asseveratore', null, v_nota_nuova, r.email, now(), now());
   end loop;
 end $$;
+
+-- ============================================================================
+-- (stesso giorno, seconda richiesta) Il gruppo resta scritto sul protocollo e
+-- sulla mail. L'utente, riaprendo il protocollo inviato al gruppo, non ne
+-- trovava traccia: s_prot_invii teneva solo gli indirizzi.
+-- Migrazione gruppo_destinatari_su_protocollo_e_invii_2026_09_16.
+-- ============================================================================
+alter table public.s_protocollo
+  add column if not exists gruppo_destinatari text
+  references public.s_gruppi_destinatari(codice) on update cascade on delete set null;
+
+comment on column public.s_protocollo.gruppo_destinatari is
+  'Il gruppo a cui è destinato il protocollo in uscita (s_gruppi_destinatari), scelto nella maschera: la mail d''invio propone i suoi membri in «A». Chi l''ha ricevuta davvero lo dice s_prot_invii.';
+
+alter table public.s_prot_invii
+  add column if not exists gruppi text[] not null default '{}';
+
+comment on column public.s_prot_invii.gruppi is
+  'I nomi dei gruppi di destinatari a cui è andata la mail: quelli con almeno un indirizzo ancora in «A» o in copia al momento della preparazione. Nome e non codice: la mail dice come si chiamava il gruppo quel giorno.';
+
+-- Recupero del primo caso, eseguito a parte: il protocollo OUT 2581 del
+-- 16/09/2026 («Promemoria riunione tecnici») era stato mandato al gruppo
+-- tecnici prima che il gruppo si registrasse (lo dice l'utente; gli indirizzi
+-- tornano: cinque in «A», Balladore in copia).
+--   update s_protocollo set gruppo_destinatari = 'tecnici' where numero = 2581 and direzione = 'OUT' and esercizio is null;
+--   update s_prot_invii set gruppi = array['Tecnici CPT'] where id = 17;

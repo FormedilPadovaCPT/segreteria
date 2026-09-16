@@ -222,7 +222,8 @@ async function aggiornaContatori() {
 export async function apriDettaglio(id) {
   apriDrawer('Caricamento…', '', '<p class="empty">Un istante…</p>');
 
-  const { data: p, error } = await sb.from('s_protocollo').select('*').eq('id', id).single();
+  const { data: p, error } = await sb.from('s_protocollo')
+    .select('*, gruppo:s_gruppi_destinatari(nome)').eq('id', id).single();
   if (error) { apriDrawer('Errore', '', `<p class="empty">${esc(error.message)}</p>`); return; }
   recordCorrente = p;
 
@@ -246,6 +247,7 @@ export async function apriDettaglio(id) {
       ${voce('Data documento', dataIt(p.data_doc))}
       ${voce(inn ? 'Mittente impresa' : 'Destinatario impresa', p.impresa_nome)}
       ${voce(inn ? 'Mittente persona' : 'Destinatario persona', p.persona)}
+      ${inn ? '' : voce('Gruppo di destinatari', p.gruppo?.nome)}
       ${voce('Alla cortese attenzione', p.alla_ca)}
       ${voce('Vostro protocollo', p.vostro_protocollo)}
       ${voce('Tipo documento', p.tipo_doc_txt)}
@@ -314,6 +316,7 @@ export async function apriDettaglio(id) {
               : `<button class="btn btn-ghost btn-sm" data-az="segna-inviata" data-invio="${m.id}">L&rsquo;ho inviata</button>`}
             <button class="btn btn-ghost btn-sm" data-az="correggi-testo" data-invio="${m.id}">✏️ Correggi il testo</button>
           </div>
+          ${(m.gruppi || []).length ? `<div style="margin-top:4px"><span class="tag">👥 ${esc(m.gruppi.join(' · '))}</span></div>` : ''}
           <div class="cell-sub" style="margin-top:4px">A ${esc((m.destinatari || []).join(', '))}${(m.cc || []).length ? ' · cc ' + esc(m.cc.join(', ')) : ''}</div>
           ${(m.allegati || []).length ? `<div class="cell-sub">Allegati: ${esc(m.allegati.join(' · '))}</div>` : ''}
           ${m.testo ? `<p style="margin:6px 0 0;white-space:pre-line">${esc(m.testo)}</p>` : '<p class="cell-sub" style="margin:6px 0 0">Nessun testo aggiunto: è uscito il modello standard.</p>'}
@@ -845,6 +848,13 @@ export async function apriForm(direzione, record = null, duplica = false, dopoSa
   const optUff = UFFICI.map((u) => `<option ${r.ufficio === u ? 'selected' : ''}>${esc(u)}</option>`).join('');
   const optMezzi = MEZZI.map((m) => `<option ${normalizzaMezzo(r.mezzo) === m ? 'selected' : ''}>${esc(m)}</option>`).join('');
 
+  /* in uscita il destinatario può essere un gruppo (chi ha oggi una nomina):
+     la mail d'invio ne propone i membri in «A» (16/09/2026) */
+  const { data: gruppiDest } = inn ? { data: [] }
+    : await sb.from('s_gruppi_destinatari').select('codice, nome').eq('attivo', true).order('ordine');
+  const optGruppi = (gruppiDest || []).map((g) =>
+    `<option value="${esc(g.codice)}" ${r.gruppo_destinatari === g.codice ? 'selected' : ''}>${esc(g.nome)}</option>`).join('');
+
   /* Maschera compatta: due colonne e misure verticali strette, per
      vederla tutta senza scorrere. Il protocollo si compila molte volte
      al giorno e ogni scroll e' tempo perso. */
@@ -889,8 +899,9 @@ export async function apriForm(direzione, record = null, duplica = false, dopoSa
               <datalist id="dl-assegnati">${assegnatiNoti.map((x) => `<option value="${esc(x)}">`).join('')}</datalist>
             </div>` : `
             <div class="field">
-              <label>Alla cortese attenzione</label>
-              <span class="hint" style="padding-top:7px">Si ricava dal destinatario: la persona se c\'e\', altrimenti la ragione sociale.</span>
+              <label for="c-gruppo">Gruppo di destinatari</label>
+              <select id="c-gruppo"><option value="">&mdash; nessuno &mdash;</option>${optGruppi}</select>
+              <span class="hint">Nella mail d&rsquo;invio i membri sono già in «A».</span>
             </div>`}
           </div>
         </fieldset>
@@ -1023,6 +1034,19 @@ export async function apriForm(direzione, record = null, duplica = false, dopoSa
     $('#c-persona').value = scelta.etichetta;
   });
 
+  /* scelto un gruppo, il nome finisce anche in «Destinatario persona» se è
+     vuoto (o se c'era il gruppo di prima): così si legge nell'elenco */
+  const selGruppo = $('#c-gruppo');
+  if (selGruppo) {
+    let nomePrima = selGruppo.value ? selGruppo.options[selGruppo.selectedIndex].text : '';
+    selGruppo.addEventListener('change', () => {
+      const pers = $('#c-persona');
+      const nome = selGruppo.value ? selGruppo.options[selGruppo.selectedIndex].text : '';
+      if (!pers.value.trim() || pers.value.trim() === nomePrima) pers.value = nome;
+      nomePrima = nome;
+    });
+  }
+
   $('#btn-annulla-form').addEventListener('click', () => { mostraVista('registro'); caricaElenco(); });
   $('#btn-salva').addEventListener('click', salva);
 }
@@ -1086,6 +1110,8 @@ async function salva(ev) {
     cartella: $('#c-cartella').value.trim() || null,
     drive_url: $('#c-drive').value.trim() || null,
   };
+  /* solo in uscita: in entrata il campo non c'è e non va azzerato */
+  if ($('#c-gruppo')) dati.gruppo_destinatari = $('#c-gruppo').value || null;
 
   /* invio del protocollo in uscita: si scrive solo se il campo c'è ed è cambiato */
   const campoInvio = $('#c-inviato_il');
@@ -1115,9 +1141,13 @@ async function salva(ev) {
   const { data: nuovo, error } = await sb.rpc('s_crea_protocollo', { p: { ...dati, direzione } });
   if (error) { attendi(btn, false); return toast('Protocollazione non riuscita: ' + error.message, 'err'); }
 
-  /* s_crea_protocollo non conosce l'invio: se è già partito, si segna subito dopo */
-  if (invioCambiato && dati.inviato_il) {
-    await sb.from('s_protocollo').update({ inviato_il: dati.inviato_il, inviato_da: dati.inviato_da }).eq('id', nuovo.id);
+  /* s_crea_protocollo non conosce né l'invio né il gruppo: si scrivono subito dopo */
+  const dopoCreazione = {};
+  if (invioCambiato && dati.inviato_il) Object.assign(dopoCreazione, { inviato_il: dati.inviato_il, inviato_da: dati.inviato_da });
+  if (dati.gruppo_destinatari) dopoCreazione.gruppo_destinatari = dati.gruppo_destinatari;
+  if (Object.keys(dopoCreazione).length) {
+    const { error: eDopo } = await sb.from('s_protocollo').update(dopoCreazione).eq('id', nuovo.id);
+    if (eDopo) toast('Protocollo salvato, ma invio o gruppo non sono stati scritti: ' + eDopo.message, 'err');
   }
 
   /* allegato + timbro */

@@ -397,23 +397,42 @@ export async function apriDialogoMail(p, modo = 'avviso') {
   });
 
   /* un gruppo: i membri si chiedono al database adesso, non all'apertura,
-     così una nomina chiusa un minuto fa non c'è più */
-  $('#m-gruppi', bg)?.addEventListener('click', async (e) => {
-    const b = e.target.closest('[data-gruppo]');
-    if (!b) return;
+     così una nomina chiusa un minuto fa non c'è più. Si tiene nota di quali
+     indirizzi porta ogni gruppo: sulla mail resta scritto a quali gruppi è
+     andata davvero (almeno un indirizzo rimasto in «A» o in copia). */
+  const gruppiUsati = new Map();   // nome del gruppo → indirizzi (minuscolo)
+  const esitiGruppi = [];
+  const caricaGruppo = async (codice, nome, bottone) => {
     const esito = $('#m-gruppi-esito', bg);
-    attendi(b, true, 'Carico…');
-    const { data: membri, error } = await sb.rpc('s_gruppo_destinatari', { p_codice: b.dataset.gruppo });
-    attendi(b, false);
-    if (error) { esito.innerHTML = `<p class="hint" style="color:#b42318">Non riesco a leggere il gruppo: ${esc(error.message)}</p>`; return; }
-    const { voci: nuove, senzaEmail, dominioVecchio } = vociDaGruppo(membri, b.dataset.nome);
+    if (bottone) attendi(bottone, true, 'Carico…');
+    const { data: membri, error } = await sb.rpc('s_gruppo_destinatari', { p_codice: codice });
+    if (bottone) attendi(bottone, false);
+    if (error) {
+      if (esito) esito.innerHTML = `<p class="hint" style="color:#b42318">Non riesco a leggere il gruppo: ${esc(error.message)}</p>`;
+      return;
+    }
+    const { voci: nuove, senzaEmail, dominioVecchio } = vociDaGruppo(membri, nome);
     nuove.forEach((v) => aggiungiVoce(v.email, v.etichetta, v.gruppo, v.ruolo));
-    const righe = [`«${esc(b.dataset.nome)}»: ${nuove.length} ${nuove.length === 1 ? 'indirizzo aggiunto' : 'indirizzi aggiunti'}.`];
-    if (!(membri || []).length) righe[0] = `«${esc(b.dataset.nome)}»: nessuno ha oggi questa nomina in corso.`;
+    gruppiUsati.set(nome, new Set(nuove.map((v) => v.email.toLowerCase())));
+    const righe = [(membri || []).length
+      ? `«${esc(nome)}»: ${nuove.length} ${nuove.length === 1 ? 'indirizzo aggiunto' : 'indirizzi aggiunti'}.`
+      : `«${esc(nome)}»: nessuno ha oggi questa nomina in corso.`];
     if (senzaEmail.length) righe.push(`<span style="color:#b42318">Senza indirizzo in anagrafica: ${esc(senzaEmail.join(', '))}.</span>`);
     if (dominioVecchio.length) righe.push(`<span style="color:#b42318">Indirizzo sul vecchio dominio scuolaedilepadova.net: ${esc(dominioVecchio.join(', '))} — controlla prima di inviare.</span>`);
-    esito.innerHTML = `<p class="hint" style="margin:4px 0 0;line-height:1.5">${righe.join('<br>')}</p>`;
+    esitiGruppi.push(righe.join('<br>'));
+    if (esito) esito.innerHTML = `<p class="hint" style="margin:4px 0 0;line-height:1.5">${esitiGruppi.join('<br>')}</p>`;
+  };
+
+  $('#m-gruppi', bg)?.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-gruppo]');
+    if (b) caricaGruppo(b.dataset.gruppo, b.dataset.nome, b);
   });
+
+  /* il protocollo è destinato a un gruppo: i membri entrano da soli in «A» */
+  if (p.gruppo_destinatari) {
+    const g = (gruppi || []).find((x) => x.codice === p.gruppo_destinatari);
+    if (g) caricaGruppo(g.codice, g.nome, bg.querySelector(`[data-gruppo="${g.codice}"]`));
+  }
 
   /* ricerca di una persona in anagrafica: tutte le sue e-mail entrano
      nelle righe, la prima già in copia */
@@ -492,12 +511,17 @@ export async function apriDialogoMail(p, modo = 'avviso') {
       : [...bg.querySelectorAll('#m-att input:checked')]
           .map((c) => c.closest('label')?.textContent.trim() || c.value)
     ).filter(Boolean);
+    const indirizziMail = new Set([...to, ...cc].map((x) => x.toLowerCase()));
+    const gruppiInviati = [...gruppiUsati]
+      .filter(([, indirizzi]) => [...indirizzi].some((x) => indirizziMail.has(x)))
+      .map(([nome]) => nome);
     const { error: eStorico } = await sb.from('s_prot_invii').insert({
       protocollo_id: p.id,
       modo,
       canale: gmail ? 'gmail' : 'outlook',
       destinatari: to,
       cc,
+      gruppi: gruppiInviati,
       oggetto: data?.oggetto || null,
       testo: $('#m-msg', bg).value.trim() || null,
       saluto: protocollato ? ($('#m-saluto', bg).value.trim() || null) : null,
