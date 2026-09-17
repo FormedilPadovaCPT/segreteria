@@ -274,10 +274,10 @@ export async function pdfAttestato(corso, iscritto, anagrafica, giornate, interv
       T(pg, 'Verifica online: formedilpadovacpt.github.io/servizi/verifica', X0, yb - 82, 6.5, F.r, C.tenue);
       T(pg, `${nTxt}  ·  codice ${formattaCodice(ctx.verifica.codice)}`, X0, yb - 93, 8, F.b, C.grigio);
     } else {
-      /* storico: testo, e dal 17/09/2026 senza codice fiscale — chiunque
-         inquadri il QR lo leggerebbe in chiaro */
+      /* storico: testo, come prima. Il codice fiscale resta: è già stampato
+         sull'attestato, e lega il QR alla persona */
       const testoQr = [
-        'FORMEDIL PADOVA', nTxt, iscritto.nominativo,
+        'FORMEDIL PADOVA', nTxt, iscritto.nominativo, iscritto.cf ? `CF ${iscritto.cf}` : null,
         `Corso ${corso.id} — ${String(corso.titolo).slice(0, 60)}`,
         dataIt(dataRil) || '',
       ].filter(Boolean).join(' | ');
