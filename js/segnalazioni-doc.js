@@ -18,13 +18,15 @@
       È il «firma e timbro» gestito dal programma: si sa che ha
       autorizzato lui perché l'approvazione è legata al suo accesso.
 
-   3. RISCONTRO al segnalante — due varianti:
-      - «esito»: il modello «Risposta» dell'ufficio (Richiesta /
-        Risposta con l'esito del sopralluogo), per i segnalanti
-        del sistema (sindacati, enti, presidenza, CEIV);
-      - «presa d'atto»: due righe di ringraziamento e presa in
-        carico, senza merito, per chi è fuori dal sistema.
-      Il riscontro è protocollato OUT nel registro unico.
+   3. PRESA IN CARICO al segnalante — due righe di ringraziamento
+      e presa in carico, senza merito. Facoltativa: la decide la
+      segreteria, e di regola non si manda (17/09/2026). Fino al
+      16/09/2026 i segnalanti «di sistema» ricevevano l'esito completo.
+
+   3b. ESITO alla Cassa Edile — il modello «Risposta» dell'ufficio
+      (dati del cantiere, richiesta, esito del sopralluogo). SOLO
+      quando la visita l'ha chiesta la Cassa Edile stessa: per le
+      segnalazioni di altri l'esito non va a nessuno. Protocollo OUT suo.
    ============================================================ */
 
 import { ENTE, COLORI } from './config.js';
@@ -368,12 +370,47 @@ export async function pdfRiscontro(p, prot, tipo) {
     c.stato.y -= 6;
     c.scrivi(`Gentile ${p.notificante || 'Segnalante'},`, c.font, 10);
     c.stato.y -= 4;
-    c.scrivi('Vi ringraziamo per la collaborazione e per l’attenzione alla sicurezza nei cantieri della nostra Provincia. Vi informiamo che la Vostra segnalazione è stata presa in carico dallo scrivente Ente, che ha proceduto secondo le proprie procedure di verifica.', c.font, 10);
+    c.scrivi('Vi ringraziamo per la collaborazione e per l’attenzione alla sicurezza nei cantieri della nostra Provincia. Vi informiamo che la Vostra segnalazione è stata presa in carico dallo scrivente Ente, che procederà secondo le proprie procedure di verifica.', c.font, 10);
     c.stato.y -= 4;
     c.scrivi('Non seguiranno ulteriori comunicazioni di merito.', c.font, 10);
   }
 
   /* firma */
+  c.serve(70);
+  c.stato.y = Math.max(c.stato.y - 14, 110);
+  c.stato.pagina.drawText(`Padova, ${dataIt(prot.data_prot)}`, { x: SX, y: c.stato.y, size: 10, font: c.font, color: c.nero });
+  c.stato.pagina.drawText('FORMEDIL PADOVA', { x: 380, y: c.stato.y + 4, size: 10, font: c.bold, color: c.nero });
+  c.stato.pagina.drawText(ENTE.area.toUpperCase(), { x: 380, y: c.stato.y - 8, size: 8.5, font: c.font, color: c.grigio });
+  c.stato.pagina.drawText('La Segreteria', { x: 380, y: c.stato.y - 22, size: 10, font: c.italic, color: c.nero });
+  return salva(c.doc);
+}
+
+/* ── 3b. esito alla Cassa Edile ──
+   Il modello «Risposta», per le visite chieste dalla Cassa Edile stessa
+   (regola dell'utente del 17/09/2026). */
+export async function pdfEsitoCassaEdile(p, prot, ceiv = {}) {
+  const c = await apriCarta();
+  c.scrivi('Esito della visita in cantiere da Voi richiesta', c.bold, 14, c.nero);
+  c.stato.y -= 4;
+  c.stato.pagina.drawText(`Prot. n°: ${siglaProtocollo(prot)}`, { x: SX, y: c.stato.y, size: 9.5, font: c.bold, color: c.nero });
+  const dest = [`Spett.le ${ceiv.ente || 'Cassa Edile'}`, ceiv.alla_ca ? `Alla c.a. ${ceiv.alla_ca}` : null].filter(Boolean);
+  dest.forEach((riga, i) => spezza(c.italic, 9.5, testoPdf(riga), DX - 300, 2)
+    .forEach((r, j) => c.stato.pagina.drawText(r, { x: 300, y: c.stato.y - (i * 2 + j) * 11, size: 9.5, font: c.italic, color: c.nero })));
+  c.stato.y -= 36;
+
+  c.campo('Segnalazione n°', String(p.progressivo ?? `m${p.id}`));
+  c.campo('Data segnalazione', p.timestamp_modulo ? dataIt(p.timestamp_modulo.slice(0, 10)) : null);
+  c.campo('Impresa', p.imprese_presenti);
+  c.campo('Indirizzo cantiere', p.ind_cantiere);
+  c.campo('Comune', p.comune_cantiere);
+  c.campo('Data verbale', p.data_verbale ? dataIt(p.data_verbale) : null);
+  c.stato.y -= 4;
+  c.campo('Richiesta', p.motivo);
+  c.stato.y -= 6;
+  c.serve(20);
+  c.scrivi('Esito:', c.bold, 10);
+  c.scrivi(p.risposta_testo || '', c.font, 10);
+
   c.serve(70);
   c.stato.y = Math.max(c.stato.y - 14, 110);
   c.stato.pagina.drawText(`Padova, ${dataIt(prot.data_prot)}`, { x: SX, y: c.stato.y, size: 10, font: c.font, color: c.nero });

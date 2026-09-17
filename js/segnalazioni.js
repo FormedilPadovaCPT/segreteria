@@ -16,9 +16,16 @@
      data-ora e utente finisce nel PDF di autorizzazione, con la
      firma se configurata) — oppure resta il giro cartaceo, che
      la segreteria registra a mano.
-   - Dopo l'autorizzazione: protocollo IN della segnalazione,
-     riscontro al segnalante (esito completo per chi è del
-     sistema, presa d'atto per gli altri) protocollato OUT.
+   - Dopo l'autorizzazione: protocollo IN della segnalazione.
+   - Riscontro al segnalante (regola dell'utente, 17/09/2026): lo
+     DECIDE LA SEGRETERIA caso per caso, e di regola non si manda.
+     Se si manda, è solo la presa in carico, senza merito.
+   - L'ESITO della visita si comunica SOLO quando a chiedere la
+     visita è stata la Cassa Edile: lettera con protocollo OUT suo,
+     alla Cassa Edile. Per le segnalazioni fatte da altri l'esito
+     non va a nessuno, nemmeno alla Cassa Edile.
+     (Fino al 16/09/2026 l'app mandava l'esito completo ai
+     segnalanti «di sistema»: superato.)
 
    ⚠️ Privacy: il nome del segnalante non arriva mai all'impresa.
    Resta nella pratica e nel protocollo.
@@ -33,6 +40,7 @@ import { APP_URL } from './config.js';
 import { risolviCartella, caricaByte, leggiByte, idDaLink } from './drive.js';
 import { scaricaEml, FIRMA_SEGRETERIA } from './eml.js';
 import { RUBRICA_INTERNA } from './lookups.js';
+import { dividiIndirizzi, EMAIL_VALIDA } from './mail-indirizzi.js';
 
 let pratiche = [];
 let tecnici = [];
@@ -58,9 +66,10 @@ const FONTI = ['telefono', 'email', 'pec', 'verbale', 'altro'];
 const PERCORSO_VAULT = '2_AREE/Servizi_CPT/richieste/Segnalazione Cantieri al CPT';
 const TIPO_DOC_SEGN = 54;   // s_tipo_doc «Segnalazione cantiere»
 
-/* i segnalanti «di sistema» ricevono l'esito completo; gli altri due
-   righe di presa d'atto (regola dell'utente, 31/08/2026) */
-const DI_SISTEMA = ['sindacato', 'ente', 'comune', 'ceiv', 'presidenza'];
+/* Il tipo di segnalante decide una cosa sola: se è la Cassa Edile
+   ('ceiv'), le si comunica l'esito (preparaEsito). Per tutti gli altri
+   l'esito non esce, e la presa in carico è facoltativa (17/09/2026). */
+const esitoDovuto = (tipo) => tipo === 'ceiv';
 
 const slug = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
   .replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
@@ -70,7 +79,7 @@ async function carica() {
     sb.from('s_segnalazioni').select('*').order('id', { ascending: false }),
     sb.from('tecnici').select('email, tecnico_cognome, tecnico_nome, titolo, attivo').eq('attivo', true),
     zone.length ? Promise.resolve({ data: zone }) : sb.from('tecnici_zone').select('email, comune_nome'),
-    sb.from('s_config').select('chiave, valore').in('chiave', ['direttore_email', 'direttore_nome', 'direttore_firma_id']),
+    sb.from('s_config').select('chiave, valore').in('chiave', ['direttore_email', 'direttore_nome', 'direttore_firma_id', 'organi_vigilanza_contatti']),
   ]);
   pratiche = p || [];
   tecnici = t || [];
@@ -79,7 +88,7 @@ async function carica() {
 
   /* i numeri di protocollo collegati (per il Direttore la query è
      chiusa dalle policy: si mostra solo «protocollata») */
-  const ids = [...new Set(pratiche.flatMap((x) => [x.protocollo_in_id, x.protocollo_out_id]).filter(Boolean))];
+  const ids = [...new Set(pratiche.flatMap((x) => [x.protocollo_in_id, x.protocollo_out_id, x.esito_protocollo_id]).filter(Boolean))];
   protDi = {};
   if (ids.length) {
     const { data: pr } = await sb.from('s_protocollo').select('*').in('id', ids);
@@ -155,6 +164,7 @@ export async function render() {
     const pezzi = [];
     if (p.protocollo_in_id) pezzi.push(protDi[p.protocollo_in_id] ? `IN ${codiceProtocollo(protDi[p.protocollo_in_id])}` : 'IN ✓');
     if (p.protocollo_out_id) pezzi.push(protDi[p.protocollo_out_id] ? `OUT ${codiceProtocollo(protDi[p.protocollo_out_id])}` : 'OUT ✓');
+    if (p.esito_protocollo_id) pezzi.push(protDi[p.esito_protocollo_id] ? `esito ${codiceProtocollo(protDi[p.esito_protocollo_id])}` : 'esito ✓');
     return pezzi.join('<br>') || '—';
   };
 
@@ -360,7 +370,8 @@ export async function apriPratica(id) {
   const campo = (l, v) => v ? `<div class="dt-doc-riga"><strong>${l}:</strong> ${esc(v)}</div>` : '';
   const sonoDirettore = state.email && conf.direttore_email &&
     state.email.toLowerCase() === conf.direttore_email.toLowerCase();
-  const diSistema = DI_SISTEMA.includes(p.segnalante_tipo);
+  let ceiv = {};
+  try { ceiv = JSON.parse(conf.organi_vigilanza_contatti || '{}').ceiv || {}; } catch { /* configurazione da sistemare */ }
 
   apriDrawer(`Segnalazione n° ${p.progressivo ?? `m${p.id}`} — ${p.comune_cantiere || p.notificante || ''}`, '', `
     <div class="dt-quadro-riga">
@@ -389,8 +400,14 @@ export async function apriPratica(id) {
     ${p.protocollo_out_id ? `
     <div class="dt-quadro-riga">
       <span class="dt-dot dt-ok"></span>
-      <span class="dt-quadro-req">Riscontro OUT</span>
-      <span class="dt-quadro-stato"><strong>${esc(protDi[p.protocollo_out_id] ? codiceProtocollo(protDi[p.protocollo_out_id]) : 'protocollato')}</strong>${p.riscontro_tipo ? ` — ${p.riscontro_tipo === 'esito' ? 'esito completo' : 'presa d’atto'}` : ''}${!state.soloDirettore && protDi[p.protocollo_out_id] ? ` · <a href="#" data-apri-prot="${p.protocollo_out_id}">apri nel registro</a>` : ''}${p.riscontro_drive_url ? ` · <a href="${esc(p.riscontro_drive_url)}" target="_blank" rel="noopener">lettera</a>` : ''}</span>
+      <span class="dt-quadro-req">Presa in carico OUT</span>
+      <span class="dt-quadro-stato"><strong>${esc(protDi[p.protocollo_out_id] ? codiceProtocollo(protDi[p.protocollo_out_id]) : 'protocollato')}</strong>${p.riscontro_tipo === 'esito' ? ' — esito completo al segnalante (prima della regola del 16/09/2026)' : ' — presa in carico'}${!state.soloDirettore && protDi[p.protocollo_out_id] ? ` · <a href="#" data-apri-prot="${p.protocollo_out_id}">apri nel registro</a>` : ''}${p.riscontro_drive_url ? ` · <a href="${esc(p.riscontro_drive_url)}" target="_blank" rel="noopener">lettera</a>` : ''}</span>
+    </div>` : ''}
+    ${p.esito_protocollo_id ? `
+    <div class="dt-quadro-riga">
+      <span class="dt-dot dt-ok"></span>
+      <span class="dt-quadro-req">Esito OUT</span>
+      <span class="dt-quadro-stato"><strong>${esc(protDi[p.esito_protocollo_id] ? codiceProtocollo(protDi[p.esito_protocollo_id]) : 'protocollato')}</strong> — a ${esc(p.esito_a || 'Cassa Edile')}${p.esito_cc ? `, cc ${esc(p.esito_cc)}` : ''}${!state.soloDirettore && protDi[p.esito_protocollo_id] ? ` · <a href="#" data-apri-prot="${p.esito_protocollo_id}">apri nel registro</a>` : ''}${p.esito_drive_url ? ` · <a href="${esc(p.esito_drive_url)}" target="_blank" rel="noopener">lettera</a>` : ''}</span>
     </div>` : ''}
 
     <hr style="margin:14px 0;border:0;border-top:1px solid var(--bordo)">
@@ -421,8 +438,8 @@ export async function apriPratica(id) {
     </div>
     <div class="field" style="margin-top:8px"><label>Esito della visita (sintesi)</label>
       <textarea id="sg-esitovisita" rows="2">${esc(p.esito_visita || '')}</textarea></div>
-    <div class="field" style="margin-top:8px"><label>Risposta al segnalante (testo per la lettera di esito)</label>
-      <textarea id="sg-risposta" rows="4" placeholder="Il testo che finisce nel campo «Risposta» della lettera — dal rapporto di sopralluogo.">${esc(p.risposta_testo || '')}</textarea></div>
+    ${esitoDovuto(p.segnalante_tipo) || p.risposta_testo ? `<div class="field" style="margin-top:8px"><label>Esito da comunicare alla Cassa Edile (solo se la visita l'ha chiesta la Cassa Edile)</label>
+      <textarea id="sg-risposta" rows="4" placeholder="Il testo che finisce nel campo «Esito» della lettera — dal rapporto di sopralluogo.">${esc(p.risposta_testo || '')}</textarea></div>` : ''}
     <div class="field" style="margin-top:8px"><label>Note dell'ufficio</label>
       <textarea id="sg-note">${esc(p.note_ufficio || '')}</textarea></div>
     <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:12px">
@@ -452,21 +469,40 @@ export async function apriPratica(id) {
     ${p.aut_stato === 'approvata' ? `
     <hr style="margin:16px 0;border:0;border-top:1px solid var(--bordo)">
     <h4 style="margin:0 0 6px">Protocollo e riscontro</h4>
-    <p class="hint" style="margin:0 0 10px">
-      ${diSistema
-        ? 'Segnalante <strong>di sistema</strong>: riscontro con l’<strong>esito completo</strong> (modello «Risposta») — compila prima il campo qui sopra.'
-        : p.segnalante_tipo
-          ? 'Segnalante fuori dal sistema: <strong>presa d’atto</strong> — ringraziamento e presa in carico, senza merito.'
-          : 'Scegli prima il <strong>tipo di segnalante</strong> qui sopra: decide quale riscontro parte.'}
-      La lettera nasce protocollata in uscita nel registro unico e depositata nella cartella del vault.
-    </p>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       ${!p.protocollo_in_id ? '<button class="btn btn-ghost" id="sg-protin">📥 Protocolla la segnalazione (IN)</button>' : ''}
-      ${!p.protocollo_out_id ? `
-        <button class="btn btn-primary" id="sg-riscontro" ${!p.segnalante_tipo ? 'disabled' : ''}>
-          📄 Protocolla e prepara il riscontro (${diSistema ? 'esito' : 'presa d’atto'})</button>` : `
-        <button class="btn btn-ghost" id="sg-eml">📧 Scarica di nuovo la bozza mail</button>`}
-    </div>` : ''}
+    </div>
+
+    ${esitoDovuto(p.segnalante_tipo) ? `
+    <h4 style="margin:16px 0 6px">Esito alla Cassa Edile</h4>
+    <p class="hint" style="margin:0 0 10px">
+      La visita l’ha chiesta la <strong>Cassa Edile</strong>: le si comunica l’esito. Il testo è quello del campo
+      «Esito» qui sopra; la lettera nasce protocollata in uscita nel registro unico e depositata nel vault.
+    </p>
+    ${!p.esito_protocollo_id ? `
+    <div class="field"><label>A (Cassa Edile)</label>
+      <input id="sg-esito-a" value="${esc(p.esito_a || p.email || ceiv.a || '')}" placeholder="indirizzo della Cassa Edile"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+      <button class="btn btn-primary" id="sg-esito">📄 Protocolla e prepara l’esito alla Cassa Edile</button>
+    </div>` : `
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-ghost" id="sg-esito-eml">📧 Esito: scarica di nuovo la bozza</button>
+    </div>`}` : `
+    <p class="hint" style="margin:12px 0 6px">
+      L’esito di questa visita <strong>non si comunica</strong>: la segnalazione non viene dalla Cassa Edile
+      (né al segnalante né alla Cassa Edile).
+    </p>`}
+
+    <details style="margin-top:12px" ${p.protocollo_out_id ? 'open' : ''}>
+      <summary class="hint" style="cursor:pointer">Presa in carico al segnalante — facoltativa, di regola non si manda</summary>
+      <p class="hint" style="margin:8px 0">Lo decide la segreteria caso per caso. Se si manda, sono due righe di
+        ringraziamento e presa in carico, senza merito, protocollate in uscita.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${!p.protocollo_out_id ? `
+          <button class="btn btn-ghost" id="sg-riscontro">📄 Protocolla e prepara la presa in carico</button>` : `
+          <button class="btn btn-ghost" id="sg-eml">📧 Presa in carico: scarica di nuovo la bozza</button>`}
+      </div>
+    </details>` : ''}
   `);
 
   $('#sg-salva').addEventListener('click', async (ev) => {
@@ -510,6 +546,8 @@ export async function apriPratica(id) {
   $('#sg-protin')?.addEventListener('click', () => protocollaIn(p));
   $('#sg-riscontro')?.addEventListener('click', (ev) => preparaRiscontro(p, ev.currentTarget));
   $('#sg-eml')?.addEventListener('click', (ev) => riscaricaEml(p, ev.currentTarget));
+  $('#sg-esito')?.addEventListener('click', (ev) => preparaEsito(p, ev.currentTarget, ceiv));
+  $('#sg-esito-eml')?.addEventListener('click', (ev) => riscaricaEsito(p, ev.currentTarget, ceiv));
 }
 
 /* ── richiesta di autorizzazione: PDF + bozza mail al Direttore ── */
@@ -698,15 +736,12 @@ async function protocollaIn(p) {
 
 /* ── riscontro al segnalante: protocollo OUT + lettera + Drive + mail ── */
 async function preparaRiscontro(p, btn) {
-  const tipoSeg = $('#sg-tiposeg')?.value || p.segnalante_tipo;
-  if (!tipoSeg) return toast('Scegli prima il tipo di segnalante.', 'err');
-  const tipo = DI_SISTEMA.includes(tipoSeg) ? 'esito' : 'presa_atto';
+  /* dal 16/09/2026 al segnalante va sempre e solo la presa in carico */
+  const tipoSeg = $('#sg-tiposeg')?.value || p.segnalante_tipo || null;
+  const tipo = 'presa_atto';
   const rispostaTesto = $('#sg-risposta')?.value.trim() || p.risposta_testo;
-  if (tipo === 'esito' && !rispostaTesto) {
-    return toast('Per il riscontro con esito serve il testo della risposta (campo qui sopra).', 'err');
-  }
   if (!p.email && !confirm('La pratica non ha un indirizzo email del segnalante: la bozza mail nascerà senza destinatario. Procedo lo stesso?')) return;
-  if (!confirm(`Preparo il riscontro (${tipo === 'esito' ? 'ESITO COMPLETO' : 'presa d’atto'}) per ${p.notificante}, protocollato in uscita. Procedo?`)) return;
+  if (!confirm(`Preparo la conferma di presa in carico per ${p.notificante || 'il segnalante'}, protocollata in uscita. Procedo?`)) return;
 
   attendi(btn, true, 'Preparo…');
   try {
@@ -719,11 +754,9 @@ async function preparaRiscontro(p, btn) {
       data_doc: oggiIso(),
       impresa_nome: null,
       persona: p.notificante || null,
-      oggetto: tipo === 'esito'
-        ? `Riscontro alla segnalazione di cantiere — ${[p.ind_cantiere, p.comune_cantiere].filter(Boolean).join(', ')}`
-        : 'Presa in carico della segnalazione di cantiere',
-      note: tipo === 'esito' ? (rispostaTesto || '') : 'Ringraziamento e presa in carico, senza merito.',
-      sintesi: `Riscontro alla segnalazione n° ${p.progressivo ?? `m${p.id}`} (${tipoSeg}) — tipo: ${tipo === 'esito' ? 'esito completo' : 'presa d’atto'}.`,
+      oggetto: 'Presa in carico della segnalazione di cantiere',
+      note: 'Ringraziamento e presa in carico, senza merito.',
+      sintesi: `Presa in carico della segnalazione n° ${p.progressivo ?? `m${p.id}`}${tipoSeg ? ` (${tipoSeg})` : ''}. L'esito non si comunica al segnalante (regola del 16/09/2026).`,
       ufficio: 'Segreteria Area Sicurezza e Salute',
       mezzo: 'e-mail',
       tipo_doc_id: TIPO_DOC_SEGN,
@@ -737,7 +770,7 @@ async function preparaRiscontro(p, btn) {
     const cart = await risolviCartella(PERCORSO_VAULT);
     if (!cart.id) throw new Error('Cartella delle segnalazioni non trovata su Drive');
     const data = oggiIso().replace(/-/g, '_');
-    const nomeFile = `${data}_COMU_Formedil-Padova_riscontro-segnalazione-${p.progressivo ?? `m${p.id}`}-${slug(p.notificante)}.pdf`;
+    const nomeFile = `${data}_COMU_Formedil-Padova_presa-in-carico-segnalazione-${p.progressivo ?? `m${p.id}`}-${slug(p.notificante)}.pdf`;
     const su = await caricaByte(nuovo, nomeFile, byte, 'application/pdf', cart.id);
 
     await sb.from('s_prot_allegati').insert({
@@ -760,7 +793,7 @@ async function preparaRiscontro(p, btn) {
     }).eq('id', p.id);
 
     emlRiscontro(pp, nuovo, tipo, [{ nome: su.file_name || nomeFile, byte }]);
-    toast(`Riscontro protocollato (${codiceProtocollo(nuovo)}) e depositato nel vault. Bozza mail scaricata: aprila da Outlook e premi Invia.`, 'ok');
+    toast(`Presa in carico protocollata (${codiceProtocollo(nuovo)}) e depositata nel vault. Bozza mail scaricata: aprila da Outlook e premi Invia.`, 'ok');
     await render();
   } catch (e) {
     toast(e.message, 'err');
@@ -783,28 +816,133 @@ async function riscaricaEml(p, btn) {
   }
 }
 
-/* La bozza .eml ricalcata sulla mail vera dell'ufficio (esempio del
-   05/06/2026, Prot 1069): «vogliate trovare in allegato la risposta»,
-   cc Direzione e coordinatore. */
+/* La bozza .eml della presa in carico al segnalante, cc Direzione.
+   Dal 16/09/2026 al segnalante non va mai l'esito: il parametro `tipo`
+   resta per le pratiche vecchie, ma il testo è sempre la presa in carico. */
 function emlRiscontro(p, prot, tipo, allegati) {
-  const cc = ['direzione@formedilpadova.it'];
-  if (tipo === 'esito') { const co = emailCoordinatore(); if (co) cc.push(co); }
   scaricaEml({
     to: p.email || '',
-    cc,
-    oggetto: `Formedil Padova - Area Sicurezza e Salute - Riscontro segnalazione cantiere - ${siglaProtocollo(prot)}`,
+    cc: ['direzione@formedilpadova.it'],
+    oggetto: `Formedil Padova - Area Sicurezza e Salute - Presa in carico segnalazione cantiere - ${siglaProtocollo(prot)}`,
     corpo: `Prot. n°: ${siglaProtocollo(prot)}
 
 Prevenzione infortuni.
 
 Egr. ${p.notificante || 'Segnalante'},
-${tipo === 'esito'
-  ? 'vogliate trovare in allegato la risposta alla Vostra segnalazione.'
-  : 'Vi ringraziamo per la collaborazione: la Vostra segnalazione è stata presa in carico, come da comunicazione allegata.'}
+Vi ringraziamo per la collaborazione: la Vostra segnalazione è stata presa in carico, come da comunicazione allegata.
 Distinti saluti.
 
 ${FIRMA_SEGRETERIA}`,
     allegati,
-    nomeFile: `riscontro-segnalazione-${p.progressivo ?? `m${p.id}`}.eml`,
+    nomeFile: `presa-in-carico-segnalazione-${p.progressivo ?? `m${p.id}`}.eml`,
+  });
+}
+
+/* ── esito alla Cassa Edile: protocollo OUT + lettera + Drive + mail ──
+   Regola dell'utente del 16/09/2026: l'esito su un cantiere segnalato si
+   comunica solo alla Cassa Edile ed eventualmente a enti e organizzazioni.
+   La lettera non porta il nome del segnalante: all'esito non serve, e un
+   nome in meno in giro è un rischio in meno. */
+async function preparaEsito(p, btn, ceiv) {
+  const tipoSeg = $('#sg-tiposeg')?.value || p.segnalante_tipo;
+  if (!esitoDovuto(tipoSeg)) return toast('L’esito si comunica solo quando la visita l’ha chiesta la Cassa Edile.', 'err');
+  const esitoTesto = $('#sg-risposta')?.value.trim() || p.risposta_testo;
+  if (!esitoTesto) return toast('Scrivi prima l’esito nel campo «Esito da comunicare alla Cassa Edile».', 'err');
+  const a = dividiIndirizzi($('#sg-esito-a')?.value);
+  const cc = [];
+  const errati = [...a, ...cc].filter((x) => !EMAIL_VALIDA.test(x));
+  if (errati.length) return toast(`Indirizzi non validi: ${errati.join(', ')}`, 'err');
+  if (!a.length) return toast('Manca l’indirizzo della Cassa Edile.', 'err');
+  if (!confirm(`Preparo la lettera di esito per ${a.join(', ')}${cc.length ? ` (cc ${cc.join(', ')})` : ''}, protocollata in uscita. Procedo?`)) return;
+
+  attendi(btn, true, 'Preparo…');
+  try {
+    const pp = { ...p, risposta_testo: esitoTesto, data_verbale: $('#sg-dataverb')?.value || p.data_verbale };
+    const luogo = [p.ind_cantiere, p.comune_cantiere].filter(Boolean).join(', ');
+    const { data: nuovo, error: errProt } = await sb.rpc('s_crea_protocollo', { p: {
+      direzione: 'OUT',
+      data_prot: oggiIso(),
+      data_doc: oggiIso(),
+      impresa_nome: null,
+      persona: ceiv.ente || 'Cassa Edile Interprovinciale del Veneto',
+      oggetto: `Esito del sopralluogo su segnalazione di cantiere${luogo ? ` — ${luogo}` : ''}`,
+      note: esitoTesto,
+      sintesi: `Esito della segnalazione n° ${p.progressivo ?? `m${p.id}`} alla Cassa Edile, che aveva chiesto la visita (regola del 17/09/2026: l'esito si comunica solo alla Cassa Edile richiedente).`,
+      ufficio: 'Segreteria Area Sicurezza e Salute',
+      mezzo: 'e-mail',
+      tipo_doc_id: TIPO_DOC_SEGN,
+      tipo_doc_txt: 'Segnalazione cantiere',
+      cartella: PERCORSO_VAULT,
+    } });
+    if (errProt) throw new Error('Protocollazione non riuscita: ' + errProt.message);
+
+    const { pdfEsitoCassaEdile } = await import('./segnalazioni-doc.js');
+    const byte = await pdfEsitoCassaEdile(pp, nuovo, ceiv);
+    const cart = await risolviCartella(PERCORSO_VAULT);
+    if (!cart.id) throw new Error('Cartella delle segnalazioni non trovata su Drive');
+    const data = oggiIso().replace(/-/g, '_');
+    const nomeFile = `${data}_COMU_Formedil-Padova_esito-segnalazione-${p.progressivo ?? `m${p.id}`}-${slug(p.comune_cantiere || p.ind_cantiere)}.pdf`;
+    const su = await caricaByte(nuovo, nomeFile, byte, 'application/pdf', cart.id);
+
+    await sb.from('s_prot_allegati').insert({
+      protocollo_id: nuovo.id, nome: su.file_name || nomeFile, mime: 'application/pdf',
+      dimensione: byte.length, principale: true, created_by: state.email,
+      drive_file_id: su.drive_file_id, drive_url: su.drive_url,
+    });
+    await sb.from('s_protocollo').update({ drive_file_id: su.drive_file_id, drive_url: su.drive_url }).eq('id', nuovo.id);
+
+    await sb.from('s_segnalazioni').update({
+      esito_protocollo_id: nuovo.id,
+      esito_drive_id: su.drive_file_id,
+      esito_drive_url: su.drive_url,
+      esito_a: a.join(', '),
+      esito_cc: cc.join(', ') || null,
+      risposta_testo: esitoTesto,
+      aggiornato_da: state.email,
+      updated_at: new Date().toISOString(),
+    }).eq('id', p.id);
+
+    emlEsito(pp, nuovo, a, cc, ceiv, [{ nome: su.file_name || nomeFile, byte }]);
+    toast(`Esito protocollato (${codiceProtocollo(nuovo)}) e depositato nel vault. Bozza mail scaricata: aprila da Outlook e premi Invia.`, 'ok');
+    await render();
+  } catch (e) {
+    toast(e.message, 'err');
+  } finally {
+    attendi(btn, false);
+  }
+}
+
+async function riscaricaEsito(p, btn, ceiv) {
+  attendi(btn, true, 'Rileggo la lettera…');
+  try {
+    const { data: prot } = await sb.from('s_protocollo').select('*').eq('id', p.esito_protocollo_id).single();
+    const byte = await leggiByte(p.esito_drive_id);
+    emlEsito(p, prot, dividiIndirizzi(p.esito_a), dividiIndirizzi(p.esito_cc), ceiv,
+      [{ nome: `${siglaProtocollo(prot)}_esito.pdf`, byte }]);
+    toast('Bozza scaricata: aprila da Outlook e premi Invia.', 'ok');
+  } catch (e) {
+    toast(e.message, 'err');
+  } finally {
+    attendi(btn, false);
+  }
+}
+
+function emlEsito(p, prot, a, cc, ceiv, allegati) {
+  const co = emailCoordinatore();
+  scaricaEml({
+    to: a.join(', '),
+    cc: [...cc, 'direzione@formedilpadova.it', ...(co ? [co] : [])],
+    oggetto: `Formedil Padova - Area Sicurezza e Salute - Esito sopralluogo su segnalazione di cantiere - ${siglaProtocollo(prot)}`,
+    corpo: `Prot. n°: ${siglaProtocollo(prot)}
+
+Prevenzione infortuni.
+
+Spett.le ${ceiv.ente || 'Cassa Edile'}${ceiv.alla_ca ? `, alla c.a. ${ceiv.alla_ca}` : ''},
+vogliate trovare in allegato l'esito del sopralluogo effettuato a seguito della Vostra richiesta${[p.ind_cantiere, p.comune_cantiere].filter(Boolean).length ? ` (${[p.ind_cantiere, p.comune_cantiere].filter(Boolean).join(', ')})` : ''}.
+Distinti saluti.
+
+${FIRMA_SEGRETERIA}`,
+    allegati,
+    nomeFile: `esito-segnalazione-${p.progressivo ?? `m${p.id}`}.eml`,
   });
 }
