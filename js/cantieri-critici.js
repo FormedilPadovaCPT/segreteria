@@ -27,7 +27,9 @@
 
 import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo, siglaProtocollo } from './core.js';
 import { TIPO_DOC_ACCESSO_NEGATO, CARTELLA_VAULT, oggettoLettera, paragrafiAccessoNegato, paragrafiSollecito,
-  corpoMail, corpoRichiestaPec, nomeFileLettera } from './cantieri-critici-doc.js';
+  corpoMail, corpoRichiestaPec, nomeFileLettera, TIPO_DOC_SEGNALAZIONE, TIPO_DOC_CONFERENZA, SEGNAPOSTO_MERITO, DESTINAZIONI,
+  destinatariSegnalazione, oggettoSegnalazione, scheletroSegnalazione, corpoUlterioreVisita, corpoPropostaConferenza,
+  corpoDemanda } from './cantieri-critici-doc.js';
 
 export const GIORNI_TERMINE = 15;   /* quanto si aspetta che l'impresa ricontatti (deciso dall'utente) */
 
@@ -37,7 +39,9 @@ export const STATI = {
   attesa_impresa: ['dt-scade', 'in attesa dell\'impresa'],
   attesa_decisione: ['dt-scade', 'in attesa di decisione'],
   chiuso: ['dt-ok', 'chiuso'],
+  annullato: ['dt-mancante', 'annullato'],   /* aperto per errore o per prova: non si cancella, ma non conta */
 };
+const FERMI = ['chiuso', 'annullato'];
 export const ORIGINI = {
   accesso_negato: ['🚫', 'Accesso negato'],
   proposta_segnalazione: ['⚠️', 'Proposta di segnalazione SPISAL / ITL'],
@@ -50,6 +54,7 @@ export const ESITI = {
   segnalata_organi: 'Segnalata agli organi di vigilanza',
   non_risolta: 'Non risolta',
   nessuna_azione: 'Nessuna azione',
+  non_registrato: 'Chiuso, esito non registrato (storico)',
 };
 const EVENTI = {
   apertura: 'Apertura', stato: 'Stato', nota: 'Nota',
@@ -79,7 +84,7 @@ const presente = (d) => [d.presente_titolo, d.presente_nome, d.presente_cognome]
 export async function aperti() {
   const { data, error } = await sb.from('s_cantieri_critici')
     .select('id, created_at, origine, data_evento, tecnico_nome, impresa_nome, cantiere_desc, note, stato, termine_il, priorita')
-    .neq('stato', 'chiuso').order('created_at', { ascending: false }).limit(60);
+    .not('stato', 'in', '(chiuso,annullato)').order('created_at', { ascending: false }).limit(60);
   if (error) throw error;
   const peso = (r) => (r.stato === 'nuovo' ? 0 : scaduto(r) ? 1 : r.priorita === 'alta' ? 2 : 3);
   return (data || []).sort((a, b) => peso(a) - peso(b));
@@ -116,9 +121,19 @@ export async function dettaglio(id, dopo = null) {
       ${ultimaCom ? `📄 <strong>${ultimaCom.tipo === 'sollecito' ? 'Sollecitata' : 'Comunicata'} all'impresa</strong> il ${dataIt(ultimaCom.created_at.slice(0, 10))}
           <span class="hint">${esc(ultimaCom.dati?.sigla ? 'Prot. ' + ultimaCom.dati.sigla : '')}${ultimaCom.dati?.a ? ' · a ' + esc(ultimaCom.dati.a) : ''}</span>`
         : "📄 All'impresa non è ancora stato comunicato niente."}
-      ${d.stato !== 'chiuso' ? `<button class="btn btn-ghost btn-sm" id="cc-com">${ultimaCom ? '🔁 Sollecita…' : "📄 Comunicazione all'impresa…"}</button>` : ''}</div>` : ''}
+      ${!FERMI.includes(d.stato) ? `<button class="btn btn-ghost btn-sm" id="cc-com">${ultimaCom ? '🔁 Sollecita…' : "📄 Comunicazione all'impresa…"}</button>` : ''}</div>` : ''}
 
-    ${successiva && d.stato !== 'chiuso' ? `<div class="dt-doc-riga" style="background:#eef8f0;border-radius:6px;padding:6px 8px">
+    ${d.storico_rif ? `<div class="dt-doc-riga"><span class="hint">Dallo storico Access: ${esc(d.storico_rif)}${(d.storico?.soggetti || []).length ? ' — soggetti: ' + esc(d.storico.soggetti.map((x) => `${x.nome} (${x.ruolo})`).join('; ')) : ''}</span></div>` : ''}
+    ${!FERMI.includes(d.stato) ? `<div class="dt-doc-riga" style="background:#f3f0fa;border-radius:6px;padding:6px 8px">
+      <strong>Che cosa si fa:</strong>
+      <button class="btn btn-ghost btn-sm" id="cc-d-visita">↩️ Ulteriore visita</button>
+      <button class="btn btn-ghost btn-sm" id="cc-d-conf">🎓 Proponi conferenza di cantiere</button>
+      <button class="btn btn-ghost btn-sm" id="cc-d-demanda">🏛 Demanda a Presidenza / Commissione</button>
+      <button class="btn btn-ghost btn-sm" id="cc-d-organo">✍️ Registra decisione o conferma</button>
+      <button class="btn btn-ghost btn-sm" id="cc-d-segnala">📨 Segnala a SPISAL / ITL</button>
+      <br><span class="hint">Se segnalare lo decidono la Presidenza e la Commissione Sicurezza, il Direttore conferma. La conferenza è una proposta: l'impresa non è obbligata.</span></div>` : ''}
+
+    ${successiva && !FERMI.includes(d.stato) ? `<div class="dt-doc-riga" style="background:#eef8f0;border-radius:6px;padding:6px 8px">
       ✅ ${esc(successiva.testo || 'Sul cantiere è entrato un verbale successivo.')}
       <button class="btn btn-ghost btn-sm" id="cc-risolta">Chiudi come risolta con questo verbale</button></div>` : ''}
 
@@ -173,6 +188,7 @@ export async function dettaglio(id, dopo = null) {
     const gestione = (forza.gestione_note ?? $('#cc-gest').value).trim();
     const esito = forza.esito || $('#cc-esito').value || null;
     if (stato === 'chiuso' && !gestione) return toast('Per chiudere scrivi com\'è stato gestito.', 'err');
+    if (stato === 'annullato' && !gestione) return toast('Per annullare scrivi perché (errore, prova, doppione…).', 'err');
     if (stato === 'chiuso' && !esito) return toast('Per chiudere indica l\'esito.', 'err');
     attendi(btn, true, 'Salvo…');
     const { error: e } = await sb.from('s_cantieri_critici').update({
@@ -185,7 +201,7 @@ export async function dettaglio(id, dopo = null) {
     if (e) return toast('Salvataggio non riuscito: ' + e.message, 'err');
     toast('Caso aggiornato.', 'ok');
     if (dopo) dopo();
-    if (stato === 'chiuso') chiudiDrawer(); else riapri();
+    if (FERMI.includes(stato)) chiudiDrawer(); else riapri();
   };
   $('#cc-salva').addEventListener('click', (ev) => salva(ev.currentTarget));
   $('#cc-incarico')?.addEventListener('click', (ev) => salva(ev.currentTarget, { stato: 'in_gestione' }));
@@ -197,6 +213,11 @@ export async function dettaglio(id, dopo = null) {
     });
   });
   $('#cc-com')?.addEventListener('click', () => preparaComunicazione(d, ultimaCom, dopo));
+  $('#cc-d-visita')?.addEventListener('click', () => decidiVisita(d, dopo));
+  $('#cc-d-conf')?.addEventListener('click', () => proponiConferenza(d, dopo));
+  $('#cc-d-demanda')?.addEventListener('click', () => demanda(d, eventi || [], dopo));
+  $('#cc-d-organo')?.addEventListener('click', () => registraDecisione(d, dopo));
+  $('#cc-d-segnala')?.addEventListener('click', () => segnalaOrgani(d, eventi || [], dopo));
   $('#cc-ev-add').addEventListener('click', async (ev) => {
     const testo = $('#cc-ev-testo').value.trim();
     if (!testo) return toast('Scrivi che cosa è successo.', 'err');
@@ -218,14 +239,14 @@ export async function dettaglio(id, dopo = null) {
 /* tutti, anche i chiusi: per ritrovare quello che è già stato gestito */
 export async function elenco(dopo = null) {
   const { data, error } = await sb.from('s_cantieri_critici')
-    .select('id, created_at, origine, data_evento, tecnico_nome, impresa_nome, cantiere_desc, stato, esito, termine_il')
-    .order('created_at', { ascending: false }).limit(300);
+    .select('id, created_at, origine, data_evento, tecnico_nome, impresa_nome, cantiere_desc, stato, esito, termine_il, storico_rif')
+    .neq('stato', 'annullato').order('data_evento', { ascending: false }).limit(300);
   if (error) return toast(error.message, 'err');
   apriDrawer('Cantieri critici — tutti i casi', '', `
     <div style="display:flex;justify-content:flex-end;margin-bottom:6px"><button class="btn btn-primary btn-sm" id="cc-nuovo">➕ Nuovo caso</button></div>
     <div class="table-wrap"><table class="tbl" style="min-width:0">
       <thead><tr><th>N°</th><th></th><th>Data</th><th>Tecnico</th><th>Impresa</th><th>Cantiere</th><th>Stato</th></tr></thead>
-      <tbody>${(data || []).map((r) => `<tr data-cc="${r.id}" style="cursor:pointer"><td>${r.id}</td>
+      <tbody>${(data || []).map((r) => `<tr data-cc="${r.id}" style="cursor:pointer"><td>${r.id}${r.storico_rif ? ' <span class="hint" title="' + esc(r.storico_rif) + '">storico</span>' : ''}</td>
         <td title="${esc((ORIGINI[r.origine] || [])[1] || '')}">${(ORIGINI[r.origine] || [''])[0]}</td><td>${dataIt(r.data_evento)}</td>
         <td>${esc((r.tecnico_nome || '').split(' ')[0])}</td><td>${esc(r.impresa_nome)}</td><td>${esc(r.cantiere_desc)}</td>
         <td>${pill(r.stato)}${scaduto(r) ? ' <span class="hint" style="color:#a01f00">termine scaduto</span>' : ''}${r.esito ? ` <span class="hint">${esc(ESITI[r.esito] || r.esito)}</span>` : ''}</td></tr>`).join('')
@@ -458,5 +479,258 @@ async function preparaComunicazione(d, prec, dopo) {
     } finally {
       attendi(btn, false);
     }
+  });
+}
+
+/* ── LE DECISIONI (tappa 3) ────────────────────────────────────
+   Ogni decisione lascia una riga in cronologia (chi, quando, che cosa) e,
+   quando serve, prepara la bozza della mail: la manda una persona. */
+
+async function contesto(d) {
+  const [{ data: imp }, { data: tec }, { data: cant }, { data: conf }, { data: verbali }] = await Promise.all([
+    d.impresa_id ? sb.from('imprese').select('impresa_nome, impresa_email_ref, impresa_email2').eq('impresa_id', d.impresa_id).maybeSingle() : Promise.resolve({ data: null }),
+    d.tecnico_id ? sb.from('tecnici').select('titolo, tecnico_nome, tecnico_cognome, email').eq('tecnico_id', d.tecnico_id).maybeSingle() : Promise.resolve({ data: null }),
+    d.cantiere_id ? sb.from('cantieri').select('cantiere_indirizzo, cantiere_civico, comune_nome').eq('cantiere_id', d.cantiere_id).maybeSingle() : Promise.resolve({ data: null }),
+    sb.from('s_config').select('chiave, valore').in('chiave', ['direttore_email', 'coordinatore_email', 'organi_vigilanza_contatti']),
+    d.cantiere_id ? sb.from('visite').select('visita_id, nr_verbale, data_visita, ipc, segnalazione, elimina').eq('cantiere_id', d.cantiere_id).order('data_visita') : Promise.resolve({ data: [] }),
+  ]);
+  const c = Object.fromEntries((conf || []).map((r) => [r.chiave, r.valore]));
+  let contatti = {};
+  try { contatti = JSON.parse(c.organi_vigilanza_contatti || '{}'); } catch { /* configurazione da sistemare */ }
+  return {
+    imp, tec, c, contatti,
+    verbali: (verbali || []).filter((v) => !v.elimina),
+    caso: { ...d, cantiere_breve: cant ? [[cant.cantiere_indirizzo, cant.cantiere_civico].filter(Boolean).join(' '), cant.comune_nome].filter(Boolean).join(', ') : d.cantiere_desc },
+  };
+}
+
+const evento = (d, tipo, testo, extra = {}) => sb.from('s_cantieri_critici_eventi')
+  .insert({ critico_id: d.id, tipo, testo, visibile_tecnico: true, ...extra });
+
+/* una maschera piccola dentro al drawer: campi, Annulla, Conferma */
+function maschera(d, dopo, titolo, html, etichetta, onOk) {
+  apriDrawer(`${titolo} — caso n° ${d.id}`, '', `${html}
+    <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:10px">
+      <button class="btn btn-ghost btn-sm" id="mk-indietro">← Torna al caso</button>
+      <button class="btn btn-primary btn-sm" id="mk-ok">${etichetta}</button></div>`);
+  $('#mk-indietro').addEventListener('click', () => dettaglio(d.id, dopo));
+  $('#mk-ok').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
+    attendi(btn, true, 'Preparo…');
+    try {
+      if (await onOk() !== false) { if (dopo) dopo(); dettaglio(d.id, dopo); }
+    } catch (e) { toast(e.message, 'err'); } finally { attendi(btn, false); }
+  });
+}
+
+async function decidiVisita(d, dopo) {
+  const k = await contesto(d);
+  maschera(d, dopo, '↩️ Ulteriore visita', `
+    <p class="hint">Si scrive in cronologia (la legge anche il tecnico) e si prepara la bozza della mail al tecnico, con il coordinatore in copia. È una visita ordinaria: niente autorizzazione del Direttore.</p>
+    <div class="field"><label>A</label><input type="text" id="mk-a" value="${esc(k.tec?.email || d.segnalato_da || '')}"></div>
+    <div class="field"><label>Indicazioni per il tecnico</label><textarea id="mk-testo" rows="4" style="width:100%" placeholder="Quando, con chi prendere contatto, a che cosa fare attenzione…"></textarea></div>`,
+  '📨 Registra e prepara la mail', async () => {
+    const ind = $('#mk-testo').value.trim();
+    const { error } = await evento(d, 'decisione', `Ulteriore visita.${ind ? ' ' + ind : ''}`);
+    if (error) throw new Error(error.message);
+    const { scaricaEml } = await import('./eml.js');
+    scaricaEml({
+      to: $('#mk-a').value.trim(), cc: [k.c.coordinatore_email].filter(Boolean),
+      oggetto: `Ulteriore visita — ${k.caso.cantiere_breve} — ${d.impresa_nome}`,
+      corpo: corpoUlterioreVisita(k.caso, k.tec?.tecnico_nome, ind), nomeFile: `ulteriore-visita-caso-${d.id}.eml`,
+    });
+    toast('Decisione registrata e bozza per il tecnico scaricata.', 'ok');
+  });
+}
+
+async function proponiConferenza(d, dopo) {
+  const k = await contesto(d);
+  maschera(d, dopo, '🎓 Proposta di conferenza di cantiere', `
+    <p class="hint">È una proposta: l'impresa non è obbligata. La mail esce dall'ufficio, quindi prende un protocollo in uscita; il caso passa «in attesa dell'impresa». Se l'impresa aderisce, la conferenza si apre dalla vista «Conferenze cantiere» (lì passa dal Direttore, perché è una spesa).</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <div class="field" style="flex:1 1 260px"><label>A *</label><input type="text" id="mk-a" value="${esc(k.imp?.impresa_email_ref || k.imp?.impresa_email2 || '')}"></div>
+      <div class="field" style="flex:1 1 220px"><label>Alla c.a.</label><input type="text" id="mk-ca"></div>
+      <div class="field" style="flex:0 0 170px"><label>Risposta entro</label><input type="date" id="mk-termine" value="${fra(GIORNI_TERMINE)}"></div>
+    </div>`,
+  '📄 Protocolla e prepara la mail', async () => {
+    const a = $('#mk-a').value.trim();
+    if (!a) { toast("Indica a chi va la proposta.", 'err'); return false; }
+    const o = { termine: $('#mk-termine').value, saluto: $('#mk-ca').value.trim() ? `Egr. ${$('#mk-ca').value.trim()}` : `Spett.le ${d.impresa_nome}` };
+    const corpo = corpoPropostaConferenza(k.caso, o);
+    const oggetto = `Proposta di conferenza di cantiere — ${k.caso.cantiere_breve}`;
+    const { data: nuovo, error: errProt } = await sb.rpc('s_crea_protocollo', { p: {
+      direzione: 'OUT', data_prot: oggiIso(), data_doc: oggiIso(), impresa_nome: k.imp?.impresa_nome || d.impresa_nome, impresa_id: d.impresa_id || null,
+      persona: $('#mk-ca').value.trim() || null, oggetto, note: corpo,
+      sintesi: `Proposta di conferenza di cantiere all'impresa — caso n° ${d.id} del registro cantieri critici. È una proposta: l'impresa non è obbligata.`,
+      scadenze: o.termine ? `Risposta dell'impresa entro il ${dataIt(o.termine)}` : null,
+      ufficio: 'Segreteria Area Sicurezza e Salute', mezzo: 'e-mail', tipo_doc_id: TIPO_DOC_CONFERENZA,
+    } });
+    if (errProt) throw new Error('Protocollazione non riuscita: ' + errProt.message);
+    const { error } = await evento(d, 'conferenza_proposta', `Proposta all'impresa una conferenza di cantiere (${codiceProtocollo(nuovo)}).`, { protocollo_id: nuovo.id, dati: { sigla: siglaProtocollo(nuovo), a } });
+    if (error) throw new Error(error.message);
+    await sb.from('s_cantieri_critici').update({ stato: 'attesa_impresa', termine_il: o.termine || fra(GIORNI_TERMINE), gestione_note: d.gestione_note || null }).eq('id', d.id);
+    const { scaricaEml } = await import('./eml.js');
+    scaricaEml({ to: a, cc: [k.c.coordinatore_email].filter(Boolean), oggetto: `${oggetto} - Prot. ${siglaProtocollo(nuovo)}`, corpo, nomeFile: `proposta-conferenza-caso-${d.id}.eml` });
+    toast(`Proposta protocollata (${codiceProtocollo(nuovo)}) e bozza scaricata.`, 'ok');
+  });
+}
+
+async function demanda(d, eventi, dopo) {
+  const k = await contesto(d);
+  maschera(d, dopo, '🏛 Demanda a Presidenza / Commissione Sicurezza', `
+    <p class="hint">Comunicazione interna: niente protocollo. Si prepara la bozza col fascicolo del caso (dati, verbali del cantiere, che cosa è stato fatto) e il caso passa «in attesa di decisione».</p>
+    <div class="field"><label>A chi</label>
+      <select id="mk-chi"><option value="presidenza">Presidenza</option><option value="commissione">Commissione Sicurezza (chi ha oggi la nomina)</option></select></div>
+    <div class="field"><label>Due righe tue, in testa <span class="hint">(facoltative)</span></label><textarea id="mk-testo" rows="3" style="width:100%"></textarea></div>`,
+  '📨 Registra e prepara la mail', async () => {
+    const chi = $('#mk-chi').value;
+    let to = ['presidente@formedilpadova.it'];
+    if (chi === 'commissione') {
+      const { data: membri, error } = await sb.rpc('s_gruppo_destinatari', { p_codice: 'commissione_sicurezza' });
+      if (error) throw new Error('Commissione Sicurezza non letta: ' + error.message);
+      to = (membri || []).map((m) => m.email).filter(Boolean);
+      if (!to.length) { toast('Nessun membro della Commissione con un indirizzo: controlla le nomine.', 'err'); return false; }
+    }
+    const { error } = await sb.from('s_cantieri_critici_eventi').insert({ critico_id: d.id, tipo: 'demandata', visibile_tecnico: true,
+      testo: `Demandato ${chi === 'commissione' ? 'alla Commissione Sicurezza' : 'alla Presidenza'}.`, dati: { a: to } });
+    if (error) throw new Error(error.message);
+    await sb.from('s_cantieri_critici').update({ stato: 'attesa_decisione', gestione_note: d.gestione_note || null }).eq('id', d.id);
+    const premessa = $('#mk-testo').value.trim();
+    const { scaricaEml } = await import('./eml.js');
+    scaricaEml({
+      to: to.join(', '), cc: [k.c.direttore_email || 'direzione@formedilpadova.it', k.c.coordinatore_email].filter(Boolean),
+      oggetto: `Cantiere critico da valutare — ${k.caso.cantiere_breve} — ${d.impresa_nome}`,
+      corpo: `${premessa ? premessa + '\n\n' : ''}${corpoDemanda(k.caso, eventi, k.verbali, chi)}`, nomeFile: `demanda-caso-${d.id}.eml`,
+    });
+    toast('Registrato: caso in attesa di decisione, bozza scaricata.', 'ok');
+  });
+}
+
+async function registraDecisione(d, dopo) {
+  maschera(d, dopo, '✍️ Decisione o conferma', `
+    <p class="hint">Qui si scrive che cosa hanno deciso la Presidenza o la Commissione Sicurezza, e la conferma del Direttore. Resta in cronologia con la tua firma: scrivi come l'hai saputo (mail, verbale della Commissione, a voce).</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <div class="field" style="flex:1 1 220px"><label>Chi</label>
+        <select id="mk-chi"><option value="Presidenza">Presidenza</option><option value="Commissione Sicurezza">Commissione Sicurezza</option><option value="Direttore">Direttore (conferma)</option></select></div>
+      <div class="field" style="flex:1 1 220px"><label>Che cosa</label>
+        <select id="mk-cosa"><option value="segnalare">segnalare agli organi di vigilanza</option><option value="non_segnalare">non segnalare</option><option value="altro">altro (scrivilo sotto)</option></select></div>
+      <div class="field" style="flex:0 0 160px"><label>Il</label><input type="date" id="mk-data" value="${oggi()}" max="${oggi()}"></div>
+    </div>
+    <div class="field"><label>Come risulta, e le indicazioni date *</label><textarea id="mk-testo" rows="3" style="width:100%"></textarea></div>`,
+  '💾 Registra', async () => {
+    const testo = $('#mk-testo').value.trim();
+    if (!testo) { toast('Scrivi come risulta la decisione.', 'err'); return false; }
+    const chi = $('#mk-chi').value, cosa = $('#mk-cosa').value;
+    const frase = { segnalare: 'segnalare agli organi di vigilanza', non_segnalare: 'non segnalare', altro: 'altro' }[cosa];
+    const { error } = await sb.from('s_cantieri_critici_eventi').insert({
+      critico_id: d.id, tipo: chi === 'Direttore' ? 'autorizzazione_direttore' : 'decisione_organo', visibile_tecnico: true,
+      testo: `${chi}, ${dataIt($('#mk-data').value)}: ${frase}. ${testo}`, dati: { chi, cosa, data: $('#mk-data').value },
+    });
+    if (error) throw new Error(error.message);
+    toast('Registrato in cronologia.', 'ok');
+  });
+}
+
+/* La segnalazione riguarda un CANTIERE, non un verbale: si scelgono i verbali
+   del cantiere e si cercano i PDF su Drive per nome (Verbale_NNNN_…), lasciando
+   a chi firma la scelta del file giusto. Il merito lo scrive il coordinatore:
+   finché c'è il segnaposto la mail non esce. */
+async function segnalaOrgani(d, eventi, dopo) {
+  const k = await contesto(d);
+  const deciso = eventi.some((e) => e.tipo === 'decisione_organo' && e.dati?.cosa === 'segnalare');
+  const confermato = eventi.some((e) => e.tipo === 'autorizzazione_direttore' && e.dati?.cosa === 'segnalare');
+  const dest0 = destinatariSegnalazione('spisal_pc_itl', k.contatti);
+  maschera(d, dopo, '📨 Segnalazione a SPISAL / ITL', `
+    ${deciso && confermato ? '<p class="hint">✅ In cronologia risultano la decisione di segnalare e la conferma del Direttore.</p>'
+      : `<div class="dt-doc-riga" style="background:#ffdcd6;border-radius:6px;padding:6px 8px">⚠️ In cronologia ${!deciso ? '<strong>non risulta la decisione</strong> di Presidenza / Commissione Sicurezza di segnalare' : ''}${!deciso && !confermato ? ' e ' : ''}${!confermato ? '<strong>non risulta la conferma del Direttore</strong>' : ''}. Registrale prima («Registra decisione o conferma»): qui ti verrà chiesto di confermare due volte.</div>`}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
+      <div class="field" style="flex:1 1 260px"><label>A chi</label>
+        <select id="sg-dest">${Object.entries(DESTINAZIONI).map(([v, [l]]) => `<option value="${v}">${esc(l)}</option>`).join('')}</select></div>
+      <label class="hint" style="align-self:flex-end;margin-bottom:10px"><input type="checkbox" id="sg-ceiv" checked> Cassa Edile in copia (${esc(k.contatti?.ceiv?.a || '—')})</label>
+      <label class="hint" style="align-self:flex-end;margin-bottom:10px"><input type="checkbox" id="sg-int" checked> Direzione e coordinatore in copia</label>
+    </div>
+    <div class="hint" id="sg-chi"></div>
+    <div class="field" style="margin-top:6px"><label>Verbali del cantiere da allegare</label>
+      <div id="sg-verbali">${k.verbali.length ? k.verbali.map((v) => `<label style="display:block;font-weight:400"><input type="checkbox" class="sg-v" value="${esc(v.visita_id)}" ${v.segnalazione || v.visita_id === d.visita_id ? 'checked' : ''}>
+        ${esc(v.nr_verbale)} del ${dataIt(v.data_visita)}${v.ipc ? ` — IPC ${esc(v.ipc)}` : ''}${v.segnalazione ? ' — <strong>propone la segnalazione</strong>' : ''}</label>`).join('')
+        : '<span class="hint">Il caso non è agganciato a un cantiere dell\'anagrafica: i verbali si allegano a mano alla bozza.</span>'}</div>
+      <button class="btn btn-ghost btn-sm" id="sg-cerca" ${k.verbali.length ? '' : 'disabled'}>🔎 Cerca i PDF su Drive</button>
+      <div id="sg-file" class="hint" style="margin-top:4px"></div></div>
+    <div class="field"><label>Testo <span class="hint">— lo scheletro è dell'app, il merito lo scrive il coordinatore al posto del segnaposto</span></label>
+      <textarea id="sg-testo" rows="14" style="width:100%"></textarea></div>`,
+  '📄 Protocolla e prepara la bozza', async () => {
+    const testo = $('#sg-testo').value.trim();
+    if (testo.includes(SEGNAPOSTO_MERITO.slice(0, 14))) { toast('Nel testo c\'è ancora il segnaposto: il merito della segnalazione va scritto prima di protocollare.', 'err'); return false; }
+    const dest = destinatariSegnalazione($('#sg-dest').value, k.contatti, $('#sg-ceiv').checked);
+    if (!dest.a.length) { toast('Manca l\'indirizzo del destinatario: controlla s_config.organi_vigilanza_contatti.', 'err'); return false; }
+    if ((!deciso || !confermato) && !confirm('In cronologia non risultano decisione e conferma. Una segnalazione agli organi di vigilanza la decidono Presidenza e Commissione Sicurezza, e la conferma il Direttore. Vuoi procedere lo stesso?')) return false;
+    if (!confirm(`Protocollo in uscita la segnalazione per il cantiere di ${k.caso.cantiere_breve} e preparo la bozza per ${dest.a.join(', ')}. Procedo?`)) return false;
+
+    const scelti = [...document.querySelectorAll('.sg-f:checked')].map((x) => ({ id: x.value, nome: x.dataset.nome }));
+    const { leggiByte } = await import('./drive.js');
+    const allegati = [];
+    for (const f of scelti) allegati.push({ nome: f.nome, byte: await leggiByte(f.id) });
+
+    const oggetto = oggettoSegnalazione(k.caso);
+    const { data: nuovo, error: errProt } = await sb.rpc('s_crea_protocollo', { p: {
+      direzione: 'OUT', data_prot: oggiIso(), data_doc: oggiIso(), impresa_nome: d.impresa_nome, impresa_id: d.impresa_id || null,
+      persona: dest.allaCa || null, oggetto: oggetto.replace(/^Invio /, ''), note: testo,
+      sintesi: `Segnalazione agli organi di vigilanza — caso n° ${d.id} del registro cantieri critici. A: ${dest.a.join(', ')}; cc: ${dest.cc.join(', ') || '—'}. Allegati: ${scelti.map((f) => f.nome).join('; ') || 'nessuno dall\'app (da allegare a mano)'}.`,
+      ufficio: 'Segreteria Area Sicurezza e Salute', mezzo: 'e-mail', tipo_doc_id: TIPO_DOC_SEGNALAZIONE,
+    } });
+    if (errProt) throw new Error('Protocollazione non riuscita: ' + errProt.message);
+    for (const f of scelti) {
+      await sb.from('s_prot_allegati').insert({ protocollo_id: nuovo.id, nome: f.nome, mime: 'application/pdf', principale: false,
+        created_by: state.email, drive_file_id: f.id, drive_url: `https://drive.google.com/file/d/${f.id}/view` });
+    }
+    const { error } = await sb.from('s_cantieri_critici_eventi').insert({
+      critico_id: d.id, tipo: 'segnalazione_organi', visibile_tecnico: true, protocollo_id: nuovo.id,
+      testo: `Segnalazione agli organi di vigilanza ${codiceProtocollo(nuovo)} — a ${dest.a.join(', ')}${dest.cc.length ? '; per conoscenza ' + dest.cc.join(', ') : ''}.`,
+      dati: { sigla: siglaProtocollo(nuovo), a: dest.a, cc: dest.cc, verbali: scelti.map((f) => f.nome) },
+    });
+    if (error) throw new Error('Segnalazione protocollata ma cronologia non aggiornata: ' + error.message);
+
+    const interni = $('#sg-int').checked ? [k.c.direttore_email || 'direzione@formedilpadova.it', k.c.coordinatore_email] : [];
+    const { scaricaEml } = await import('./eml.js');
+    scaricaEml({
+      to: dest.a.join(', '), cc: [...dest.cc, ...interni].filter(Boolean),
+      oggetto: `${oggetto} Prot. ${siglaProtocollo(nuovo)}${dest.allaCa ? ` - alla c.a. ${dest.allaCa}` : ''}`,
+      corpo: `Protocollo N° ${siglaProtocollo(nuovo)} del ${dataIt(nuovo.data_prot)} — Segreteria Area Sicurezza e Salute\n\n${testo}`,
+      allegati, nomeFile: `segnalazione-organi-caso-${d.id}.eml`,
+    });
+    toast(`Segnalazione protocollata (${codiceProtocollo(nuovo)}). Bozza scaricata con ${allegati.length} allegati: rileggila e mandala da Outlook. Quando arriva un riscontro, aggiungilo in cronologia; poi chiudi il caso con l'esito «segnalata».`, 'ok');
+  });
+
+  const verbaliScelti = () => k.verbali.filter((v) => [...document.querySelectorAll('.sg-v:checked')].some((x) => x.value === v.visita_id));
+  const rifai = () => {
+    const dest = destinatariSegnalazione($('#sg-dest').value, k.contatti, $('#sg-ceiv').checked);
+    $('#sg-chi').textContent = `A: ${dest.a.join(', ') || '—'} · Cc: ${dest.cc.join(', ') || '—'}`;
+    const t = $('#sg-testo');
+    if (!t.dataset.toccato) t.value = scheletroSegnalazione(k.caso, verbaliScelti(), dest.intestazione);
+  };
+  $('#sg-testo').addEventListener('input', () => { $('#sg-testo').dataset.toccato = '1'; });
+  ['#sg-dest', '#sg-ceiv'].forEach((q) => $(q).addEventListener('change', rifai));
+  document.querySelectorAll('.sg-v').forEach((x) => x.addEventListener('change', rifai));
+  rifai();
+  $('#sg-chi').textContent = `A: ${dest0.a.join(', ') || '—'} · Cc: ${dest0.cc.join(', ') || '—'}`;
+
+  $('#sg-cerca').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
+    attendi(btn, true, 'Cerco…');
+    try {
+      const { sfoglia } = await import('./drive.js');
+      const righe = [];
+      for (const v of verbaliScelti()) {
+        const num = String(v.nr_verbale || '').split('/').pop().replace(/\D/g, '').padStart(4, '0');
+        const { voci } = await sfoglia({ cerca: `Verbale_${num}_` });
+        const pdf = (voci || []).filter((f) => !f.cartella && /\.pdf$/i.test(f.nome || ''));
+        /* lo stesso numero torna ogni esercizio: si propone spuntato solo il file che porta l'anno della visita */
+        const anno = String(v.data_visita).slice(0, 4);
+        righe.push(`<div><strong>${esc(v.nr_verbale)}</strong> del ${dataIt(v.data_visita)}: ${pdf.length ? pdf.map((f) =>
+          `<label style="display:block;font-weight:400;margin-left:12px"><input type="checkbox" class="sg-f" value="${esc(f.id)}" data-nome="${esc(f.nome)}" ${f.nome.includes(`_${anno} `) ? 'checked' : ''}> ${esc(f.nome)}</label>`).join('')
+          : '<em>nessun PDF trovato col nome «Verbale_' + num + '_…»: allegalo a mano alla bozza</em>'}</div>`);
+      }
+      $('#sg-file').innerHTML = righe.join('') || 'Spunta almeno un verbale.';
+    } catch (e) { toast(e.message, 'err'); } finally { attendi(btn, false); }
   });
 }

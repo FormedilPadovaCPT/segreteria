@@ -104,3 +104,89 @@ export function slug(s, max = 40) {
    Il protocollo nel nome lo aggiunge il caricamento su Drive. */
 export const nomeFileLettera = (d, dataIso, sollecito = false, comune = '') =>
   `${dataIso.replace(/-/g, '_')}_COMU_${slug(d.impresa_nome)}_${sollecito ? 'sollecito-' : ''}accesso-negato-cantiere-${comune ? slug(comune, 30) + '-' : ''}n${d.id}.pdf`;
+
+/* ── TAPPA 3: decisioni e segnalazione agli organi di vigilanza ──
+   Chi decide (precisato dall'utente, 17/09/2026): se segnalare a SPISAL
+   e/o ITL lo decidono la PRESIDENZA e poi la COMMISSIONE SICUREZZA; il
+   Direttore conferma. La conferenza di cantiere è sempre una PROPOSTA:
+   l'impresa non è obbligata. La Cassa Edile va in copia SOLO sulla
+   segnalazione. Il merito di una segnalazione lo scrive il coordinatore:
+   l'app mette lo scheletro e si rifiuta di far uscire il segnaposto. */
+
+export const TIPO_DOC_SEGNALAZIONE = 68;        /* s_tipo_doc */
+export const TIPO_DOC_CONFERENZA = 58;
+export const SEGNAPOSTO_MERITO = '[DA SCRIVERE — a cura del coordinatore: le criticità riscontrate, che cosa è stato segnalato all\'impresa e che cosa non è stato sanato]';
+
+/* a chi va: a = in «A», pc = per conoscenza. `contatti` = s_config.organi_vigilanza_contatti */
+export const DESTINAZIONI = {
+  spisal_pc_itl: ['SPISAL, e per conoscenza ITL', ['spisal'], ['itl']],
+  itl_pc_spisal: ['ITL, e per conoscenza SPISAL', ['itl'], ['spisal']],
+  spisal: ['solo SPISAL', ['spisal'], []],
+  itl: ['solo ITL', ['itl'], []],
+};
+export function destinatariSegnalazione(scelta, contatti, conCeiv = true) {
+  const [, a, pc] = DESTINAZIONI[scelta] || DESTINAZIONI.spisal_pc_itl;
+  const mail = (k) => contatti?.[k]?.a || '';
+  return {
+    a: a.map(mail).filter(Boolean),
+    cc: [...pc.map(mail), conCeiv ? mail('ceiv') : ''].filter(Boolean),
+    intestazione: [...a.map((k) => `Spett.le ${contatti?.[k]?.ente || k.toUpperCase()},`),
+      ...(pc.length ? ['e.p.c.', ...pc.map((k) => `Spett.le ${contatti?.[k]?.ente || k.toUpperCase()},`)] : [])].join('\n'),
+    allaCa: contatti?.[a[0]]?.alla_ca || contatti?.[pc[0]]?.alla_ca || '',
+  };
+}
+
+export const oggettoSegnalazione = (d) => `Invio Segnalazione criticità cantiere ${d.cantiere_breve || d.cantiere_desc} – Impresa ${d.impresa_nome}`;
+
+/* verbali = [{nr_verbale, data_visita}] scelti fra quelli del cantiere */
+export function scheletroSegnalazione(d, verbali, intestazione) {
+  const n = verbali.length;
+  const elenco = verbali.map((v) => `${v.nr_verbale} del ${dataIt(v.data_visita)}`).join(', ');
+  return `${intestazione}
+buongiorno,
+
+in allegato trasmetto ${n === 1 ? 'la relazione relativa al sopralluogo effettuato' : `le relazioni relative ai ${n} sopralluoghi effettuati`} nel cantiere di ${d.cantiere_breve || d.cantiere_desc}${elenco ? ` (${n === 1 ? 'verbale' : 'verbali'} ${elenco})` : ''}, impresa ${d.impresa_nome}.
+
+${SEGNAPOSTO_MERITO}
+
+Alla luce di quanto sopra, si ritiene opportuno trasmettere formalmente ${n === 1 ? 'la relazione' : 'le relazioni'} per le valutazioni e gli eventuali provvedimenti del caso.
+
+Resto a disposizione per ogni chiarimento.
+
+Distinti saluti.`;
+}
+
+export function corpoUlterioreVisita(d, nome, indicazioni) {
+  return `Ciao ${nome || ''},
+
+per il cantiere di ${d.cantiere_breve || d.cantiere_desc} (impresa ${d.impresa_nome}), caso n° ${d.id} del ${dataIt(d.data_evento)}, si è deciso di fare un'ulteriore visita.
+${indicazioni ? `\n${indicazioni}\n` : ''}
+A visita fatta il verbale si aggancia da solo al caso; se l'accesso viene negato di nuovo, segnalalo dal gestionale.`;
+}
+
+export function corpoPropostaConferenza(d, o = {}) {
+  return `${o.saluto || 'Spett.le Impresa'},
+
+in relazione al Vs. cantiere di ${d.cantiere_breve || d.cantiere_desc}, Formedil Padova Vi propone una conferenza di cantiere: un incontro di informazione sulla sicurezza tenuto da un nostro tecnico direttamente in cantiere, per i Vostri lavoratori, sui rischi delle lavorazioni in corso.
+
+È una proposta: l'adesione è libera. Se siete interessati Vi chiediamo di contattare la Segreteria (tel. ${ENTE.tel} int. 4, ${ENTE.email})${o.termine ? ` entro il ${dataIt(o.termine)}` : ''} per concordare data e argomenti.
+
+Distinti saluti.`;
+}
+
+/* il fascicolo per chi decide: Presidenza o Commissione Sicurezza. Interno: niente protocollo. */
+export function corpoDemanda(d, eventi, verbali, a) {
+  const crono = (eventi || []).filter((e) => e.tipo !== 'stato').map((e) => `- ${dataIt(String(e.created_at).slice(0, 10))} — ${e.testo || e.tipo}`).join('\n');
+  const vv = (verbali || []).map((v) => `- ${v.nr_verbale} del ${dataIt(v.data_visita)}${v.ipc ? ` — IPC ${v.ipc}` : ''}${v.segnalazione ? ' — il tecnico propone la segnalazione' : ''}`).join('\n');
+  return `${a === 'commissione' ? 'Alla Commissione Sicurezza' : 'Alla Presidenza'},
+
+si sottopone il caso n° ${d.id} del registro dei cantieri critici, per decidere se e come procedere (ulteriori visite, proposta di conferenza di cantiere, segnalazione a SPISAL e/o ITL).
+
+Cantiere: ${d.cantiere_breve || d.cantiere_desc}
+Impresa: ${d.impresa_nome}
+Origine: ${d.origine === 'proposta_segnalazione' ? 'il tecnico propone nel verbale la segnalazione agli organi di vigilanza' : 'accesso al cantiere negato al tecnico'} — ${dataIt(d.data_evento)}
+Tecnico: ${d.tecnico_nome || '—'}
+Note del tecnico: ${d.note || '—'}
+${vv ? `\nVerbali sul cantiere:\n${vv}\n` : ''}${crono ? `\nChe cosa è stato fatto finora:\n${crono}\n` : ''}
+La decisione verrà registrata nel caso; l'eventuale segnalazione agli organi di vigilanza esce con la conferma del Direttore.`;
+}

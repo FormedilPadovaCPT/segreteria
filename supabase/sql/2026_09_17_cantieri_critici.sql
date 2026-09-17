@@ -324,3 +324,31 @@ insert into public.s_tipo_doc (id_doc, descrizione) values
   (67, 'Accesso negato al cantiere — comunicazione all''impresa'),
   (68, 'Segnalazione a organi di vigilanza (SPISAL / ITL)')
 on conflict (id_doc) do nothing;
+
+-- ---------- tappa 3 e storico (stesso giorno) ----------
+-- Esito «non_registrato» per i casi dello storico Access chiusi senza dire come;
+-- stato «annullato» per ciò che è stato aperto per errore o per prova (non si
+-- cancella, ma non compare negli elenchi e non conta); riferimento e riga
+-- originale dello storico delle comunicazioni INS (13 casi 2018-2025 importati
+-- il 17/09/2026 dall'export consegnato dall'utente).
+alter table public.s_cantieri_critici drop constraint if exists s_cantieri_critici_esito_check;
+alter table public.s_cantieri_critici add constraint s_cantieri_critici_esito_check
+  check (esito in ('risolta_visita', 'risolta_altro', 'segnalata_organi', 'non_risolta', 'nessuna_azione', 'non_registrato'));
+alter table public.s_cantieri_critici drop constraint if exists s_cantieri_critici_stato_check;
+alter table public.s_cantieri_critici add constraint s_cantieri_critici_stato_check
+  check (stato in ('nuovo', 'in_gestione', 'attesa_impresa', 'attesa_decisione', 'chiuso', 'annullato'));
+alter table public.s_cantieri_critici
+  add column if not exists storico_rif text,
+  add column if not exists storico jsonb;
+create unique index if not exists s_cantieri_critici_storico_uidx on public.s_cantieri_critici (storico_rif) where storico_rif is not null;
+
+create or replace view public.s_dinieghi_accesso with (security_invoker = true) as
+  select id, created_at, segnalato_da, tecnico_id, tecnico_nome, data_evento as data_diniego,
+         impresa_id, impresa_nome, cantiere_id, cantiere_desc, note,
+         stato, gestione_note, gestito_da, gestito_il, updated_at
+    from public.s_cantieri_critici
+   where origine = 'accesso_negato' and stato <> 'annullato';
+
+-- Destinatari della segnalazione agli organi di vigilanza: stanno in s_config
+-- (chiave organi_vigilanza_contatti: spisal, itl, ceiv — indicati dall'utente),
+-- non nel codice. La Cassa Edile va in copia SOLO sulla segnalazione.
