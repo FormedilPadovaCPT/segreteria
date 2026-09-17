@@ -9,7 +9,16 @@
 <link rel="stylesheet" href="css/veste-scrivania.css">
 <link rel="stylesheet" href="css/tema-scuro.css">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700;800&family=Barlow+Condensed:wght@600;700;800&family=JetBrains+Mono:wght@500;600&display=swap">
-<link rel="icon" href="img/logo.png">
+<!-- App installabile (17/09/2026): manifest + icone «UFFICIO». Il service worker (sw.js) c'era già.
+     img/logo.png resta per il login, la testata e i PDF. -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#e7500f">
+<link rel="icon" type="image/png" sizes="32x32" href="img/icone/icona-32.png">
+<link rel="icon" type="image/png" sizes="192x192" href="img/icone/icona-192.png">
+<link rel="apple-touch-icon" href="img/icone/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Segreteria">
 <script>
 /* chi ha scelto la veste «Precedente» o la «Scrivania scura» la ritrova
    subito, prima che la pagina si disegni: niente lampo della Scrivania chiara */

@@ -1,0 +1,18 @@
+{
+  "id": "./",
+  "name": "Segreteria — Formedil Padova",
+  "short_name": "Segreteria",
+  "description": "Gestionale della segreteria dell'Area Sicurezza e Salute di Formedil Padova",
+  "lang": "it",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#ffffff",
+  "theme_color": "#e7500f",
+  "icons": [
+    { "src": "img/icone/icona-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "img/icone/icona-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "img/icone/icona-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
