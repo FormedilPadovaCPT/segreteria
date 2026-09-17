@@ -107,10 +107,12 @@ export async function render() {
      poi la segreteria decide se e a chi comunicare (deciso 01/09/2026) */
   let eseguiti = [];
   let rifiutati = [];
-  /* accessi negati al cantiere segnalati dal tecnico (16/09/2026): la
-     segnalazione nasce nel gestionale, la gestione è della segreteria */
-  let dinieghi = [];
-  try { dinieghi = await (await import('./dinieghi.js')).aperti(); } catch { /* senza accesso la card resta vuota */ }
+  /* cantieri critici (17/09/2026): gli accessi negati segnalati dal tecnico
+     nel gestionale e le proposte di segnalazione a SPISAL / ITL spuntate nei
+     verbali. Un registro solo, gestito da segreteria e coordinatore */
+  let critici = [];
+  let ccMod = null;
+  try { ccMod = await import('./cantieri-critici.js'); critici = await ccMod.aperti(); } catch { /* senza accesso la card resta vuota */ }
   const praticaDi = {};
   try {
     const { data } = await sb.from('incarichi')
@@ -314,18 +316,20 @@ export async function render() {
             }).join('') + '<p class="hint" style="margin-top:6px">Il tecnico ha dichiarato di non essere disponibile: riassegnando, l\'incarico torna «da vedere» per il nuovo.</p>'
           : '<p class="hint">Nessun incarico rifiutato.</p>')}
 
-      ${card('🚫 Accessi negati al cantiere', dinieghi.length,
-        (dinieghi.length
-          ? dinieghi.slice(0, 8).map((d) => `
-            <div class="hm-riga" data-diniego="${d.id}">
-              <span>🚫</span>
+      ${card('🚧 Cantieri critici', critici.length,
+        (critici.length
+          ? critici.slice(0, 8).map((d) => `
+            <div class="hm-riga" data-critico="${d.id}">
+              <span title="${esc((ccMod.ORIGINI[d.origine] || [])[1] || '')}">${(ccMod.ORIGINI[d.origine] || ['🚧'])[0]}</span>
               <span><strong>${esc(d.impresa_nome)}</strong> — ${esc(d.cantiere_desc)}
                 <span class="hint">(${esc((d.tecnico_nome || '').split(' ')[0])})</span>
                 <br><span class="hint">«${esc(String(d.note || '').slice(0, 90))}${String(d.note || '').length > 90 ? '…' : ''}»</span></span>
-              <span class="hint">${dataIt(d.data_diniego)}${d.stato === 'nuovo' ? ' · <strong style="color:#a01f00">nuova</strong>' : ' · in gestione'}</span>
-            </div>`).join('') + (dinieghi.length > 8 ? `<p class="hint">…e altre ${dinieghi.length - 8}.</p>` : '')
-          : '<p class="hint">Nessuna segnalazione da gestire.</p>')
-        + '<p class="hint" style="margin-top:6px"><a href="#" id="hm-dinieghi-tutti">Tutte le segnalazioni, anche quelle chiuse</a></p>')}
+              <span class="hint">${dataIt(d.data_evento)} · ${d.stato === 'nuovo' ? '<strong style="color:#a01f00">nuovo</strong>'
+                : ccMod.scaduto(d) ? `<strong style="color:#a01f00">termine scaduto il ${dataIt(d.termine_il)}</strong>`
+                : esc((ccMod.STATI[d.stato] || [])[1] || d.stato) + (d.stato === 'attesa_impresa' && d.termine_il ? ` fino al ${dataIt(d.termine_il)}` : '')}</span>
+            </div>`).join('') + (critici.length > 8 ? `<p class="hint">…e altri ${critici.length - 8}.</p>` : '')
+          : '<p class="hint">Nessun caso aperto.</p>')
+        + '<p class="hint" style="margin-top:6px">🚫 accesso negato · ⚠️ proposta di segnalazione a SPISAL / ITL dal verbale — <a href="#" id="hm-critici-tutti">tutti i casi, anche chiusi, e nuovo caso</a></p>')}
 
       ${card('✅ Autorizzate — da eseguire', daEseguire.length,
         daEseguire.length
@@ -456,11 +460,11 @@ export async function render() {
       ev.stopPropagation();
       if (await riassegnaIncarico(Number(b.dataset.riassegna), praticaDi[Number(b.dataset.riassegna)] || null)) render();
     }));
-  host.querySelectorAll('[data-diniego]').forEach((r) =>
-    r.addEventListener('click', async () => (await import('./dinieghi.js')).dettaglio(Number(r.dataset.diniego), render)));
-  host.querySelector('#hm-dinieghi-tutti')?.addEventListener('click', async (ev) => {
+  host.querySelectorAll('[data-critico]').forEach((r) =>
+    r.addEventListener('click', async () => (await import('./cantieri-critici.js')).dettaglio(Number(r.dataset.critico), render)));
+  host.querySelector('#hm-critici-tutti')?.addEventListener('click', async (ev) => {
     ev.preventDefault();
-    (await import('./dinieghi.js')).elenco(render);
+    (await import('./cantieri-critici.js')).elenco(render);
   });
   host.querySelectorAll('[data-vista-corso]').forEach((r) =>
     r.addEventListener('click', async () => {
