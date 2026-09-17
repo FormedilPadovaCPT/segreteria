@@ -1171,7 +1171,7 @@ async function emettiMandato(sel, btn) {
        pagamenti, senza stampare e riportare il foglio. Il PDF resta
        allegato per chi lo vuole leggere subito. */
     const link = `${APP_URL}#mandato-${m.id}`;
-    const prima = `Buongiorno,
+    const prima = `Buongiorno Patrizia,
 
 in allegato il mandato di pagamento n° ${m.id} per le fatture dei tecnici approvate dal coordinatore:
 ${fatture.map((f) => `- ${f.tecnico_nome}: fattura n° ${f.numero || '?'}${f.incarico ? ` (${MESI[f.incarico.mese - 1]} ${f.incarico.anno})` : ''} — ${euro(f.importo)}`).join('\n')}
