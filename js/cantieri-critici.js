@@ -25,7 +25,9 @@
    Sostituisce js/dinieghi.js del 16/09/2026.
    ============================================================ */
 
-import { sb, $, esc, dataIt, toast, attendi, apriDrawer, chiudiDrawer } from './core.js';
+import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo, siglaProtocollo } from './core.js';
+import { TIPO_DOC_ACCESSO_NEGATO, CARTELLA_VAULT, oggettoLettera, paragrafiAccessoNegato, paragrafiSollecito,
+  corpoMail, corpoRichiestaPec, nomeFileLettera } from './cantieri-critici-doc.js';
 
 export const GIORNI_TERMINE = 15;   /* quanto si aspetta che l'impresa ricontatti (deciso dall'utente) */
 
@@ -76,10 +78,10 @@ const presente = (d) => [d.presente_titolo, d.presente_nome, d.presente_cognome]
 /* i casi ancora aperti, per il cruscotto: prima i nuovi e i termini scaduti */
 export async function aperti() {
   const { data, error } = await sb.from('s_cantieri_critici')
-    .select('id, created_at, origine, data_evento, tecnico_nome, impresa_nome, cantiere_desc, note, stato, termine_il')
+    .select('id, created_at, origine, data_evento, tecnico_nome, impresa_nome, cantiere_desc, note, stato, termine_il, priorita')
     .neq('stato', 'chiuso').order('created_at', { ascending: false }).limit(60);
   if (error) throw error;
-  const peso = (r) => (r.stato === 'nuovo' ? 0 : scaduto(r) ? 1 : 2);
+  const peso = (r) => (r.stato === 'nuovo' ? 0 : scaduto(r) ? 1 : r.priorita === 'alta' ? 2 : 3);
   return (data || []).sort((a, b) => peso(a) - peso(b));
 }
 
@@ -91,6 +93,7 @@ export async function dettaglio(id, dopo = null) {
   if (error || !d) return toast('Caso non trovato' + (error ? ': ' + error.message : '.'), 'err');
   const [ico, orig] = ORIGINI[d.origine] || ['', d.origine];
   const successiva = [...(eventi || [])].reverse().find((e) => e.tipo === 'visita_successiva');
+  const ultimaCom = [...(eventi || [])].reverse().find((e) => e.tipo === 'lettera_impresa' || e.tipo === 'sollecito');
   const riapri = () => dettaglio(id, dopo);
 
   apriDrawer(`${ico} Cantiere critico n° ${d.id} — ${orig}`, '', `
@@ -109,6 +112,12 @@ export async function dettaglio(id, dopo = null) {
       ${d.presente_qualifica ? ` — ${esc(d.presente_qualifica)}` : ''}${d.presente_tel ? ` · tel. ${esc(d.presente_tel)}` : ''}</div>` : ''}
     <div class="dt-doc-riga" style="white-space:pre-wrap"><strong>Note del tecnico:</strong>\n${esc(d.note)}</div>
 
+    ${d.origine !== 'proposta_segnalazione' ? `<div class="dt-doc-riga" style="background:#fff4ee;border-radius:6px;padding:6px 8px">
+      ${ultimaCom ? `📄 <strong>${ultimaCom.tipo === 'sollecito' ? 'Sollecitata' : 'Comunicata'} all'impresa</strong> il ${dataIt(ultimaCom.created_at.slice(0, 10))}
+          <span class="hint">${esc(ultimaCom.dati?.sigla ? 'Prot. ' + ultimaCom.dati.sigla : '')}${ultimaCom.dati?.a ? ' · a ' + esc(ultimaCom.dati.a) : ''}</span>`
+        : "📄 All'impresa non è ancora stato comunicato niente."}
+      ${d.stato !== 'chiuso' ? `<button class="btn btn-ghost btn-sm" id="cc-com">${ultimaCom ? '🔁 Sollecita…' : "📄 Comunicazione all'impresa…"}</button>` : ''}</div>` : ''}
+
     ${successiva && d.stato !== 'chiuso' ? `<div class="dt-doc-riga" style="background:#eef8f0;border-radius:6px;padding:6px 8px">
       ✅ ${esc(successiva.testo || 'Sul cantiere è entrato un verbale successivo.')}
       <button class="btn btn-ghost btn-sm" id="cc-risolta">Chiudi come risolta con questo verbale</button></div>` : ''}
@@ -117,6 +126,8 @@ export async function dettaglio(id, dopo = null) {
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <div class="field" style="flex:1 1 170px"><label>Stato</label>
         <select id="cc-stato">${Object.entries(STATI).map(([v, [, l]]) => `<option value="${v}" ${d.stato === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+      <div class="field" style="flex:0 0 120px"><label>Priorità</label>
+        <select id="cc-priorita"><option value="normale" ${d.priorita !== 'alta' ? 'selected' : ''}>normale</option><option value="alta" ${d.priorita === 'alta' ? 'selected' : ''}>alta</option></select></div>
       <div class="field" id="cc-termine-box" style="flex:0 0 160px"><label>Termine per l'impresa</label>
         <input type="date" id="cc-termine" value="${esc(d.termine_il || '')}"></div>
       <div class="field" id="cc-esito-box" style="flex:1 1 220px"><label>Esito *</label>
@@ -165,7 +176,7 @@ export async function dettaglio(id, dopo = null) {
     if (stato === 'chiuso' && !esito) return toast('Per chiudere indica l\'esito.', 'err');
     attendi(btn, true, 'Salvo…');
     const { error: e } = await sb.from('s_cantieri_critici').update({
-      stato, gestione_note: gestione || null,
+      stato, gestione_note: gestione || null, priorita: $('#cc-priorita').value,
       termine_il: stato === 'attesa_impresa' ? ($('#cc-termine').value || fra(GIORNI_TERMINE)) : null,
       esito: stato === 'chiuso' ? esito : null,
       esito_visita_id: stato === 'chiuso' ? (forza.esito_visita_id || d.esito_visita_id || null) : null,
@@ -185,6 +196,7 @@ export async function dettaglio(id, dopo = null) {
       gestione_note: $('#cc-gest').value.trim() || `Visita effettuata: verbale ${v.nr_verbale || ''} del ${dataIt(v.data_visita)}.`,
     });
   });
+  $('#cc-com')?.addEventListener('click', () => preparaComunicazione(d, ultimaCom, dopo));
   $('#cc-ev-add').addEventListener('click', async (ev) => {
     const testo = $('#cc-ev-testo').value.trim();
     if (!testo) return toast('Scrivi che cosa è successo.', 'err');
@@ -267,5 +279,184 @@ export async function nuovo(dopo = null) {
     toast(`Caso n° ${r.id} aperto.`, 'ok');
     if (dopo) dopo();
     dettaglio(r.id, dopo);
+  });
+}
+
+/* ── LA COMUNICAZIONE ALL'IMPRESA (e il sollecito) ─────────────
+   Erede della lettera Access «Com_ins» (serie NNN/aaaaINS, firmata dal
+   Presidente). Decisioni dell'utente, 17/09/2026: la firma la SEGRETERIA;
+   esce per MAIL ORDINARIA con un protocollo OUT del registro; nei casi più
+   critici in più l'Amministrazione la inoltra dalla PEC aziendale, e qui si
+   prepara la richiesta per lei. Lo storico dice che il destinatario non è
+   sempre l'impresa (spesso il «soggetto notificatore», a volte più
+   soggetti): «A» e «Cc» sono liberi.
+   L'app PREPARA: le bozze .eml le manda una persona da Outlook.
+   `prec` = l'evento della comunicazione precedente: se c'è, è un sollecito. */
+async function preparaComunicazione(d, prec, dopo) {
+  const sollecito = !!prec;
+  const [{ data: imp }, { data: tec }, { data: cant }, { data: conf }] = await Promise.all([
+    d.impresa_id ? sb.from('imprese').select('impresa_nome, indirizzo, cap, comune, prov, piva, cod_ceiv, pec, impresa_email_ref, impresa_email2, impresa_telefono')
+      .eq('impresa_id', d.impresa_id).maybeSingle() : Promise.resolve({ data: null }),
+    d.tecnico_id ? sb.from('tecnici').select('titolo, tecnico_nome, tecnico_cognome').eq('tecnico_id', d.tecnico_id).maybeSingle() : Promise.resolve({ data: null }),
+    d.cantiere_id ? sb.from('cantieri').select('cantiere_indirizzo, cantiere_civico, comune_nome').eq('cantiere_id', d.cantiere_id).maybeSingle() : Promise.resolve({ data: null }),
+    sb.from('s_config').select('chiave, valore').in('chiave', ['direttore_email', 'coordinatore_email', 'amministrazione_email']),
+  ]);
+  const c = Object.fromEntries((conf || []).map((r) => [r.chiave, r.valore]));
+  const tecnicoNome = tec ? [tec.titolo, tec.tecnico_nome, tec.tecnico_cognome].filter(Boolean).join(' ') : '';
+  const cantiereBreve = cant
+    ? [[cant.cantiere_indirizzo, cant.cantiere_civico].filter(Boolean).join(' '), cant.comune_nome].filter(Boolean).join(', ')
+    : d.cantiere_desc;
+  const chiaveTel = `cc-tel-tecnico-${d.tecnico_id || ''}`;
+  let telRicordato = '';
+  try { telRicordato = localStorage.getItem(chiaveTel) || ''; } catch { /* senza memoria si riscrive */ }
+
+  apriDrawer(`${sollecito ? '🔁 Sollecito' : "📄 Comunicazione all'impresa"} — caso n° ${d.id}`, '', `
+    <p class="hint">${sollecito
+      ? `Sollecito della comunicazione ${esc(prec.dati?.sigla ? 'Prot. ' + prec.dati.sigla : '')} del ${dataIt(prec.created_at.slice(0, 10))}: è una lettera nuova, con un numero di protocollo suo.`
+      : 'Lettera su carta Formedil firmata dalla Segreteria, protocollata in uscita, depositata nel vault e allegata alla bozza mail. La mail la mandi tu da Outlook.'}</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <div class="field" style="flex:1 1 260px"><label>A *</label><input type="text" id="cm-a" value="${esc(prec?.dati?.a || imp?.impresa_email_ref || imp?.impresa_email2 || '')}" placeholder="mail dell'impresa (o del soggetto notificatore)"></div>
+      <div class="field" style="flex:1 1 260px"><label>Alla c.a.</label><input type="text" id="cm-ca" value="${esc(prec?.dati?.alla_ca || '')}" placeholder="es. Rossi Sig. Mario"></div>
+    </div>
+    <div class="field"><label>Cc <span class="hint">(altri soggetti: committente, studio, ente — separati da virgola)</span></label><input type="text" id="cm-cc" value="${esc(prec?.dati?.cc_altri || '')}"></div>
+    <div class="hint" style="display:flex;gap:14px;flex-wrap:wrap;margin:-2px 0 8px">
+      <label><input type="checkbox" id="cm-cc-dir" checked> cc Direzione (${esc(c.direttore_email || 'direzione@formedilpadova.it')})</label>
+      <label><input type="checkbox" id="cm-cc-coo" checked> cc coordinatore (${esc(c.coordinatore_email || '—')})</label></div>
+    <div class="field"><label>Cantiere, come va scritto nella lettera *</label><input type="text" id="cm-cant" value="${esc(cantiereBreve)}"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <div class="field" style="flex:1 1 220px"><label>Tecnico</label><input type="text" id="cm-tec" value="${esc(tecnicoNome)}"></div>
+      <div class="field" style="flex:0 0 170px"><label>Telefono del tecnico</label><input type="tel" id="cm-tel" value="${esc(telRicordato)}" placeholder="facoltativo"></div>
+      <div class="field" style="flex:0 0 170px"><label>Ricontattare entro *</label><input type="date" id="cm-termine" value="${fra(GIORNI_TERMINE)}" min="${oggi()}"></div>
+    </div>
+    <div class="dt-doc-riga" style="background:#fdf6d8;border-radius:6px;padding:6px 8px">
+      <label><input type="checkbox" id="cm-pec" ${d.priorita === 'alta' ? 'checked' : ''}> <strong>Caso critico</strong>: prepara anche la richiesta all'Amministrazione di inoltrarla dalla PEC aziendale</label>
+      <div class="field" style="margin-top:4px"><label>PEC dell'impresa</label><input type="text" id="cm-pec-a" value="${esc(imp?.pec || '')}" placeholder="se manca in anagrafica, scrivila qui"></div>
+    </div>
+    <div id="cm-testo" class="dt-doc-riga" style="white-space:pre-wrap;font-size:12.5px;border:1px solid var(--bordo);border-radius:6px;padding:8px;margin-top:8px"></div>
+    <div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap;margin-top:8px">
+      <button class="btn btn-ghost btn-sm" id="cm-indietro">← Torna al caso</button>
+      <button class="btn btn-ghost btn-sm" id="cm-anteprima">👁 Anteprima PDF (senza protocollo)</button>
+      <button class="btn btn-primary btn-sm" id="cm-vai">📄 Protocolla e prepara le bozze</button>
+    </div>`);
+
+  const opz = () => ({ tecnico: $('#cm-tec').value.trim(), tecnicoTel: $('#cm-tel').value.trim(), termine: $('#cm-termine').value,
+    saluto: $('#cm-ca').value.trim() ? `Egr. ${$('#cm-ca').value.trim()}` : `Spett.le ${d.impresa_nome}` });
+  const caso = () => ({ ...d, cantiere_breve: $('#cm-cant').value.trim() || d.cantiere_desc });
+  const paragrafi = () => (sollecito
+    ? paragrafiSollecito(caso(), { sigla: prec.dati?.sigla || '—', data_prot: prec.dati?.data_prot || prec.created_at.slice(0, 10) }, opz())
+    : paragrafiAccessoNegato(caso(), opz()));
+  const mostraTesto = () => { $('#cm-testo').textContent = `${oggettoLettera(caso())}\n\n${paragrafi().join('\n\n')}`; };
+  ['#cm-cant', '#cm-tec', '#cm-tel', '#cm-termine'].forEach((q) => $(q).addEventListener('input', mostraTesto));
+  mostraTesto();
+
+  const destinatarioPdf = () => ({
+    ragione_sociale: imp?.impresa_nome || d.impresa_nome,
+    ind_sede_legale: imp?.indirizzo || '',
+    comune_legale: imp ? [imp.cap, imp.comune, imp.prov ? `(${imp.prov})` : ''].filter(Boolean).join(' ') : '',
+    email: $('#cm-a').value.trim(), telefono: imp?.impresa_telefono || '',
+    partita_iva: imp?.piva || '', codice_ceiv_dich: imp?.cod_ceiv || '',
+    alla_ca_riga: $('#cm-ca').value.trim() ? `Alla c.a. ${$('#cm-ca').value.trim()}` : '',
+  });
+
+  $('#cm-indietro').addEventListener('click', () => dettaglio(d.id, dopo));
+  $('#cm-anteprima').addEventListener('click', async (ev) => {
+    attendi(ev.currentTarget, true, 'Genero…');
+    try {
+      const { generaLetteraPdf } = await import('./rlst-lettera.js');
+      const byte = await generaLetteraPdf(destinatarioPdf(), { codice: 'BOZZA-SENZA-PROTOCOLLO', data_prot: oggiIso() }, paragrafi(), oggettoLettera(caso()));
+      (await import('./corsi-doc.js')).scaricaPdf(byte, `anteprima-accesso-negato-n${d.id}.pdf`);
+    } catch (e) { toast(e.message, 'err'); } finally { attendi(ev.currentTarget, false); }
+  });
+
+  $('#cm-vai').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
+    const a = $('#cm-a').value.trim();
+    if (!a) return toast("Indica a chi va la mail: senza destinatario la lettera non può uscire.", 'err');
+    if (!$('#cm-termine').value) return toast('Indica entro quando ricontattare.', 'err');
+    const vuolePec = $('#cm-pec').checked;
+    if (!confirm(`Protocollo in uscita ${sollecito ? 'il sollecito' : 'la comunicazione'} per ${d.impresa_nome} e preparo le bozze mail. Procedo?`)) return;
+    attendi(btn, true, 'Preparo…');
+    try {
+      const { generaLetteraPdf } = await import('./rlst-lettera.js');
+      const { risolviCartella, caricaByte } = await import('./drive.js');
+      const par = paragrafi();
+      const oggettoRiga = oggettoLettera(caso());
+      /* prova a vuoto PRIMA di chiedere il numero: se la lettera non si
+         genera, il registro non consuma niente */
+      await generaLetteraPdf(destinatarioPdf(), { codice: 'BOZZA', data_prot: oggiIso() }, par, oggettoRiga);
+
+      const cart = await risolviCartella(CARTELLA_VAULT);
+      if (!cart.id || cart.mancante) throw new Error(`Cartella «${CARTELLA_VAULT}» non trovata su Drive`);
+      const cartId = cart.id;
+
+      const { data: nuovo, error: errProt } = await sb.rpc('s_crea_protocollo', { p: {
+        direzione: 'OUT', data_prot: oggiIso(), data_doc: oggiIso(),
+        impresa_nome: imp?.impresa_nome || d.impresa_nome, impresa_id: d.impresa_id || null,
+        persona: $('#cm-ca').value.trim() || null,
+        oggetto: `${sollecito ? 'Sollecito — ' : ''}${oggettoRiga.replace(/\.$/, '')}`,
+        note: par.join('\n\n'),
+        sintesi: `${sollecito ? 'Sollecito della comunicazione' : 'Comunicazione'} di mancato accesso al cantiere — caso n° ${d.id} del registro cantieri critici (tecnico ${d.tecnico_nome || '—'}).`,
+        scadenze: `L'impresa ricontatta entro il ${dataIt($('#cm-termine').value)}`,
+        ufficio: 'Segreteria Area Sicurezza e Salute', mezzo: 'e-mail',
+        tipo_doc_id: TIPO_DOC_ACCESSO_NEGATO, cartella: CARTELLA_VAULT,
+      } });
+      if (errProt) throw new Error('Protocollazione non riuscita: ' + errProt.message);
+
+      const pdfByte = await generaLetteraPdf(destinatarioPdf(), nuovo, par, oggettoRiga);
+      const nomeFile = nomeFileLettera(d, oggiIso(), sollecito, cant?.comune_nome || '');
+      const su = await caricaByte(nuovo, nomeFile, pdfByte, 'application/pdf', cartId);
+      await sb.from('s_prot_allegati').insert({
+        protocollo_id: nuovo.id, nome: su.file_name || nomeFile, mime: 'application/pdf',
+        dimensione: pdfByte.length, principale: true, created_by: state.email,
+        drive_file_id: su.drive_file_id, drive_url: su.drive_url,
+      });
+      await sb.from('s_protocollo').update({ drive_file_id: su.drive_file_id, drive_url: su.drive_url }).eq('id', nuovo.id);
+
+      const sigla = siglaProtocollo(nuovo);
+      const ccAltri = $('#cm-cc').value.trim();
+      const { error: errEv } = await sb.from('s_cantieri_critici_eventi').insert({
+        critico_id: d.id, tipo: sollecito ? 'sollecito' : 'lettera_impresa', visibile_tecnico: true, protocollo_id: nuovo.id,
+        testo: `${sollecito ? 'Sollecito' : "Comunicazione all'impresa"} ${codiceProtocollo(nuovo)}: ricontattare entro il ${dataIt($('#cm-termine').value)}.`,
+        dati: { sigla, data_prot: nuovo.data_prot, a, alla_ca: $('#cm-ca').value.trim(), cc_altri: ccAltri, termine: $('#cm-termine').value, drive_url: su.drive_url },
+      });
+      if (errEv) throw new Error('Lettera protocollata ma cronologia non aggiornata: ' + errEv.message);
+      const { error: errSt } = await sb.from('s_cantieri_critici').update({
+        stato: 'attesa_impresa', termine_il: $('#cm-termine').value, priorita: vuolePec ? 'alta' : d.priorita,
+        gestione_note: d.gestione_note || null,
+      }).eq('id', d.id);
+      if (errSt) throw new Error('Lettera protocollata ma caso non aggiornato: ' + errSt.message);
+      try { if ($('#cm-tel').value.trim()) localStorage.setItem(chiaveTel, $('#cm-tel').value.trim()); } catch { /* pazienza */ }
+
+      const { scaricaEml } = await import('./eml.js');
+      const allegati = [{ nome: su.file_name || nomeFile, byte: pdfByte }];
+      const cc = [...ccAltri.split(/[,;]/).map((x) => x.trim()).filter(Boolean),
+        $('#cm-cc-dir').checked ? (c.direttore_email || 'direzione@formedilpadova.it') : null,
+        $('#cm-cc-coo').checked ? c.coordinatore_email : null].filter((m) => m && m.toLowerCase() !== a.toLowerCase());
+      scaricaEml({
+        to: a, cc,
+        oggetto: `${sollecito ? 'Sollecito — ' : ''}${oggettoRiga.replace(/\.$/, '')} - Prot. ${sigla}`,
+        corpo: `${corpoMail(caso(), opz(), sollecito)}\n\nDistinti saluti.`,
+        allegati, nomeFile: `${sollecito ? 'sollecito-' : ''}accesso-negato-n${d.id}.eml`,
+      });
+      if (vuolePec) {
+        scaricaEml({
+          to: c.amministrazione_email || 'amministrazione@formedilpadova.it',
+          oggetto: `Da inoltrare via PEC — ${oggettoRiga.replace(/\.$/, '')} - Prot. ${sigla}`,
+          corpo: corpoRichiestaPec(caso(), `Prot. ${sigla}`, $('#cm-pec-a').value.trim()),
+          allegati, nomeFile: `richiesta-pec-accesso-negato-n${d.id}.eml`,
+        });
+        await sb.from('s_cantieri_critici_eventi').insert({
+          critico_id: d.id, tipo: 'pec_richiesta', protocollo_id: nuovo.id,
+          testo: `Chiesto all'Amministrazione l'inoltro dalla PEC aziendale${$('#cm-pec-a').value.trim() ? ' a ' + $('#cm-pec-a').value.trim() : ' (PEC dell\'impresa da rilevare)'}. Agli atti va la ricevuta di consegna.`,
+        });
+      }
+      toast(`${sollecito ? 'Sollecito' : 'Comunicazione'} protocollata (${codiceProtocollo(nuovo)}) e depositata. Bozze scaricate: impresa${vuolePec ? " e richiesta PEC all'Amministrazione" : ''}. Ricordati di segnare il protocollo come inviato quando parte.`, 'ok');
+      if (dopo) dopo();
+      dettaglio(d.id, dopo);
+    } catch (e) {
+      toast(e.message, 'err');
+    } finally {
+      attendi(btn, false);
+    }
   });
 }

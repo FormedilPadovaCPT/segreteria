@@ -311,3 +311,16 @@ create or replace view public.s_dinieghi_accesso with (security_invoker = true) 
 comment on view public.s_dinieghi_accesso is 'Compatibilità con le app online prima del 17/09/2026: gli accessi negati di s_cantieri_critici. Da togliere dopo il deploy.';
 revoke all on public.s_dinieghi_accesso from anon;
 grant select, insert, update on public.s_dinieghi_accesso to authenticated;
+
+-- ---------- aggiunte dello stesso giorno ----------
+-- Priorità, come nello storico Access delle comunicazioni INS (Normale / Alta):
+-- alta = caso critico, in testa al cruscotto; per la lettera si propone anche
+-- l'inoltro dalla PEC aziendale tramite l'Amministrazione.
+alter table public.s_cantieri_critici
+  add column if not exists priorita text not null default 'normale' check (priorita in ('normale', 'alta'));
+
+-- Tipi di documento del protocollo per le due lettere che escono da qui.
+insert into public.s_tipo_doc (id_doc, descrizione) values
+  (67, 'Accesso negato al cantiere — comunicazione all''impresa'),
+  (68, 'Segnalazione a organi di vigilanza (SPISAL / ITL)')
+on conflict (id_doc) do nothing;
