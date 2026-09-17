@@ -380,3 +380,40 @@ begin
 end $$;
 revoke execute on function public.s_critico_conferma_direttore(bigint, text, text) from public, anon;
 grant execute on function public.s_critico_conferma_direttore(bigint, text, text) to authenticated, service_role;
+
+-- ---------- il testo di merito lo scrive il coordinatore, dal gestionale ----------
+-- Il coordinatore non entra nell'app Segreteria: lavora dal riquadro «Cantieri
+-- critici» della dashboard del gestionale visite (cantieri-critici-coord.js).
+-- La segreteria ritrova il testo nella maschera «Segnala a SPISAL / ITL» al
+-- posto del segnaposto. Chi e quando restano scritti; ogni modifica lascia una
+-- riga in cronologia, non visibile al tecnico.
+alter table public.s_cantieri_critici
+  add column if not exists testo_merito text,
+  add column if not exists merito_da text,
+  add column if not exists merito_il timestamptz;
+
+create or replace function public.s_cantieri_critici_merito()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare v_email text := nullif(lower(coalesce(auth.jwt() ->> 'email', '')), '');
+begin
+  new.testo_merito := nullif(trim(coalesce(new.testo_merito, '')), '');
+  if new.testo_merito is distinct from old.testo_merito then
+    new.merito_da := v_email; new.merito_il := now();
+    insert into public.s_cantieri_critici_eventi (critico_id, autore, tipo, testo, visibile_tecnico)
+    values (new.id, v_email, 'nota',
+            case when new.testo_merito is null then 'Testo di merito della segnalazione tolto.'
+                 when old.testo_merito is null then 'Scritto il testo di merito della segnalazione agli organi di vigilanza.'
+                 else 'Aggiornato il testo di merito della segnalazione agli organi di vigilanza.' end, false);
+  else
+    new.merito_da := old.merito_da; new.merito_il := old.merito_il;
+  end if;
+  if new.stato = 'annullato' and old.stato <> 'annullato' and nullif(trim(coalesce(new.gestione_note, '')), '') is null then
+    raise exception 'Per annullare il caso va scritto perché';
+  end if;
+  return new;
+end $$;
+revoke execute on function public.s_cantieri_critici_merito() from public, anon, authenticated;
+grant execute on function public.s_cantieri_critici_merito() to service_role;
+drop trigger if exists trg_s_cantieri_critici_merito on public.s_cantieri_critici;
+create trigger trg_s_cantieri_critici_merito before update on public.s_cantieri_critici
+  for each row execute function public.s_cantieri_critici_merito();

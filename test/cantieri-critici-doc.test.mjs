@@ -113,3 +113,12 @@ test('la richiesta di conferma al Direttore porta il link al caso e dice se manc
   assert.match(con, /CPT\/24_25\/0704 del 05\/09\/2025 — il tecnico propone la segnalazione/);
   assert.doesNotMatch(con, /non è ancora registrata/);
 });
+
+test('se il coordinatore ha scritto il merito, prende il posto del segnaposto', () => {
+  const v = [{ nr_verbale: 'CPT/24_25/0704', data_visita: '2025-09-05' }];
+  const t = scheletroSegnalazione(caso, v, 'Spett.le SPISAL,', '  Ponteggi privi di parapetti, segnalati nei tre verbali e non sanati.  ');
+  assert.match(t, /Ponteggi privi di parapetti, segnalati nei tre verbali e non sanati\./);
+  assert.ok(!t.includes(SEGNAPOSTO_MERITO));
+  /* vuoto o di soli spazi: resta il segnaposto, che blocca il protocollo */
+  assert.ok(scheletroSegnalazione(caso, v, 'Spett.le SPISAL,', '   ').includes(SEGNAPOSTO_MERITO));
+});

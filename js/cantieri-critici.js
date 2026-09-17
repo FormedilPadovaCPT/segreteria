@@ -139,6 +139,8 @@ export async function dettaglio(id, dopo = null) {
         : "📄 All'impresa non è ancora stato comunicato niente."}
       ${!FERMI.includes(d.stato) ? `<button class="btn btn-ghost btn-sm" id="cc-com">${ultimaCom ? '🔁 Sollecita…' : "📄 Comunicazione all'impresa…"}</button>` : ''}</div>` : ''}
 
+    ${d.testo_merito ? `<div class="dt-doc-riga" style="white-space:pre-wrap;background:#f3f0fa;border-radius:6px;padding:6px 8px"><strong>Testo di merito della segnalazione</strong>
+      <span class="hint">scritto dal coordinatore nel gestionale — ${esc(d.merito_da || '')}, ${oraIt(d.merito_il)}</span>\n${esc(d.testo_merito)}</div>` : ''}
     ${d.storico_rif ? `<div class="dt-doc-riga"><span class="hint">Dallo storico Access: ${esc(d.storico_rif)}${(d.storico?.soggetti || []).length ? ' — soggetti: ' + esc(d.storico.soggetti.map((x) => `${x.nome} (${x.ruolo})`).join('; ')) : ''}</span></div>` : ''}
     ${!FERMI.includes(d.stato) ? `<div class="dt-doc-riga" style="background:#f3f0fa;border-radius:6px;padding:6px 8px">
       <strong>Che cosa si fa:</strong>
@@ -674,7 +676,9 @@ async function segnalaOrgani(d, eventi, dopo) {
         : '<span class="hint">Il caso non è agganciato a un cantiere dell\'anagrafica: i verbali si allegano a mano alla bozza.</span>'}</div>
       <button class="btn btn-ghost btn-sm" id="sg-cerca" ${k.verbali.length ? '' : 'disabled'}>🔎 Cerca i PDF su Drive</button>
       <div id="sg-file" class="hint" style="margin-top:4px"></div></div>
-    <div class="field"><label>Testo <span class="hint">— lo scheletro è dell'app, il merito lo scrive il coordinatore al posto del segnaposto</span></label>
+    <div class="field"><label>Testo <span class="hint">— lo scheletro è dell'app; ${d.testo_merito
+          ? `il merito è quello scritto dal coordinatore nel gestionale (${esc(d.merito_da || '')}, ${oraIt(d.merito_il)})`
+          : 'il merito lo scrive il coordinatore dal gestionale visite (riquadro «Cantieri critici»): finché manca resta il segnaposto'}</span></label>
       <textarea id="sg-testo" rows="14" style="width:100%"></textarea></div>`,
   '📄 Protocolla e prepara la bozza', async () => {
     const testo = $('#sg-testo').value.trim();
@@ -724,7 +728,7 @@ async function segnalaOrgani(d, eventi, dopo) {
     const dest = destinatariSegnalazione($('#sg-dest').value, k.contatti, $('#sg-ceiv').checked);
     $('#sg-chi').textContent = `A: ${dest.a.join(', ') || '—'} · Cc: ${dest.cc.join(', ') || '—'}`;
     const t = $('#sg-testo');
-    if (!t.dataset.toccato) t.value = scheletroSegnalazione(k.caso, verbaliScelti(), dest.intestazione);
+    if (!t.dataset.toccato) t.value = scheletroSegnalazione(k.caso, verbaliScelti(), dest.intestazione, d.testo_merito);
   };
   $('#sg-testo').addEventListener('input', () => { $('#sg-testo').dataset.toccato = '1'; });
   ['#sg-dest', '#sg-ceiv'].forEach((q) => $(q).addEventListener('change', rifai));

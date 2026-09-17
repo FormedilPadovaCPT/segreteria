@@ -138,8 +138,10 @@ export function destinatariSegnalazione(scelta, contatti, conCeiv = true) {
 
 export const oggettoSegnalazione = (d) => `Invio Segnalazione criticità cantiere ${d.cantiere_breve || d.cantiere_desc} – Impresa ${d.impresa_nome}`;
 
-/* verbali = [{nr_verbale, data_visita}] scelti fra quelli del cantiere */
-export function scheletroSegnalazione(d, verbali, intestazione) {
+/* verbali = [{nr_verbale, data_visita}] scelti fra quelli del cantiere.
+   `merito` = il testo scritto dal coordinatore nel gestionale visite
+   (s_cantieri_critici.testo_merito): se c'è prende il posto del segnaposto. */
+export function scheletroSegnalazione(d, verbali, intestazione, merito = '') {
   const n = verbali.length;
   const elenco = verbali.map((v) => `${v.nr_verbale} del ${dataIt(v.data_visita)}`).join(', ');
   return `${intestazione}
@@ -147,7 +149,7 @@ buongiorno,
 
 in allegato trasmetto ${n === 1 ? 'la relazione relativa al sopralluogo effettuato' : `le relazioni relative ai ${n} sopralluoghi effettuati`} nel cantiere di ${d.cantiere_breve || d.cantiere_desc}${elenco ? ` (${n === 1 ? 'verbale' : 'verbali'} ${elenco})` : ''}, impresa ${d.impresa_nome}.
 
-${SEGNAPOSTO_MERITO}
+${String(merito || '').trim() || SEGNAPOSTO_MERITO}
 
 Alla luce di quanto sopra, si ritiene opportuno trasmettere formalmente ${n === 1 ? 'la relazione' : 'le relazioni'} per le valutazioni e gli eventuali provvedimenti del caso.
 
