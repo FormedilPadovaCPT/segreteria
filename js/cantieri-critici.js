@@ -79,6 +79,21 @@ const pill = (stato) => {
   return `<span class="dt-cella ${c}" style="padding:1px 7px">${esc(l)}</span>`;
 };
 export const scaduto = (r) => r.stato === 'attesa_impresa' && r.termine_il && r.termine_il < oggi();
+/* elenco, caso e maschere stanno larghi: tabella, cronologia e testo della
+   lettera nel pannello stretto andavano a capo a ogni parola */
+function apriLargo(titolo, direzione, html) {
+  apriDrawer(titolo, direzione, html);
+  $('#drawer').classList.add('drawer-xl');
+}
+/* «De Marco Arch. Nicola» → «De Marco»: il cognome è quello che sta prima del
+   titolo; senza titolo («Canova Mirco») è tutto tranne l'ultima parola */
+export function cognomeDi(n) {
+  const t = String(n || '').trim();
+  const m = t.match(/^(.*?)\s+(?:Arch|Ing|Geom|Dott|Dr|Sig|Avv|Prof|Rag|P\.I|Per\.Ind)\.?(?:ssa)?\.?\s/i);
+  if (m && m[1]) return m[1];
+  const parti = t.split(/\s+/);
+  return parti.length > 1 ? parti.slice(0, -1).join(' ') : t;
+}
 const presente = (d) => [d.presente_titolo, d.presente_nome, d.presente_cognome].filter(Boolean).join(' ');
 
 /* i casi ancora aperti, per il cruscotto: prima i nuovi e i termini scaduti */
@@ -102,7 +117,7 @@ export async function dettaglio(id, dopo = null) {
   const ultimaCom = [...(eventi || [])].reverse().find((e) => e.tipo === 'lettera_impresa' || e.tipo === 'sollecito');
   const riapri = () => dettaglio(id, dopo);
 
-  apriDrawer(`${ico} Cantiere critico n° ${d.id} — ${orig}`, '', `
+  apriLargo(`${ico} Cantiere critico n° ${d.id} — ${orig}`, '', `
     <div class="dt-doc-riga"><strong>Stato:</strong> ${pill(d.stato)}
       ${d.stato === 'attesa_impresa' && d.termine_il ? `<span class="hint" ${scaduto(d) ? 'style="color:#a01f00;font-weight:600"' : ''}>termine ${dataIt(d.termine_il)}${scaduto(d) ? ' — scaduto: nessun contatto registrato' : ''}</span>` : ''}
       ${d.esito ? `<span class="hint">${esc(ESITI[d.esito] || d.esito)}</span>` : ''}
@@ -245,14 +260,14 @@ export async function elenco(dopo = null) {
     .select('id, created_at, origine, data_evento, tecnico_nome, impresa_nome, cantiere_desc, stato, esito, termine_il, storico_rif')
     .neq('stato', 'annullato').order('data_evento', { ascending: false }).limit(300);
   if (error) return toast(error.message, 'err');
-  apriDrawer('Cantieri critici — tutti i casi', '', `
+  apriLargo('Cantieri critici — tutti i casi', '', `
     <div style="display:flex;justify-content:flex-end;margin-bottom:6px"><button class="btn btn-primary btn-sm" id="cc-nuovo">➕ Nuovo caso</button></div>
     <div class="table-wrap"><table class="tbl" style="min-width:0">
       <thead><tr><th>N°</th><th></th><th>Data</th><th>Tecnico</th><th>Impresa</th><th>Cantiere</th><th>Stato</th></tr></thead>
-      <tbody>${(data || []).map((r) => `<tr data-cc="${r.id}" style="cursor:pointer"><td>${r.id}${r.storico_rif ? ' <span class="hint" title="' + esc(r.storico_rif) + '">storico</span>' : ''}</td>
-        <td title="${esc((ORIGINI[r.origine] || [])[1] || '')}">${(ORIGINI[r.origine] || [''])[0]}</td><td>${dataIt(r.data_evento)}</td>
-        <td>${esc((r.tecnico_nome || '').split(' ')[0])}</td><td>${esc(r.impresa_nome)}</td><td>${esc(r.cantiere_desc)}</td>
-        <td>${pill(r.stato)}${scaduto(r) ? ' <span class="hint" style="color:#a01f00">termine scaduto</span>' : ''}${r.esito ? ` <span class="hint">${esc(ESITI[r.esito] || r.esito)}</span>` : ''}</td></tr>`).join('')
+      <tbody>${(data || []).map((r) => `<tr data-cc="${r.id}" style="cursor:pointer"><td style="white-space:nowrap">${r.id}${r.storico_rif ? '<br><span class="hint" title="' + esc(r.storico_rif) + '">storico</span>' : ''}</td>
+        <td title="${esc((ORIGINI[r.origine] || [])[1] || '')}">${(ORIGINI[r.origine] || [''])[0]}</td><td style="white-space:nowrap">${dataIt(r.data_evento)}</td>
+        <td style="white-space:nowrap">${esc(cognomeDi(r.tecnico_nome))}</td><td>${esc(r.impresa_nome)}</td><td>${esc(r.cantiere_desc)}</td>
+        <td>${pill(r.stato)}${scaduto(r) ? '<br><span class="hint" style="color:#a01f00">termine scaduto</span>' : ''}${r.esito ? `<br><span class="hint">${esc(ESITI[r.esito] || r.esito)}</span>` : ''}</td></tr>`).join('')
         || '<tr><td colspan="7" class="empty">Nessun caso.</td></tr>'}</tbody></table></div>`);
   $('#drawer-body').querySelectorAll('tr[data-cc]').forEach((tr) =>
     tr.addEventListener('click', () => dettaglio(Number(tr.dataset.cc), dopo)));
@@ -265,7 +280,7 @@ export async function elenco(dopo = null) {
 export async function nuovo(dopo = null) {
   const { data: tecnici } = await sb.from('tecnici').select('tecnico_id, tecnico_nome, tecnico_cognome, attivo')
     .eq('attivo', true).order('tecnico_cognome');
-  apriDrawer('Cantiere critico — nuovo caso', '', `
+  apriLargo('Cantiere critico — nuovo caso', '', `
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <div class="field" style="flex:1 1 220px"><label>Che cos'è *</label>
         <select id="cn-origine"><option value="accesso_negato">🚫 Accesso negato (riferito dal tecnico)</option><option value="manuale">📝 Altra criticità</option></select></div>
@@ -334,7 +349,7 @@ async function preparaComunicazione(d, prec, dopo) {
   let telRicordato = '';
   try { telRicordato = localStorage.getItem(chiaveTel) || ''; } catch { /* senza memoria si riscrive */ }
 
-  apriDrawer(`${sollecito ? '🔁 Sollecito' : "📄 Comunicazione all'impresa"} — caso n° ${d.id}`, '', `
+  apriLargo(`${sollecito ? '🔁 Sollecito' : "📄 Comunicazione all'impresa"} — caso n° ${d.id}`, '', `
     <p class="hint">${sollecito
       ? `Sollecito della comunicazione ${esc(prec.dati?.sigla ? 'Prot. ' + prec.dati.sigla : '')} del ${dataIt(prec.created_at.slice(0, 10))}: è una lettera nuova, con un numero di protocollo suo.`
       : 'Lettera su carta Formedil firmata dalla Segreteria, protocollata in uscita, depositata nel vault e allegata alla bozza mail. La mail la mandi tu da Outlook.'}</p>
@@ -512,7 +527,7 @@ const evento = (d, tipo, testo, extra = {}) => sb.from('s_cantieri_critici_event
 
 /* una maschera piccola dentro al drawer: campi, Annulla, Conferma */
 function maschera(d, dopo, titolo, html, etichetta, onOk) {
-  apriDrawer(`${titolo} — caso n° ${d.id}`, '', `${html}
+  apriLargo(`${titolo} — caso n° ${d.id}`, '', `${html}
     <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:10px">
       <button class="btn btn-ghost btn-sm" id="mk-indietro">← Torna al caso</button>
       <button class="btn btn-primary btn-sm" id="mk-ok">${etichetta}</button></div>`);
@@ -790,7 +805,7 @@ export async function apriDaLink(id) {
 export async function elencoDirettore() {
   const casi = await inAttesaDelDirettore();
   if (!casi.length) return false;
-  apriDrawer('Cantieri critici — conferme richieste', '', `
+  apriLargo('Cantieri critici — conferme richieste', '', `
     <p class="hint">Segnalazioni agli organi di vigilanza su cui è stata chiesta la tua conferma.</p>
     ${casi.map((c) => `<div class="hm-riga" data-cd="${c.id}" style="cursor:pointer"><span>⚠️</span>
       <span><strong>${esc(c.impresa_nome)}</strong> — ${esc(c.cantiere_desc)}</span><span class="hint">${dataIt(c.data_evento)}</span></div>`).join('')}`);
@@ -811,7 +826,7 @@ export async function confermaDirettore(id) {
   }
   const fermo = FERMI.includes(d.stato);
   const gia = [...(eventi || [])].reverse().find((e) => e.tipo === 'autorizzazione_direttore');
-  apriDrawer(`⚠️ Cantiere critico n° ${d.id} — conferma della segnalazione`, '', `
+  apriLargo(`⚠️ Cantiere critico n° ${d.id} — conferma della segnalazione`, '', `
     <div class="dt-doc-riga"><strong>Cantiere:</strong> ${esc(d.cantiere_desc)}</div>
     <div class="dt-doc-riga"><strong>Impresa:</strong> ${esc(d.impresa_nome)}</div>
     <div class="dt-doc-riga"><strong>Origine:</strong> ${esc((ORIGINI[d.origine] || [])[1] || d.origine)} — ${dataIt(d.data_evento)} · <strong>tecnico:</strong> ${esc(d.tecnico_nome || '—')}</div>

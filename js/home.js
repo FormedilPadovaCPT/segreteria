@@ -322,7 +322,7 @@ export async function render() {
             <div class="hm-riga" data-critico="${d.id}">
               <span title="${esc((ccMod.ORIGINI[d.origine] || [])[1] || '')}">${(ccMod.ORIGINI[d.origine] || ['🚧'])[0]}</span>
               <span><strong>${esc(d.impresa_nome)}</strong> — ${esc(d.cantiere_desc)}
-                <span class="hint">(${esc((d.tecnico_nome || '').split(' ')[0])})</span>
+                <span class="hint">(${esc(ccMod.cognomeDi(d.tecnico_nome))})</span>
                 <br><span class="hint">«${esc(String(d.note || '').slice(0, 90))}${String(d.note || '').length > 90 ? '…' : ''}»</span></span>
               <span class="hint">${dataIt(d.data_evento)} · ${d.stato === 'nuovo' ? '<strong style="color:#a01f00">nuovo</strong>'
                 : ccMod.scaduto(d) ? `<strong style="color:#a01f00">termine scaduto il ${dataIt(d.termine_il)}</strong>`
