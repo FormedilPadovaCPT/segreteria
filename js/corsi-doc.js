@@ -37,6 +37,7 @@ import { apriCarta } from './segnalazioni-doc.js';
 import { ENTE, COLORI } from './config.js';
 import { dataIt, oggiIso, taglia, testoPdf } from './comune.js';
 import { pdfLib, qrGen } from './cdn.js';
+import { formattaCodice } from './attestati-verifica.js';
 
 const SX = 57;
 const DX = 538;
@@ -189,7 +190,8 @@ function griglia(k, pg, X0, Wc, y, rows, { val = 10.5, verticali = false } = {})
 
 /* ── 1. ATTESTATO ──
    iscritto: riga s_corsi_iscritti; anagrafica: {nato_luogo, nato_il} se agganciato;
-   ctx: { numero, firmaByte, firmaNome, logoRegioneByte, loghiExtra: [byte], dataRilascio } */
+   ctx: { numero, firmaByte, firmaNome, logoRegioneByte, loghiExtra: [byte], dataRilascio,
+          verifica: { codice, url } | null — serie N/aaaa: il QR porta alla pagina pubblica } */
 export async function pdfAttestato(corso, iscritto, anagrafica, giornate, interventi, ctx) {
   const k = await apriCiclo();
   const { doc, F, C } = k;
@@ -265,14 +267,24 @@ export async function pdfAttestato(corso, iscritto, anagrafica, giornate, interv
   T(pg, `Rilasciato a Padova il ${dataIt(dataRil)}`, X0, yb, 10, F.b, C.grigio);
   try {
     const qrcode = await qrGen();
-    const testoQr = [
-      'FORMEDIL PADOVA', nTxt, iscritto.nominativo, iscritto.cf ? `CF ${iscritto.cf}` : null,
-      `Corso ${corso.id} — ${String(corso.titolo).slice(0, 60)}`,
-      dataIt(dataRil) || '',
-    ].filter(Boolean).join(' | ');
-    disegnaQr(pg, qrcode, testoQr, X0, yb - 72, 58, C.nero);
-    T(pg, 'Verifica integrità documento', X0, yb - 82, 6.5, F.r, C.tenue);
-    T(pg, nTxt, X0, yb - 93, 8, F.b, C.grigio);
+    if (ctx.verifica?.url) {
+      /* serie N/aaaa (17/09/2026): il QR porta alla pagina di verifica del
+         portale servizi, e il codice è stampato anche per chi lo digita */
+      disegnaQr(pg, qrcode, ctx.verifica.url, X0, yb - 72, 58, C.nero);
+      T(pg, 'Verifica online: formedilpadovacpt.github.io/servizi/verifica', X0, yb - 82, 6.5, F.r, C.tenue);
+      T(pg, `${nTxt}  ·  codice ${formattaCodice(ctx.verifica.codice)}`, X0, yb - 93, 8, F.b, C.grigio);
+    } else {
+      /* storico: testo, e dal 17/09/2026 senza codice fiscale — chiunque
+         inquadri il QR lo leggerebbe in chiaro */
+      const testoQr = [
+        'FORMEDIL PADOVA', nTxt, iscritto.nominativo,
+        `Corso ${corso.id} — ${String(corso.titolo).slice(0, 60)}`,
+        dataIt(dataRil) || '',
+      ].filter(Boolean).join(' | ');
+      disegnaQr(pg, qrcode, testoQr, X0, yb - 72, 58, C.nero);
+      T(pg, 'Verifica integrità documento', X0, yb - 82, 6.5, F.r, C.tenue);
+      T(pg, nTxt, X0, yb - 93, 8, F.b, C.grigio);
+    }
   } catch {
     T(pg, nTxt, X0, yb - 16, 8, F.b, C.grigio);
   }

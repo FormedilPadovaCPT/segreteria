@@ -25,6 +25,7 @@ import { scaricaEml, FIRMA_SEGRETERIA, collegaDoppioClickMail } from './eml.js';
 /* la ricerca in anagrafica sta in un posto solo: la usa anche la
    maschera manuale delle richieste di visita */
 import { collegaRicercaPersone } from './ricerca-anagrafica.js';
+import { generaCodice, serieVerificabile, urlVerifica, URL_VERIFICA_PREDEFINITA } from './attestati-verifica.js';
 
 let corsi = [];
 let progetti = [];
@@ -53,7 +54,7 @@ async function carica() {
     sb.from('s_corsi').select('*').order('id', { ascending: false }),
     sb.from('s_progetti_formativi').select('*').order('id', { ascending: false }),
     sb.from('s_config').select('chiave, valore').in('chiave',
-      ['responsabile_formativo_nome', 'responsabile_formativo_firma_id', 'presidente_nome', 'presidente_firma_id', 'docenza_tariffa_default']),
+      ['responsabile_formativo_nome', 'responsabile_formativo_firma_id', 'presidente_nome', 'presidente_firma_id', 'docenza_tariffa_default', 'attestati_verifica_url']),
     sb.from('s_corsi_iscritti').select('corso_id, attestato_numero'),
   ]);
   corsi = c || [];
@@ -312,8 +313,8 @@ export async function apriCorso(id) {
       <td>${i.ore_frequentate != null ? `${i.ore_frequentate}h` : '—'}${i.perc_frequenza != null
         ? ` <span class="dt-cella ${okFreq ? 'dt-ok' : 'dt-scaduto'}" style="padding:1px 6px">${Math.round(i.perc_frequenza)}%</span>` : ''}</td>
       <td>${esc(i.valutazione || '—')}</td>
-      <td>${i.attestato_numero ? esc(i.attestato_numero) : '—'}</td>
-      <td style="white-space:nowrap"><a href="#" data-pres="${i.id}">presenze</a> · <a href="#" data-mod-iscr="${i.id}">modifica</a>${i.attestato_numero ? ` · <a href="#" data-rist="${i.id}" title="Ristampa l'attestato col suo numero (storico compreso), sul modello standard">🖨 attestato</a>` : ''} · <a href="#" data-del-iscr="${i.id}">togli</a></td>
+      <td>${i.attestato_numero ? esc(i.attestato_numero) : '—'}${i.attestato_revocato_il ? '<br><span class="dt-cella dt-scaduto" style="padding:1px 6px">revocato</span>' : ''}</td>
+      <td style="white-space:nowrap"><a href="#" data-pres="${i.id}">presenze</a> · <a href="#" data-mod-iscr="${i.id}">modifica</a>${i.attestato_numero ? ` · <a href="#" data-rist="${i.id}" title="Ristampa l'attestato col suo numero (storico compreso), sul modello standard">🖨 attestato</a>` : ''}${serieVerificabile(i.attestato_numero) && !i.attestato_revocato_il ? ` · <a href="#" data-revoca="${i.id}" title="Revoca: la pagina pubblica di verifica lo mostrerà come revocato">revoca</a>` : ''} · <a href="#" data-del-iscr="${i.id}">togli</a></td>
     </tr>`;
   };
 
@@ -462,6 +463,11 @@ export async function apriCorso(id) {
     const i = (iscritti || []).find((x) => x.id === Number(a.dataset.rist));
     if (i) await ristampaAttestato(c, i, giornate || [], interventi || []);
   }));
+  $('#drawer-body').querySelectorAll('[data-revoca]').forEach((a) => a.addEventListener('click', async (e) => {
+    e.preventDefault();
+    const i = (iscritti || []).find((x) => x.id === Number(a.dataset.revoca));
+    if (i) await revocaAttestato(c, i);
+  }));
 
   $('#co-calcola').addEventListener('click', async (ev) => {
     attendi(ev.currentTarget, true, 'Calcolo…');
@@ -540,12 +546,15 @@ async function generaAttestati(c, giornate, interventi, iscritti, btn) {
     let fatti = 0;
     for (const i of candidati) {
       const numero = i.attestato_numero?.includes('/') ? i.attestato_numero : `${prossimo++}/${anno}`;
+      /* il codice di verifica nasce qui perché va dentro il QR (17/09/2026) */
+      const codice = i.verifica_codice || generaCodice();
       const byte = await pdfAttestato(c, i, anag[i.persona_id], giornate, interventi, {
         numero, firmaByte, firmaNome: c.responsabile_formativo || conf.responsabile_formativo_nome,
         logoRegioneByte, loghiExtra: [], dataRilascio: oggi,
+        verifica: { codice, url: urlVerifica(numero, codice, conf.attestati_verifica_url || URL_VERIFICA_PREDEFINITA) },
       });
       const nome = `${(c.data_fine || c.data_inizio || oggi)}_Attestato_${i.nominativo}${i.cf ? `_${i.cf}` : ''}_Prot_${numero.replace('/', '-')}.pdf`;
-      const agg = { attestato_numero: numero, attestato_data: oggi, updated_at: new Date().toISOString() };
+      const agg = { attestato_numero: numero, attestato_data: oggi, verifica_codice: codice, updated_at: new Date().toISOString() };
       if (cart.id) {
         const { data: su, error: errUp } = await sb.functions.invoke('allegati-protocollo', {
           body: { action: 'upload', filename: nome, mime_type: 'application/pdf',
@@ -562,6 +571,7 @@ async function generaAttestati(c, giornate, interventi, iscritti, btn) {
       fatti += 1;
     }
     toast(`${fatti} attestati generati${cart.id ? ` e depositati in attestati_emessi/${anno}` : ' (scaricati in locale: crea la cartella dell\'anno su Drive)'}.`, 'ok');
+    await aggiornaVerificaPubblica();
     await render();
     apriCorso(c.id);
   } catch (e) {
@@ -592,16 +602,63 @@ async function ristampaAttestato(c, i, giornate, interventi) {
         .select('comune_nascita, data_nascita').eq('persona_id', i.persona_id).maybeSingle();
       if (p) anagrafica = { nato_luogo: p.comune_nascita, nato_il: p.data_nascita };
     }
+    /* serie nuova senza codice: il codice si crea adesso e si salva,
+       altrimenti il QR non verificherebbe niente. È l'unico caso in cui la
+       ristampa scrive sulla riga (17/09/2026). */
+    let verifica = null;
+    if (serieVerificabile(i.attestato_numero)) {
+      let codice = i.verifica_codice;
+      if (!codice) {
+        codice = generaCodice();
+        const { error } = await sb.from('s_corsi_iscritti').update({ verifica_codice: codice }).eq('id', i.id);
+        if (error) throw new Error('Codice di verifica non salvato: ' + error.message);
+        i.verifica_codice = codice;
+      }
+      verifica = { codice, url: urlVerifica(i.attestato_numero, codice, conf.attestati_verifica_url || URL_VERIFICA_PREDEFINITA) };
+    }
     const byte = await pdfAttestato(c, i, anagrafica, giornate, interventi, {
       numero: i.attestato_numero,
       firmaByte, firmaNome: c.responsabile_formativo || conf.responsabile_formativo_nome,
       logoRegioneByte, loghiExtra: [],
       dataRilascio: i.attestato_data || c.data_fine || c.data_inizio,
+      verifica,
     });
+    if (verifica) await aggiornaVerificaPubblica(true);
     const numeroFile = String(i.attestato_numero).replace('/', '-');
     scaricaPdf(byte, `${(c.data_fine || c.data_inizio || oggiIso())}_Attestato_${i.nominativo}${i.cf ? `_${i.cf}` : ''}_Prot_${numeroFile}.pdf`);
     toast(`Attestato ${i.attestato_numero} ristampato (modello standard).`, 'ok');
   } catch (e) { toast(e.message, 'err'); }
+}
+
+/* ── VERIFICA PUBBLICA (17/09/2026) ──
+   Copia sul progetto Servizi i dati minimi degli attestati nuovi o
+   cambiati (funzione attestati-verifica). Se non riesce, l'attestato
+   resta valido e la copia la rifà il giro notturno: si avvisa e basta. */
+async function aggiornaVerificaPubblica(silenziosa = false) {
+  try {
+    const { data, error } = await sb.functions.invoke('attestati-verifica', { body: {} });
+    if (error) throw new Error(error.message);
+    if (data?.errori?.length) throw new Error(data.errori[0]);
+    if (!silenziosa && data?.pubblicate) toast(`Verifica online aggiornata: ${data.pubblicate} attestati.`, 'ok');
+  } catch (e) {
+    toast(`Pagina di verifica non aggiornata (${e.message}): la copia la rifà il giro notturno.`, 'err');
+  }
+}
+
+/* ── REVOCA di un attestato della serie nuova ──
+   Non si cancella niente: la riga resta, con data e motivo, e la pagina
+   pubblica mostra «revocato» (il motivo resta qui, non va online). */
+async function revocaAttestato(c, i) {
+  const motivo = prompt(`Revoco l'attestato ${i.attestato_numero} di ${i.nominativo}. Chi lo verifica online lo vedrà come REVOCATO.\n\nMotivo (resta nell'app, non va sulla pagina pubblica):`);
+  if (motivo == null) return;
+  if (!motivo.trim()) return toast('Per revocare serve il motivo.', 'err');
+  const { error } = await sb.from('s_corsi_iscritti').update({
+    attestato_revocato_il: oggiIso(), attestato_revoca_motivo: motivo.trim(), updated_at: new Date().toISOString(),
+  }).eq('id', i.id);
+  if (error) return toast('Revoca non salvata: ' + error.message, 'err');
+  toast(`Attestato ${i.attestato_numero} revocato.`, 'ok');
+  await aggiornaVerificaPubblica();
+  apriCorso(c.id);
 }
 
 /* ── LETTERA DI INCARICO: protocollo OUT + PDF + bozza .eml ── */
