@@ -322,7 +322,7 @@ async function chiudiMese(btn, conMail) {
     scaricaEml({
       to: amm?.email || 'amministrazione@formedilpadova.it',
       oggetto: `Formedil Padova - Foglio presenze ${MESI[mese - 1]} ${anno} - ${dipendente}`,
-      corpo: `Buongiorno,
+      corpo: `Buongiorno Patrizia,
 
 in allegato il foglio di rilevazione presenze di ${dipendente} per il mese di ${MESI[mese - 1]} ${anno}.
 
