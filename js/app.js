@@ -324,7 +324,7 @@ try {
       /* link profondo dalle mail: #segnalazione-<id>, #consulenza-<id>,
          #visita-<id> o #conferenza-<id> apre la pratica; #notifica-<id>
          arriva dalla mail interna della strada diretta del portale (12/09/2026) */
-      const hashPratica = location.hash.match(/^#(segnalazione|notifica|consulenza|visita|conferenza|attestazione|ferie|fattura|mandato)-(\d+)$/);
+      const hashPratica = location.hash.match(/^#(segnalazione|notifica|consulenza|visita|conferenza|attestazione|ferie|fattura|mandato|critico)-(\d+)$/);
       /* #vista-<nome> apre una vista senza pratica: e' il link della mail
          interna del portale servizi, che parte PRIMA dell'import delle 6:30
          e quindi non ha ancora un id di pratica da puntare (06/09/2026) */
@@ -332,6 +332,14 @@ try {
       const apriDaHash = async () => {
         if (hashVista) { await vaiA(hashVista[1]); return; }
         if (!hashPratica) return;
+        /* i cantieri critici non hanno una vista propria: vivono nel cruscotto.
+           #critico-<id> apre il caso alla segreteria e la maschera di conferma
+           al Direttore (17/09/2026) */
+        if (hashPratica[1] === 'critico') {
+          await vaiA(soloDirettore ? 'segnalazioni' : 'home');
+          await (await import('./cantieri-critici.js')).apriDaLink(Number(hashPratica[2]));
+          return;
+        }
         const vista = { segnalazione: 'segnalazioni', notifica: 'notifiche', consulenza:'consulenze', visita: 'visite', conferenza: 'conferenze', attestazione: 'attestazioni', ferie: 'presenze', fattura: 'fatture-tecnici', mandato: 'amministrazione' }[hashPratica[1]];
         await vaiA(vista);
         await mod[vista]?.apriPratica?.(Number(hashPratica[2]));
@@ -353,7 +361,11 @@ try {
           if (!['segnalazioni', 'consulenze', 'visite', 'conferenze', 'attestazioni', 'presenze'].includes(b.dataset.view)) b.style.display = 'none';
         });
         if (hashPratica || hashVista) await apriDaHash();
-        else await vaiA('segnalazioni');
+        else {
+          await vaiA('segnalazioni');
+          /* se c'è una conferma che aspetta lui sui cantieri critici, gliela si mostra subito */
+          try { await (await import('./cantieri-critici.js')).elencoDirettore(); } catch (e) { console.warn('[critici]', e); }
+        }
       } else {
         mod.protocollo = await import('./protocollo.js');
         await mod.protocollo.init();

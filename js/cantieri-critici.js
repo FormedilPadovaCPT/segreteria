@@ -29,7 +29,8 @@ import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiD
 import { TIPO_DOC_ACCESSO_NEGATO, CARTELLA_VAULT, oggettoLettera, paragrafiAccessoNegato, paragrafiSollecito,
   corpoMail, corpoRichiestaPec, nomeFileLettera, TIPO_DOC_SEGNALAZIONE, TIPO_DOC_CONFERENZA, SEGNAPOSTO_MERITO, DESTINAZIONI,
   destinatariSegnalazione, oggettoSegnalazione, scheletroSegnalazione, corpoUlterioreVisita, corpoPropostaConferenza,
-  corpoDemanda } from './cantieri-critici-doc.js';
+  corpoDemanda, corpoRichiestaConferma } from './cantieri-critici-doc.js';
+import { APP_URL } from './config.js';
 
 export const GIORNI_TERMINE = 15;   /* quanto si aspetta che l'impresa ricontatti (deciso dall'utente) */
 
@@ -130,6 +131,7 @@ export async function dettaglio(id, dopo = null) {
       <button class="btn btn-ghost btn-sm" id="cc-d-conf">🎓 Proponi conferenza di cantiere</button>
       <button class="btn btn-ghost btn-sm" id="cc-d-demanda">🏛 Demanda a Presidenza / Commissione</button>
       <button class="btn btn-ghost btn-sm" id="cc-d-organo">✍️ Registra decisione o conferma</button>
+      <button class="btn btn-ghost btn-sm" id="cc-d-dir">🖊 Chiedi conferma al Direttore</button>
       <button class="btn btn-ghost btn-sm" id="cc-d-segnala">📨 Segnala a SPISAL / ITL</button>
       <br><span class="hint">Se segnalare lo decidono la Presidenza e la Commissione Sicurezza, il Direttore conferma. La conferenza è una proposta: l'impresa non è obbligata.</span></div>` : ''}
 
@@ -217,6 +219,7 @@ export async function dettaglio(id, dopo = null) {
   $('#cc-d-conf')?.addEventListener('click', () => proponiConferenza(d, dopo));
   $('#cc-d-demanda')?.addEventListener('click', () => demanda(d, eventi || [], dopo));
   $('#cc-d-organo')?.addEventListener('click', () => registraDecisione(d, dopo));
+  $('#cc-d-dir')?.addEventListener('click', () => chiediConfermaDirettore(d, eventi || [], dopo));
   $('#cc-d-segnala')?.addEventListener('click', () => segnalaOrgani(d, eventi || [], dopo));
   $('#cc-ev-add').addEventListener('click', async (ev) => {
     const testo = $('#cc-ev-testo').value.trim();
@@ -642,7 +645,7 @@ async function segnalaOrgani(d, eventi, dopo) {
   const dest0 = destinatariSegnalazione('spisal_pc_itl', k.contatti);
   maschera(d, dopo, '📨 Segnalazione a SPISAL / ITL', `
     ${deciso && confermato ? '<p class="hint">✅ In cronologia risultano la decisione di segnalare e la conferma del Direttore.</p>'
-      : `<div class="dt-doc-riga" style="background:#ffdcd6;border-radius:6px;padding:6px 8px">⚠️ In cronologia ${!deciso ? '<strong>non risulta la decisione</strong> di Presidenza / Commissione Sicurezza di segnalare' : ''}${!deciso && !confermato ? ' e ' : ''}${!confermato ? '<strong>non risulta la conferma del Direttore</strong>' : ''}. Registrale prima («Registra decisione o conferma»): qui ti verrà chiesto di confermare due volte.</div>`}
+      : `<div class="dt-doc-riga" style="background:#ffdcd6;border-radius:6px;padding:6px 8px">⚠️ In cronologia ${!deciso ? '<strong>non risulta la decisione</strong> di Presidenza / Commissione Sicurezza di segnalare' : ''}${!deciso && !confermato ? ' e ' : ''}${!confermato ? '<strong>non risulta la conferma del Direttore</strong>' : ''}. Registrale prima («Registra decisione o conferma», oppure «Chiedi conferma al Direttore», che la dà dall'app): qui ti verrà chiesto di confermare due volte.</div>`}
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
       <div class="field" style="flex:1 1 260px"><label>A chi</label>
         <select id="sg-dest">${Object.entries(DESTINAZIONI).map(([v, [l]]) => `<option value="${v}">${esc(l)}</option>`).join('')}</select></div>
@@ -733,4 +736,108 @@ async function segnalaOrgani(d, eventi, dopo) {
       $('#sg-file').innerHTML = righe.join('') || 'Spunta almeno un verbale.';
     } catch (e) { toast(e.message, 'err'); } finally { attendi(btn, false); }
   });
+}
+
+/* ── LA CONFERMA DEL DIRETTORE, DALL'APP (17/09/2026) ──────────
+   Stesso disegno di «Autorizza dall'app» dei servizi: la segreteria prepara
+   la mail col link #critico-<id>; il Direttore entra col suo accesso (vede il
+   caso, non può gestirlo) e conferma o no. La riga in cronologia la scrive la
+   funzione s_critico_conferma_direttore, che accetta solo lui. Resta la strada
+   a mano («Registra decisione o conferma») per una conferma arrivata a voce o
+   per mail. */
+async function chiediConfermaDirettore(d, eventi, dopo) {
+  const k = await contesto(d);
+  const link = `${APP_URL}#critico-${d.id}`;
+  maschera(d, dopo, '🖊 Conferma del Direttore', `
+    <p class="hint">Comunicazione interna: niente protocollo. Si prepara la bozza per il Direttore con il link che apre il caso nell'app; il caso passa «in attesa di decisione». ${eventi.some((e) => e.tipo === 'decisione_organo') ? '' : '<strong>In cronologia non c\'è ancora la decisione di Presidenza / Commissione Sicurezza</strong>: la mail lo dirà.'}</p>
+    <div class="field"><label>A</label><input type="text" id="mk-a" value="${esc(k.c.direttore_email || 'direzione@formedilpadova.it')}"></div>
+    <div class="field"><label>Due righe tue, in testa <span class="hint">(facoltative)</span></label><textarea id="mk-testo" rows="3" style="width:100%"></textarea></div>`,
+  '📨 Registra e prepara la mail', async () => {
+    const { error } = await sb.from('s_cantieri_critici_eventi').insert({ critico_id: d.id, tipo: 'demandata', visibile_tecnico: false,
+      testo: 'Chiesta al Direttore la conferma della segnalazione agli organi di vigilanza.', dati: { chi: 'direttore', a: $('#mk-a').value.trim() } });
+    if (error) throw new Error(error.message);
+    await sb.from('s_cantieri_critici').update({ stato: 'attesa_decisione', gestione_note: d.gestione_note || null }).eq('id', d.id);
+    const premessa = $('#mk-testo').value.trim();
+    const { scaricaEml } = await import('./eml.js');
+    scaricaEml({
+      to: $('#mk-a').value.trim(), cc: [k.c.coordinatore_email].filter(Boolean),
+      oggetto: `Richiesta di conferma — segnalazione agli organi di vigilanza — ${k.caso.cantiere_breve} — ${d.impresa_nome}`,
+      corpo: `${premessa ? premessa + '\n\n' : ''}${corpoRichiestaConferma(k.caso, eventi, k.verbali, link)}`, nomeFile: `richiesta-conferma-direttore-caso-${d.id}.eml`,
+    });
+    toast('Registrato: caso in attesa di decisione, bozza per il Direttore scaricata.', 'ok');
+  });
+}
+
+/* i casi su cui è stata chiesta la conferma e il Direttore non ha ancora risposto */
+export async function inAttesaDelDirettore() {
+  const { data: casi } = await sb.from('s_cantieri_critici').select('id, data_evento, impresa_nome, cantiere_desc, stato').not('stato', 'in', '(chiuso,annullato)');
+  if (!casi?.length) return [];
+  const { data: ev } = await sb.from('s_cantieri_critici_eventi').select('critico_id, tipo, created_at, dati')
+    .in('critico_id', casi.map((c) => c.id)).in('tipo', ['demandata', 'autorizzazione_direttore']).order('created_at');
+  return casi.filter((c) => {
+    const miei = (ev || []).filter((e) => e.critico_id === c.id);
+    const chiesta = miei.filter((e) => e.tipo === 'demandata' && e.dati?.chi === 'direttore').at(-1);
+    return chiesta && !miei.some((e) => e.tipo === 'autorizzazione_direttore' && e.created_at > chiesta.created_at);
+  });
+}
+
+/* dal link della mail (#critico-<id>): la segreteria apre il caso, il Direttore la sua maschera */
+export async function apriDaLink(id) {
+  return state.soloDirettore ? confermaDirettore(id) : dettaglio(id);
+}
+
+/* l'ingresso del Direttore: i casi che aspettano lui */
+export async function elencoDirettore() {
+  const casi = await inAttesaDelDirettore();
+  if (!casi.length) return false;
+  apriDrawer('Cantieri critici — conferme richieste', '', `
+    <p class="hint">Segnalazioni agli organi di vigilanza su cui è stata chiesta la tua conferma.</p>
+    ${casi.map((c) => `<div class="hm-riga" data-cd="${c.id}" style="cursor:pointer"><span>⚠️</span>
+      <span><strong>${esc(c.impresa_nome)}</strong> — ${esc(c.cantiere_desc)}</span><span class="hint">${dataIt(c.data_evento)}</span></div>`).join('')}`);
+  $('#drawer-body').querySelectorAll('[data-cd]').forEach((r) => r.addEventListener('click', () => confermaDirettore(Number(r.dataset.cd))));
+  return true;
+}
+
+export async function confermaDirettore(id) {
+  const [{ data: d, error }, { data: eventi }] = await Promise.all([
+    sb.from('s_cantieri_critici').select('*').eq('id', id).maybeSingle(),
+    sb.from('s_cantieri_critici_eventi').select('*').eq('critico_id', id).order('created_at'),
+  ]);
+  if (error || !d) return toast('Caso non trovato' + (error ? ': ' + error.message : '.'), 'err');
+  let verbali = [];
+  if (d.cantiere_id) {
+    const r = await sb.from('visite').select('nr_verbale, data_visita, ipc, segnalazione, elimina').eq('cantiere_id', d.cantiere_id).order('data_visita');
+    verbali = (r.data || []).filter((v) => !v.elimina);
+  }
+  const fermo = FERMI.includes(d.stato);
+  const gia = [...(eventi || [])].reverse().find((e) => e.tipo === 'autorizzazione_direttore');
+  apriDrawer(`⚠️ Cantiere critico n° ${d.id} — conferma della segnalazione`, '', `
+    <div class="dt-doc-riga"><strong>Cantiere:</strong> ${esc(d.cantiere_desc)}</div>
+    <div class="dt-doc-riga"><strong>Impresa:</strong> ${esc(d.impresa_nome)}</div>
+    <div class="dt-doc-riga"><strong>Origine:</strong> ${esc((ORIGINI[d.origine] || [])[1] || d.origine)} — ${dataIt(d.data_evento)} · <strong>tecnico:</strong> ${esc(d.tecnico_nome || '—')}</div>
+    <div class="dt-doc-riga" style="white-space:pre-wrap"><strong>Note del tecnico:</strong>\n${esc(d.note)}</div>
+    ${verbali.length ? `<div class="dt-doc-riga"><strong>Verbali sul cantiere:</strong><br>${verbali.map((v) =>
+      `${esc(v.nr_verbale)} del ${dataIt(v.data_visita)}${v.ipc ? ` — IPC ${esc(v.ipc)}` : ''}${v.segnalazione ? ' — <strong>il tecnico propone la segnalazione</strong>' : ''}`).join('<br>')}</div>` : ''}
+    <div style="font-weight:600;margin:8px 0 4px">Cronologia</div>
+    ${(eventi || []).filter((e) => e.tipo !== 'stato').map((e) => `<div class="dt-doc-riga" style="white-space:pre-wrap;font-size:12.5px"><span class="hint">${oraIt(e.created_at)}</span>
+      <strong>${esc(EVENTI[e.tipo] || e.tipo)}</strong> ${e.testo ? `— ${esc(e.testo)}` : ''}</div>`).join('') || '<p class="hint">Ancora niente.</p>'}
+    <hr style="margin:10px 0;border:0;border-top:1px solid var(--bordo)">
+    ${fermo ? `<p class="hint">Il caso è ${esc((STATI[d.stato] || [])[1] || d.stato)}: non c'è niente da confermare.</p>` : `
+      ${gia ? `<p class="hint">Hai già risposto: ${esc(gia.testo || '')} Puoi rispondere di nuovo: vale l'ultima.</p>` : ''}
+      <p class="hint">Se segnalare lo decidono la Presidenza e la Commissione Sicurezza; qui dai la tua conferma. Resta in cronologia col tuo nome, data e ora. La segnalazione la prepara poi la segreteria.</p>
+      <div class="field"><label>Una nota <span class="hint">(facoltativa)</span></label><textarea id="cd-nota" rows="3" style="width:100%"></textarea></div>
+      <div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap">
+        <button class="btn btn-ghost btn-sm" id="cd-no">⛔ Non confermo</button>
+        <button class="btn btn-primary btn-sm" id="cd-si">✅ Confermo la segnalazione</button></div>`}`);
+  const rispondi = async (btn, cosa) => {
+    if (!confirm(cosa === 'segnalare' ? 'CONFERMI la segnalazione agli organi di vigilanza per questo cantiere?' : 'NON confermi la segnalazione?')) return;
+    attendi(btn, true, 'Registro…');
+    const { error: e } = await sb.rpc('s_critico_conferma_direttore', { p_id: d.id, p_cosa: cosa, p_nota: $('#cd-nota').value.trim() || null });
+    attendi(btn, false);
+    if (e) return toast('Non registrato: ' + e.message, 'err');
+    toast('Registrato in cronologia. La segreteria lo vede nel caso.', 'ok');
+    confermaDirettore(id);
+  };
+  $('#cd-si')?.addEventListener('click', (ev) => rispondi(ev.currentTarget, 'segnalare'));
+  $('#cd-no')?.addEventListener('click', (ev) => rispondi(ev.currentTarget, 'non_segnalare'));
 }

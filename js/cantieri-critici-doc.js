@@ -190,3 +190,18 @@ Note del tecnico: ${d.note || '—'}
 ${vv ? `\nVerbali sul cantiere:\n${vv}\n` : ''}${crono ? `\nChe cosa è stato fatto finora:\n${crono}\n` : ''}
 La decisione verrà registrata nel caso; l'eventuale segnalazione agli organi di vigilanza esce con la conferma del Direttore.`;
 }
+
+/* la richiesta di conferma al Direttore, col link che apre il caso nell'app
+   (il suo ingresso è limitato: vede il caso e può solo confermare o no) */
+export function corpoRichiestaConferma(d, eventi, verbali, link) {
+  const decisioni = (eventi || []).filter((e) => e.tipo === 'decisione_organo').map((e) => `- ${e.testo}`).join('\n');
+  const vv = (verbali || []).map((v) => `- ${v.nr_verbale} del ${dataIt(v.data_visita)}${v.ipc ? ` — IPC ${v.ipc}` : ''}${v.segnalazione ? ' — il tecnico propone la segnalazione' : ''}`).join('\n');
+  return `Egr. Direttore,
+
+si chiede la conferma per la segnalazione agli organi di vigilanza (SPISAL e/o ITL) del cantiere di ${d.cantiere_breve || d.cantiere_desc}, impresa ${d.impresa_nome} — caso n° ${d.id} del registro dei cantieri critici.
+${decisioni ? `\nDecisione degli organi dell'Ente:\n${decisioni}\n` : '\nIn cronologia non è ancora registrata la decisione di Presidenza / Commissione Sicurezza.\n'}${vv ? `\nVerbali sul cantiere:\n${vv}\n` : ''}
+Conferma dall'app (si apre sul caso, con tutta la cronologia):
+${link}
+
+In alternativa basta rispondere a questa mail: la conferma verrà registrata dalla segreteria.`;
+}

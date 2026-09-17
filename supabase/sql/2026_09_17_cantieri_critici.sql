@@ -352,3 +352,31 @@ create or replace view public.s_dinieghi_accesso with (security_invoker = true) 
 -- Destinatari della segnalazione agli organi di vigilanza: stanno in s_config
 -- (chiave organi_vigilanza_contatti: spisal, itl, ceiv — indicati dall'utente),
 -- non nel codice. La Cassa Edile va in copia SOLO sulla segnalazione.
+
+-- ---------- la conferma del Direttore, dall'app ----------
+-- La cronologia la scrivono solo segreteria e coordinatore: il Direttore passa
+-- da qui, e può scrivere SOLO questo evento, a nome suo (link #critico-<id>).
+create or replace function public.s_critico_conferma_direttore(p_id bigint, p_cosa text, p_nota text default null)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare v_stato text; v_email text := lower(coalesce(auth.jwt() ->> 'email', '')); v_ev bigint;
+begin
+  if not coalesce(is_direttore(), false) then
+    raise exception 'La conferma è riservata al Direttore';
+  end if;
+  if p_cosa not in ('segnalare', 'non_segnalare') then
+    raise exception 'Conferma non valida: %', p_cosa;
+  end if;
+  select stato into v_stato from s_cantieri_critici where id = p_id;
+  if v_stato is null then raise exception 'Caso % non trovato', p_id; end if;
+  if v_stato in ('chiuso', 'annullato') then raise exception 'Il caso % è già %', p_id, v_stato; end if;
+  insert into s_cantieri_critici_eventi (critico_id, tipo, testo, visibile_tecnico, dati)
+  values (p_id, 'autorizzazione_direttore',
+          'Direttore, dall''app il ' || to_char(now() at time zone 'Europe/Rome', 'DD/MM/YYYY "alle" HH24:MI') || ': '
+            || case p_cosa when 'segnalare' then 'CONFERMA la segnalazione agli organi di vigilanza' else 'NON conferma la segnalazione' end
+            || case when nullif(trim(coalesce(p_nota, '')), '') is not null then '. ' || trim(p_nota) else '.' end,
+          true, jsonb_build_object('chi', 'Direttore', 'cosa', p_cosa, 'via', 'app', 'utente', v_email))
+  returning id into v_ev;
+  return jsonb_build_object('evento_id', v_ev, 'cosa', p_cosa);
+end $$;
+revoke execute on function public.s_critico_conferma_direttore(bigint, text, text) from public, anon;
+grant execute on function public.s_critico_conferma_direttore(bigint, text, text) to authenticated, service_role;

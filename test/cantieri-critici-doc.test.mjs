@@ -100,3 +100,16 @@ test('la conferenza è una proposta, il fascicolo per chi decide elenca verbali 
   assert.doesNotMatch(f, /— x\n/);
   assert.match(corpoUlterioreVisita(caso, 'Tommaso', 'Sentire prima il capocantiere.'), /^Ciao Tommaso,[\s\S]*Sentire prima il capocantiere\./);
 });
+
+test('la richiesta di conferma al Direttore porta il link al caso e dice se manca la decisione degli organi', async () => {
+  const { corpoRichiestaConferma } = await import('../js/cantieri-critici-doc.js');
+  const link = 'https://formedilpadovacpt.github.io/segreteria/#critico-12';
+  const senza = corpoRichiestaConferma(caso, [], [], link);
+  assert.match(senza, /non è ancora registrata la decisione di Presidenza \/ Commissione Sicurezza/);
+  assert.ok(senza.includes(link));
+  const con = corpoRichiestaConferma(caso, [{ tipo: 'decisione_organo', testo: 'Presidenza, 17/09/2026: segnalare agli organi di vigilanza. Da mail.' }],
+    [{ nr_verbale: 'CPT/24_25/0704', data_visita: '2025-09-05', segnalazione: true }], link);
+  assert.match(con, /Decisione degli organi dell'Ente:\n- Presidenza, 17\/09\/2026/);
+  assert.match(con, /CPT\/24_25\/0704 del 05\/09\/2025 — il tecnico propone la segnalazione/);
+  assert.doesNotMatch(con, /non è ancora registrata/);
+});
