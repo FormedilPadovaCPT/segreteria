@@ -61,6 +61,16 @@ export async function render() {
     bacheca = { mail: bMail || [], eventi: bEventi || [], al: cfgB.bacheca_al || null, esito: esitoB };
   } catch { /* senza il ruolo segreteria la card non compare */ }
 
+  /* ── flussi mai usati (17/09/2026): quante volte ogni flusso ha lavorato su
+     un caso vero. Serve a provarli prima che arrivi il primo caso: chi lo
+     usa fra tre mesi non ricorda come funziona. Il conto lo fa il database
+     (s_flussi_uso), che esclude lo storico importato e gli annullati. ── */
+  let flussi = null;
+  try {
+    const { data, error } = await sb.rpc('s_flussi_uso');
+    if (!error) flussi = data || [];
+  } catch { /* senza il ruolo segreteria la card non compare */ }
+
   /* ── stato del canale del portale servizi (04/09/2026, rifatto il 13/09/2026) ──
      Un canale senza richieste nuove e' ambiguo: puo' voler dire che non ha
      scritto nessuno, o che il tubo e' rotto (incidente di agosto: Apps Script
@@ -425,6 +435,22 @@ export async function render() {
             <span>Pagata, <strong>avviso al tecnico non partito</strong>: ${esc(f.tecnico_nome || '?')} — fattura n° ${esc(f.numero || '?')}</span>
             <span class="hint" title="${esc(f.avviso_pagamento_esito || '')}">${esc((f.avviso_pagamento_esito || 'in corso').slice(0, 40))}</span></div>`).join('')}`,
         vai('fatture-tecnici', 'Apri incarichi e fatture'))}
+
+      ${flussi ? (() => {
+        const mai = flussi.filter((x) => !x.casi);
+        const usati = flussi.filter((x) => x.casi).sort((a, b) => String(b.ultimo).localeCompare(String(a.ultimo)));
+        const perArea = mai.reduce((m, x) => ((m[x.area] = m[x.area] || []).push(x), m), {});
+        return card('🧪 Flussi mai usati', mai.length, `
+          <p class="hint" style="margin:0 0 6px">Mai usati su un caso vero: vanno provati prima che servano,
+            con un caso di prova da annullare subito dopo. Lo storico importato e gli annullati non contano.</p>
+          ${Object.entries(perArea).map(([area, righe]) => `
+            <div class="hm-riga"><span>⚪</span><span><strong>${esc(area)}</strong> — ${righe.map((x) => esc(x.flusso)).join(' · ')}</span><span class="hm-mini">${righe.length}</span></div>`).join('')}
+          ${usati.length ? `<details style="margin-top:6px"><summary class="hint" style="cursor:pointer">Già usati (${usati.length})</summary>
+            ${usati.map((x) => `
+              <div class="hm-riga"><span>🟢</span><span>${esc(x.flusso)} <span class="hint">(${esc(x.area)})</span></span>
+                <span class="hint">${x.casi} ${x.casi === 1 ? 'caso' : 'casi'} · ultimo ${dataIt(x.ultimo)}</span></div>`).join('')}
+          </details>` : ''}`);
+      })() : ''}
 
       ${card('📚 Ultimi protocolli', '', `
         ${(prot || []).map((r) => `
