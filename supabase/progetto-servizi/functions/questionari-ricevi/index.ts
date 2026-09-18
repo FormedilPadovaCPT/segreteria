@@ -14,6 +14,8 @@
 // Azioni (POST JSON { azione, ... }):
 //   pubblica  { righe: [...] }  aggiunge o aggiorna un questionario
 //   ritira    { codici: [...] } lo toglie dal portale (evento annullato)
+//   pubblica_iscr { righe: [...] }  un evento aperto alle iscrizioni
+//   ritira_iscr   { codici: [...] } lo toglie dal portale
 //   battito   {}                la tabella risponde
 //
 // Che cosa NON entra qui: nominativi, risposte, la firma in chiaro (arriva
@@ -39,6 +41,10 @@ function uguali(a: string, b: string): boolean {
 const CAMPI = new Set(['codice', 'firma_hash', 'titolo', 'genere', 'quando', 'sede', 'chiuso_il', 'domande'])
 const CAMPI_TEST = new Set(['codice', 'firma_hash', 'titolo', 'quando', 'sede', 'chiuso_il', 'minuti', 'soglia', 'domande', 'persone'])
 const CAMPI_DOM_TEST = new Set(['id', 'ordine', 'testo', 'tipo', 'opzioni', 'punti'])
+const CAMPI_ISCR = new Set(['codice', 'firma_hash', 'titolo', 'genere', 'descrizione',
+  'progetto', 'progetto_desc', 'ente', 'sede', 'modalita', 'ore', 'dal', 'al',
+  'giornate', 'chiuso_il', 'in_elenco', 'aperte', 'liberi'])
+const CAMPI_GIORNATA = new Set(['data', 'dalle', 'alle', 'dalle2', 'alle2', 'sede'])
 const CAMPI_DOMANDA = new Set(['id', 'ordine', 'testo', 'tipo', 'opzioni', 'obbligatoria', 'tronco'])
 const TIPI = new Set(['scala', 'scelta', 'multipla', 'testo'])
 const GENERI = new Set(['conferenza', 'corso', 'convegno'])
@@ -123,6 +129,38 @@ function controllaTest(r: Record<string, unknown>): string | null {
   return null
 }
 
+/* ⚠️ Un evento aperto alle iscrizioni non porta NESSUN dato di persona: non
+   chi si è iscritto, non il referente, non l'impresa che ha chiesto la
+   conferenza. Qui esce solo che cos'è, quando, dove e quanti posti restano —
+   e il controllo lo fa rispettare rifiutando ogni campo che non sia previsto. */
+function controllaIscr(r: Record<string, unknown>): string | null {
+  for (const k of Object.keys(r)) if (!CAMPI_ISCR.has(k)) return `campo non previsto: ${k}`
+  if (!(typeof r.codice === 'string' && /^[0-9]{1,8}-[A-Z0-9]{4}$/.test(r.codice))) return 'codice non valido'
+  if (!(typeof r.firma_hash === 'string' && /^[0-9a-f]{64}$/.test(r.firma_hash))) return 'firma_hash non valida'
+  if (!testo(r.titolo, 300)) return 'titolo non valido'
+  for (const k of ['genere', 'descrizione', 'progetto', 'progetto_desc', 'ente', 'sede', 'modalita'] as const) {
+    if (!testoO(r[k], k === 'descrizione' || k === 'progetto_desc' ? 2000 : 300)) return `${k} non valido`
+  }
+  for (const k of ['dal', 'al'] as const) {
+    if (r[k] != null && !(typeof r[k] === 'string' && DATA.test(r[k] as string))) return `${k} non è una data`
+  }
+  if (r.ore != null && !(typeof r.ore === 'number' && r.ore >= 0 && r.ore <= 2000)) return 'ore non valide'
+  if (r.liberi != null && !(typeof r.liberi === 'number' && Number.isInteger(r.liberi) && r.liberi >= 0)) return 'liberi non valido'
+  if (r.chiuso_il != null && !(typeof r.chiuso_il === 'string' && ISTANTE.test(r.chiuso_il))) return 'chiuso_il non è un istante'
+  if (typeof r.in_elenco !== 'boolean' || typeof r.aperte !== 'boolean') return 'in_elenco/aperte non booleani'
+  if (!Array.isArray(r.giornate) || r.giornate.length > 60) return 'giornate: al massimo 60'
+  for (const g of r.giornate as Record<string, unknown>[]) {
+    if (typeof g !== 'object' || g === null) return 'giornata non è un oggetto'
+    for (const k of Object.keys(g)) if (!CAMPI_GIORNATA.has(k)) return `campo non previsto nella giornata: ${k}`
+    if (g.data != null && !(typeof g.data === 'string' && DATA.test(g.data))) return 'data della giornata non valida'
+    for (const k of ['dalle', 'alle', 'dalle2', 'alle2'] as const) {
+      if (g[k] != null && !(typeof g[k] === 'string' && /^\d{2}:\d{2}$/.test(g[k] as string))) return `${k} non è un orario`
+    }
+    if (!testoO(g.sede, 200)) return 'sede della giornata non valida'
+  }
+  return null
+}
+
 Deno.serve(async (req) => {
   if (req.method !== 'POST') return errore('solo POST', 405)
   const sb = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
@@ -184,6 +222,28 @@ Deno.serve(async (req) => {
       buone.push({ ...(r as Record<string, unknown>), aggiornato_il: new Date().toISOString() })
     }
     const { error } = await sb.from('test_pubblici').upsert(buone, { onConflict: 'codice' })
+    if (error) return errore('non pubblicato: ' + error.message, 500)
+    return json({ status: 'ok', pubblicati: buone.length })
+  }
+
+  if (azione === 'pubblica_iscr' || azione === 'ritira_iscr') {
+    if (azione === 'ritira_iscr') {
+      const codici = Array.isArray(corpo.codici) ? corpo.codici.filter((c) => typeof c === 'string').slice(0, 50) : []
+      if (!codici.length) return errore('nessun codice da ritirare')
+      const { error } = await sb.from('iscrizioni_pubbliche').delete().in('codice', codici)
+      if (error) return errore('non ritirato: ' + error.message, 500)
+      return json({ status: 'ok', ritirati: codici.length })
+    }
+    const righe = Array.isArray(corpo.righe) ? corpo.righe : []
+    if (!righe.length || righe.length > 50) return errore('da 1 a 50 righe per volta')
+    const buone: Record<string, unknown>[] = []
+    for (const r of righe) {
+      if (typeof r !== 'object' || r === null) return errore('riga non valida')
+      const motivo = controllaIscr(r as Record<string, unknown>)
+      if (motivo) return errore(`riga ${(r as Record<string, unknown>).codice ?? '?'}: ${motivo}`)
+      buone.push({ ...(r as Record<string, unknown>), aggiornato_il: new Date().toISOString() })
+    }
+    const { error } = await sb.from('iscrizioni_pubbliche').upsert(buone, { onConflict: 'codice' })
     if (error) return errore('non pubblicato: ' + error.message, 500)
     return json({ status: 'ok', pubblicati: buone.length })
   }

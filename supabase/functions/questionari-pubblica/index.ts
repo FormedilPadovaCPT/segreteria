@@ -90,13 +90,17 @@ serve(async (req) => {
     const ids = corsi.map(Number).filter((n) => Number.isInteger(n) && n > 0).slice(0, 50)
     if (!ids.length) return json({ error: 'manca corso_id' }, 400)
 
-    /* due cose diverse dallo stesso sportello: il questionario (anonimo) e il
-       TEST (nominativo). Del test escono le domande senza le risposte giuste
-       e, delle persone, impronta del codice personale e iniziali. */
+    /* tre cose diverse dallo stesso sportello: il questionario (anonimo), il
+       TEST (nominativo) e le ISCRIZIONI. Del test escono le domande senza le
+       risposte giuste e, delle persone, impronta del codice personale e
+       iniziali; delle iscrizioni esce solo che cos'e' l'evento. */
     const test = corpo.cosa === 'test'
-    const rpc = test ? 'test_pubblicazione' : 'quest_pubblicazione'
-    const azione = test ? 'pubblica_test' : 'pubblica'
-    const colonne = test
+    const iscr = corpo.cosa === 'iscrizione'
+    const rpc = iscr ? 'iscr_pubblicazione' : test ? 'test_pubblicazione' : 'quest_pubblicazione'
+    const azione = iscr ? 'pubblica_iscr' : test ? 'pubblica_test' : 'pubblica'
+    const colonne = iscr
+      ? { quando: 'iscr_pubblicato_il', esito: 'iscr_pubblica_esito' }
+      : test
       ? { quando: 'test_pubblicato_il', esito: 'test_pubblica_esito' }
       : { quando: 'quest_pubblicato_il', esito: 'quest_pubblica_esito' }
 
@@ -106,7 +110,8 @@ serve(async (req) => {
       const { data, error } = await sb.rpc(rpc, { p_corso_id: id })
       if (error) { saltati.push({ corso_id: id, motivo: error.message }); continue }
       const p = data as Pubblicazione | null
-      if (!p || !p.codice) { saltati.push({ corso_id: id, motivo: `${test ? 'test' : 'questionario'} non aperto su questo evento` }); continue }
+      const nome = iscr ? 'iscrizioni' : test ? 'test' : 'questionario'
+      if (!p || !p.codice) { saltati.push({ corso_id: id, motivo: `${nome}: non aperte su questo evento` }); continue }
       if (!p.firma) { saltati.push({ corso_id: id, motivo: 'il codice non è firmato' }); continue }
       const comune = {
         codice: p.codice,
@@ -117,11 +122,40 @@ serve(async (req) => {
         chiuso_il: p.chiuso_il,
         domande: p.domande ?? [],
       }
-      righe.push(test
-        ? { ...comune, minuti: (p as Record<string, unknown>).minuti ?? null,
-            soglia: (p as Record<string, unknown>).soglia ?? null,
-            persone: (p as Record<string, unknown>).persone ?? [] }
-        : { ...comune, genere: p.genere })
+      if (iscr) {
+        /* ⚠️ L'evento aperto alle iscrizioni non condivide la forma degli altri
+           due: niente domande, e in più le giornate e i posti liberi. I posti
+           liberi sono un numero che invecchia — chi legge il portale vede
+           quelli dell'ultima pubblicazione, non quelli di adesso, e per questo
+           l'app ripubblica a ogni conferma. */
+        const q = p as unknown as Record<string, unknown>
+        righe.push({
+          codice: p.codice,
+          firma_hash: await sha256(p.firma),
+          titolo: String(p.titolo ?? 'Evento').slice(0, 300),
+          genere: q.genere ?? null,
+          descrizione: q.descrizione ?? null,
+          progetto: q.progetto ?? null,
+          progetto_desc: q.progetto_desc ?? null,
+          ente: q.ente ?? null,
+          sede: p.sede ? String(p.sede).slice(0, 300) : null,
+          modalita: q.modalita ?? null,
+          ore: q.ore != null ? Number(q.ore) : null,
+          dal: q.dal ?? null,
+          al: q.al ?? null,
+          giornate: q.giornate ?? [],
+          chiuso_il: p.chiuso_il,
+          in_elenco: q.in_elenco === true,
+          aperte: q.aperte === true,
+          liberi: q.liberi != null ? Number(q.liberi) : null,
+        })
+      } else {
+        righe.push(test
+          ? { ...comune, minuti: (p as Record<string, unknown>).minuti ?? null,
+              soglia: (p as Record<string, unknown>).soglia ?? null,
+              persone: (p as Record<string, unknown>).persone ?? [] }
+          : { ...comune, genere: p.genere })
+      }
     }
     if (!righe.length) return json({ status: 'error', pubblicati: 0, saltati }, 400)
 

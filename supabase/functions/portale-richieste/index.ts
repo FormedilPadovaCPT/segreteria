@@ -306,6 +306,40 @@ async function agganciaTest(sb: SB, d: Dati): Promise<Dati> {
   }
 }
 
+/* ── l'iscrizione a un evento ──────────────────────────────────────────────
+   Un motore solo per due porte: l'elenco pubblico dei corsi aperti e il link
+   targato che la segreteria manda all'impresa dopo una conferenza. La prova
+   di chi puo' iscriversi la fa iscr_verifica nel Gestionale: firma valida,
+   oppure evento messo in vetrina.
+   ⚠️ Chiuse o piene, l'iscrizione entra lo stesso (oltre_tetto = true) e la
+   segreteria decide: perdere chi ha fatto in tempo per un secondo sarebbe il
+   modo peggiore di sbagliare. */
+async function agganciaIscrizione(sb: SB, d: Dati): Promise<Dati> {
+  const rif = String(d.riferimento ?? '').trim()
+  const { data, error } = await sb.rpc('iscr_verifica', { p_riferimento: rif.slice(0, 200) })
+  if (error) return { riferimento_esito: 'verifica non riuscita: ' + error.message }
+  const r = (Array.isArray(data) ? data[0] : data) as Dati | undefined
+  if (!r || r.esito !== 'agganciato') return { riferimento_esito: String(r?.esito || 'non agganciato') }
+
+  /* l'impresa si riconosce come in tutti gli altri moduli: P.IVA, poi CEIV.
+     Se si iscrive una persona per se', non c'e' impresa da riconoscere. */
+  const perConto = String(d.per_conto ?? '').toLowerCase() === 'persona' ? 'persona' : 'impresa'
+  const out: Dati = {
+    corso_id: r.corso_id,
+    per_conto: perConto,
+    riferimento_esito: r.aperto === true ? 'agganciato' : 'agganciato, iscrizioni chiuse o al completo',
+  }
+  if (perConto === 'impresa') {
+    const piva = pivaNorm(d.piva) || pivaNorm(d.partita_iva) || pivaNorm(d.cf_impresa)
+    const e = await esitoCeiv(sb, piva)
+    out.partita_iva = piva || testo(d.piva, 30)
+    out.impresa_id = e.impresa_id
+    out.esito_ceiv = e.esito_ceiv
+    out.ceiv_verificato_il = e.ceiv_verificato_il
+  }
+  return out
+}
+
 /* ── pre-istruttoria: le stesse regole che aveva import-rlst ─────────────── */
 function normComune(v: string): string {
   return String(v || '').toUpperCase().replace(/\(.*$/, '').replace(/\s+/g, ' ').trim()
@@ -681,6 +715,36 @@ const MODULI: Record<string, Modulo> = {
     colonne: { risposte: 'json:risposte' },
     extra: agganciaTest,
     campi: [['PROGRESSIVO', '#prog'], ['CODICE', 'codice'], ['RISPOSTE', 'risposte'], ['PRIVACY', 'privacy']],
+  },
+
+  /* ISCRIZIONE a un evento (18/09/2026): un corso di un progetto finanziato
+     dall'elenco pubblico, oppure le anagrafiche che l'impresa manda dopo una
+     conferenza di cantiere. ⚠️ Non diventa un iscritto: diventa una RICHIESTA
+     che la segreteria guarda, perche' e' li' che si fermano i doppioni di
+     persone e di imprese (decisione riferita dall'utente il 18/09). */
+  isc: {
+    tabella: 's_iscrizioni',
+    obbligatori: [],
+    chi: 'ragione_sociale',
+    colonne: {
+      ragione_sociale: 'ragione_sociale', cf_impresa: 'maiusc:cf_impresa',
+      ind_impresa: 'ind_impresa', comune_impresa: 'comune_impresa',
+      cap_impresa: 'cap_impresa', prov_impresa: 'maiusc:prov_impresa',
+      referente: 'referente', email: 'email', telefono: 'telefono',
+      /* ⚠️ Le anagrafiche viaggiano in un elenco JSON: il modulo ne manda
+         quante ne servono, e il numero non e' noto quando si scrive il codice.
+         Il limite di 20.000 caratteri dello spec «json» tiene una trentina di
+         persone per invio — per un convegno piu' grande si manda piu' volte. */
+      persone: 'json:persone',
+      note: 'note', privacy: 'privacy',
+    },
+    extra: agganciaIscrizione,
+    campi: [['PROGRESSIVO', '#prog'], ['PER CONTO', 'per_conto'],
+      ['RAGIONE SOCIALE', 'ragione_sociale'], ['PARTITA IVA', 'piva|partita_iva'],
+      ['CODICE FISCALE IMPRESA', 'cf_impresa'], ['INDIRIZZO', 'ind_impresa'],
+      ['COMUNE', 'comune_impresa'], ['CAP', 'cap_impresa'], ['PROVINCIA', 'prov_impresa'],
+      ['REFERENTE', 'referente'], ['EMAIL', 'email'], ['TELEFONO', 'telefono'],
+      ['PERSONE', 'persone'], ['NOTE', 'note'], ['PRIVACY', 'privacy']],
   },
 
   qev: {

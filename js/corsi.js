@@ -28,6 +28,7 @@ import { collegaRicercaPersone } from './ricerca-anagrafica.js';
 import { generaCodice, serieVerificabile, urlVerifica, URL_VERIFICA_PREDEFINITA } from './attestati-verifica.js';
 import { datiQuest, sezioneQuest, collegaQuest, cellaSpunta } from './corsi-quest.js';
 import { datiTest, sezioneTest, collegaTest } from './corsi-test.js';
+import { datiIscr, sezioneIscr, collegaIscr } from './corsi-iscrizioni.js';
 
 let corsi = [];
 let progetti = [];
@@ -290,6 +291,7 @@ export async function apriCorso(id) {
 
   const quest = await datiQuest(c);
   const test = await datiTest(c);
+  const iscr = await datiIscr(c);
 
   const oreTot = c.durata_ore || (giornate || []).reduce((s, g) => s + oreGiornata(g), 0);
   const conAttestato = (iscritti || []).filter((i) => i.attestato_numero).length;
@@ -389,6 +391,8 @@ export async function apriCorso(id) {
       <button class="btn btn-ghost btn-sm" id="co-calcola">🧮 Calcola frequenze dalle presenze</button>
     </div>
 
+    ${sezioneIscr(c, iscr)}
+
     ${sezioneQuest(c, quest, iscritti)}
 
     ${sezioneTest(c, test, iscritti)}
@@ -409,6 +413,7 @@ export async function apriCorso(id) {
   $('#drawer').classList.add('drawer-xl');   /* scheda larga: qui vivono tabelle vere */
 
   /* ── eventi ── */
+  collegaIscr(c, iscr, () => apriCorso(c.id));
   collegaQuest(c, quest, iscritti, () => apriCorso(c.id));
   collegaTest(c, test, iscritti, () => apriCorso(c.id));
   $('#co-dati').addEventListener('click', () => formCorso(c));

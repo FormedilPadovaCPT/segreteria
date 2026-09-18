@@ -46,7 +46,7 @@ const CORS = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
-const TIPI = ['seg', 'not', 'cons', 'vis', 'conf', 'att', 'rlst', 'rls', 'qst', 'qev', 'tst']
+const TIPI = ['seg', 'not', 'cons', 'vis', 'conf', 'att', 'rlst', 'rls', 'qst', 'qev', 'tst', 'isc']
 /* gli stessi campi obbligatori della tabella MODULI del Gestionale */
 const OBBLIGATORI: Record<string, string[]> = {
   seg: ['indirizzo_cantiere', 'comune_cantiere'], not: ['indirizzo_cantiere', 'comune_cantiere'],
@@ -58,6 +58,11 @@ const OBBLIGATORI: Record<string, string[]> = {
   /* tst: la prova del test finale. Il codice personale lo controlla il
      Gestionale, che sa chi c'e' in quel corso: qui non si puo' sapere. */
   tst: [],
+  /* isc: iscrizione a un evento. Non si chiede qui nemmeno la ragione sociale:
+     puo' iscriversi un'impresa per i suoi lavoratori OPPURE una persona per
+     se' (un libero professionista a un convegno). Che cosa serve davvero lo
+     controlla il Gestionale, che sa di quale evento si tratta. */
+  isc: [],
 }
 const MAX_CARATTERI = 28 * 1024 * 1024
 const MAX_CARATTERI_MODULO: Record<string, number> = {
@@ -67,6 +72,8 @@ const MAX_CARATTERI_MODULO: Record<string, number> = {
      dall'accesso (13/09/2026). */
   qev: 64 * 1024,
   tst: 256 * 1024,
+  /* un'iscrizione e' testo: tante anagrafiche, nessun allegato */
+  isc: 256 * 1024,
 }
 const MAX_CARATTERI_ALTRI = 256 * 1024
 const MAX_FOTO = 3

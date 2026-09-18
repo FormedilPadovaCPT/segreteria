@@ -130,6 +130,17 @@ export async function render() {
   let questionari = [];
   let qsMod = null;
   try { qsMod = await import('./questionari.js'); questionari = await qsMod.daLavorare(); } catch { /* senza accesso la card resta vuota */ }
+  /* iscrizioni arrivate dal portale (18/09/2026): sono richieste, non
+     iscritti, e finche' restano in coda OCCUPANO IL POSTO nel conteggio dei
+     liberi — un evento puo' sembrare pieno solo perche' nessuno le ha
+     guardate. Per questo stanno qui e non solo dentro la scheda del corso. */
+  let iscrizioni = [];
+  try {
+    const { data } = await sb.from('s_iscrizioni')
+      .select('id, corso_id, stato, per_conto, ragione_sociale, persone, email, creato_il, timestamp_modulo, esito_ceiv')
+      .in('stato', ['nuova', 'in_attesa']).order('id', { ascending: false }).limit(30);
+    iscrizioni = data || [];
+  } catch { /* senza accesso la card resta vuota */ }
   const praticaDi = {};
   try {
     const { data } = await sb.from('incarichi')
@@ -371,6 +382,28 @@ export async function render() {
           + `<p class="hint" style="margin-top:6px">${bassi.length ? `🔻 ${bassi.length} con voto basso · ` : ''}${contatti.length ? `📞 ${contatti.length} da richiamare · ` : ''}<a href="#" data-goto="questionari">tutti i questionari</a></p>`);
       })()}
 
+      ${(() => {
+        const titoli = Object.fromEntries((corsi || []).map((c) => [c.id, c.titolo]));
+        const quante = iscrizioni.reduce((n, r) => n + (Array.isArray(r.persone) ? r.persone.length : 0), 0);
+        return card('🎓 Iscrizioni da confermare', iscrizioni.length,
+          (iscrizioni.length
+            ? iscrizioni.slice(0, 6).map((r) => {
+              const n = Array.isArray(r.persone) ? r.persone.length : 0;
+              const chi = r.per_conto === 'persona' ? 'una persona per sé' : (r.ragione_sociale || '—');
+              return `
+            <div class="hm-riga" data-iscrizione="${r.corso_id || ''}">
+              <span>🎓</span>
+              <span><strong>${esc(chi)}</strong> — ${n} person${n === 1 ? 'a' : 'e'}
+                ${r.esito_ceiv === 'non_iscritta' ? '<span class="hint">(non CEIV)</span>' : ''}
+                <br><span class="hint">${esc(titoli[r.corso_id] || (r.corso_id ? 'corso n° ' + r.corso_id : 'evento non agganciato'))}</span></span>
+              <span class="hint">${dataIt(String(r.timestamp_modulo || r.creato_il || '').slice(0, 10))}</span>
+            </div>`;
+            }).join('') + (iscrizioni.length > 6 ? `<p class="hint">…e altre ${iscrizioni.length - 6}.</p>` : '')
+            : '<p class="hint">Nessuna iscrizione in attesa.</p>')
+          + (iscrizioni.length ? `<p class="hint" style="margin-top:6px">${quante} persone in tutto. Finché non sono confermate
+              <strong>occupano il posto</strong>: il portale mostra meno posti liberi di quanti ce ne siano davvero.</p>` : ''));
+      })()}
+
       ${card('✅ Autorizzate — da eseguire', daEseguire.length,
         daEseguire.length
           ? daEseguire.slice(0, 8).map(rigaPratica).join('') + (daEseguire.length > 8 ? `<p class="hint">…e altre ${daEseguire.length - 8}.</p>` : '')
@@ -526,6 +559,13 @@ export async function render() {
      apre la riga — lo stesso giro delle altre card */
   host.querySelectorAll('[data-questionario]').forEach((r) =>
     r.addEventListener('click', () => apriPratica('questionari', Number(r.dataset.questionario))));
+  /* l'iscrizione si guarda nella scheda del corso: e' li' che sta
+     l'istruttoria, e non ha senso duplicarla qui */
+  host.querySelectorAll('[data-iscrizione]').forEach((r) =>
+    r.addEventListener('click', () => {
+      const id = Number(r.dataset.iscrizione);
+      if (id) apriPratica('corsi', id);
+    }));
   host.querySelectorAll('[data-vista-corso]').forEach((r) =>
     r.addEventListener('click', async () => {
       document.dispatchEvent(new CustomEvent('apri-pratica', { detail: { vista: 'corsi', id: Number(r.dataset.vistaCorso) } }));
