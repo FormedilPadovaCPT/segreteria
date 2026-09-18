@@ -220,6 +220,12 @@ function perDb(d: Dati, spec: Spec): unknown {
     case 'intero': return Number(String(v ?? '').replace(/\D/g, '').slice(0, 9)) || null
     case 'scala': { const n = Number(v); return Number.isInteger(n) && n >= 1 && n <= 5 ? n : null }
     case 'elenco': return elenco(v)
+    /* json: arriva come stringa e va in una colonna jsonb. Se non si legge,
+       null: una risposta storta non deve far cadere l'intera richiesta. */
+    case 'json': {
+      if (typeof v !== 'string' || v.length > 20000) return null
+      try { const o = JSON.parse(v); return o && typeof o === 'object' ? o : null } catch { return null }
+    }
     default: return testo(v)
   }
 }
@@ -244,6 +250,30 @@ async function agganciaVisita(sb: SB, d: Dati): Promise<Dati> {
     visita_id: r.visita_id, nr_verbale: r.nr_verbale, riferimento_esito: 'agganciato',
     ...(r.tecnico ? { tecnico: r.tecnico } : {}),
     ...(r.data_visita ? { data_visita: r.data_visita } : {}),
+  }
+}
+
+/* ── il questionario di un evento e l'evento a cui si riferisce ───────────
+   Il QR del foglio in coda al registro porta un riferimento firmato
+   (214-KPQ7.<firma>). Il portale non lo verifica — non ha il segreto e non lo
+   deve avere — quindi il controllo e' qui, con quest_verifica.
+   ⚠️ Anche qui la risposta non si butta mai: fuori finestra o oltre il tetto
+   entra con oltre_tetto = true e resta fuori dalle statistiche; se la firma
+   non torna si salva senza evento, e riferimento_esito dice perche'. */
+async function agganciaEvento(sb: SB, d: Dati): Promise<Dati> {
+  const rif = String(d.riferimento ?? '').trim()
+  if (!rif) return { riferimento_esito: 'senza invito' }
+  const { data, error } = await sb.rpc('quest_verifica', { p_riferimento: rif.slice(0, 200) })
+  if (error) return { riferimento_esito: 'verifica non riuscita: ' + error.message }
+  const r = (Array.isArray(data) ? data[0] : data) as Dati | undefined
+  if (!r || r.esito !== 'agganciato') return { riferimento_esito: String(r?.esito || 'non agganciato') }
+  /* ⚠️ Solo campi che sono COLONNE della tabella: quel che torna di qui
+     finisce dritto nella riga. Il titolo dell'evento non serve — la mail
+     interna per un modulo anonimo non parte — e come colonna non esiste. */
+  return {
+    corso_id: r.corso_id,
+    oltre_tetto: r.oltre_tetto === true,
+    riferimento_esito: r.oltre_tetto === true ? 'agganciato, fuori conteggio' : 'agganciato',
   }
 }
 
@@ -343,6 +373,12 @@ type Modulo = {
   campi: [string, Spec][]
   foto?: boolean
   file?: File[]
+  /* anonimo: la richiesta non deve poter essere ricondotta a chi l'ha
+     mandata, nemmeno dall'ORA. Il modulo salta timestamp_modulo, non mette
+     istanti in portale_esito e non conserva il contenuto nella scatola nera:
+     l'ora di invio, incrociata con l'ordine delle firme sul registro,
+     rimetterebbe il nome sopra la risposta (questionario di evento, 18/09/2026). */
+  anonimo?: boolean
 }
 
 const MODULI: Record<string, Modulo> = {
@@ -594,6 +630,25 @@ const MODULI: Record<string, Modulo> = {
       ['AREE MONITORATE', 'aree_monitorate'], ['PROPOSTE MIGLIORAMENTO', 'suggerimenti_testo|suggerimenti'],
       ['AGGIORNAMENTI', 'qst_aggiornamenti'], ['PRIVACY', 'privacy']],
   },
+
+  /* questionario di un EVENTO (corso, convegno, conferenza di cantiere),
+     18/09/2026. Le domande le disegna il portale leggendole dal progetto
+     Servizi; qui arrivano le risposte, per id di domanda.
+     ⚠️ E' l'unico modulo ANONIMO: niente istante, niente contenuto nella
+     scatola nera. Vedi il campo «anonimo» sul tipo Modulo. */
+  qev: {
+    tabella: 's_quest_risposte',
+    obbligatori: [],
+    chi: 'codice',
+    anonimo: true,
+    colonne: {
+      utilita: 'scala:utilita',
+      risposte: 'json:risposte',
+    },
+    extra: agganciaEvento,
+    campi: [['PROGRESSIVO', '#prog'], ['CODICE', 'codice'],
+      ['UTILITÀ', 'utilita'], ['RISPOSTE', 'risposte'], ['PRIVACY', 'privacy']],
+  },
 }
 
 /* ── Drive: la cartella dei file ───────────────────────────────────────────
@@ -830,11 +885,20 @@ async function richiesta(sb: SB, sa: Dati, grezzo: Dati, dimensione: number, ipH
   /* 1. SCATOLA NERA — prima di tutto. Niente base64, e niente testi enormi:
         la scatola nera e' per ritrovare la richiesta, non per custodire
         quel che non sarebbe comunque entrato nella pratica */
-  const { error: errRic } = await sb.from('s_portale_ricezioni').upsert({
-    submission_id: subId, tipo, timestamp_modulo: istante(d.timestamp),
-    ragione_sociale: testo(leggi(d, m.chi), 200), email: testo(d.email, 200)?.toLowerCase() ?? null,
-    payload: scatolaNera(d), origine: cassetta ? 'cassetta' : 'portale-diretto',
-  }, { onConflict: 'submission_id', ignoreDuplicates: true })
+  /* ⚠️ Per un modulo ANONIMO la scatola nera tiene solo il biglietto: niente
+     contenuto e niente ora del modulo. Qui dentro l'ora c'e' comunque
+     (ricevuto_at), e insieme alle risposte basterebbe a risalire alla persona
+     che ha firmato il registro a quell'ora. */
+  const { error: errRic } = await sb.from('s_portale_ricezioni').upsert(m.anonimo
+    ? { submission_id: subId, tipo, origine: cassetta ? 'cassetta' : 'portale-diretto',
+        /* la colonna non ammette il vuoto: ci si mette il motivo, così chi
+           guarda capisce che è vuota di proposito e non per un errore */
+        payload: { anonimo: true, nota: 'modulo anonimo: il contenuto non si conserva qui' } }
+    : {
+      submission_id: subId, tipo, timestamp_modulo: istante(d.timestamp),
+      ragione_sociale: testo(leggi(d, m.chi), 200), email: testo(d.email, 200)?.toLowerCase() ?? null,
+      payload: scatolaNera(d), origine: cassetta ? 'cassetta' : 'portale-diretto',
+    }, { onConflict: 'submission_id', ignoreDuplicates: true })
   if (errRic) throw new Error('scatola nera non scritta: ' + errRic.message)
 
   /* 1b. UNA LAVORAZIONE ALLA VOLTA — chi arriva secondo aspetta il primo */
@@ -884,15 +948,20 @@ async function lavora(sb: SB, sa: Dati, d: Dati, tipo: string, m: Modulo, subId:
     /* quello che ha risolto il server entra anche nei dati che vede la MAIL:
        la segreteria deve leggere il numero del verbale, non il token del link */
     for (const [k, v] of Object.entries(calcolati)) if (v !== null && v !== undefined) d[k] = v
-    const riga = {
-      fonte: 'modulo',
-      submission_id: subId,
-      timestamp_modulo: istante(d.timestamp),
-      ...campi,
-      ...calcolati,
-      ...(m.filtro || {}),
-      portale_esito: { strada: cassetta ? 'cassetta' : 'portale-richieste', arrivata_il: new Date().toISOString() },
-    }
+    const riga = m.anonimo
+      /* anonimo: nessun istante, e «fonte» resta il valore di partenza della
+         tabella (online), che dice da dove arriva senza dire quando */
+      ? { submission_id: subId, ...campi, ...calcolati, ...(m.filtro || {}),
+          portale_esito: { strada: cassetta ? 'cassetta' : 'portale-richieste' } }
+      : {
+        fonte: 'modulo',
+        submission_id: subId,
+        timestamp_modulo: istante(d.timestamp),
+        ...campi,
+        ...calcolati,
+        ...(m.filtro || {}),
+        portale_esito: { strada: cassetta ? 'cassetta' : 'portale-richieste', arrivata_il: new Date().toISOString() },
+      }
     for (let t = 0; t < 6 && !pratica; t++) {
       const { data, error } = await sb.from(m.tabella).insert({ ...riga, progressivo: prog }).select('id, progressivo, portale_esito').single()
       if (!error) { pratica = data as Pratica; break }
@@ -901,7 +970,15 @@ async function lavora(sb: SB, sa: Dati, d: Dati, tipo: string, m: Modulo, subId:
       throw new Error('pratica non inserita: ' + error.message)
     }
     if (!pratica) throw new Error('numero di ricevuta non assegnabile dopo sei tentativi')
-    await sb.from('s_portale_ricezioni').update({ pratica_id: pratica.id, progressivo: pratica.progressivo })
+    /* ⚠️ Per un modulo ANONIMO la scatola nera non punta alla riga: qui dentro
+       c'è ricevuto_at, e un puntatore diretto rimetterebbe un'ora sopra una
+       risposta che si è tolta l'ora apposta. Resta il submission_id, che serve
+       a non lavorare due volte lo stesso invio: chi amministra il database può
+       ancora correlare i due, ed è scritto nel commento della tabella invece di
+       essere taciuto. */
+    await sb.from('s_portale_ricezioni').update(m.anonimo
+      ? { progressivo: pratica.progressivo }
+      : { pratica_id: pratica.id, progressivo: pratica.progressivo })
       .eq('submission_id', subId)
   }
 
@@ -982,7 +1059,13 @@ async function lavora(sb: SB, sa: Dati, d: Dati, tipo: string, m: Modulo, subId:
   let email = 'ok'
   const emailCompilante = testo(d.email, 200)
   const emailValida = !!emailCompilante && EMAIL_VALIDA.test(emailCompilante)
-  if (!esito.mail_interna_il) {
+  /* ⚠️ Per un modulo ANONIMO la mail interna non parte, per due ragioni che
+     valgono insieme: dopo un convegno sarebbero centoventi messaggi, e ognuno
+     porterebbe le risposte accanto a un'ora — cioe' fuori dal database
+     rinascerebbe il legame che nel database si e' tolto. Il questionario di un
+     evento si guarda dalla scheda del corso, a fine evento, non una risposta
+     per volta. */
+  if (!m.anonimo && !esito.mail_interna_il) {
     try {
       const { data: cfg } = await sb.from('s_config').select('valore').eq('chiave', 'portale_mail_segreteria').maybeSingle()
       const mi = mailInterna(tipo, d, p.progressivo, { praticaId: p.id, fotoUrls, allegati: allegatiMail, scartati: nonAccettati })

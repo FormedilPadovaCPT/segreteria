@@ -46,16 +46,23 @@ const CORS = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
-const TIPI = ['seg', 'not', 'cons', 'vis', 'conf', 'att', 'rlst', 'rls', 'qst']
+const TIPI = ['seg', 'not', 'cons', 'vis', 'conf', 'att', 'rlst', 'rls', 'qst', 'qev']
 /* gli stessi campi obbligatori della tabella MODULI del Gestionale */
 const OBBLIGATORI: Record<string, string[]> = {
   seg: ['indirizzo_cantiere', 'comune_cantiere'], not: ['indirizzo_cantiere', 'comune_cantiere'],
   cons: ['ragione_sociale'], vis: ['ragione_sociale'], conf: ['ragione_sociale'], att: ['ragione_sociale'],
   rlst: ['ragione_sociale'], rls: ['ragione_sociale'], qst: [],
+  /* qev: il questionario di un evento non chiede niente di obbligatorio qui —
+     quali risposte servano lo dice il Gestionale, che conosce le domande */
+  qev: [],
 }
 const MAX_CARATTERI = 28 * 1024 * 1024
 const MAX_CARATTERI_MODULO: Record<string, number> = {
   rls: 28 * 1024 * 1024, rlst: 16 * 1024 * 1024, seg: 20 * 1024 * 1024, not: 768 * 1024,
+  /* un questionario sono poche righe: 64 KB sono gia' larghi. La misura sta
+     per tipo apposta — una porta pubblica si difende dall'abuso, non solo
+     dall'accesso (13/09/2026). */
+  qev: 64 * 1024,
 }
 const MAX_CARATTERI_ALTRI = 256 * 1024
 const MAX_FOTO = 3
