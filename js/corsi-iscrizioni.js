@@ -19,6 +19,7 @@
    ============================================================================ */
 
 import { sb, state, $, esc, dataIt, toast, attendi, apriDrawer } from './core.js';
+import { scaricaEml } from './eml.js';
 
 const SEMAFORO = {
   verde: ['🟢', 'persona nuova'],
@@ -108,6 +109,7 @@ export function sezioneIscr(c, iz) {
     ? `<p class="hint" style="color:var(--rosso)">⚠️ Sul portale non è aggiornato: ${esc(l.pubblica_esito)}</p>` : ''}
 
   <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+    <button class="btn btn-primary btn-sm" id="iz-manda">✉ Manda il modulo al referente</button>
     <button class="btn btn-sm" id="iz-copia">📋 Copia il link</button>
     <button class="btn btn-sm" id="iz-vetrina-cambia">${l.pubblico ? '🙈 Togli dalla vetrina' : '👁 Metti in vetrina'}</button>
     <button class="btn btn-sm" id="iz-ripubblica">↻ Aggiorna sul portale</button>
@@ -141,6 +143,8 @@ export function collegaIscr(c, iz, ricarica) {
     await pubblica(c, false);
     ricarica();
   });
+
+  b('#iz-manda', () => mandaModulo(c, iz));
 
   b('#iz-copia', () => {
     const v = iz.link?.link || '';
@@ -177,6 +181,51 @@ export function collegaIscr(c, iz, ricarica) {
     const r = iz.coda.find((x) => String(x.id) === n.dataset.izApriIst);
     if (r) formIstruttoria(c, r, ricarica);
   }));
+}
+
+/* ── la mail col modulo da compilare ─────────────────────────────
+   È il gesto per cui il giro esiste: dopo una conferenza autorizzata,
+   all'impresa si manda il link e l'anagrafica dei partecipanti arriva
+   compilata da loro. Il referente e la sua mail il corso li ha già, presi
+   dalla pratica di conferenza.
+   ⚠️ La bozza si prepara, la manda una persona da Outlook: è il confine di
+   sempre per tutto ciò che esce dall'ufficio. */
+function mandaModulo(c, iz) {
+  const link = iz.link?.link;
+  if (!link) return toast('Prima vanno aperte le iscrizioni.', 'err');
+
+  const quando = c.data_inizio ? dataIt(c.data_inizio) : null;
+  const dove = c.sede || null;
+  const a = c.referente_email || '';
+  const chi = c.referente_nome || '';
+
+  const righe = [
+    chi ? `Gentile ${chi},` : 'Buongiorno,',
+    '',
+    `in vista di ${c.titolo}${quando ? ` del ${quando}` : ''}${dove ? `, ${dove}` : ''},`,
+    'vi chiediamo di indicare le persone che parteciperanno, compilando il modulo online:',
+    '',
+    link,
+    '',
+    'Servono i dati anagrafici completi di ciascun partecipante — cognome, nome, codice fiscale,',
+    'data e comune di nascita — perché sono quelli che finiranno sugli attestati.',
+    '',
+    'Ogni partecipante può appartenere a un\u2019impresa diversa: i dati dell\u2019impresa si indicano',
+    'per ciascuna persona. Se sono molte, dal modulo si scarica un modello Excel da compilare',
+    'e ricaricare in un colpo solo.',
+    '',
+    'Restiamo a disposizione.',
+  ];
+
+  scaricaEml({
+    to: a,
+    oggetto: `Iscrizione partecipanti — ${c.titolo}`,
+    corpo: righe.join('\n'),
+    nomeFile: `modulo-iscrizione_corso-${c.id}.eml`,
+  });
+
+  toast(a ? 'Bozza pronta: rileggila e mandala da Outlook.'
+          : 'Bozza pronta, ma il corso non ha la mail del referente: mettila tu.', a ? 'ok' : 'err');
 }
 
 /* la copia sul portale: senza, il link non trova niente */

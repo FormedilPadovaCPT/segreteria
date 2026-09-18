@@ -240,6 +240,12 @@ function formCorso(c, prefill = {}) {
       if (dati.data_inizio) {
         await sb.from('s_corsi_giornate').insert({ corso_id: id, data: dati.data_inizio, sede: dati.sede });
       }
+      /* ⚠️ Una conferenza di cantiere nasce già col modulo da mandare
+         (regola dell'utente, 19/09/2026): finché le iscrizioni restavano da
+         aprire a mano, il giro non era finito e restava buono il vecchio
+         modulo su GitHub. NON in vetrina: la conferenza è di una singola
+         impresa, il link va al suo referente, non al pubblico. */
+      if (dati.conferenza_id) await apriIscrizioniPerConferenza(id);
     }
     attendi(ev.currentTarget, false);
     toast(c ? 'Corso aggiornato.' : 'Corso creato.', 'ok');
@@ -269,6 +275,28 @@ export async function nuovoCorsoDaConferenza(p) {
     impresa_txt: p.ragione_sociale || null,
     conferenza_id: p.id,
   });
+}
+
+/* ── il modulo d'iscrizione di una conferenza, pronto alla nascita ────────
+   Un errore qui non deve impedire la creazione del corso: le iscrizioni si
+   possono sempre aprire a mano dalla scheda, e dirlo è meglio che bloccare. */
+async function apriIscrizioniPerConferenza(corsoId) {
+  try {
+    const { error } = await sb.rpc('iscr_apri', {
+      p_corso_id: corsoId, p_pubblico: false, p_posti: null, p_chiuso_il: null,
+    });
+    if (error) throw error;
+    const { data, error: e2 } = await sb.functions.invoke('questionari-pubblica', {
+      body: { cosa: 'iscrizione', corso_id: corsoId },
+    });
+    if (e2 || data?.status !== 'ok') {
+      toast('Iscrizioni aperte, ma il modulo non è ancora sul portale: riprova con «Aggiorna sul portale».', 'err');
+      return;
+    }
+    toast('Iscrizioni aperte: il modulo da mandare all\u2019impresa è pronto.', 'ok');
+  } catch (err) {
+    toast(`Iscrizioni non aperte (${err.message}): puoi aprirle dalla scheda del corso.`, 'err');
+  }
 }
 
 /* ══════════ dettaglio corso ══════════ */
