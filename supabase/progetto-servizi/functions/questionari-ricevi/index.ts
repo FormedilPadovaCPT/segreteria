@@ -37,6 +37,8 @@ function uguali(a: string, b: string): boolean {
 }
 
 const CAMPI = new Set(['codice', 'firma_hash', 'titolo', 'genere', 'quando', 'sede', 'chiuso_il', 'domande'])
+const CAMPI_TEST = new Set(['codice', 'firma_hash', 'titolo', 'quando', 'sede', 'chiuso_il', 'minuti', 'soglia', 'domande', 'persone'])
+const CAMPI_DOM_TEST = new Set(['id', 'ordine', 'testo', 'tipo', 'opzioni', 'punti'])
 const CAMPI_DOMANDA = new Set(['id', 'ordine', 'testo', 'tipo', 'opzioni', 'obbligatoria', 'tronco'])
 const TIPI = new Set(['scala', 'scelta', 'multipla', 'testo'])
 const GENERI = new Set(['conferenza', 'corso', 'convegno'])
@@ -81,6 +83,46 @@ function controlla(r: Record<string, unknown>): string | null {
   return controllaDomande(r.domande)
 }
 
+/* ⚠️ Il controllo più importante di questo file: una domanda del test NON
+   deve poter portare la risposta giusta. Se un campo non previsto arriva —
+   «corrette», «soluzione», qualunque cosa — la riga viene rifiutata. È la
+   difesa contro un errore dall'altra parte, non contro un attacco. */
+function controllaTest(r: Record<string, unknown>): string | null {
+  for (const k of Object.keys(r)) if (!CAMPI_TEST.has(k)) return `campo non previsto: ${k}`
+  if (!(typeof r.codice === 'string' && /^T[0-9]{1,8}-[A-Z0-9]{4}$/.test(r.codice))) return 'codice non valido'
+  if (!(typeof r.firma_hash === 'string' && /^[0-9a-f]{64}$/.test(r.firma_hash))) return 'firma_hash non valida'
+  if (!testo(r.titolo, 300)) return 'titolo non valido'
+  if (r.quando != null && !(typeof r.quando === 'string' && DATA.test(r.quando))) return 'quando non è una data'
+  if (!testoO(r.sede, 200)) return 'sede non valida'
+  if (r.chiuso_il != null && !(typeof r.chiuso_il === 'string' && ISTANTE.test(r.chiuso_il))) return 'chiuso_il non è un istante'
+  if (r.minuti != null && !(typeof r.minuti === 'number' && r.minuti > 0 && r.minuti <= 600)) return 'minuti non validi'
+  if (r.soglia != null && !(typeof r.soglia === 'number' && r.soglia >= 0 && r.soglia <= 100)) return 'soglia non valida'
+
+  if (!Array.isArray(r.domande) || r.domande.length < 1 || r.domande.length > 60) return 'domande: da 1 a 60'
+  for (const d of r.domande as Record<string, unknown>[]) {
+    if (typeof d !== 'object' || d === null) return 'domanda non è un oggetto'
+    for (const k of Object.keys(d)) {
+      if (!CAMPI_DOM_TEST.has(k)) return `campo non previsto nella domanda: ${k} (le risposte giuste non escono dal Gestionale)`
+    }
+    if (!(typeof d.id === 'number' && Number.isInteger(d.id) && d.id > 0)) return 'id della domanda non valido'
+    if (!testo(d.testo, 600)) return 'testo della domanda mancante o troppo lungo'
+    if (d.tipo !== 'scelta' && d.tipo !== 'multipla' && d.tipo !== 'testo') return `tipo non previsto: ${String(d.tipo)}`
+    if (!Array.isArray(d.opzioni) || d.opzioni.length > 8) return 'opzioni non valide'
+    if (d.tipo !== 'testo' && d.opzioni.length < 2) return 'una domanda a scelta vuole almeno due risposte'
+    for (const o of d.opzioni) if (!testo(o, 300)) return 'una risposta proposta è vuota o troppo lunga'
+    if (d.punti != null && !(typeof d.punti === 'number' && d.punti > 0 && d.punti <= 100)) return 'punti non validi'
+  }
+
+  if (!Array.isArray(r.persone) || r.persone.length > 500) return 'persone: al massimo 500'
+  for (const p of r.persone as Record<string, unknown>[]) {
+    for (const k of Object.keys(p)) if (k !== 'h' && k !== 'n') return `campo non previsto in persone: ${k}`
+    if (!(typeof p.h === 'string' && /^[0-9a-f]{64}$/.test(p.h))) return 'impronta del codice personale non valida'
+    /* ⚠️ solo iniziali: «C. L.», mai un nome intero */
+    if (!(typeof p.n === 'string' && /^([A-ZÀ-Ý]\.\s?){1,4}$/.test(p.n.trim() + ' '))) return `qui vanno le iniziali, non un nome: ${String(p.n).slice(0, 30)}`
+  }
+  return null
+}
+
 Deno.serve(async (req) => {
   if (req.method !== 'POST') return errore('solo POST', 405)
   const sb = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
@@ -111,6 +153,28 @@ Deno.serve(async (req) => {
     const { error } = await sb.from('questionari_pubblici').delete().in('codice', codici)
     if (error) return errore('non ritirato: ' + error.message, 500)
     return json({ status: 'ok', ritirati: codici.length })
+  }
+
+  if (azione === 'pubblica_test' || azione === 'ritira_test') {
+    if (azione === 'ritira_test') {
+      const codici = Array.isArray(corpo.codici) ? corpo.codici.filter((c) => typeof c === 'string').slice(0, 50) : []
+      if (!codici.length) return errore('nessun codice da ritirare')
+      const { error } = await sb.from('test_pubblici').delete().in('codice', codici)
+      if (error) return errore('non ritirato: ' + error.message, 500)
+      return json({ status: 'ok', ritirati: codici.length })
+    }
+    const righe = Array.isArray(corpo.righe) ? corpo.righe : []
+    if (!righe.length || righe.length > 20) return errore('da 1 a 20 righe per volta')
+    const buone: Record<string, unknown>[] = []
+    for (const r of righe) {
+      if (typeof r !== 'object' || r === null) return errore('riga non valida')
+      const motivo = controllaTest(r as Record<string, unknown>)
+      if (motivo) return errore(`riga ${(r as Record<string, unknown>).codice ?? '?'}: ${motivo}`)
+      buone.push({ ...(r as Record<string, unknown>), aggiornato_il: new Date().toISOString() })
+    }
+    const { error } = await sb.from('test_pubblici').upsert(buone, { onConflict: 'codice' })
+    if (error) return errore('non pubblicato: ' + error.message, 500)
+    return json({ status: 'ok', pubblicati: buone.length })
   }
 
   if (azione !== 'pubblica') return errore(`azione non prevista: ${azione}`)

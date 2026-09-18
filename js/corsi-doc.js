@@ -363,7 +363,7 @@ function argomentiTrattati(k, corso, nominativo, nTxt, giornate, interventi) {
 }
 
 /* ── 2. REGISTRO PRESENZE ── */
-export async function pdfRegistro(corso, giornate, interventi, iscritti, conf, quest = null) {
+export async function pdfRegistro(corso, giornate, interventi, iscritti, conf, quest = null, test = null) {
   const k = await apriCiclo();
   const { doc, F, C } = k;
   const H = A4[1], X0 = 70, X1 = 545, Wc = X1 - X0, FONDO = 50, RIGA = 22;
@@ -505,8 +505,13 @@ export async function pdfRegistro(corso, giornate, interventi, iscritti, conf, q
       linea(pg, X0, y - RIGA, X1, y - RIGA, C.linea, 0.5);
       [3, 4].forEach((i) => linea(pg, xs[i], y, xs[i], y - RIGA, C.linea, 0.5));
       T(pg, String(n + 1), xs[0] + cols[0] / 2, y - 13.5, 7.5, F.r, C.tenue, { al: 'c' });
-      T(pg, cut(F.b, 8, p.nominativo, cols[1] - 8), xs[1] + 4, y - 9.5, 8, F.b, C.grigio);
+      T(pg, cut(F.b, 8, p.nominativo, cols[1] - 60), xs[1] + 4, y - 9.5, 8, F.b, C.grigio);
       if (p.cf) T(pg, p.cf, xs[1] + 4, y - 18, 6.2, F.r, C.tenue);
+      /* il codice personale del test, accanto al nome: è così che in aula
+         ciascuno dice chi è, senza scegliere da un elenco di nomi */
+      if (test && p.test_codice) {
+        T(pg, 'test ' + p.test_codice, xs[2] - 6, y - 13.5, 7.5, F.b, C.arancio, { al: 'r' });
+      }
       T(pg, cut(F.r, 7.3, p.impresa_txt || '', cols[2] - 8), xs[2] + 4, y - 13.5, 7.3, F.r, C.grigio);
       y -= RIGA;
     });
@@ -545,6 +550,7 @@ export async function pdfRegistro(corso, giornate, interventi, iscritti, conf, q
      conteggio — il registro delle firme resta quello che era. In copertina no,
      per scelta dell'utente (18/09/2026). */
   if (quest && quest.codice) await foglioQuestionario(k, corso, quest);
+  if (test && test.codice) await foglioTest(k, corso, test);
   return salva(doc);
 }
 
@@ -607,6 +613,61 @@ async function foglioQuestionario(k, corso, quest) {
 
   enteBlocco(k, pg, X0, 72, Wc);
   T(pg, 'foglio del questionario · non numerato', X1, 58, 7, F.i, C.tenue, { al: 'r' });
+}
+
+/* ── 2-quater. IL FOGLIO DEL TEST ───────────────────────────────────────────
+   Somiglia a quello del questionario, ma dice il contrario: qui NON si è
+   anonimi. Serve il codice personale, che sta sul registro accanto al proprio
+   nome, e l'esito finisce sull'attestato. Due fogli distinti perché le due
+   cose si fanno in momenti diversi e non si devono confondere. */
+async function foglioTest(k, corso, test) {
+  const { F, C } = k;
+  const H = A4[1], X0 = 70, X1 = 545, Wc = X1 - X0;
+  const pg = k.pagina();
+  const qrcode = await qrGen();
+
+  const lh = altLogo(k, 88);
+  logoIn(k, pg, X1 - 88, H - 30 - lh, 88);
+  T(pg, `VERIFICA FINALE · CORSO ${corso.id}`, X0, H - 34, 7, F.r, C.arancio, { sp: 1.4 });
+  T(pg, cut(F.b, 10.5, corso.titolo || '', X1 - X0 - 104), X0, H - 49, 10.5, F.b, C.grigio);
+  linea(pg, X0, H - 62, X1, H - 62, C.linea, 0.8);
+
+  let y = H - 190;
+  T(pg, 'TEST DI VERIFICA', X0 + Wc / 2, y, 9, F.b, C.arancio, { sp: 2, al: 'c' });
+  y -= 42;
+  T(pg, 'Il test si fa col telefono', X0 + Wc / 2, y, 30, F.b, C.grigio, { al: 'c' });
+  y -= 28;
+  righe('Inquadrate il codice e scrivete il VOSTRO codice personale, quello stampato accanto al vostro nome '
+      + 'nelle pagine di questo registro.', F.r, 12.5, 380)
+    .forEach((r, i) => T(pg, r, X0 + Wc / 2, y - i * 17, 12.5, F.r, C.tenue, { al: 'c' }));
+  y -= 62;
+
+  const lato = 165, qx = X0 + (Wc - lato) / 2;
+  pg.drawRectangle({ x: qx - 16, y: y - lato - 16, width: lato + 32, height: lato + 32,
+    borderColor: C.linea, borderWidth: 1 });
+  disegnaQr(pg, qrcode, test.link || '', qx, y - lato, lato, C.nero);
+  y -= lato + 40;
+
+  T(pg, 'oppure ' + (test.link || '').replace(/^https?:\/\//, '').split('?')[0]
+      + '  ·  codice ' + (test.codice || ''), X0 + Wc / 2, y, 10, F.r, C.tenue, { al: 'c' });
+  y -= 30;
+
+  const righeInfo = [
+    `${test.domande ? test.domande.length + ' domande' : 'Le domande'}`
+      + (corso.test_minuti ? ` · ${corso.test_minuti} minuti` : '')
+      + (corso.test_soglia ? ` · si supera con il ${Math.round(corso.test_soglia)}%` : ''),
+    "La prova è nominativa: l’esito viene convalidato dal docente e finisce sull’attestato.",
+  ];
+  righeInfo.forEach((r, i) => T(pg, r, X0 + Wc / 2, y - i * 15, 9.5, i ? F.i : F.b, i ? C.tenue : C.grigio, { al: 'c' }));
+
+  enteBlocco(k, pg, X0, 72, Wc);
+  T(pg, 'foglio del test · non numerato', X1, 58, 7, F.i, C.tenue, { al: 'r' });
+}
+
+export async function pdfFoglioTest(corso, test) {
+  const k = await apriCiclo();
+  await foglioTest(k, corso, test);
+  return salva(k.doc);
 }
 
 /* il foglio da solo, quando il registro è già stato stampato */

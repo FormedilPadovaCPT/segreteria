@@ -27,6 +27,7 @@ import { scaricaEml, FIRMA_SEGRETERIA, collegaDoppioClickMail } from './eml.js';
 import { collegaRicercaPersone } from './ricerca-anagrafica.js';
 import { generaCodice, serieVerificabile, urlVerifica, URL_VERIFICA_PREDEFINITA } from './attestati-verifica.js';
 import { datiQuest, sezioneQuest, collegaQuest, cellaSpunta } from './corsi-quest.js';
+import { datiTest, sezioneTest, collegaTest } from './corsi-test.js';
 
 let corsi = [];
 let progetti = [];
@@ -288,6 +289,7 @@ export async function apriCorso(id) {
   }
 
   const quest = await datiQuest(c);
+  const test = await datiTest(c);
 
   const oreTot = c.durata_ore || (giornate || []).reduce((s, g) => s + oreGiornata(g), 0);
   const conAttestato = (iscritti || []).filter((i) => i.attestato_numero).length;
@@ -389,6 +391,8 @@ export async function apriCorso(id) {
 
     ${sezioneQuest(c, quest, iscritti)}
 
+    ${sezioneTest(c, test, iscritti)}
+
     <hr style="margin:12px 0;border:0;border-top:1px solid var(--bordo)">
     <h4 style="margin:0 0 6px">📄 Documenti del corso</h4>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -406,6 +410,7 @@ export async function apriCorso(id) {
 
   /* ── eventi ── */
   collegaQuest(c, quest, iscritti, () => apriCorso(c.id));
+  collegaTest(c, test, iscritti, () => apriCorso(c.id));
   $('#co-dati').addEventListener('click', () => formCorso(c));
   $('#co-stato').addEventListener('change', async (e) => {
     const { error } = await sb.from('s_corsi').update({ stato: e.target.value, aggiornato_da: state.email, updated_at: new Date().toISOString() }).eq('id', c.id);
@@ -492,7 +497,8 @@ export async function apriCorso(id) {
       /* col questionario aperto, in coda al registro esce il foglio col QR:
          ultima pagina, non numerata e fuori dal conteggio delle pagine */
       const byte = await pdfRegistro(c, giornate || [], interventi || [], iscritti || [], conf,
-        c.quest_codice ? { ...quest.link, domande: quest.domande } : null);
+        c.quest_codice ? { ...quest.link, domande: quest.domande } : null,
+        c.test_codice ? { codice: c.test_codice, link: test.link, domande: test.domande } : null);
       scaricaPdf(byte, `${(c.data_inizio || oggiIso()).replace(/-/g, '')}_Registro_corso-${c.id}.pdf`);
       toast(c.quest_codice
         ? 'Registro scaricato, col foglio del questionario in coda.'

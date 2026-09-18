@@ -277,6 +277,35 @@ async function agganciaEvento(sb: SB, d: Dati): Promise<Dati> {
   }
 }
 
+/* ── la prova del test finale ──────────────────────────────────────────────
+   Il test e' NOMINATIVO: chi risponde si e' riconosciuto col proprio codice
+   personale, quello stampato accanto al nome sul registro. Qui si verifica la
+   firma del link, si ritrova la persona e si CORREGGE — le risposte giuste
+   stanno nel Gestionale e non sono mai uscite.
+   ⚠️ Una prova che non si riconosce non si butta: entra senza persona, e
+   riferimento_esito dice perche'. Un elaborato perso non si recupera. */
+async function agganciaTest(sb: SB, d: Dati): Promise<Dati> {
+  const rif = String(d.riferimento ?? '').trim()
+  let risposte: unknown = {}
+  try { risposte = typeof d.risposte === 'string' ? JSON.parse(d.risposte) : (d.risposte ?? {}) } catch { risposte = {} }
+  const { data, error } = await sb.rpc('test_consegna', {
+    p_riferimento: rif.slice(0, 200),
+    p_codice_personale: String(d.codice_personale ?? '').slice(0, 20),
+    p_risposte: risposte,
+  })
+  if (error) return { riferimento_esito: 'correzione non riuscita: ' + error.message }
+  const r = (data ?? {}) as Dati
+  if (r.esito !== 'riconosciuta') {
+    return { riferimento_esito: String(r.esito ?? 'non riconosciuta'),
+      ...(r.corso_id ? { corso_id: r.corso_id } : {}) }
+  }
+  return {
+    corso_id: r.corso_id, iscritto_id: r.iscritto_id, nominativo: r.nominativo,
+    punteggio: r.punteggio, punteggio_max: r.punteggio_max, percentuale: r.percentuale,
+    da_correggere: r.da_correggere, esito: r.stato, riferimento_esito: 'riconosciuta',
+  }
+}
+
 /* ── pre-istruttoria: le stesse regole che aveva import-rlst ─────────────── */
 function normComune(v: string): string {
   return String(v || '').toUpperCase().replace(/\(.*$/, '').replace(/\s+/g, ' ').trim()
@@ -379,6 +408,11 @@ type Modulo = {
      l'ora di invio, incrociata con l'ordine delle firme sul registro,
      rimetterebbe il nome sopra la risposta (questionario di evento, 18/09/2026). */
   anonimo?: boolean
+  /* silenzioso: niente mail alla segreteria per ogni richiesta. Non c'entra
+     la riservatezza (quella e' «anonimo»): dopo un test in aula sarebbero
+     venti messaggi in dieci minuti, e quel che serve si guarda dalla scheda
+     del corso. */
+  silenzioso?: boolean
 }
 
 const MODULI: Record<string, Modulo> = {
@@ -636,6 +670,19 @@ const MODULI: Record<string, Modulo> = {
      Servizi; qui arrivano le risposte, per id di domanda.
      ⚠️ E' l'unico modulo ANONIMO: niente istante, niente contenuto nella
      scatola nera. Vedi il campo «anonimo» sul tipo Modulo. */
+  /* il TEST finale (18/09/2026): nominativo, perche' l'esito vale per
+     l'attestato. Si corregge da se' sulle domande chiuse; il testo libero e la
+     convalida restano di una persona. */
+  tst: {
+    tabella: 's_test_prove',
+    obbligatori: [],
+    chi: 'codice',
+    silenzioso: true,
+    colonne: { risposte: 'json:risposte' },
+    extra: agganciaTest,
+    campi: [['PROGRESSIVO', '#prog'], ['CODICE', 'codice'], ['RISPOSTE', 'risposte'], ['PRIVACY', 'privacy']],
+  },
+
   qev: {
     tabella: 's_quest_risposte',
     obbligatori: [],
@@ -966,6 +1013,11 @@ async function lavora(sb: SB, sa: Dati, d: Dati, tipo: string, m: Modulo, subId:
       const { data, error } = await sb.from(m.tabella).insert({ ...riga, progressivo: prog }).select('id, progressivo, portale_esito').single()
       if (!error) { pratica = data as Pratica; break }
       if (error.code === '23505' && /submission_id/.test(error.message)) { pratica = await praticaPer(sb, m, subId); break }
+      /* una prova per persona: il secondo invio non e' un intoppo da
+         ritentare, e' una cosa da dire */
+      if (error.code === '23505' && /s_test_prove_una/.test(error.message)) {
+        return rifiuto("Questa prova risulta già consegnata: se è un errore, avvisa la segreteria.")
+      }
       if (error.code === '23505') { prog++; continue }        // numero preso nel frattempo: il successivo
       throw new Error('pratica non inserita: ' + error.message)
     }
@@ -1065,7 +1117,7 @@ async function lavora(sb: SB, sa: Dati, d: Dati, tipo: string, m: Modulo, subId:
      rinascerebbe il legame che nel database si e' tolto. Il questionario di un
      evento si guarda dalla scheda del corso, a fine evento, non una risposta
      per volta. */
-  if (!m.anonimo && !esito.mail_interna_il) {
+  if (!m.anonimo && !m.silenzioso && !esito.mail_interna_il) {
     try {
       const { data: cfg } = await sb.from('s_config').select('valore').eq('chiave', 'portale_mail_segreteria').maybeSingle()
       const mi = mailInterna(tipo, d, p.progressivo, { praticaId: p.id, fotoUrls, allegati: allegatiMail, scartati: nonAccettati })

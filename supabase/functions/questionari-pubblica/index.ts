@@ -90,24 +90,38 @@ serve(async (req) => {
     const ids = corsi.map(Number).filter((n) => Number.isInteger(n) && n > 0).slice(0, 50)
     if (!ids.length) return json({ error: 'manca corso_id' }, 400)
 
+    /* due cose diverse dallo stesso sportello: il questionario (anonimo) e il
+       TEST (nominativo). Del test escono le domande senza le risposte giuste
+       e, delle persone, impronta del codice personale e iniziali. */
+    const test = corpo.cosa === 'test'
+    const rpc = test ? 'test_pubblicazione' : 'quest_pubblicazione'
+    const azione = test ? 'pubblica_test' : 'pubblica'
+    const colonne = test
+      ? { quando: 'test_pubblicato_il', esito: 'test_pubblica_esito' }
+      : { quando: 'quest_pubblicato_il', esito: 'quest_pubblica_esito' }
+
     const righe: Record<string, unknown>[] = []
     const saltati: { corso_id: number; motivo: string }[] = []
     for (const id of ids) {
-      const { data, error } = await sb.rpc('quest_pubblicazione', { p_corso_id: id })
+      const { data, error } = await sb.rpc(rpc, { p_corso_id: id })
       if (error) { saltati.push({ corso_id: id, motivo: error.message }); continue }
       const p = data as Pubblicazione | null
-      if (!p || !p.codice) { saltati.push({ corso_id: id, motivo: 'questionario non aperto su questo evento' }); continue }
+      if (!p || !p.codice) { saltati.push({ corso_id: id, motivo: `${test ? 'test' : 'questionario'} non aperto su questo evento` }); continue }
       if (!p.firma) { saltati.push({ corso_id: id, motivo: 'il codice non è firmato' }); continue }
-      righe.push({
+      const comune = {
         codice: p.codice,
         firma_hash: await sha256(p.firma),   // ⚠️ del segreto esce solo l'impronta
         titolo: String(p.titolo ?? 'Evento').slice(0, 300),
-        genere: p.genere,
         quando: p.quando,
         sede: p.sede ? String(p.sede).slice(0, 200) : null,
         chiuso_il: p.chiuso_il,
         domande: p.domande ?? [],
-      })
+      }
+      righe.push(test
+        ? { ...comune, minuti: (p as Record<string, unknown>).minuti ?? null,
+            soglia: (p as Record<string, unknown>).soglia ?? null,
+            persone: (p as Record<string, unknown>).persone ?? [] }
+        : { ...comune, genere: p.genere })
     }
     if (!righe.length) return json({ status: 'error', pubblicati: 0, saltati }, 400)
 
@@ -116,7 +130,7 @@ serve(async (req) => {
       const r = await fetch(cfg.questionari_ricevi_url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Questionari-Token': cfg.questionari_token },
-        body: JSON.stringify({ azione: 'pubblica', righe }),
+        body: JSON.stringify({ azione, righe }),
       })
       const testo = await r.text()
       esito = r.ok ? 'ok' : `HTTP ${r.status}: ${testo.slice(0, 300)}`
@@ -130,8 +144,8 @@ serve(async (req) => {
     for (const id of ids) {
       if (saltati.some((s) => s.corso_id === id)) continue
       await sb.from('s_corsi').update(esito === 'ok'
-        ? { quest_pubblicato_il: adesso, quest_pubblica_esito: `pubblicato (${chi})` }
-        : { quest_pubblica_esito: `non pubblicato: ${esito}`.slice(0, 300) }).eq('id', id)
+        ? { [colonne.quando]: adesso, [colonne.esito]: `pubblicato (${chi})` }
+        : { [colonne.esito]: `non pubblicato: ${esito}`.slice(0, 300) }).eq('id', id)
     }
 
     return json({ status: esito === 'ok' ? 'ok' : 'error', pubblicati: esito === 'ok' ? righe.length : 0, saltati, esito, chi },

@@ -46,7 +46,7 @@ const CORS = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
-const TIPI = ['seg', 'not', 'cons', 'vis', 'conf', 'att', 'rlst', 'rls', 'qst', 'qev']
+const TIPI = ['seg', 'not', 'cons', 'vis', 'conf', 'att', 'rlst', 'rls', 'qst', 'qev', 'tst']
 /* gli stessi campi obbligatori della tabella MODULI del Gestionale */
 const OBBLIGATORI: Record<string, string[]> = {
   seg: ['indirizzo_cantiere', 'comune_cantiere'], not: ['indirizzo_cantiere', 'comune_cantiere'],
@@ -55,6 +55,9 @@ const OBBLIGATORI: Record<string, string[]> = {
   /* qev: il questionario di un evento non chiede niente di obbligatorio qui —
      quali risposte servano lo dice il Gestionale, che conosce le domande */
   qev: [],
+  /* tst: la prova del test finale. Il codice personale lo controlla il
+     Gestionale, che sa chi c'e' in quel corso: qui non si puo' sapere. */
+  tst: [],
 }
 const MAX_CARATTERI = 28 * 1024 * 1024
 const MAX_CARATTERI_MODULO: Record<string, number> = {
@@ -63,6 +66,7 @@ const MAX_CARATTERI_MODULO: Record<string, number> = {
      per tipo apposta — una porta pubblica si difende dall'abuso, non solo
      dall'accesso (13/09/2026). */
   qev: 64 * 1024,
+  tst: 256 * 1024,
 }
 const MAX_CARATTERI_ALTRI = 256 * 1024
 const MAX_FOTO = 3
