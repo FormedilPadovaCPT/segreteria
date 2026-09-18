@@ -532,10 +532,17 @@ export async function apriPratica(id) {
     try {
       /* una per volta e in fila: la prima diventa la copertina, le altre il
          carosello, e l'ordine in cui si scelgono e' quello che si vedra' */
-      for (const file of files) {
+      for (const [k, file] of files.entries()) {
         const img = await immagineRidotta(file);
         const { data, error } = await sb.functions.invoke('redazione-social', { body: { op: 'immagine', id, mime: img.mime, base64: img.base64 } });
         if (error || data?.error) throw new Error(await messaggioErrore(error, data));
+        /* La funzione aggiornata risponde anche con «quante»: se manca, sul server
+           c'e' ancora quella vecchia, che SOSTITUISCE la copertina invece di
+           aggiungere - e caricando in fila resterebbe solo l'ultima immagine.
+           Ci si ferma alla prima e lo si dice. */
+        if (data && data.quante === undefined && files.length > 1) {
+          if (k === 0) throw new Error('la funzione «redazione-social» non e\u0027 ancora stata pubblicata con il carosello: per ora si carica una immagine sola. Caricata la prima, le altre no.');
+        }
       }
       toast(files.length > 1 ? `${files.length} immagini caricate.` : 'Immagine caricata.', 'ok');
       await render(); apriPratica(id);
