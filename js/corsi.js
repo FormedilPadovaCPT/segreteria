@@ -26,6 +26,7 @@ import { scaricaEml, FIRMA_SEGRETERIA, collegaDoppioClickMail } from './eml.js';
    maschera manuale delle richieste di visita */
 import { collegaRicercaPersone } from './ricerca-anagrafica.js';
 import { generaCodice, serieVerificabile, urlVerifica, URL_VERIFICA_PREDEFINITA } from './attestati-verifica.js';
+import { datiQuest, sezioneQuest, collegaQuest, cellaSpunta } from './corsi-quest.js';
 
 let corsi = [];
 let progetti = [];
@@ -286,6 +287,8 @@ export async function apriCorso(id) {
     pres = data || [];
   }
 
+  const quest = await datiQuest(c);
+
   const oreTot = c.durata_ore || (giornate || []).reduce((s, g) => s + oreGiornata(g), 0);
   const conAttestato = (iscritti || []).filter((i) => i.attestato_numero).length;
 
@@ -313,6 +316,7 @@ export async function apriCorso(id) {
       <td>${i.ore_frequentate != null ? `${i.ore_frequentate}h` : '—'}${i.perc_frequenza != null
         ? ` <span class="dt-cella ${okFreq ? 'dt-ok' : 'dt-scaduto'}" style="padding:1px 6px">${Math.round(i.perc_frequenza)}%</span>` : ''}</td>
       <td>${esc(i.valutazione || '—')}</td>
+      <td>${c.quest_codice ? cellaSpunta(i) : '—'}</td>
       <td>${i.attestato_numero ? esc(i.attestato_numero) : '—'}${i.attestato_revocato_il ? '<br><span class="dt-cella dt-scaduto" style="padding:1px 6px">revocato</span>' : ''}</td>
       <td style="white-space:nowrap"><a href="#" data-pres="${i.id}">presenze</a> · <a href="#" data-mod-iscr="${i.id}">modifica</a>${i.attestato_numero ? ` · <a href="#" data-rist="${i.id}" title="Ristampa l'attestato col suo numero (storico compreso), sul modello standard">🖨 attestato</a>` : ''}${serieVerificabile(i.attestato_numero) && !i.attestato_revocato_il ? ` · <a href="#" data-revoca="${i.id}" title="Revoca: la pagina pubblica di verifica lo mostrerà come revocato">revoca</a>` : ''} · <a href="#" data-del-iscr="${i.id}">togli</a></td>
     </tr>`;
@@ -375,13 +379,15 @@ export async function apriCorso(id) {
     <hr style="margin:12px 0;border:0;border-top:1px solid var(--bordo)">
     <h4 style="margin:0 0 6px">👥 Iscritti</h4>
     <div class="table-wrap"><table class="tbl">
-      <thead><tr><th>Partecipante</th><th>Impresa (al corso)</th><th>Esito</th><th>Frequenza</th><th>Test</th><th>Attestato</th><th></th></tr></thead>
-      <tbody>${(iscritti || []).map(rigaIscr).join('') || '<tr><td colspan="7" class="empty">Nessun iscritto.</td></tr>'}</tbody>
+      <thead><tr><th>Partecipante</th><th>Impresa (al corso)</th><th>Esito</th><th>Frequenza</th><th>Test</th><th>Quest.</th><th>Attestato</th><th></th></tr></thead>
+      <tbody>${(iscritti || []).map(rigaIscr).join('') || '<tr><td colspan="8" class="empty">Nessun iscritto.</td></tr>'}</tbody>
     </table></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
       <button class="btn btn-ghost btn-sm" id="co-addiscr">+ Iscrivi dall'anagrafica</button>
       <button class="btn btn-ghost btn-sm" id="co-calcola">🧮 Calcola frequenze dalle presenze</button>
     </div>
+
+    ${sezioneQuest(c, quest, iscritti)}
 
     <hr style="margin:12px 0;border:0;border-top:1px solid var(--bordo)">
     <h4 style="margin:0 0 6px">📄 Documenti del corso</h4>
@@ -399,6 +405,7 @@ export async function apriCorso(id) {
   $('#drawer').classList.add('drawer-xl');   /* scheda larga: qui vivono tabelle vere */
 
   /* ── eventi ── */
+  collegaQuest(c, quest, iscritti, () => apriCorso(c.id));
   $('#co-dati').addEventListener('click', () => formCorso(c));
   $('#co-stato').addEventListener('change', async (e) => {
     const { error } = await sb.from('s_corsi').update({ stato: e.target.value, aggiornato_da: state.email, updated_at: new Date().toISOString() }).eq('id', c.id);
@@ -482,9 +489,14 @@ export async function apriCorso(id) {
     attendi(ev.currentTarget, true, 'Genero…');
     try {
       const { pdfRegistro, scaricaPdf } = await import('./corsi-doc.js');
-      const byte = await pdfRegistro(c, giornate || [], interventi || [], iscritti || [], conf);
+      /* col questionario aperto, in coda al registro esce il foglio col QR:
+         ultima pagina, non numerata e fuori dal conteggio delle pagine */
+      const byte = await pdfRegistro(c, giornate || [], interventi || [], iscritti || [], conf,
+        c.quest_codice ? { ...quest.link, domande: quest.domande } : null);
       scaricaPdf(byte, `${(c.data_inizio || oggiIso()).replace(/-/g, '')}_Registro_corso-${c.id}.pdf`);
-      toast('Registro scaricato: stamparlo per le firme in aula/cantiere.', 'ok');
+      toast(c.quest_codice
+        ? 'Registro scaricato, col foglio del questionario in coda.'
+        : 'Registro scaricato: stamparlo per le firme in aula/cantiere.', 'ok');
     } catch (e) { toast(e.message, 'err'); }
     attendi(ev.currentTarget, false);
   });

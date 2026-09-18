@@ -363,7 +363,7 @@ function argomentiTrattati(k, corso, nominativo, nTxt, giornate, interventi) {
 }
 
 /* ── 2. REGISTRO PRESENZE ── */
-export async function pdfRegistro(corso, giornate, interventi, iscritti, conf) {
+export async function pdfRegistro(corso, giornate, interventi, iscritti, conf, quest = null) {
   const k = await apriCiclo();
   const { doc, F, C } = k;
   const H = A4[1], X0 = 70, X1 = 545, Wc = X1 - X0, FONDO = 50, RIGA = 22;
@@ -539,7 +539,150 @@ export async function pdfRegistro(corso, giornate, interventi, iscritti, conf) {
   });
   const nota = `Il presente registro di formazione è composto di n° ${pagine.length} pagine progressivamente numerate dal n° 1 al n° ${pagine.length}`;
   righe(nota, F.i, 8.5, Wc).forEach((r, i) => T(pagine[0], r, X0, yNota - i * 11.5, 8.5, F.i, C.grigio));
+
+  /* ⚠️ Il foglio del questionario si aggiunge QUI, dopo la numerazione e dopo
+     la nota che conta le pagine: è l'ultima pagina, non numerata e fuori dal
+     conteggio — il registro delle firme resta quello che era. In copertina no,
+     per scelta dell'utente (18/09/2026). */
+  if (quest && quest.codice) await foglioQuestionario(k, corso, quest);
   return salva(doc);
+}
+
+/* ── 2-bis. IL FOGLIO DEL QUESTIONARIO ──────────────────────────────────────
+   Una pagina sola, in coda al registro: il QR grande, e sotto l'indirizzo
+   scritto col codice corto per chi non inquadra (o per quando il codice si
+   proietta in aula). Niente nomi: è anonimo. */
+function quandoChiude(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const g = ['domenica', 'lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato'][d.getDay()];
+  const ora = String(d.getHours()).padStart(2, '0') + '.' + String(d.getMinutes()).padStart(2, '0');
+  return `${g} ${dataIt(d.toISOString().slice(0, 10))}, ore ${ora}`;
+}
+
+async function foglioQuestionario(k, corso, quest) {
+  const { F, C } = k;
+  const H = A4[1], X0 = 70, X1 = 545, Wc = X1 - X0;
+  const pg = k.pagina();
+  const qrcode = await qrGen();
+
+  /* testata come le altre pagine del registro, ma senza numero */
+  const lh = altLogo(k, 88);
+  logoIn(k, pg, X1 - 88, H - 30 - lh, 88);
+  T(pg, `REGISTRO PRESENZE · CORSO ${corso.id}`, X0, H - 34, 7, F.r, C.arancio, { sp: 1.4 });
+  T(pg, cut(F.b, 10.5, corso.titolo || '', X1 - X0 - 104), X0, H - 49, 10.5, F.b, C.grigio);
+  linea(pg, X0, H - 62, X1, H - 62, C.linea, 0.8);
+
+  let y = H - 210;
+  T(pg, 'PRIMA DI ANDARE', X0 + Wc / 2, y, 9, F.b, C.arancio, { sp: 2, al: 'c' });
+  y -= 44;
+  T(pg, "Com'è andata?", X0 + Wc / 2, y, 38, F.b, C.grigio, { al: 'c' });
+  y -= 30;
+  righe('Inquadrate il codice con la fotocamera del telefono: poche domande, un minuto, in forma anonima.',
+    F.r, 13, 360).forEach((r, i) => T(pg, r, X0 + Wc / 2, y - i * 18, 13, F.r, C.tenue, { al: 'c' }));
+  y -= 70;
+
+  /* il QR, dentro la sua cornice */
+  const lato = 190, qx = X0 + (Wc - lato) / 2;
+  pg.drawRectangle({ x: qx - 18, y: y - lato - 18, width: lato + 36, height: lato + 36,
+    borderColor: C.linea, borderWidth: 1 });
+  disegnaQr(pg, qrcode, quest.link || '', qx, y - lato, lato, C.nero);
+  y -= lato + 46;
+
+  T(pg, 'oppure andate su', X0 + Wc / 2, y, 10, F.r, C.tenue, { al: 'c' });
+  T(pg, (quest.link || '').replace(/^https?:\/\//, '').split('?')[0], X0 + Wc / 2, y - 16, 11.5, F.b, C.grigio, { al: 'c' });
+  T(pg, 'e scrivete il codice', X0 + Wc / 2, y - 34, 10, F.r, C.tenue, { al: 'c' });
+  T(pg, quest.codice, X0 + Wc / 2, y - 54, 15, F.b, C.grigio, { al: 'c', sp: 1.6 });
+  y -= 86;
+
+  const chiude = quandoChiude(quest.chiuso_il);
+  if (chiude) {
+    const testo = `Il codice risponde fino a ${chiude}`;
+    const w = F.r.widthOfTextAtSize(testoPdf(testo), 10.5) + 36;
+    pg.drawRectangle({ x: X0 + (Wc - w) / 2, y: y - 8, width: w, height: 26,
+      color: C.alone, borderColor: C.arancio, borderWidth: 0.8 });
+    T(pg, testo, X0 + Wc / 2, y, 10.5, F.r, C.arancio, { al: 'c' });
+  }
+
+  enteBlocco(k, pg, X0, 72, Wc);
+  T(pg, 'foglio del questionario · non numerato', X1, 58, 7, F.i, C.tenue, { al: 'r' });
+}
+
+/* il foglio da solo, quando il registro è già stato stampato */
+export async function pdfFoglioQuestionario(corso, quest) {
+  const k = await apriCiclo();
+  await foglioQuestionario(k, corso, quest);
+  return salva(k.doc);
+}
+
+/* ── 2-ter. IL QUESTIONARIO DA STAMPARE ─────────────────────────────────────
+   In cantiere non tutti hanno il telefono: il docente consegna questo foglio e
+   lo riporta in segreteria, che lo trascrive. Le domande sono le stesse della
+   pagina online — vengono dalla stessa fonte, non si riscrivono a mano. */
+export async function pdfQuestionarioCartaceo(corso, quest) {
+  const k = await apriCiclo();
+  const { F, C } = k;
+  const H = A4[1], X0 = 70, X1 = 545, Wc = X1 - X0, FONDO = 96;
+  let pg = k.pagina();
+
+  const lh = altLogo(k, 88);
+  logoIn(k, pg, X1 - 88, H - 30 - lh, 88);
+  T(pg, 'QUESTIONARIO DI GRADIMENTO · ANONIMO', X0, H - 34, 7, F.r, C.arancio, { sp: 1.4 });
+  T(pg, cut(F.b, 13, corso.titolo || '', Wc - 104), X0, H - 54, 13, F.b, C.grigio);
+  T(pg, [dataIt(corso.data_inizio), corso.sede].filter(Boolean).join(' · '), X0, H - 70, 9, F.r, C.tenue);
+  linea(pg, X0, H - 82, X1, H - 82, C.linea, 0.8);
+
+  let y = H - 108;
+  righe('Non scrivete il vostro nome: le risposte sono anonime e servono a noi per fare meglio la prossima volta. '
+      + 'Consegnate il foglio al docente.', F.r, 9.5, Wc)
+    .forEach((r, i) => T(pg, r, X0, y - i * 12, 9.5, F.r, C.tenue));
+  y -= 40;
+
+  const casella = (x, yy, lato = 11) => pg.drawRectangle({ x, y: yy, width: lato, height: lato,
+    borderColor: C.bordo, borderWidth: 0.9 });
+
+  for (const d of (quest.domande || [])) {
+    const testoD = righe(d.testo || '', F.b, 11.5, Wc);
+    const alto = testoD.length * 15 + (d.tipo === 'scala' ? 46
+      : d.tipo === 'testo' ? 62
+      : (d.opzioni || []).length * 20 + 8);
+    if (y - alto < FONDO) { pg = k.pagina(); y = H - 80; }
+
+    testoD.forEach((r, i) => T(pg, r, X0, y - i * 15, 11.5, F.b, C.grigio));
+    y -= testoD.length * 15 + 6;
+
+    if (d.tipo === 'scala') {
+      const passo = 74;
+      ['per niente', 'poco', 'così così', 'utile', 'molto'].forEach((et, i) => {
+        const cx = X0 + i * passo;
+        casella(cx, y - 16, 14);
+        T(pg, String(i + 1), cx + 20, y - 13, 11, F.b, C.grigio);
+        T(pg, et, cx, y - 30, 6.8, F.r, C.tenue);
+      });
+      y -= 48;
+    } else if (d.tipo === 'testo') {
+      linea(pg, X0, y - 18, X1, y - 18, C.bordo, 0.6, [1.5, 2.5]);
+      linea(pg, X0, y - 40, X1, y - 40, C.bordo, 0.6, [1.5, 2.5]);
+      y -= 58;
+    } else {
+      (d.opzioni || []).forEach((o) => {
+        casella(X0, y - 13, 11);
+        T(pg, cut(F.r, 10.5, String(o), Wc - 26), X0 + 18, y - 11, 10.5, F.r, C.grigio);
+        y -= 20;
+      });
+      if (d.tipo === 'multipla') { T(pg, '(si può barrare più di una casella)', X0, y - 2, 7, F.i, C.tenue); y -= 12; }
+      y -= 6;
+    }
+    y -= 10;
+  }
+
+  const pagine = k.doc.getPages();
+  pagine.forEach((p) => {
+    T(p, `Questionario anonimo · corso ${corso.id} · ${quest.codice || ''}`, X0, 40, 6.8, F.r, C.tenue);
+    T(p, 'da consegnare al docente', X1, 40, 6.8, F.i, C.tenue, { al: 'r' });
+  });
+  return salva(k.doc);
 }
 
 /* ── 3. LETTERA DI INCARICO DOCENZA (contratto d'opera) ── */
