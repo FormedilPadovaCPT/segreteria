@@ -362,9 +362,17 @@ stable
 security definer
 set search_path = public, extensions
 as $$
-declare r record; v_dom jsonb;
+declare r record; v_dom jsonb; v_ruolo text;
 begin
-  if not public.is_segreteria() then raise exception 'non autorizzato'; end if;
+  /* la segreteria dall'app, oppure il SERVIZIO quando la edge function
+     pubblica da sola. ⚠️ Dentro una security definer `current_user` è il
+     proprietario, non il chiamante: il ruolo si legge dai claim che PostgREST
+     imposta dal JWT verificato (trovato provando, 18/09 — vedi
+     2026_09_18_questionario_ponte_portale.sql). */
+  v_ruolo := nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role';
+  if not (public.is_segreteria() or v_ruolo = 'service_role') then
+    raise exception 'non autorizzato';
+  end if;
 
   select c.id, c.titolo, c.tipo, c.sede, c.data_inizio, c.data_fine,
          c.quest_codice, c.quest_modello, c.quest_chiuso_il
@@ -390,7 +398,9 @@ begin
     'genere',      coalesce(r.quest_modello, 'corso'),
     'quando',      to_char(coalesce(r.data_inizio, r.data_fine), 'YYYY-MM-DD'),
     'sede',        r.sede,
-    'chiuso_il',   to_char(r.quest_chiuso_il at time zone 'Europe/Rome', 'YYYY-MM-DD"T"HH24:MI:SS'),
+    /* l'istante intero, col suo fuso: senza offset chi lo rilegge lo prende
+       per UTC e la chiusura scivola avanti di due ore (trovato provando). */
+    'chiuso_il',   to_jsonb(r.quest_chiuso_il),
     'domande',     v_dom);
 end $$;
 
