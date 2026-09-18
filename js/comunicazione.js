@@ -602,9 +602,16 @@ export async function apriPratica(id) {
         ': deve essere AMMINISTRATORE del canale, e nel canale dev\'essere stato scritto qualcosa di recente perché compaia qui sotto.\n\n' +
         'Canali visti dal bot:\n' + elenco + '\n\nScrivi l\'id numerico (es. -1001234567890) oppure @nome del canale di prova:', attuale);
       if (scelto === null) return;
-      const { error: e2 } = await sb.from('s_config').update({ valore: scelto.trim() }).eq('chiave', 'telegram_canale_prova');
+      /* L'id di un canale Telegram è NEGATIVO e comincia per -100: copiandolo a mano
+         il meno si perde facilmente, e Telegram risponde «chat not found» cercando una
+         chat privata che non esiste (successo davvero il 18/09). Si rimette qui. */
+      let canale = scelto.trim();
+      if (/^100\d{6,}$/.test(canale)) canale = '-' + canale;
+      const { error: e2 } = await sb.from('s_config').update({ valore: canale }).eq('chiave', 'telegram_canale_prova');
       if (e2) throw new Error(e2.message);
-      toast(scelto.trim() ? 'Canale di prova impostato.' : 'Canale di prova tolto.', 'ok');
+      toast(!canale ? 'Canale di prova tolto.'
+        : canale !== scelto.trim() ? `Canale di prova impostato: ${canale} (mancava il meno davanti, l'ho messo io).`
+        : 'Canale di prova impostato.', 'ok');
     } catch (e) {
       toast('Canale di prova: ' + e.message, 'err');
     } finally { attendi(btn, false); }

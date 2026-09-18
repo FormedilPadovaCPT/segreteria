@@ -326,7 +326,13 @@ serve(async (req) => {
       if (post.video_url && !testoP.includes(String(post.video_url))) testoP = testoP + '\n\n' + post.video_url
       if (lunghezzaVisibile(testoP) > 4096) return json({ error: `testo Telegram troppo lungo: ${lunghezzaVisibile(testoP)} caratteri visibili, il limite è 4096` }, 400)
       const esitoP = await mandaSuTelegram(TOKEN, chatProva, post, testoP)
-      if (esitoP.errore) return json({ error: esitoP.errore }, 502)
+      if (esitoP.errore) {
+        /* «chat not found» non dice niente a chi legge: le cause sono due sole. */
+        const spiega = /chat not found/i.test(esitoP.errore)
+          ? `${esitoP.errore} — il canale di prova è impostato su «${chatProva}». Controlla due cose: che l'id cominci con -100 (è NEGATIVO: copiandolo a mano il meno si perde) e che il bot sia amministratore di quel canale.`
+          : esitoP.errore
+        return json({ error: spiega }, 502)
+      }
       canali.prova = {
         at: new Date().toISOString(), da: email, chat: chatProva,
         message_id: esitoP.tg?.result?.message_id,
