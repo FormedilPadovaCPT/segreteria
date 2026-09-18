@@ -155,6 +155,17 @@ Deno.serve(async (req) => {
     return json({ status: 'ok', ritirati: codici.length })
   }
 
+  /* quante persone vedono il portale: i numeri li guarda l'ufficio, e la
+     lettura non e' pubblica — passa da qui con la parola d'ordine. */
+  if (azione === 'visite') {
+    const giorni = Number(corpo.giorni)
+    const { data, error } = await sb.rpc('portale_visite_riepilogo', {
+      p_giorni: Number.isFinite(giorni) && giorni > 0 ? Math.min(giorni, 400) : 30,
+    })
+    if (error) return errore('visite non leggibili: ' + error.message, 500)
+    return json({ status: 'ok', visite: data })
+  }
+
   if (azione === 'pubblica_test' || azione === 'ritira_test') {
     if (azione === 'ritira_test') {
       const codici = Array.isArray(corpo.codici) ? corpo.codici.filter((c) => typeof c === 'string').slice(0, 50) : []

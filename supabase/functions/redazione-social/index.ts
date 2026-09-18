@@ -391,6 +391,10 @@ serve(async (req) => {
         immagini: Array.isArray(post.immagini) && post.immagini.length
           ? (post.immagini as { url: string }[]).map((x) => x?.url).filter(Boolean) : null,
         video_url: post.video_url || null,
+        /* 18/09/2026: se il post porta una data di evidenza, la notizia entra
+           nel riquadro in cima alla home dell'app — e ne esce da sola alla
+           scadenza. Tutto cio' che e' temporaneo deve sapere quando morire. */
+        evidenza_fino_al: post.evidenza_fino_al || null,
       }).select('id').single()
       if (error) return json({ error: 'notizie: ' + error.message }, 502)
       canali.app = { notizia_id: n.id, at: new Date().toISOString(), da: email }

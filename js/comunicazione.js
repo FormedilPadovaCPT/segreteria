@@ -446,6 +446,13 @@ export async function apriPratica(id) {
       <div class="field"><label>Da pubblicare il</label><input type="date" id="pd-data" value="${p.data_programmata || ''}"></div>
       <div class="field"><label>Titolo di lavoro</label><input type="text" id="pd-titolo" value="${esc(p.titolo)}"></div>
     </div>
+    <div class="field" style="margin-top:10px">
+      <label>In evidenza nell'app fino al <span class="hint">— vuoto: notizia normale</span></label>
+      <input type="date" id="pd-evidenza" value="${p.evidenza_fino_al || ''}">
+      <span class="hint">Il riquadro in cima alla home dell'app servizi, per una cosa che ha una data: un corso da
+        riempire, un convegno con le iscrizioni aperte. <b>Passata la data sparisce da sé</b> — non c'è niente da
+        ricordarsi di togliere. Vale dal momento in cui la notizia viene pubblicata nell'app.</span>
+    </div>
     <p class="hint" style="margin:10px 0 0">Formattazione: ${esc(SEGNI_AMMESSI)}. Si mette coi pulsanti o con Ctrl+B / Ctrl+I / Ctrl+U / Ctrl+K. Telegram e app servizi la mostrano; LinkedIn e Instagram escono in testo semplice e i segni si tolgono da soli.</p>
     ${area('pd-telegram', '📋 Telegram (esce da qui col bot)', p.testo_telegram, 9, 'telegram')}
     ${area('pd-app', '🔔 App servizi — notizia estesa', p.testo_app, 8, 'app')}
@@ -487,6 +494,7 @@ export async function apriPratica(id) {
 
   const valori = () => ({
     pilastro: $('#pd-pilastro').value, data_programmata: $('#pd-data').value || null,
+    evidenza_fino_al: $('#pd-evidenza')?.value || null,
     titolo: $('#pd-titolo').value.trim() || p.titolo,
     testo_telegram: $('#pd-telegram').value.trim() || null, testo_app: $('#pd-app').value.trim() || null,
     testo_linkedin: $('#pd-linkedin').value.trim() || null, testo_instagram: $('#pd-instagram').value.trim() || null,
