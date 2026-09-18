@@ -277,6 +277,25 @@ export async function nuovoCorsoDaConferenza(p) {
   });
 }
 
+/* Le iscrizioni si chiudono quando il corso non le vuole più: si aggiorna la
+   copia sul portale, altrimenti il modulo resta aperto là fuori. */
+async function chiudiIscrizioniSeServe(corsoId) {
+  try {
+    const { error } = await sb.rpc('iscr_chiudi', { p_corso_id: corsoId });
+    if (error) throw error;
+    const { data, error: e2 } = await sb.functions.invoke('questionari-pubblica', {
+      body: { cosa: 'iscrizione', corso_id: corsoId },
+    });
+    if (e2 || data?.status !== 'ok') {
+      toast('Iscrizioni chiuse, ma sul portale il modulo risulta ancora aperto: usa «Aggiorna sul portale».', 'err');
+      return;
+    }
+    toast('Iscrizioni chiuse anche sul portale.', 'ok');
+  } catch (err) {
+    toast(`Iscrizioni non chiuse (${err.message}): chiudile dalla scheda.`, 'err');
+  }
+}
+
 /* ── il modulo d'iscrizione di una conferenza, pronto alla nascita ────────
    Un errore qui non deve impedire la creazione del corso: le iscrizioni si
    possono sempre aprire a mano dalla scheda, e dirlo è meglio che bloccare. */
@@ -446,9 +465,15 @@ export async function apriCorso(id) {
   collegaTest(c, test, iscritti, () => apriCorso(c.id));
   $('#co-dati').addEventListener('click', () => formCorso(c));
   $('#co-stato').addEventListener('change', async (e) => {
-    const { error } = await sb.from('s_corsi').update({ stato: e.target.value, aggiornato_da: state.email, updated_at: new Date().toISOString() }).eq('id', c.id);
+    const stato = e.target.value;
+    const { error } = await sb.from('s_corsi').update({ stato, aggiornato_da: state.email, updated_at: new Date().toISOString() }).eq('id', c.id);
     if (error) return toast(error.message, 'err');
     toast('Stato aggiornato.', 'ok');
+    /* ⚠️ Un corso svolto, chiuso o annullato non deve lasciare il modulo
+       aperto sul portale: chi ha il link continuerebbe a iscriversi a una cosa
+       già fatta. Il portale legge una COPIA, quindi non se ne accorge da sé
+       (trovato il 19/09/2026 ripulendo le prove). */
+    if (c.iscr_codice && ['svolto', 'chiuso', 'annullato'].includes(stato)) await chiudiIscrizioniSeServe(c.id);
     await render();
   });
 
