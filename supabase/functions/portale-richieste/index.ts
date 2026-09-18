@@ -224,6 +224,29 @@ function perDb(d: Dati, spec: Spec): unknown {
   }
 }
 
+/* ── il questionario e la visita a cui si riferisce ───────────────────────
+   Il link «Valuta la visita» della mail del verbale porta un riferimento
+   firmato (V2526-0874.<firma>). Il portale non lo verifica — non ha il segreto
+   e non lo deve avere — quindi il controllo e' qui, con questionario_verifica.
+   ⚠️ Se la firma non torna la risposta NON si butta: si salva senza visita, e
+   riferimento_esito dice perche'. Perdere un giudizio e' peggio che tenerne uno
+   non agganciato (regola del 04/09 su da che parte sbagliare).
+   Quando invece l'aggancio riesce, tecnico e data li scrive la VISITA, non chi
+   compila: di quei due campi il database sa piu' di lui. */
+async function agganciaVisita(sb: SB, d: Dati): Promise<Dati> {
+  const rif = String(d.riferimento ?? '').trim()
+  if (!rif) return { riferimento_esito: 'senza invito' }
+  const { data, error } = await sb.rpc('questionario_verifica', { p_riferimento: rif.slice(0, 200) })
+  if (error) return { riferimento_esito: 'verifica non riuscita: ' + error.message }
+  const r = (Array.isArray(data) ? data[0] : data) as Dati | undefined
+  if (!r || r.esito !== 'agganciato') return { riferimento_esito: String(r?.esito || 'non agganciato') }
+  return {
+    visita_id: r.visita_id, nr_verbale: r.nr_verbale, riferimento_esito: 'agganciato',
+    ...(r.tecnico ? { tecnico: r.tecnico } : {}),
+    ...(r.data_visita ? { data_visita: r.data_visita } : {}),
+  }
+}
+
 /* ── pre-istruttoria: le stesse regole che aveva import-rlst ─────────────── */
 function normComune(v: string): string {
   return String(v || '').toUpperCase().replace(/\(.*$/, '').replace(/\s+/g, ' ').trim()
@@ -536,32 +559,40 @@ const MODULI: Record<string, Modulo> = {
     ],
   },
 
-  /* questionario: le scale arrivano come scala_<chiave> (e i servizi anche
-     coi nomi dei campi nascosti); le proposte come suggerimenti_testo */
+  /* questionario: dal 18/09/2026 e' «una domanda, poi dipende» — una sola
+     valutazione (utilita 1-5), le pastiglie del ramo che si apre, che cosa
+     l'impresa ha fatto dopo la visita, e il testo libero. Arriva quasi sempre
+     dal pulsante «Valuta la visita» della mail del verbale, e allora sa a quale
+     visita si riferisce (vedi agganciaVisita).
+     Le colonne del questionario vecchio restano mappate: quelle risposte
+     dicono quel che dicevano, e il modulo potrebbe ancora arrivare da una
+     pagina in cache (regola d'oro 7). */
   qst: {
     tabella: 's_questionari_sopralluogo',
     obbligatori: [],
     chi: 'tecnico',
     colonne: {
-      tecnico: 'tecnico', data_visita: 'data:data_visita', scopi: 'scopi_visita',
-      scala_aspettative: 'scala:scala_aspettative', ruolo_chiaro: 'qst_ruolo_chiaro',
+      tecnico: 'tecnico', data_visita: 'data:data_visita',
+      utilita: 'scala:utilita', motivi: 'motivi', commento: 'commento', azione_dopo: 'azione_dopo',
+      contatto_richiesto: 'qst_contatto', recapito_contatto: 'recapito_contatto', privacy: 'privacy',
+      /* questionario fino al 18/09/2026 */
+      scopi: 'scopi_visita', scala_aspettative: 'scala:scala_aspettative', ruolo_chiaro: 'qst_ruolo_chiaro',
       scala_professionale: 'scala:scala_professionale', suggerimenti_pratici: 'qst_suggerimenti',
       scala_facilita: 'scala:scala_facilita', nuovi_rischi: 'qst_nuovi_rischi', misure_sicurezza: 'qst_misure',
       aree_monitorate: 'aree_monitorate', scala_serv_area: 'scala:scala_serv1|serv_area_sicurezza',
       scala_serv_visite: 'scala:scala_serv2|serv_visite_cantiere', scala_serv_consulenza: 'scala:scala_serv3|serv_consulenza',
       scala_serv_formazione: 'scala:scala_serv4|serv_formazione', scala_serv_corsi: 'scala:scala_serv5|serv_corsi',
       proposte_miglioramento: 'suggerimenti_testo|suggerimenti', aggiornamenti: 'qst_aggiornamenti',
-      contatto_richiesto: 'qst_contatto', recapito_contatto: 'recapito_contatto', privacy: 'privacy',
     },
+    extra: agganciaVisita,
     campi: [['TIMESTAMP', '#ts'], ['PROGRESSIVO', '#prog'], ['TECNICO', 'tecnico'], ['DATA VISITA', 'data:data_visita'],
+      ['UTILITÀ', 'utilita'], ['MOTIVI', 'motivi'], ['AZIONE DOPO', 'azione_dopo'], ['COMMENTO', 'commento'],
+      ['CONTATTO RICHIESTO', 'qst_contatto'], ['RECAPITO CONTATTO', 'recapito_contatto'],
       ['SCOPI', 'scopi_visita'], ['SCALA ASPETTATIVE', 'scala_aspettative'], ['RUOLO CHIARO', 'qst_ruolo_chiaro'],
       ['SCALA PROFESSIONALE', 'scala_professionale'], ['SUGGERIMENTI PRATICI', 'qst_suggerimenti'],
       ['SCALA FACILITÀ', 'scala_facilita'], ['NUOVI RISCHI', 'qst_nuovi_rischi'], ['MISURE SICUREZZA', 'qst_misure'],
-      ['AREE MONITORATE', 'aree_monitorate'], ['SCALA SERV. SICUREZZA', 'scala_serv1|serv_area_sicurezza'],
-      ['SCALA VISITE', 'scala_serv2|serv_visite_cantiere'], ['SCALA CONSULENZA', 'scala_serv3|serv_consulenza'],
-      ['SCALA FORMAZIONE', 'scala_serv4|serv_formazione'], ['SCALA CORSI', 'scala_serv5|serv_corsi'],
-      ['PROPOSTE MIGLIORAMENTO', 'suggerimenti_testo|suggerimenti'], ['AGGIORNAMENTI', 'qst_aggiornamenti'],
-      ['CONTATTO RICHIESTO', 'qst_contatto'], ['RECAPITO CONTATTO', 'recapito_contatto'], ['PRIVACY', 'privacy']],
+      ['AREE MONITORATE', 'aree_monitorate'], ['PROPOSTE MIGLIORAMENTO', 'suggerimenti_testo|suggerimenti'],
+      ['AGGIORNAMENTI', 'qst_aggiornamenti'], ['PRIVACY', 'privacy']],
   },
 }
 

@@ -147,7 +147,14 @@ const MODELLI = {
     titolo: 'Questionario di gradimento del sopralluogo', nome: 'Questionario', sigla: 'QUEST', file: 'questionario-sopralluogo',
     chi: (p) => p.tecnico,
     sezioni: (p) => [
-      ['Visita', [['Tecnico', p.tecnico], ['Data della visita', giorno(p.data_visita)], ['Scopo', p.scopi]]],
+      ['Visita', [['Verbale', p.nr_verbale], ['Tecnico', p.tecnico], ['Data della visita', giorno(p.data_visita)], ['Scopo', p.scopi]]],
+      /* il questionario in uso dal 18/09/2026: una domanda sola e il ramo che
+         si apre. Le righe vuote il riepilogo le salta da se', quindi le due
+         stagioni di domande convivono senza confondersi */
+      ['Giudizio sulla visita', [
+        ['Quanto è stata utile (1-5)', p.utilita], ['Motivi indicati', p.motivi],
+        ['Dopo la visita', p.azione_dopo], ['Ha scritto', p.commento],
+      ]],
       ['Valutazione', [
         ['Aspettative soddisfatte (1-5)', p.scala_aspettative], ['Ruolo e obiettivi spiegati', p.ruolo_chiaro],
         ['Professionalità del tecnico (1-5)', p.scala_professionale], ['Suggerimenti pratici', p.suggerimenti_pratici],
