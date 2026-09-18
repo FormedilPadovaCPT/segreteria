@@ -241,6 +241,9 @@ export function collegaFormato(host, { immagineUrl = null } = {}) {
 }
 
 const canaliDi = (p) => (p.canali_pubblicati && typeof p.canali_pubblicati === 'object') ? p.canali_pubblicati : {};
+/* Le immagini del post in fila: prima la copertina, poi il carosello (18/09/2026). */
+const immagini = (p) => (p.immagine_url ? [p.immagine_url] : [])
+  .concat((Array.isArray(p.immagini) ? p.immagini : []).map((x) => (typeof x === 'string' ? x : x && x.url)).filter(Boolean));
 const pillPilastro = (k) => { const [ico, nome] = PILASTRI[k] || ['•', k]; return `<span class="badge" style="background:#eef0f3;color:var(--grigio)">${ico} ${esc(nome)}</span>`; };
 const pillStato = (s) => {
   const col = { bozza: ['#fff3e8', 'var(--arancio)'], approvato: ['#e7f5e1', '#3d7a1f'], pubblicato: ['#e3edf7', '#1f4f8a'], scartato: ['#f1f1f1', '#777'] }[s] || ['#eee', '#555'];
@@ -414,13 +417,28 @@ export async function apriPratica(id) {
     ${p.scarto_motivo ? `<div class="dt-doc-riga"><strong>Motivo dello scarto:</strong> ${esc(p.scarto_motivo)}</div>` : ''}
     ${Object.keys(c).length ? `<div class="dt-doc-riga"><strong>Uscito su:</strong> ${CANALI.filter(([k]) => c[k]).map(([k, l]) => `${esc(l)} (${esc((c[k].at || '').slice(0, 10))}${c[k].message_id ? `, msg ${c[k].message_id}` : ''})`).join(' · ')}</div>` : ''}
 
-    <div class="dt-doc-riga" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:8px">
-      <strong>Immagine di testa:</strong>
-      ${p.immagine_url ? `<a href="${esc(p.immagine_url)}" target="_blank" rel="noopener"><img src="${esc(p.immagine_url)}" alt="" style="height:72px;border-radius:8px;border:1px solid var(--bordo)"></a>` : '<span class="hint">nessuna (su Telegram esce solo testo)</span>'}
-      <input type="file" id="pd-img-file" accept="image/jpeg,image/png,image/webp" style="max-width:220px">
-      <button class="btn btn-ghost btn-sm" id="pd-img-carica" type="button">⬆ Carica</button>
-      ${p.immagine_url ? '<button class="btn btn-ghost btn-sm" id="pd-img-togli" type="button">✕ Togli</button>' : ''}
-      <span class="hint">Su Telegram esce come foto col testo sotto (max 1024 caratteri in didascalia); nell'app servizi come immagine della notizia. Foto dell'ente o d'archivio, mai cantieri o persone riconoscibili.</span>
+    <div class="dt-doc-riga" style="margin-top:8px">
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+        <strong>Immagini${immagini(p).length > 1 ? ` (${immagini(p).length} — carosello)` : ''}:</strong>
+        ${immagini(p).length ? immagini(p).map((u, i) => `
+          <span style="position:relative;display:inline-block">
+            <a href="${esc(u)}" target="_blank" rel="noopener"><img src="${esc(u)}" alt="" style="height:72px;border-radius:8px;border:1px solid var(--bordo);display:block"></a>
+            <button class="btn btn-ghost btn-sm pd-img-togli" data-i="${i}" type="button" title="Togli questa immagine" style="position:absolute;top:-6px;right:-6px;padding:1px 6px;border-radius:999px;background:#fff">✕</button>
+            <span style="position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,.6);color:#fff;font-size:9px;font-weight:700;text-align:center;border-radius:0 0 8px 8px">${i === 0 ? 'copertina' : i + 1}</span>
+          </span>`).join('') : '<span class="hint">nessuna (su Telegram esce solo testo)</span>'}
+        <input type="file" id="pd-img-file" accept="image/jpeg,image/png,image/webp" multiple style="max-width:220px">
+        <button class="btn btn-ghost btn-sm" id="pd-img-carica" type="button">⬆ Carica</button>
+      </div>
+      <span class="hint">La prima è la <b>copertina</b>, le altre fanno il <b>carosello</b>: nell'app servizi si scorrono, su Telegram escono come album (didascalia sulla prima, max 1024 caratteri). Le immagini si rimpiccioliscono da sole. Foto dell'ente o d'archivio, mai cantieri o persone riconoscibili.</span>
+    </div>
+
+    <div class="dt-doc-riga" style="margin-top:8px">
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+        <strong>▶ Video (link YouTube):</strong>
+        <input type="url" id="pd-video" value="${esc(p.video_url || '')}" placeholder="https://www.youtube.com/watch?v=…" style="flex:1;min-width:280px">
+        ${p.video_url ? `<a href="${esc(p.video_url)}" target="_blank" rel="noopener">apri</a>` : ''}
+      </div>
+      <span class="hint">Il video <b>non si carica qui</b>: si mette sul canale dell'Area (@formedilpadova_areasicurezza) e si incolla il link. Nell'app servizi la notizia lo mostra con copertina e tasto play (il lettore parte solo al tocco, quindi nessun cookie prima); su Telegram esce il link nel testo. Si salva con «Salva le modifiche».</span>
     </div>
 
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:10px">
@@ -463,6 +481,7 @@ export async function apriPratica(id) {
     testo_telegram: $('#pd-telegram').value.trim() || null, testo_app: $('#pd-app').value.trim() || null,
     testo_linkedin: $('#pd-linkedin').value.trim() || null, testo_instagram: $('#pd-instagram').value.trim() || null,
     hashtag: $('#pd-hashtag').value.trim() || null, aggiornato_da: state.email,
+    video_url: $('#pd-video')?.value.trim() || null,
   });
   const salva = async (extra = {}, msg = 'Salvato.') => {
     const { error } = await sb.from('s_post').update({ ...valori(), ...extra }).eq('id', id);
@@ -506,28 +525,33 @@ export async function apriPratica(id) {
 
   /* immagine di testa */
   $('#pd-img-carica').addEventListener('click', async (ev) => {
-    const file = $('#pd-img-file').files?.[0];
-    if (!file) return toast('Scegli prima un file immagine.', 'err');
+    const files = [...($('#pd-img-file').files || [])];
+    if (!files.length) return toast('Scegli prima uno o più file immagine.', 'err');
     const btn = ev.currentTarget;
     attendi(btn, true, 'Carico…');
     try {
-      const img = await immagineRidotta(file);
-      const { data, error } = await sb.functions.invoke('redazione-social', { body: { op: 'immagine', id, mime: img.mime, base64: img.base64 } });
-      if (error || data?.error) throw new Error(await messaggioErrore(error, data));
-      toast('Immagine caricata.', 'ok');
+      /* una per volta e in fila: la prima diventa la copertina, le altre il
+         carosello, e l'ordine in cui si scelgono e' quello che si vedra' */
+      for (const file of files) {
+        const img = await immagineRidotta(file);
+        const { data, error } = await sb.functions.invoke('redazione-social', { body: { op: 'immagine', id, mime: img.mime, base64: img.base64 } });
+        if (error || data?.error) throw new Error(await messaggioErrore(error, data));
+      }
+      toast(files.length > 1 ? `${files.length} immagini caricate.` : 'Immagine caricata.', 'ok');
       await render(); apriPratica(id);
     } catch (e) {
       attendi(btn, false);
       toast('Immagine: ' + e.message, 'err');
     }
   });
-  $('#pd-img-togli')?.addEventListener('click', async (ev) => {
+  document.querySelectorAll('.pd-img-togli').forEach((b) => b.addEventListener('click', async (ev) => {
+    const i = Number(ev.currentTarget.dataset.i);
     attendi(ev.currentTarget, true);
-    const { data, error } = await sb.functions.invoke('redazione-social', { body: { op: 'immagine_rimuovi', id } });
+    const { data, error } = await sb.functions.invoke('redazione-social', { body: { op: 'immagine_rimuovi', id, indice: i } });
     if (error || data?.error) { attendi(ev.currentTarget, false); return toast('Immagine: ' + await messaggioErrore(error, data), 'err'); }
     toast('Immagine tolta.', 'ok');
     await render(); apriPratica(id);
-  });
+  }));
 
   /* pubblicazione */
   $('#pd-tg')?.addEventListener('click', async (ev) => {

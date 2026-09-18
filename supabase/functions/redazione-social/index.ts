@@ -198,18 +198,35 @@ serve(async (req) => {
       const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
       if (bytes.length > 5 * 1024 * 1024) return json({ error: 'immagine oltre 5 MB' }, 400)
       const est = mime === 'image/png' ? 'png' : mime === 'image/webp' ? 'webp' : 'jpg'
-      const path = `post-${id}/${Date.now()}.${est}`
+      /* 18/09/2026 - la prima immagine e' la copertina, le altre fanno il CAROSELLO
+         (nell'app servizi si scorrono, su Telegram escono come album). Si AGGIUNGE,
+         non si sostituisce: per cambiare la copertina si toglie e si ricarica. */
+      const carosello = Array.isArray(post.immagini) ? post.immagini as { url: string; path: string }[] : []
+      if ((post.immagine_url ? 1 : 0) + carosello.length >= 10) return json({ error: 'al massimo 10 immagini per post (limite dell\'album di Telegram)' }, 400)
+      const path = `post-${id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${est}`
       const { error: eUp } = await admin.storage.from('social-media').upload(path, bytes, { contentType: mime, upsert: false })
       if (eUp) return json({ error: 'caricamento immagine: ' + eUp.message }, 502)
       const { data: pub } = admin.storage.from('social-media').getPublicUrl(path)
-      if (post.immagine_path) await admin.storage.from('social-media').remove([post.immagine_path]).catch(() => null)
-      await admin.from('s_post').update({ immagine_url: pub.publicUrl, immagine_path: path, aggiornato_da: email }).eq('id', id)
-      return json({ ok: true, immagine_url: pub.publicUrl })
+      const agg = post.immagine_url
+        ? { immagini: [...carosello, { url: pub.publicUrl, path }], aggiornato_da: email }
+        : { immagine_url: pub.publicUrl, immagine_path: path, aggiornato_da: email }
+      await admin.from('s_post').update(agg).eq('id', id)
+      return json({ ok: true, immagine_url: pub.publicUrl, quante: (post.immagine_url ? 1 : 0) + carosello.length + 1 })
     }
     if (op === 'immagine_rimuovi') {
-      if (post.immagine_path) await admin.storage.from('social-media').remove([post.immagine_path]).catch(() => null)
-      await admin.from('s_post').update({ immagine_url: null, immagine_path: null, aggiornato_da: email }).eq('id', id)
-      return json({ ok: true })
+      /* Si toglie per POSIZIONE (0 = copertina). Togliendo la copertina, la prima del
+         carosello prende il suo posto: l'elenco resta senza buchi. */
+      const carosello = Array.isArray(post.immagini) ? post.immagini as { url: string; path: string }[] : []
+      const tutte = (post.immagine_url ? [{ url: post.immagine_url, path: post.immagine_path }] : []).concat(carosello)
+      const i = Number.isInteger(body.indice) ? Number(body.indice) : 0
+      if (i < 0 || i >= tutte.length) return json({ error: 'nessuna immagine in quella posizione' }, 400)
+      const via = tutte.splice(i, 1)[0]
+      if (via?.path) await admin.storage.from('social-media').remove([via.path]).catch(() => null)
+      await admin.from('s_post').update({
+        immagine_url: tutte[0]?.url || null, immagine_path: tutte[0]?.path || null,
+        immagini: tutte.length > 1 ? tutte.slice(1) : null, aggiornato_da: email,
+      }).eq('id', id)
+      return json({ ok: true, quante: tutte.length })
     }
 
     if (!['approvato', 'pubblicato'].includes(post.stato)) return json({ error: 'si pubblica solo un post approvato' }, 400)
@@ -221,15 +238,50 @@ serve(async (req) => {
       const { data: cfg } = await admin.from('s_config').select('valore').eq('chiave', 'telegram_canale').maybeSingle()
       const chat = cfg?.valore
       if (!chat) return json({ error: 's_config.telegram_canale vuoto' }, 500)
-      const testo = String(body.testo || post.testo_telegram || '').trim()
+      let testo = String(body.testo || post.testo_telegram || '').trim()
       if (!testo) return json({ error: 'testo Telegram vuoto' }, 400)
+      /* Il video non si carica da nessuna parte: si manda il LINK, che Telegram rende
+         cliccabile e - quando non ci sono foto - apre anche l'anteprima. Se chi scrive
+         l'ha gia' messo nel testo non si ripete. */
+      if (post.video_url && !testo.includes(String(post.video_url))) testo = testo + '\n\n' + post.video_url
       if (lunghezzaVisibile(testo) > 4096) return json({ error: `testo Telegram troppo lungo: ${lunghezzaVisibile(testo)} caratteri visibili, il limite è 4096` }, 400)
       /* con l'immagine di testa: foto col testo come didascalia (limite Telegram
          1024 caratteri VISIBILI, cioè senza i segni); se il testo è più lungo,
          foto e poi messaggio a parte. Il testo esce formattato (parse_mode HTML). */
       let tg: Record<string, any> = {}
       let formattazioneTolta = false
-      if (post.immagine_url) {
+      const altre = (Array.isArray(post.immagini) ? post.immagini as { url: string }[] : []).map((x) => x?.url).filter(Boolean)
+
+      if (post.immagine_url && altre.length) {
+        /* CAROSELLO -> album di Telegram. La didascalia sta sulla prima foto (limite
+           1024 caratteri VISIBILI); se il testo e' piu' lungo, album e poi messaggio.
+           Stesso ripiego del resto della funzione: se Telegram si lamenta della
+           formattazione, si rimanda in testo semplice invece di non pubblicare. */
+        const inDidascalia = lunghezzaVisibile(testo) <= 1024
+        const urls = [post.immagine_url, ...altre].slice(0, 10)
+        const album = async (conFormato: boolean) => {
+          const didascalia = inDidascalia ? (conFormato ? postInTelegramHtml(testo) : postInTestoSemplice(testo)) : ''
+          const media = urls.map((u, k) => (k === 0 && inDidascalia
+            ? { type: 'photo', media: u, caption: didascalia, ...(conFormato ? { parse_mode: 'HTML' } : {}) }
+            : { type: 'photo', media: u }))
+          const r = await fetch(`https://api.telegram.org/bot${TOKEN}/sendMediaGroup`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: chat, media }),
+          })
+          return { r, tg: await r.json().catch(() => ({})) as Record<string, any> }
+        }
+        let { r, tg: j } = await album(true)
+        if ((!r.ok || !j.ok) && /parse entities/i.test(String(j.description || ''))) {
+          const rip = await album(false); r = rip.r; j = rip.tg; formattazioneTolta = true
+        }
+        if (!r.ok || !j.ok) return json({ error: 'Telegram (album): ' + (j.description || r.status) }, 502)
+        tg = { result: Array.isArray(j.result) ? j.result[0] : j.result }
+        if (!inDidascalia) {
+          const msg = await inviaTelegram(TOKEN, 'sendMessage', { chat_id: chat, disable_web_page_preview: true }, testo, 'text')
+          if (!msg.r.ok || !msg.tg.ok) return json({ error: 'Telegram (testo dopo l\'album): ' + (msg.tg.description || msg.r.status) }, 502)
+          tg = msg.tg; formattazioneTolta = msg.formattazione_tolta
+        }
+      } else if (post.immagine_url) {
         const inDidascalia = lunghezzaVisibile(testo) <= 1024
         const foto = inDidascalia
           ? await inviaTelegram(TOKEN, 'sendPhoto', { chat_id: chat, photo: post.immagine_url }, testo, 'caption')
@@ -273,6 +325,11 @@ serve(async (req) => {
         titolo, corpo: postInHtmlNotizia(testo), categoria, priorita: post.pilastro === 'avviso' ? 'urgente' : 'normale',
         autore: 'Area Sicurezza e Salute', data_pubbl: new Date().toISOString().slice(0, 10),
         link_esterno: post.fonte_url || null, immagine_url: post.immagine_url || null, pubblicata: true,
+        /* 18/09/2026: le altre immagini fanno il carosello nella pagina Notizie, e il
+           video di YouTube ci esce con copertina e tasto play (parte solo al tocco). */
+        immagini: Array.isArray(post.immagini) && post.immagini.length
+          ? (post.immagini as { url: string }[]).map((x) => x?.url).filter(Boolean) : null,
+        video_url: post.video_url || null,
       }).select('id').single()
       if (error) return json({ error: 'notizie: ' + error.message }, 502)
       canali.app = { notizia_id: n.id, at: new Date().toISOString(), da: email }
