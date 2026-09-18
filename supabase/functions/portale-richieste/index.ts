@@ -880,12 +880,16 @@ async function lavora(sb: SB, sa: Dati, d: Dati, tipo: string, m: Modulo, subId:
     let prog = (Number(ult?.[0]?.progressivo) || 0) + 1
     const campi: Dati = {}
     for (const [col, spec] of Object.entries(m.colonne)) campi[col] = perDb(d, spec)
+    const calcolati = m.extra ? await m.extra(sb, d) : {}
+    /* quello che ha risolto il server entra anche nei dati che vede la MAIL:
+       la segreteria deve leggere il numero del verbale, non il token del link */
+    for (const [k, v] of Object.entries(calcolati)) if (v !== null && v !== undefined) d[k] = v
     const riga = {
       fonte: 'modulo',
       submission_id: subId,
       timestamp_modulo: istante(d.timestamp),
       ...campi,
-      ...(m.extra ? await m.extra(sb, d) : {}),
+      ...calcolati,
       ...(m.filtro || {}),
       portale_esito: { strada: cassetta ? 'cassetta' : 'portale-richieste', arrivata_il: new Date().toISOString() },
     }

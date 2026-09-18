@@ -63,6 +63,27 @@ const votoCella = (q) => {
 };
 const AGITO = /^(sì|si), subito|programma/i;
 
+/* Per il cruscotto: le righe che qualcuno deve guardare, in ordine di urgenza
+   — prima i voti bassi non ancora presi in mano (sono quelli per cui si può
+   ancora fare qualcosa), poi chi ha chiesto di essere richiamato, poi i nuovi.
+   Il cruscotto non tiene una lista sua: conta queste righe e ci porta sopra. */
+export async function daLavorare() {
+  const { data, error } = await sb.from('s_questionari_sopralluogo')
+    .select('id, progressivo, timestamp_modulo, tecnico, data_visita, nr_verbale, utilita, motivi, commento, azione_dopo, contatto_richiesto, recapito_contatto, stato, scala_aspettative, scala_professionale, scala_facilita, proposte_miglioramento')
+    .not('stato', 'in', '(archiviato,scartato)')
+    .order('id', { ascending: false }).limit(60);
+  if (error) throw error;
+  const aperte = (data || []).filter((q) => q.stato === 'ricevuto' || daContattare(q));
+  const peso = (q) => {
+    const v = voto(q);
+    if (v !== null && v <= 2 && q.stato === 'ricevuto') return 0;   // scontento e non ancora letto
+    if (daContattare(q)) return 1;                                  // ha chiesto di essere richiamato
+    return 2;
+  };
+  return aperte.sort((a, b) => peso(a) - peso(b) || b.id - a.id);
+}
+export { voto, votoCella, daContattare, vuoleContatto };
+
 export async function render() {
   const host = $('#questionari-host');
   host.innerHTML = '<p class="empty">Un istante…</p>';

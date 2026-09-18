@@ -127,14 +127,29 @@ function nominativo(d: Dati, pre: string): string {
   return [d[pre + 'titolo'], d[pre + 'nome'], d[pre + 'cognome']].map(s).filter(Boolean).join(' ')
 }
 
+const PAROLA_UTILITA: Record<number, string> = {
+  1: 'per niente utile', 2: 'poco utile', 3: 'così così', 4: 'utile', 5: 'molto utile',
+}
+
 /* Le tre caselle in testa alla mail interna: cambiano per servizio */
 function riassuntoCpt(tipo: string, d: Dati) {
   const c: { t: string; v: string; s?: string }[] = []
-  /* il questionario non ha impresa ne' cantiere: tecnico, voti, contatto */
+  /* il questionario non ha impresa ne' cantiere: la visita a cui si riferisce,
+     il giudizio e chi aspetta una telefonata. Dal 18/09/2026 il voto e' uno
+     solo — quanto e' stata utile — e le tre scale di prima restano solo sulle
+     risposte vecchie */
   if (tipo === 'qst') {
+    const v = Number(d.utilita)
+    const vecchie = [d.scala_aspettative, d.scala_professionale, d.scala_facilita].map(s).filter(Boolean).join(' · ')
     return [
-      { t: 'Tecnico', v: s(d.tecnico), s: d.data_visita ? 'visita del ' + fmtDate(d.data_visita) : '' },
-      { t: 'Voti (1-5)', v: [d.scala_aspettative, d.scala_professionale, d.scala_facilita].map(s).filter(Boolean).join(' · '), s: 'aspettative · professionalità · facilità' },
+      {
+        t: 'Visita',
+        v: s(d.nr_verbale) || s(d.tecnico) || 'non collegata a un verbale',
+        s: [s(d.nr_verbale) ? s(d.tecnico) : '', d.data_visita ? 'del ' + fmtDate(d.data_visita) : ''].filter(Boolean).join(' — '),
+      },
+      Number.isInteger(v) && v >= 1 && v <= 5
+        ? { t: 'Utile?', v: `${v} su 5 — ${PAROLA_UTILITA[v]}`, s: s(d.motivi) || s(d.azione_dopo) }
+        : { t: 'Voti (1-5)', v: vecchie || 'non indicati', s: vecchie ? 'aspettative · professionalità · facilità' : '' },
       { t: 'Contatto', v: s(d.qst_contatto) || 'non indicato', s: s(d.recapito_contatto) },
     ]
   }
@@ -194,6 +209,8 @@ const ETICHETTE_CAMPI: Record<string, string> = {
   indirizzo_persona: 'Indirizzo persona', comune_persona: 'Comune persona', telefono_persona: 'Telefono persona',
   /* questionario sul sopralluogo */
   tecnico: 'Tecnico', data_visita: 'Data della visita', scopi_visita: 'Scopo della visita',
+  nr_verbale: 'Verbale', utilita: 'Quanto è stata utile (1-5)', motivi: 'Motivi indicati',
+  azione_dopo: 'Dopo la visita', commento: 'Ha scritto', riferimento_esito: 'Collegamento alla visita',
   scala_aspettative: 'Aspettative soddisfatte (1-5)', qst_ruolo_chiaro: 'Ruolo e obiettivi spiegati',
   scala_professionale: 'Professionalità del tecnico (1-5)', qst_suggerimenti: 'Suggerimenti pratici',
   scala_facilita: 'Suggerimenti facili da applicare (1-5)', qst_nuovi_rischi: 'Nuovi rischi individuati',
@@ -239,7 +256,11 @@ function gruppiCampiCpt(tipo: string, d: Dati): Gruppo[] {
     'pdf_verbale_base64', 'pdf_verbale_nome', 'pdf_formazione_base64', 'pdf_formazione_nome',
     'seg_photo_base64', 'privacy', 'figure_json', 'imprese_json', 'submission_id', 'foto_url',
     /* doppioni: il portale manda il tipo di visita e le scale dei servizi con due nomi */
-    'tipo_visita', 'serv_area_sicurezza', 'serv_visite_cantiere', 'serv_consulenza', 'serv_formazione', 'serv_corsi']
+    'tipo_visita', 'serv_area_sicurezza', 'serv_visite_cantiere', 'serv_consulenza', 'serv_formazione', 'serv_corsi',
+    /* il riferimento firmato del questionario e' la chiave del link: nella mail
+       non serve (c'e' il numero del verbale, che e' il dato leggibile) e chi la
+       legge non deve avere in mano il modo di compilarne altri per quella visita */
+    'riferimento', 'visita_id']
   const usati: Record<string, boolean> = {}
   const dati = Object.entries(d).filter(([k, v]) => v && !ESCLUDI.includes(k))
   const isData = (k: string) => /^data_|_il$|_nato_il$/.test(k)
@@ -300,8 +321,15 @@ function gruppiCampiCpt(tipo: string, d: Dati): Gruppo[] {
 export function mailInterna(tipo: string, d: Dati, prog: number,
   o: { praticaId?: number | null; fotoUrls?: string[]; allegati?: [string, string][]; scartati?: string[] } = {}): { oggetto: string; html: string } {
   const label = TIPO_LABEL[tipo] || tipo
+  /* per il questionario in testa va la visita, non l'impresa (che non c'e');
+     e se il voto e' basso lo si dice subito, perche' e' la riga da leggere per
+     prima e un giudizio cosi' invecchia male */
+  const qstBasso = tipo === 'qst' && Number(d.utilita) >= 1 && Number(d.utilita) <= 2
   const impresa = (s(d.ragione_sociale) || nominativo(d, '') ||
-    (tipo === 'qst' && d.tecnico ? 'Sopralluogo di ' + s(d.tecnico) : '') || s(d.comune_cantiere) || 'Nuova richiesta').slice(0, 120)
+    (tipo === 'qst'
+      ? [qstBasso ? 'Voto basso —' : '', s(d.nr_verbale) ? 'verbale ' + s(d.nr_verbale) : '',
+         d.tecnico ? 'sopralluogo di ' + s(d.tecnico) : ''].filter(Boolean).join(' ') || 'Questionario'
+      : '') || s(d.comune_cantiere) || 'Nuova richiesta').slice(0, 120)
   const quando = mailDataOra()
 
   const caselle = riassuntoCpt(tipo, d).map((c, i) => `

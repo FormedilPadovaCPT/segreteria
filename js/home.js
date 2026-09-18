@@ -123,6 +123,13 @@ export async function render() {
   let critici = [];
   let ccMod = null;
   try { ccMod = await import('./cantieri-critici.js'); critici = await ccMod.aperti(); } catch { /* senza accesso la card resta vuota */ }
+  /* questionari sul sopralluogo (18/09/2026): da quando l'invito parte dalla
+     mail del verbale le risposte arrivano davvero, e vanno guardate — un
+     giudizio basso invecchia male, e chi ha chiesto di essere richiamato
+     aspetta */
+  let questionari = [];
+  let qsMod = null;
+  try { qsMod = await import('./questionari.js'); questionari = await qsMod.daLavorare(); } catch { /* senza accesso la card resta vuota */ }
   const praticaDi = {};
   try {
     const { data } = await sb.from('incarichi')
@@ -341,6 +348,29 @@ export async function render() {
           : '<p class="hint">Nessun caso aperto.</p>')
         + '<p class="hint" style="margin-top:6px">🚫 accesso negato · ⚠️ proposta di segnalazione a SPISAL / ITL dal verbale — <a href="#" id="hm-critici-tutti">tutti i casi, anche chiusi, e nuovo caso</a></p>')}
 
+      ${(() => {
+        if (!qsMod) return '';
+        const bassi = questionari.filter((q) => { const v = qsMod.voto(q); return v !== null && v <= 2; });
+        const contatti = questionari.filter((q) => qsMod.daContattare(q));
+        return card('⭐ Questionari sul sopralluogo', questionari.length,
+          (questionari.length
+            ? questionari.slice(0, 6).map((q) => {
+              const v = qsMod.voto(q);
+              const dice = [q.motivi, q.commento || q.proposte_miglioramento].filter(Boolean).join(' — ');
+              return `
+            <div class="hm-riga" data-questionario="${q.id}">
+              <span>${v !== null && v <= 2 ? '🔻' : qsMod.daContattare(q) ? '📞' : '⭐'}</span>
+              <span>${q.nr_verbale ? `<strong>${esc(q.nr_verbale)}</strong> — ` : ''}${esc(q.tecnico || 'tecnico non indicato')}
+                ${q.data_visita ? `<span class="hint">(visita del ${dataIt(q.data_visita)})</span>` : ''}
+                ${dice ? `<br><span class="hint">«${esc(dice.slice(0, 90))}${dice.length > 90 ? '…' : ''}»</span>` : ''}
+                ${qsMod.daContattare(q) ? `<br><span class="hint">📞 chiede di essere richiamato${q.recapito_contatto ? ' — ' + esc(q.recapito_contatto) : ''}</span>` : ''}</span>
+              <span class="hint">${qsMod.votoCella(q)}${q.stato === 'ricevuto' ? ' · <strong style="color:#a01f00">da leggere</strong>' : ''}</span>
+            </div>`;
+            }).join('') + (questionari.length > 6 ? `<p class="hint">…e altri ${questionari.length - 6}.</p>` : '')
+            : '<p class="hint">Nessun questionario da guardare.</p>')
+          + `<p class="hint" style="margin-top:6px">${bassi.length ? `🔻 ${bassi.length} con voto basso · ` : ''}${contatti.length ? `📞 ${contatti.length} da richiamare · ` : ''}<a href="#" data-goto="questionari">tutti i questionari</a></p>`);
+      })()}
+
       ${card('✅ Autorizzate — da eseguire', daEseguire.length,
         daEseguire.length
           ? daEseguire.slice(0, 8).map(rigaPratica).join('') + (daEseguire.length > 8 ? `<p class="hint">…e altre ${daEseguire.length - 8}.</p>` : '')
@@ -492,6 +522,10 @@ export async function render() {
     ev.preventDefault();
     (await import('./cantieri-critici.js')).elenco(render);
   });
+  /* dal cruscotto al questionario: «apri-pratica» va alla vista, la disegna e
+     apre la riga — lo stesso giro delle altre card */
+  host.querySelectorAll('[data-questionario]').forEach((r) =>
+    r.addEventListener('click', () => apriPratica('questionari', Number(r.dataset.questionario))));
   host.querySelectorAll('[data-vista-corso]').forEach((r) =>
     r.addEventListener('click', async () => {
       document.dispatchEvent(new CustomEvent('apri-pratica', { detail: { vista: 'corsi', id: Number(r.dataset.vistaCorso) } }));
