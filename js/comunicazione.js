@@ -467,6 +467,7 @@ export async function apriPratica(id) {
       <button class="btn btn-ghost btn-sm" id="pd-canale-prova">⚙ Canale di prova…</button>
     </div>
     <p class="hint" style="margin-top:6px">Esce sul canale di prova esattamente come uscirebbe su quello pubblico — stesse immagini, stesso album, stessa formattazione — ma <b>non</b> conta come pubblicazione: il post resta dov'è. Si può provare anche una bozza, e quante volte si vuole.</p>
+    ${c.prova && p.stato === 'bozza' ? `<p class="hint" style="margin-top:6px;background:#f2f8ec;border-left:3px solid var(--verde, #5d7f18);padding:7px 10px">👍 <b>Se com'è uscito ti convince</b>, premi <b>✅ Approva</b> qui sopra: compaiono i pulsanti per il <b>canale pubblico</b> e per l'<b>app servizi</b>. Se invece va corretto, cambia il testo o le immagini e riprova: le prove sono illimitate.</p>` : ''}
 
     ${['approvato', 'pubblicato'].includes(p.stato) ? `
     <hr style="margin:14px 0;border:0;border-top:1px solid var(--bordo)">
