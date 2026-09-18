@@ -340,7 +340,8 @@ export async function apriDialogoMail(p, modo = 'avviso') {
   document.body.appendChild(bg);
 
   const chiudi = () => bg.remove();
-  bg.addEventListener('click', (e) => { if (e.target === bg) chiudi(); });
+  /* si chiude solo con «Annulla»: un clic sullo sfondo buttava via
+     destinatari e testo gia' scritti (18/09/2026) */
   $('#m-annulla', bg).addEventListener('click', chiudi);
 
   /* ── le righe degli indirizzi: A e Cc si escludono a vicenda ── */

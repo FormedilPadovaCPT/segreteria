@@ -719,7 +719,7 @@ function sfogliaDrive({ partiDa = null } = {}) {
     });
 
     $('#sf-annulla', bg).addEventListener('click', () => chiudi(null));
-    bg.addEventListener('click', (ev) => { if (ev.target === bg) chiudi(null); });
+    /* niente chiusura col clic sullo sfondo: si esce con «Annulla» (18/09/2026) */
 
     /* Non si parte dalla radice se si sa gia' dove guardare: il campo
        «Cartella di archivio» del protocollo dice dove quel documento e'

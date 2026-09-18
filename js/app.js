@@ -249,8 +249,22 @@ $('#login-pwd').addEventListener('keydown', (e) => { if (e.key === 'Enter') acce
 $('#logout-btn').addEventListener('click', async () => { await sb.auth.signOut(); location.reload(); });
 $('#menu-toggle').addEventListener('click', () => $('#sidebar').classList.toggle('is-open'));
 $('#drawer-close').addEventListener('click', chiudiDrawer);
-$('#drawer-bg').addEventListener('click', chiudiDrawer);
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') chiudiDrawer(); });
+/* La scheda si chiude con la ✕ o con Esc, NON con un clic sullo sfondo
+   (18/09/2026, chiesto dall'utente): un clic finito per caso fuori dal
+   pannello lo faceva sparire con tutto quello che si stava scrivendo.
+   Esc resta, ma con due prudenze: se sopra c'e' una finestra (mail,
+   timbro, selettore) Esc e' suo e la scheda sotto non si tocca; e se si
+   sta scrivendo in un campo, il primo Esc esce dal campo e basta. */
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || $('#drawer').classList.contains('hidden')) return;
+  if (document.querySelector('.drawer-bg:not(#drawer-bg)')) return;
+  const el = document.activeElement;
+  if (el && el !== document.body && el.matches('input, textarea, select, [contenteditable="true"]')) {
+    el.blur();
+    return;
+  }
+  chiudiDrawer();
+});
 
 /* Incollare una data in un campo «date» (08/09/2026, chiesto dall'utente).
    Il browser ignora l'incolla su input[type=date]: qui si intercetta,

@@ -234,7 +234,7 @@ export async function scegliTimbro(protocollo, byte) {
   return new Promise((risolvi) => {
     const chiudi = (esito) => { bg.remove(); risolvi(esito); };
     $('#ant-annulla', bg).addEventListener('click', () => chiudi(null));
-    bg.addEventListener('click', (ev) => { if (ev.target === bg) chiudi(null); });
+    /* niente chiusura col clic sullo sfondo: si perdeva la posizione del timbro (18/09/2026) */
     $('#ant-ok', bg).addEventListener('click', () => chiudi({
       stile,
       posizione: stile === 'striscia' ? null : { x: Math.round(pos.x), y: Math.round(pos.y) },
