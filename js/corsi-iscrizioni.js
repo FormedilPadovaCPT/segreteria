@@ -70,9 +70,9 @@ export function sezioneIscr(c, iz) {
 
   const riga = (r) => {
     const quante = Array.isArray(r.persone) ? r.persone.length : 0;
-    const chi = r.per_conto === 'persona'
-      ? '<em>una persona per sé</em>'
-      : `${esc(r.ragione_sociale || '—')}${r.partita_iva ? ` <span class="hint">${esc(r.partita_iva)}</span>` : ''}`;
+    /* chi ha compilato: le imprese dei partecipanti stanno nelle loro righe */
+    const chi = `${esc(r.referente || r.ragione_sociale || '—')}${
+      r.ragione_sociale && r.referente ? ` <span class="hint">${esc(r.ragione_sociale)}</span>` : ''}`;
     const ceiv = r.esito_ceiv === 'iscritta' ? '<span class="dt-cella dt-ok" style="padding:1px 6px">CEIV</span>'
       : r.esito_ceiv === 'non_iscritta' ? '<span class="dt-cella dt-scaduto" style="padding:1px 6px">non CEIV</span>'
       : r.esito_ceiv ? '<span class="hint">CEIV da verificare</span>' : '';
@@ -117,7 +117,7 @@ export function sezioneIscr(c, iz) {
 
   ${iz.coda.length ? `
   <table class="tab" style="margin-top:6px">
-    <thead><tr><th>Arrivata</th><th>Chi si iscrive</th><th>Persone</th><th>E-mail</th><th></th></tr></thead>
+    <thead><tr><th>Arrivata</th><th>Chi ha compilato</th><th>Persone</th><th>E-mail</th><th></th></tr></thead>
     <tbody>${[...nuove, ...chiuse].map(riga).join('')}</tbody>
   </table>
   ${nuove.length ? `<p class="hint" style="margin-top:6px">⚠️ Le richieste in attesa <strong>occupano il posto</strong>
@@ -198,26 +198,41 @@ async function formIstruttoria(c, r, ricarica) {
   const { data: ist, error } = await sb.rpc('iscr_istruttoria', { p_id: r.id });
   if (error) return toast(error.message, 'err');
 
-  const impCand = ist.impresa_candidati || [];
-  const impresa = r.per_conto === 'persona' ? '' : `
-    <div class="field"><label>Impresa in anagrafica</label>
-      <select id="iz-imp">
-        <option value="">— nessuna: resta il solo nome scritto sul modulo</option>
-        ${impCand.map((i) => `<option value="${esc(i.impresa_id)}" ${i.impresa_id === ist.impresa_id ? 'selected' : ''}
-          >${esc(i.ragione_sociale)} · ${esc(i.comune || '')} (${esc(i.come)})</option>`).join('')}
-      </select>
-      ${impCand.length ? '' : `<p class="hint">Nessuna impresa trovata con questa partita IVA.
-        Se è nuova, creala prima dalla pagina <strong>Imprese</strong> e poi torna qui: così nasce con i suoi dati,
-        non con quelli copiati da un modulo.</p>`}
-    </div>`;
-
+  const ric = ist.richiedente || {};
   const scheda = (p) => {
     const [ico, spiega] = SEMAFORO[p.semaforo] || SEMAFORO.verde;
     const d = p.dati || {};
-    const dettagli = [d.cf, d.nato_il ? `nato il ${dataIt(d.nato_il)}` : '', d.comune_nascita, d.mansione, d.email]
-      .filter(Boolean).map(esc).join(' · ');
-    const cand = (p.candidati || []).map((k) => `<option value="${esc(k.persona_id)}"
-      >${esc(k.nominativo)}${k.cf ? ' · ' + esc(k.cf) : ''} (trovata per ${esc(k.come)})</option>`).join('');
+    const imp = p.impresa || {};
+    const dettagli = [d.cf, d.nato_il ? `nato il ${dataIt(d.nato_il)}` : '', d.comune_nascita,
+      d.ruolo, d.mansione, d.email].filter(Boolean).map(esc).join(' · ');
+
+    /* l'impresa di QUESTA riga: candidati dall'anagrafica, e la scelta è per
+       persona perché a un corso si iscrivono lavoratori di imprese diverse */
+    const candImp = (imp.candidati || []).map((k) => `<option value="${esc(k.impresa_id)}" selected
+      >${esc(k.ragione_sociale)}${k.comune ? ' · ' + esc(k.comune) : ''}${
+        k.stato_cassa ? ' · ' + esc(k.stato_cassa) : ''}</option>`).join('');
+
+    /* dove la persona risulta a noi ADESSO: se è un'altra impresa, il
+       passaggio va visto, non eseguito di nascosto */
+    const scelto = (p.candidati || [])[0];
+    const rapporti = (scelto?.rapporti || []).filter((x) => x.in_corso);
+    const altrove = rapporti.filter((x) => x.impresa_id !== (imp.candidati || [])[0]?.impresa_id);
+    const rigaRapporto = !scelto ? '' : `
+      <div class="field" style="margin:6px 0 0"><label>Rapporto con l'impresa</label>
+        <select data-iz-rapp="${p.i}">
+          ${altrove.length ? `
+            <option value="sposta">risulta in ${esc(altrove[0].ragione_sociale || altrove[0].impresa_id)}: chiudi quello e apri il nuovo</option>
+            <option value="crea">aggiungi il nuovo, lascia aperto anche l'altro</option>
+            <option value="niente" selected>non toccare i rapporti</option>`
+          : `<option value="crea">registra che lavora qui</option>
+             <option value="niente" ${rapporti.length ? 'selected' : ''}>non toccare i rapporti</option>`}
+        </select>
+        ${rapporti.length ? `<p class="hint" style="margin:4px 0 0">Per noi è in
+          <strong>${rapporti.map((x) => esc(x.ragione_sociale || x.impresa_id)).join(', ')}</strong>${
+          rapporti[0].dal ? ` dal ${dataIt(rapporti[0].dal)}` : ''}.</p>`
+        : '<p class="hint" style="margin:4px 0 0">Per noi non risulta in nessuna impresa.</p>'}
+      </div>`;
+
     return `
     <div style="border:1px solid var(--bordo);padding:10px;margin-bottom:8px" data-iz-p="${p.i}">
       <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">
@@ -226,29 +241,45 @@ async function formIstruttoria(c, r, ricarica) {
       </div>
       <div class="hint" style="margin:2px 0 8px">${dettagli}</div>
       ${p.semaforo === 'rosso' ? `<p class="hint" style="color:var(--rosso);margin:0 0 6px">
-        È già fra gli iscritti di questo evento. Iscrivendola di nuovo comparirebbe due volte sul registro.</p>` : ''}
+        È già fra gli iscritti di questo evento: iscrivendola di nuovo comparirebbe due volte sul registro.</p>` : ''}
+
       <div class="field" style="margin:0 0 6px"><label>Che cosa faccio</label>
         <select data-iz-az="${p.i}">
           <option value="iscrivi" ${p.semaforo === 'rosso' ? '' : 'selected'}>iscrivila</option>
           <option value="salta" ${p.semaforo === 'rosso' ? 'selected' : ''}>saltala</option>
         </select></div>
-      <div class="field" style="margin:0"><label>In anagrafica</label>
+
+      <div class="field" style="margin:0 0 6px"><label>In anagrafica</label>
         <select data-iz-pid="${p.i}">
-          ${cand}
+          ${(p.candidati || []).map((k) => `<option value="${esc(k.persona_id)}"
+            >${esc(k.nominativo)}${k.cf ? ' · ' + esc(k.cf) : ''} (trovata per ${esc(k.come)})</option>`).join('')}
           <option value="">${p.candidati?.length ? '— nessuna di queste' : '— non è in anagrafica'}</option>
           <option value="__nuova">➕ crea l'anagrafica con questi dati</option>
         </select></div>
+
+      <div class="field" style="margin:0"><label>La sua impresa
+        <span class="hint">${imp.ereditata ? '(non indicata: vale quella di chi ha compilato)' : ''}</span></label>
+        <div class="hint" style="margin:0 0 4px">Sul modulo: <strong>${esc(imp.ragione_sociale || '—')}</strong>${
+          imp.piva ? ' · ' + esc(imp.piva) : ''}</div>
+        <select data-iz-imp="${p.i}">
+          ${candImp}
+          <option value="">— nessun aggancio: resta il solo nome scritto</option>
+        </select>
+        ${!candImp ? `<p class="hint" style="margin:4px 0 0">Non trovata in anagrafica.
+          Se è nuova, creala dalla pagina <strong>Imprese</strong> e poi torna qui.</p>` : ''}
+      </div>
+      ${rigaRapporto}
     </div>`;
   };
 
   apriDrawer(`Iscrizione n° ${r.id} — corso n° ${c.id}`, '', `
-    <p class="hint" style="margin:0 0 10px">${r.per_conto === 'persona'
-      ? 'Si è iscritta <strong>una persona per sé</strong>.'
-      : `Iscrizione mandata da <strong>${esc(r.ragione_sociale || '—')}</strong>.`}
-      Arrivata il ${dataIt((r.timestamp_modulo || r.creato_il || '').slice(0, 10))}${
-      r.email ? ` · ${esc(r.email)}` : ''}${r.telefono ? ` · ${esc(r.telefono)}` : ''}.</p>
+    <p class="hint" style="margin:0 0 10px">Compilata da <strong>${esc(ric.referente || '—')}</strong>${
+      ric.ragione_sociale ? ` di ${esc(ric.ragione_sociale)}` : ' (a titolo personale)'},
+      il ${dataIt((r.timestamp_modulo || r.creato_il || '').slice(0, 10))}${
+      ric.email ? ` · ${esc(ric.email)}` : ''}${ric.telefono ? ` · ${esc(ric.telefono)}` : ''}.</p>
+    <p class="hint" style="margin:0 0 10px">⚠️ Ogni partecipante ha <strong>la sua impresa</strong>:
+      quella di chi compila serve solo a rispondere.</p>
     ${r.note ? `<p class="hint"><strong>Note di chi ha compilato:</strong> ${esc(r.note)}</p>` : ''}
-    ${impresa}
     <h4 style="margin:14px 0 6px">Chi partecipa</h4>
     ${(ist.persone || []).map(scheda).join('')}
     <div class="field"><label>Nota d'ufficio</label><textarea id="iz-nota" rows="2"></textarea></div>
@@ -261,10 +292,14 @@ async function formIstruttoria(c, r, ricarica) {
     const scelte = (ist.persone || []).map((p) => {
       const az = $(`[data-iz-az="${p.i}"]`).value;
       const pid = $(`[data-iz-pid="${p.i}"]`).value;
+      const impSel = $(`[data-iz-imp="${p.i}"]`);
+      const rappSel = $(`[data-iz-rapp="${p.i}"]`);
       return {
         i: p.i, azione: az,
         persona_id: pid === '__nuova' ? null : (pid || null),
         crea_anagrafica: pid === '__nuova',
+        impresa_id: impSel ? (impSel.value || null) : null,
+        rapporto: rappSel ? rappSel.value : (pid === '__nuova' ? 'crea' : 'niente'),
       };
     });
     if (!scelte.some((s) => s.azione === 'iscrivi')) {
@@ -272,15 +307,13 @@ async function formIstruttoria(c, r, ricarica) {
     }
     attendi(ev.currentTarget, true);
     const { data, error } = await sb.rpc('iscr_conferma', {
-      p_id: r.id, p_scelte: scelte,
-      p_impresa_id: $('#iz-imp')?.value || null,
+      p_id: r.id, p_scelte: scelte, p_impresa_id: null,
       p_note: $('#iz-nota').value.trim() || null,
     });
     attendi(ev.currentTarget, false);
     if (error) return toast(error.message, 'err');
-    toast(`Iscritti ${data.iscritti}${data.anagrafiche_nuove ? `, ${data.anagrafiche_nuove} anagrafiche nuove` : ''}.`, 'ok');
-    /* ⚠️ Confermare cambia i posti liberi, che il portale mostra: si
-       ripubblica, altrimenti l'elenco continua a dirne di più. */
+    toast(`Iscritti ${data.iscritti}${data.anagrafiche_nuove ? `, ${data.anagrafiche_nuove} anagrafiche nuove` : ''}${
+      data.rapporti_registrati ? `, ${data.rapporti_registrati} rapporti registrati` : ''}.`, 'ok');
     await pubblica(c, true);
     ricarica();
   });
