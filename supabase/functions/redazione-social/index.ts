@@ -117,6 +117,68 @@ async function inviaTelegram(token: string, metodo: 'sendMessage' | 'sendPhoto',
   return { r, tg, formattazione_tolta: false }
 }
 
+/* ══════════ Come esce un post su Telegram (18/09/2026) ══════════
+   Scritto in un posto solo: lo usano sia la pubblicazione sul canale
+   pubblico sia la PROVA sul canale di prova. Se divergessero, la prova
+   non proverebbe niente. Restituisce l'errore invece di lanciarlo, così
+   chi chiama decide che cosa scrivere nel post. */
+async function mandaSuTelegram(token: string, chat: string, post: Record<string, any>, testo: string):
+  Promise<{ tg?: Record<string, any>; formattazioneTolta: boolean; errore?: string }> {
+  const altre = (Array.isArray(post.immagini) ? post.immagini as { url: string }[] : []).map((x) => x?.url).filter(Boolean)
+  const inDidascalia = lunghezzaVisibile(testo) <= 1024
+  let tg: Record<string, any> = {}
+  let formattazioneTolta = false
+
+  if (post.immagine_url && altre.length) {
+    /* carosello -> album; la didascalia sta sulla prima foto */
+    const urls = [post.immagine_url, ...altre].slice(0, 10)
+    const album = async (conFormato: boolean) => {
+      const didascalia = inDidascalia ? (conFormato ? postInTelegramHtml(testo) : postInTestoSemplice(testo)) : ''
+      const media = urls.map((u, k) => (k === 0 && inDidascalia
+        ? { type: 'photo', media: u, caption: didascalia, ...(conFormato ? { parse_mode: 'HTML' } : {}) }
+        : { type: 'photo', media: u }))
+      const r = await fetch(`https://api.telegram.org/bot${token}/sendMediaGroup`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: chat, media }),
+      })
+      return { r, tg: await r.json().catch(() => ({})) as Record<string, any> }
+    }
+    let { r, tg: j } = await album(true)
+    if ((!r.ok || !j.ok) && /parse entities/i.test(String(j.description || ''))) {
+      const rip = await album(false); r = rip.r; j = rip.tg; formattazioneTolta = true
+    }
+    if (!r.ok || !j.ok) return { formattazioneTolta, errore: 'Telegram (album): ' + (j.description || r.status) }
+    tg = { result: Array.isArray(j.result) ? j.result[0] : j.result }
+    if (!inDidascalia) {
+      const msg = await inviaTelegram(token, 'sendMessage', { chat_id: chat, disable_web_page_preview: true }, testo, 'text')
+      if (!msg.r.ok || !msg.tg.ok) return { formattazioneTolta, errore: "Telegram (testo dopo l'album): " + (msg.tg.description || msg.r.status) }
+      tg = msg.tg; formattazioneTolta = msg.formattazione_tolta
+    }
+  } else if (post.immagine_url) {
+    const foto = inDidascalia
+      ? await inviaTelegram(token, 'sendPhoto', { chat_id: chat, photo: post.immagine_url }, testo, 'caption')
+      : await (async () => {
+          const r = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: chat, photo: post.immagine_url }),
+          })
+          return { r, tg: await r.json().catch(() => ({})) as Record<string, any>, formattazione_tolta: false }
+        })()
+    if (!foto.r.ok || !foto.tg.ok) return { formattazioneTolta, errore: 'Telegram (foto): ' + (foto.tg.description || foto.r.status) }
+    tg = foto.tg; formattazioneTolta = foto.formattazione_tolta
+    if (!inDidascalia) {
+      const msg = await inviaTelegram(token, 'sendMessage', { chat_id: chat, disable_web_page_preview: true }, testo, 'text')
+      if (!msg.r.ok || !msg.tg.ok) return { formattazioneTolta, errore: 'Telegram (testo dopo la foto): ' + (msg.tg.description || msg.r.status) }
+      tg = msg.tg; formattazioneTolta = msg.formattazione_tolta
+    }
+  } else {
+    const msg = await inviaTelegram(token, 'sendMessage', { chat_id: chat, disable_web_page_preview: false }, testo, 'text')
+    if (!msg.r.ok || !msg.tg.ok) return { formattazioneTolta, errore: 'Telegram: ' + (msg.tg.description || msg.r.status) }
+    tg = msg.tg; formattazioneTolta = msg.formattazione_tolta
+  }
+  return { tg, formattazioneTolta }
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
   try {
@@ -229,6 +291,51 @@ serve(async (req) => {
       return json({ ok: true, quante: tutte.length })
     }
 
+    /* 18/09/2026 - I canali che il bot ha visto di recente: serve a trovare il
+       chat_id del canale di prova senza cercarlo a mano. Telegram lo mostra solo
+       se in quel canale e' stato scritto qualcosa da poco E il bot e' fra gli
+       amministratori: e' un limite di getUpdates, non un guasto. */
+    if (op === 'canali_bot') {
+      const TOKEN = Deno.env.get('TELEGRAM_BOT_TOKEN')
+      if (!TOKEN) return json({ error: 'secret TELEGRAM_BOT_TOKEN non impostato' }, 501)
+      const me = await fetch(`https://api.telegram.org/bot${TOKEN}/getMe`).then((x) => x.json()).catch(() => ({}))
+      const r = await fetch(`https://api.telegram.org/bot${TOKEN}/getUpdates?limit=100`)
+      const j = await r.json().catch(() => ({})) as Record<string, any>
+      if (!r.ok || !j.ok) return json({ error: 'Telegram: ' + (j.description || r.status) }, 502)
+      const visti = new Map<string, Record<string, string>>()
+      for (const u of (j.result || []) as Record<string, any>[]) {
+        const c = u.channel_post?.chat || u.my_chat_member?.chat || u.message?.chat || u.edited_channel_post?.chat
+        if (!c) continue
+        visti.set(String(c.id), { id: String(c.id), titolo: c.title || c.username || String(c.id), tipo: c.type })
+      }
+      return json({ ok: true, bot: me?.result?.username || null, canali: [...visti.values()] })
+    }
+
+    /* PROVA: si manda al canale di prova per vedere come esce. NON tocca lo stato
+       del post ne' «uscito su»: non e' una pubblicazione, e si puo' fare anche su
+       una bozza - e' li' che serve. Passa dalla stessa mandaSuTelegram della
+       pubblicazione vera, altrimenti proverebbe qualcosa di diverso. */
+    if (op === 'pubblica' && body.prova) {
+      const TOKEN = Deno.env.get('TELEGRAM_BOT_TOKEN')
+      if (!TOKEN) return json({ error: 'secret TELEGRAM_BOT_TOKEN non impostato' }, 501)
+      const { data: cfgP } = await admin.from('s_config').select('valore').eq('chiave', 'telegram_canale_prova').maybeSingle()
+      const chatProva = String(cfgP?.valore || '').trim()
+      if (!chatProva) return json({ error: 'canale di prova non impostato: va scritto in s_config.telegram_canale_prova, e il bot deve esserne amministratore' }, 400)
+      let testoP = String(body.testo || post.testo_telegram || '').trim()
+      if (!testoP) return json({ error: 'testo Telegram vuoto' }, 400)
+      if (post.video_url && !testoP.includes(String(post.video_url))) testoP = testoP + '\n\n' + post.video_url
+      if (lunghezzaVisibile(testoP) > 4096) return json({ error: `testo Telegram troppo lungo: ${lunghezzaVisibile(testoP)} caratteri visibili, il limite è 4096` }, 400)
+      const esitoP = await mandaSuTelegram(TOKEN, chatProva, post, testoP)
+      if (esitoP.errore) return json({ error: esitoP.errore }, 502)
+      canali.prova = {
+        at: new Date().toISOString(), da: email, chat: chatProva,
+        message_id: esitoP.tg?.result?.message_id,
+        ...(esitoP.formattazioneTolta ? { formattazione_tolta: true } : {}),
+      }
+      await admin.from('s_post').update({ canali_pubblicati: canali, aggiornato_da: email }).eq('id', id)
+      return json({ ok: true, prova: true, chat: chatProva, message_id: esitoP.tg?.result?.message_id, formattazione_tolta: esitoP.formattazioneTolta })
+    }
+
     if (!['approvato', 'pubblicato'].includes(post.stato)) return json({ error: 'si pubblica solo un post approvato' }, 400)
 
     if (op === 'pubblica') {
@@ -248,62 +355,10 @@ serve(async (req) => {
       /* con l'immagine di testa: foto col testo come didascalia (limite Telegram
          1024 caratteri VISIBILI, cioè senza i segni); se il testo è più lungo,
          foto e poi messaggio a parte. Il testo esce formattato (parse_mode HTML). */
-      let tg: Record<string, any> = {}
-      let formattazioneTolta = false
-      const altre = (Array.isArray(post.immagini) ? post.immagini as { url: string }[] : []).map((x) => x?.url).filter(Boolean)
-
-      if (post.immagine_url && altre.length) {
-        /* CAROSELLO -> album di Telegram. La didascalia sta sulla prima foto (limite
-           1024 caratteri VISIBILI); se il testo e' piu' lungo, album e poi messaggio.
-           Stesso ripiego del resto della funzione: se Telegram si lamenta della
-           formattazione, si rimanda in testo semplice invece di non pubblicare. */
-        const inDidascalia = lunghezzaVisibile(testo) <= 1024
-        const urls = [post.immagine_url, ...altre].slice(0, 10)
-        const album = async (conFormato: boolean) => {
-          const didascalia = inDidascalia ? (conFormato ? postInTelegramHtml(testo) : postInTestoSemplice(testo)) : ''
-          const media = urls.map((u, k) => (k === 0 && inDidascalia
-            ? { type: 'photo', media: u, caption: didascalia, ...(conFormato ? { parse_mode: 'HTML' } : {}) }
-            : { type: 'photo', media: u }))
-          const r = await fetch(`https://api.telegram.org/bot${TOKEN}/sendMediaGroup`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ chat_id: chat, media }),
-          })
-          return { r, tg: await r.json().catch(() => ({})) as Record<string, any> }
-        }
-        let { r, tg: j } = await album(true)
-        if ((!r.ok || !j.ok) && /parse entities/i.test(String(j.description || ''))) {
-          const rip = await album(false); r = rip.r; j = rip.tg; formattazioneTolta = true
-        }
-        if (!r.ok || !j.ok) return json({ error: 'Telegram (album): ' + (j.description || r.status) }, 502)
-        tg = { result: Array.isArray(j.result) ? j.result[0] : j.result }
-        if (!inDidascalia) {
-          const msg = await inviaTelegram(TOKEN, 'sendMessage', { chat_id: chat, disable_web_page_preview: true }, testo, 'text')
-          if (!msg.r.ok || !msg.tg.ok) return json({ error: 'Telegram (testo dopo l\'album): ' + (msg.tg.description || msg.r.status) }, 502)
-          tg = msg.tg; formattazioneTolta = msg.formattazione_tolta
-        }
-      } else if (post.immagine_url) {
-        const inDidascalia = lunghezzaVisibile(testo) <= 1024
-        const foto = inDidascalia
-          ? await inviaTelegram(TOKEN, 'sendPhoto', { chat_id: chat, photo: post.immagine_url }, testo, 'caption')
-          : await (async () => {
-              const r = await fetch(`https://api.telegram.org/bot${TOKEN}/sendPhoto`, {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ chat_id: chat, photo: post.immagine_url }),
-              })
-              return { r, tg: await r.json().catch(() => ({})) as Record<string, any>, formattazione_tolta: false }
-            })()
-        if (!foto.r.ok || !foto.tg.ok) return json({ error: 'Telegram (foto): ' + (foto.tg.description || foto.r.status) }, 502)
-        tg = foto.tg; formattazioneTolta = foto.formattazione_tolta
-        if (!inDidascalia) {
-          const msg = await inviaTelegram(TOKEN, 'sendMessage', { chat_id: chat, disable_web_page_preview: true }, testo, 'text')
-          if (!msg.r.ok || !msg.tg.ok) return json({ error: 'Telegram (testo dopo la foto): ' + (msg.tg.description || msg.r.status) }, 502)
-          tg = msg.tg; formattazioneTolta = msg.formattazione_tolta
-        }
-      } else {
-        const msg = await inviaTelegram(TOKEN, 'sendMessage', { chat_id: chat, disable_web_page_preview: false }, testo, 'text')
-        if (!msg.r.ok || !msg.tg.ok) return json({ error: 'Telegram: ' + (msg.tg.description || msg.r.status) }, 502)
-        tg = msg.tg; formattazioneTolta = msg.formattazione_tolta
-      }
+      const esito = await mandaSuTelegram(TOKEN, chat, post, testo)
+      if (esito.errore) return json({ error: esito.errore }, 502)
+      const tg = esito.tg || {}
+      const formattazioneTolta = esito.formattazioneTolta
       canali.telegram = { message_id: tg.result?.message_id, chat: chat, at: new Date().toISOString(), da: email, ...(formattazioneTolta ? { formattazione_tolta: true } : {}) }
       await admin.from('s_post').update({
         canali_pubblicati: canali, stato: 'pubblicato', pubblicato_il: post.pubblicato_il || new Date().toISOString(),

@@ -459,6 +459,15 @@ export async function apriPratica(id) {
       ${p.stato === 'approvato' ? '<button class="btn btn-ghost" id="pd-bozza">↩ Riporta a bozza</button>' : ''}
       ${p.stato !== 'scartato' && p.stato !== 'pubblicato' ? '<button class="btn btn-ghost" id="pd-scarta">🗑 Scarta con motivo</button>' : ''}
     </div>
+    <hr style="margin:14px 0;border:0;border-top:1px solid var(--bordo)">
+    <strong>🧪 Prova prima di pubblicare</strong>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px">
+      <button class="btn btn-ghost" id="pd-prova">🧪 Manda al canale di prova</button>
+      ${c.prova ? `<span class="hint">ultima prova: <b>${esc(dataIt((c.prova.at || '').slice(0, 10)))}</b>${c.prova.formattazione_tolta ? ' — ⚠ la formattazione è stata tolta' : ''}</span>` : '<span class="hint">non ancora provato</span>'}
+      <button class="btn btn-ghost btn-sm" id="pd-canale-prova">⚙ Canale di prova…</button>
+    </div>
+    <p class="hint" style="margin-top:6px">Esce sul canale di prova esattamente come uscirebbe su quello pubblico — stesse immagini, stesso album, stessa formattazione — ma <b>non</b> conta come pubblicazione: il post resta dov'è. Si può provare anche una bozza, e quante volte si vuole.</p>
+
     ${['approvato', 'pubblicato'].includes(p.stato) ? `
     <hr style="margin:14px 0;border:0;border-top:1px solid var(--bordo)">
     <strong>Pubblica</strong>
@@ -560,9 +569,54 @@ export async function apriPratica(id) {
     await render(); apriPratica(id);
   }));
 
+  /* prova sul canale di prova: stesso invio della pubblicazione, altro canale */
+  $('#pd-prova')?.addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
+    attendi(btn, true, 'Mando…');
+    try {
+      await salva({}, 'Salvato prima della prova.');
+      const { data, error } = await sb.functions.invoke('redazione-social', { body: { op: 'pubblica', id, prova: true, testo: $('#pd-telegram').value.trim() } });
+      if (error || data?.error) throw new Error(await messaggioErrore(error, data));
+      toast(data.formattazione_tolta
+        ? 'Mandato al canale di prova, ma Telegram ha rifiutato la formattazione: è uscito in testo semplice.'
+        : 'Mandato al canale di prova: guarda com\'è uscito.', data.formattazione_tolta ? 'err' : 'ok');
+      await render(); apriPratica(id);
+    } catch (e) {
+      attendi(btn, false);
+      toast('Prova non riuscita: ' + e.message, 'err');
+    }
+  });
+
+  /* quale canale di prova: si cerca fra quelli che il bot vede, o si scrive a mano */
+  $('#pd-canale-prova')?.addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
+    attendi(btn, true, 'Cerco…');
+    try {
+      const { data: riga } = await sb.from('s_config').select('valore').eq('chiave', 'telegram_canale_prova').maybeSingle();
+      const attuale = riga?.valore || '';
+      const { data, error } = await sb.functions.invoke('redazione-social', { body: { op: 'canali_bot', id } });
+      if (error || data?.error) throw new Error(await messaggioErrore(error, data));
+      const elenco = (data.canali || []).map((x) => `${x.titolo} → ${x.id} (${x.tipo})`).join('\n') || '(nessun canale visto di recente)';
+      const scelto = prompt(
+        'Canale Telegram di PROVA.\n\nIl bot è ' + (data.bot ? '@' + data.bot : 'sconosciuto') +
+        ': deve essere AMMINISTRATORE del canale, e nel canale dev\'essere stato scritto qualcosa di recente perché compaia qui sotto.\n\n' +
+        'Canali visti dal bot:\n' + elenco + '\n\nScrivi l\'id numerico (es. -1001234567890) oppure @nome del canale di prova:', attuale);
+      if (scelto === null) return;
+      const { error: e2 } = await sb.from('s_config').update({ valore: scelto.trim() }).eq('chiave', 'telegram_canale_prova');
+      if (e2) throw new Error(e2.message);
+      toast(scelto.trim() ? 'Canale di prova impostato.' : 'Canale di prova tolto.', 'ok');
+    } catch (e) {
+      toast('Canale di prova: ' + e.message, 'err');
+    } finally { attendi(btn, false); }
+  });
+
   /* pubblicazione */
   $('#pd-tg')?.addEventListener('click', async (ev) => {
-    if (!confirm('Pubblico ADESSO questo testo sul canale Telegram pubblico?')) return;
+    /* Non blocca: ricorda soltanto che questo post dal canale di prova non è mai passato. */
+    const avviso = c.prova
+      ? 'Pubblico ADESSO questo testo sul canale Telegram PUBBLICO?'
+      : 'Questo post non è mai stato provato sul canale di prova.\n\nPubblico lo stesso ADESSO sul canale PUBBLICO?';
+    if (!confirm(avviso)) return;
     const btn = ev.currentTarget;
     attendi(btn, true, 'Pubblico…');
     await salva({}, 'Testo salvato.');
