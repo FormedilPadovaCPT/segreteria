@@ -47,6 +47,8 @@ import { MESI, TIPI_PRESTAZIONE, euro, lordoDi } from './fatture-tecnici-doc.js'
 import { APP_URL } from './config.js';
 import { paginaHtml, testoInHtml } from './firma.js';
 import { datiMandato, inviaAvvisoPagamento, dettaglioMandato } from './amministrazione.js';
+/* la ricerca in anagrafica sta in un posto solo: serve per i docenti esterni */
+import { collegaRicercaPersone } from './ricerca-anagrafica.js';
 
 const CARTELLA_INCARICHI = '2_AREE/Sopralluoghi/incarichi_visite';
 const CARTELLA_FATTURE = '2_AREE/Amministrazione/fatture/tecnici';
@@ -117,6 +119,16 @@ async function caricaBase() {
   tecnici = (tt || []).filter((t) => !/^(cpt|prova)/i.test(t.email || ''));
   conf = Object.fromEntries((cfg || []).map((r) => [r.chiave, r.valore]));
   fiscale = ff || [];
+}
+
+/* ── la fattura di una docenza si registra anche dalla scheda del corso:
+      là si vede chi ha fatto la lezione e con quale compenso, ed è lì che
+      arriva la fattura dell'esterno (chiesto dall'utente 19/09/2026).
+      ⚠️ Per un TECNICO dell'ente non si registra una fattura a parte: la
+      docenza entra nel riepilogo attività da fatturare del suo mese. ── */
+export async function fatturaDaIncaricoDocenza(prefill) {
+  if (!tecnici.length) await caricaBase();
+  return formFattura(null, prefill);
 }
 
 /* ══════════ ingresso ══════════ */
@@ -784,7 +796,8 @@ async function renderFatture(hostArg) {
   if (filtroFatt === 'mandato') q = q.eq('stato', 'mandato');
   if (filtroFatt === 'anno') q = q.gte('data_ricevimento', `${annoPrest}-01-01`).lte('data_ricevimento', `${annoPrest}-12-31`);
   if (filtroFatt === 'tutte') q = q.limit(400);
-  if (filtroTec) q = q.eq('tecnico_id', filtroTec);
+  if (filtroTec === '__esterno') q = q.eq('esterno', true);
+  else if (filtroTec) q = q.eq('tecnico_id', filtroTec);
   const { data } = await q;
   fattureCache = data || [];
   const incIds = [...new Set(fattureCache.map((f) => f.incarico_mensile_id).filter(Boolean))];
@@ -798,7 +811,7 @@ async function renderFatture(hostArg) {
           `<button class="seg-btn ${filtroFatt === v ? 'is-active' : ''}" data-val="${v}">${l}</button>`).join('')}
       </div>
       <div style="display:flex;gap:6px;align-items:center">
-        <select id="ff-tec" class="inp inp-sm"><option value="">Tutti i tecnici</option>${tecnici.map((t) => `<option value="${t.tecnico_id}" ${filtroTec === t.tecnico_id ? 'selected' : ''}>${esc(nomeTec(t))}</option>`).join('')}</select>
+        <select id="ff-tec" class="inp inp-sm"><option value="">Tutti</option><option value="__esterno" ${filtroTec === '__esterno' ? 'selected' : ''}>Soggetti esterni</option>${tecnici.map((t) => `<option value="${t.tecnico_id}" ${filtroTec === t.tecnico_id ? 'selected' : ''}>${esc(nomeTec(t))}</option>`).join('')}</select>
         <button class="btn btn-primary btn-sm" id="ff-nuova">+ Registra fattura</button>
       </div>
     </div>
@@ -829,26 +842,42 @@ async function renderFatture(hostArg) {
   host.querySelectorAll('tbody tr[data-id]').forEach((tr) => tr.addEventListener('click', () => dettaglioFattura(Number(tr.dataset.id))));
 }
 
+/* ⚠️ Chi emette la fattura non è sempre un tecnico dell'ente: un docente
+   o un relatore ESTERNO manda la sua fattura come tutti, e quella fattura
+   deve poter entrare nel mandato all'Amministrazione (chiesto dall'utente
+   il 19/09/2026). Per lui non c'è il riepilogo attività da fatturare —
+   quello è il documento che l'ente manda al PROPRIO tecnico — e non c'è
+   nessun mese di incarico: c'è la riga dell'incarico di docenza che paga. */
 async function formFattura(f, prefill = {}) {
-  const tecId = f?.tecnico_id || prefill.tecnico_id || tecnici[0]?.tecnico_id;
-  const { data: mesi } = await sb.from('s_incarichi_mensili').select('id, anno, mese, stato, totale_lordo')
-    .eq('tecnico_id', tecId).order('anno', { ascending: false }).order('mese', { ascending: false }).limit(18);
+  const esterno = f ? (f.esterno || (!f.tecnico_id && !!f.corso_incarico_id)) : !!prefill.esterno;
+  const tecId = esterno ? null : (f?.tecnico_id || prefill.tecnico_id || tecnici[0]?.tecnico_id);
+  const { data: mesi } = tecId
+    ? await sb.from('s_incarichi_mensili').select('id, anno, mese, stato, totale_lordo')
+      .eq('tecnico_id', tecId).order('anno', { ascending: false }).order('mese', { ascending: false }).limit(18)
+    : { data: [] };
   const incSel = f?.incarico_mensile_id || prefill.incarico_mensile_id || (mesi || []).find((m) => m.stato === 'chiuso')?.id || '';
+  const corsoIncId = f?.corso_incarico_id || prefill.corso_incarico_id || null;
   apriDrawer(f ? `Fattura n° ${f.id} — ${esc(f.tecnico_nome)}` : 'Registra fattura ricevuta', 'IN', `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-      <div class="field"><label>Tecnico *</label>
-        <select id="ff-t">${tecnici.map((t) => `<option value="${t.tecnico_id}" ${t.tecnico_id === tecId ? 'selected' : ''}>${esc(nomeTec(t))}</option>`).join('')}</select></div>
-      <div class="field"><label>Mese di riferimento (incarico)</label>
-        <select id="ff-inc"><option value="">— nessuno / non mensile —</option>${(mesi || []).map((m) => `<option value="${m.id}" ${String(m.id) === String(incSel) ? 'selected' : ''}>${MESI[m.mese - 1]} ${m.anno} — n° ${m.id} (${m.stato}${m.totale_lordo ? `, ${euro(m.totale_lordo)}` : ''})</option>`).join('')}</select></div>
+      <div class="field"><label>Chi emette la fattura *</label>
+        <select id="ff-t">
+          <optgroup label="Tecnici dell'ente">${tecnici.map((t) => `<option value="${t.tecnico_id}" ${t.tecnico_id === tecId ? 'selected' : ''}>${esc(nomeTec(t))}</option>`).join('')}</optgroup>
+          <option value="__esterno" ${esterno ? 'selected' : ''}>— soggetto esterno (docente, relatore, ospite) —</option>
+        </select></div>
+      ${esterno ? `<div class="field"><label>Nominativo *</label><input id="ff-nom" value="${esc(f?.tecnico_nome || prefill.nominativo || '')}"></div>
+      <div class="field"><label>Cerca in anagrafica</label><input id="ff-cerca" placeholder="cognome, nome o CF…"><div id="ff-risultati"></div></div>
+      <div class="field"><label>E-mail (per l'avviso di pagamento)</label><input id="ff-mail" value="${esc(f?.soggetto_email || prefill.soggetto_email || '')}"></div>`
+      : `<div class="field"><label>Mese di riferimento (incarico)</label>
+        <select id="ff-inc"><option value="">— nessuno / non mensile —</option>${(mesi || []).map((m) => `<option value="${m.id}" ${String(m.id) === String(incSel) ? 'selected' : ''}>${MESI[m.mese - 1]} ${m.anno} — n° ${m.id} (${m.stato}${m.totale_lordo ? `, ${euro(m.totale_lordo)}` : ''})</option>`).join('')}</select></div>`}
       <div class="field"><label>Numero fattura *</label><input id="ff-num" value="${esc(f?.numero || '')}"></div>
       <div class="field"><label>Data fattura</label><input type="date" id="ff-df" value="${f?.data_fattura || ''}"></div>
       <div class="field"><label>Data ricevimento *</label><input type="date" id="ff-dr" value="${f?.data_ricevimento || oggiIso()}"></div>
-      <div class="field"><label>Importo totale (oneri e IVA inclusi) *</label><input type="number" step="0.01" id="ff-imp" value="${f?.importo ?? ''}"></div>
+      <div class="field"><label>Importo totale (oneri e IVA inclusi) *</label><input type="number" step="0.01" id="ff-imp" value="${f?.importo ?? prefill.importo ?? ''}"></div>
       <div class="field"><label>Imponibile (netto)</label><input type="number" step="0.01" id="ff-impon" value="${f?.imponibile ?? ''}"></div>
-      <div class="field"><label>Cantieri fatturati</label><input type="number" id="ff-cant" value="${f?.cantieri_fatturati ?? ''}"></div>
+      ${esterno ? '' : `<div class="field"><label>Cantieri fatturati</label><input type="number" id="ff-cant" value="${f?.cantieri_fatturati ?? ''}"></div>`}
     </div>
     <div class="field" style="margin-top:8px"><label>Note (descrizione in fattura, anomalie)</label><textarea id="ff-note" rows="2">${esc(f?.note || '')}</textarea></div>
-    ${f ? '' : `<label class="field" style="display:flex;gap:8px;align-items:flex-start;margin-top:8px">
+    ${f || esterno ? '' : `<label class="field" style="display:flex;gap:8px;align-items:flex-start;margin-top:8px">
       <input type="checkbox" id="ff-auto" checked style="margin-top:3px">
       <span>Aggancia subito <strong>tutte</strong> le prestazioni aperte del mese scelto.<br>
         <span class="hint">Toglila se la fattura ne copre solo una parte, o se copre anche altri mesi:
@@ -861,17 +890,37 @@ async function formFattura(f, prefill = {}) {
       una fattura può pagare prestazioni di più mesi, e un mese può essere pagato da più fatture.
       Poi dal dettaglio: protocollo IN, verifica, approvazione.</p>`);
 
-  $('#ff-t').addEventListener('change', () => formFattura(f, { ...prefill, tecnico_id: $('#ff-t').value }));
+  $('#ff-t').addEventListener('change', () => formFattura(f, {
+    ...prefill,
+    esterno: $('#ff-t').value === '__esterno',
+    tecnico_id: $('#ff-t').value === '__esterno' ? null : $('#ff-t').value,
+    nominativo: $('#ff-nom')?.value || prefill.nominativo,
+    soggetto_email: $('#ff-mail')?.value || prefill.soggetto_email,
+  }));
+  let personaId = f?.persona_id || prefill.persona_id || null;
+  if (esterno) {
+    collegaRicercaPersone('#ff-cerca', '#ff-risultati', (p) => {
+      personaId = p.persona_id;
+      $('#ff-nom').value = [p.cognome, p.titolo, p.nome].filter(Boolean).join(' ');
+      if (p.email && !$('#ff-mail').value) $('#ff-mail').value = p.email;
+      $('#ff-risultati').innerHTML = '<p class="hint">agganciato all&rsquo;anagrafica &#10003;</p>';
+    });
+  }
   $('#ff-salva').addEventListener('click', async (ev) => {
-    const t = tecnici.find((x) => x.tecnico_id === $('#ff-t').value);
+    const t = esterno ? null : tecnici.find((x) => x.tecnico_id === $('#ff-t').value);
     const d = {
-      tecnico_id: t.tecnico_id, tecnico_nome: nomeTec(t),
-      incarico_mensile_id: $('#ff-inc').value ? Number($('#ff-inc').value) : null,
+      tecnico_id: t ? t.tecnico_id : null,
+      tecnico_nome: t ? nomeTec(t) : $('#ff-nom').value.trim(),
+      esterno, persona_id: esterno ? personaId : null,
+      soggetto_email: esterno ? ($('#ff-mail').value.trim() || null) : null,
+      corso_incarico_id: corsoIncId,
+      incarico_mensile_id: $('#ff-inc')?.value ? Number($('#ff-inc').value) : null,
       numero: $('#ff-num').value.trim(), data_fattura: $('#ff-df').value || null, data_ricevimento: $('#ff-dr').value || null,
       importo: Number($('#ff-imp').value || 0), imponibile: $('#ff-impon').value ? Number($('#ff-impon').value) : null,
-      cantieri_fatturati: $('#ff-cant').value ? Number($('#ff-cant').value) : null,
+      cantieri_fatturati: $('#ff-cant')?.value ? Number($('#ff-cant').value) : null,
       note: $('#ff-note').value.trim() || null, aggiornato_da: state.email, updated_at: new Date().toISOString(),
     };
+    if (!d.tecnico_nome) return toast('Serve il nominativo di chi emette la fattura.', 'err');
     if (!d.numero || !d.data_ricevimento || !d.importo) return toast('Servono numero, data di ricevimento e importo.', 'err');
     attendi(ev.currentTarget, true);
     try {
@@ -917,6 +966,13 @@ export async function dettaglioFattura(id) {
   const atteso = lordoDi(netto, fisc);
   const scarto = Math.round((Number(f.importo || 0) - atteso) * 100) / 100;
   const t = tecnici.find((x) => x.tecnico_id === f.tecnico_id);
+  /* che cosa paga, quando la fattura viene da un incarico di docenza */
+  let incDoc = null;
+  if (f.corso_incarico_id) {
+    const { data } = await sb.from('s_corsi_incarichi')
+      .select('id, corso_id, nominativo, ore, tariffa_oraria, corrispettivo').eq('id', f.corso_incarico_id).maybeSingle();
+    incDoc = data || null;
+  }
 
   apriDrawer(`Fattura n° ${f.id} — ${esc(f.numero || '')} — ${esc(f.tecnico_nome || '')}`, 'IN', `
     <div class="dt-quadro-riga"><span class="dt-dot ${(STATI_FATT[f.stato] || [''])[0]}"></span><span class="dt-quadro-req">Stato</span>
@@ -925,6 +981,8 @@ export async function dettaglioFattura(id) {
     <div class="dt-doc-riga"><strong>Fattura:</strong> n° ${esc(f.numero || '—')}${f.data_fattura ? ` del ${dataIt(f.data_fattura)}` : ''} · ricevuta ${f.data_ricevimento ? dataIt(f.data_ricevimento) : '—'} · <strong>${euro(f.importo)}</strong>${f.imponibile != null ? ` (imponibile ${euro(f.imponibile)})` : ''}${f.cantieri_fatturati != null ? ` · ${f.cantieri_fatturati} cantieri` : ''}</div>
     <div class="dt-doc-riga"><strong>Mese:</strong> ${inc ? `<span data-inc="${inc.id}" style="cursor:pointer;text-decoration:underline">${MESI[inc.mese - 1]} ${inc.anno} — incarico n° ${inc.id}</span>` : '—'}
       · <strong>Protocollo IN:</strong> ${prot ? esc(codiceProtocollo(prot)) : '<span class="hint">non protocollata</span>'}</div>
+    ${f.esterno || (!f.tecnico_id && f.corso_incarico_id) ? `<div class="dt-doc-riga"><strong>Soggetto esterno</strong> (non è un tecnico dell'ente): niente riepilogo attività da fatturare, ma la fattura entra nel mandato come le altre.${f.soggetto_email ? ` Avviso di pagamento a ${esc(f.soggetto_email)}.` : ' <span class="hint">Senza indirizzo e-mail l&rsquo;avviso di pagamento non parte.</span>'}</div>` : ''}
+    ${f.corso_incarico_id ? `<div class="dt-doc-riga"><strong>Paga l'incarico di docenza</strong> n° ${f.corso_incarico_id}${incDoc ? ` — ${esc(incDoc.nominativo)}, corso n° ${incDoc.corso_id}${incDoc.corrispettivo != null ? `, corrispettivo ${euro(incDoc.corrispettivo)}` : ''}` : ''}</div>` : ''}
     ${f.note ? `<div class="dt-doc-riga"><strong>Note:</strong> ${esc(f.note)}</div>` : ''}
     <div class="dt-doc-riga"><strong>Controllo:</strong> ${prest.length} prestazioni collegate, netto ${euro(netto)} → atteso ${euro(atteso)}
       ${fisc ? `<span class="hint">(cassa ${fisc.cassa_pct}%${fisc.iva_pct ? ` + IVA ${fisc.iva_pct}%` : ', senza IVA'})</span>` : '<span class="hint">(regime non impostato: 4% + 22%)</span>'}
@@ -1205,7 +1263,9 @@ async function renderPrestazioni(hostArg) {
   const host = hostArg || $('#ft-corpo');
   host.innerHTML = '<p class="empty">Un istante…</p>';
   let q = sb.from('s_prestazioni').select('*').order('data', { ascending: false }).order('id', { ascending: false }).limit(600);
-  if (filtroTec) q = q.eq('tecnico_id', filtroTec);
+  /* un soggetto esterno non ha prestazioni nostre: il riepilogo e' del tecnico */
+  if (filtroTec === '__esterno') q = q.eq('tecnico_id', '__nessuno__');
+  else if (filtroTec) q = q.eq('tecnico_id', filtroTec);
   if (filtroPrest === 'aperte') q = q.is('fattura_id', null);
   else q = q.eq('anno', annoPrest);
   const { data } = await q;

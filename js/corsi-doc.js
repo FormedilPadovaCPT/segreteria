@@ -38,6 +38,7 @@ import { ENTE, COLORI } from './config.js';
 import { dataIt, oggiIso, taglia, testoPdf } from './comune.js';
 import { pdfLib, qrGen } from './cdn.js';
 import { formattaCodice } from './attestati-verifica.js';
+import { testoCompenso } from './corsi-compensi.js';
 
 const SX = 57;
 const DX = 538;
@@ -786,8 +787,9 @@ export async function pdfLetteraIncarico(corso, incarico, mieiInterventi, conf, 
   c.stato.y -= 6;
 
   c.scrivi('Compensi e condizioni di pagamento', c.bold, 9.5);
-  const tariffa = incarico.tariffa_oraria != null ? Number(incarico.tariffa_oraria).toFixed(2).replace('.', ',') : '______';
-  c.scrivi(`A titolo di compenso e corrispettivo per le docenze svolte, il Docente ${incarico.nominativo} riceverà per ogni ora di docenza, teorica o pratica, effettiva, un compenso pari a € ${tariffa} oneri e IVA esclusi${incarico.corrispettivo != null ? ` (corrispettivo complessivo per ${incarico.ore ?? '—'} ore: € ${Number(incarico.corrispettivo).toFixed(2).replace('.', ',')})` : ''}.`, c.font, 9);
+  /* ⚠️ a forfait non si scrive «per ogni ora di docenza»: direbbe una
+     cosa che non è stata pattuita (testoCompenso in corsi-compensi.js) */
+  c.scrivi(testoCompenso(incarico), c.font, 9);
   c.scrivi('Le spettanze saranno liquidate a mezzo bonifico bancario a 60 giorni fine mese data fattura, a conclusione del regolare termine di chiusura della docenza e a seguito di presentazione di fattura o equivalente documento fiscale, su cui il Docente avrà cura di indicare il tipo, le date e il numero del corso svolto.', c.font, 9);
   c.stato.y -= 10;
 

@@ -29,6 +29,8 @@ import { generaCodice, serieVerificabile, urlVerifica, URL_VERIFICA_PREDEFINITA 
 import { datiQuest, sezioneQuest, collegaQuest, cellaSpunta } from './corsi-quest.js';
 import { datiTest, sezioneTest, collegaTest } from './corsi-test.js';
 import { datiIscr, sezioneIscr, collegaIscr } from './corsi-iscrizioni.js';
+/* le regole che decidono un compenso stanno a parte, per essere provabili */
+import { forfait, calcolaCorrispettivo, proponiTariffa, variazioneNote } from './corsi-compensi.js';
 
 let corsi = [];
 let progetti = [];
@@ -336,6 +338,20 @@ export async function apriCorso(id) {
     pres = data || [];
   }
 
+  /* dove finisce il compenso di ogni riga: per un TECNICO nel riepilogo
+     attività da fatturare (s_prestazioni), per un ESTERNO nella sua
+     fattura, che poi entra nel mandato all'Amministrazione */
+  const kIds = (incarichi || []).map((k) => k.id);
+  let prestDi = {}; let fattDi = {};
+  if (kIds.length) {
+    const [{ data: pp }, { data: ff }] = await Promise.all([
+      sb.from('s_prestazioni').select('corso_incarico_id, tecnico_nome, importo, fattura_id').in('corso_incarico_id', kIds),
+      sb.from('s_fatture_tecnici').select('id, corso_incarico_id, numero, stato, importo').in('corso_incarico_id', kIds),
+    ]);
+    for (const r of pp || []) prestDi[r.corso_incarico_id] = r;
+    for (const r of ff || []) fattDi[r.corso_incarico_id] = r;
+  }
+
   const quest = await datiQuest(c);
   const test = await datiTest(c);
   const iscr = await datiIscr(c);
@@ -373,13 +389,23 @@ export async function apriCorso(id) {
     </tr>`;
   };
 
+  /* la cella dice dove sta andando il compenso, e non lo indovina:
+     mostra la prestazione o la fattura che ci sono davvero */
+  const destinoCompenso = (k, prest, fatt) => {
+    if (prest) return `<span class="hint">riepilogo tecnico${prest.fattura_id ? ` · fatt. n° ${prest.fattura_id}` : ''}</span>`;
+    if (fatt) return `<a href="#" data-fatt-inc="${k.id}" data-fatt-id="${fatt.id}">fatt. ${esc(fatt.numero || `n° ${fatt.id}`)}</a> <span class="hint">${esc(fatt.stato)}</span>`;
+    return `<a href="#" data-fatt-inc="${k.id}">💶 registra fattura</a>`;
+  };
+
   const rigaInc = (k) => `<tr>
     <td><strong>${esc(k.nominativo)}</strong></td>
+    <td>${esc(QUALITA[k.qualita] || k.qualita || 'Docente')}</td>
     <td>${k.ore ?? '—'}</td>
-    <td>${k.tariffa_oraria != null ? `€ ${k.tariffa_oraria}` : '—'}</td>
-    <td>${k.corrispettivo != null ? `€ ${k.corrispettivo}` : '—'}</td>
+    <td>${k.tariffa_oraria != null ? `€ ${k.tariffa_oraria}` : (forfait(k) ? '<span class="hint">forfait</span>' : '—')}</td>
+    <td>${k.corrispettivo != null ? `€ ${Number(k.corrispettivo).toFixed(2)}` : '—'}</td>
     <td>${k.protocollo_out_id ? '✓ prot.' : (k.data_incarico ? dataIt(k.data_incarico) : '—')}</td>
-    <td style="white-space:nowrap"><a href="#" data-lett-inc="${k.id}">📄 lettera</a> · <a href="#" data-del-inc="${k.id}">elimina</a></td>
+    <td>${destinoCompenso(k, prestDi[k.id], fattDi[k.id])}</td>
+    <td style="white-space:nowrap"><a href="#" data-mod-inc="${k.id}">modifica</a> · <a href="#" data-lett-inc="${k.id}">📄 lettera</a> · <a href="#" data-del-inc="${k.id}">elimina</a></td>
   </tr>`;
 
   apriDrawer(`${TIPI[c.tipo] || 'Corso'} n° ${c.id} — ${c.titolo}`, '', `
@@ -420,12 +446,21 @@ export async function apriCorso(id) {
     <button class="btn btn-ghost btn-sm" id="co-addint" style="margin-top:6px">+ Intervento / docente</button>
 
     <hr style="margin:12px 0;border:0;border-top:1px solid var(--bordo)">
-    <h4 style="margin:0 0 6px">💼 Incarichi di docenza</h4>
+    <h4 style="margin:0 0 6px">💼 Incarichi di docenza e compensi</h4>
     <div class="table-wrap"><table class="tbl">
-      <thead><tr><th>Docente</th><th>Ore</th><th>Tariffa</th><th>Corrispettivo</th><th>Data</th><th></th></tr></thead>
-      <tbody>${(incarichi || []).map(rigaInc).join('') || '<tr><td colspan="6" class="empty">Nessun incarico.</td></tr>'}</tbody>
+      <thead><tr><th>Nominativo</th><th>Qualità</th><th>Ore</th><th>Tariffa</th><th>Corrispettivo</th><th>Data</th><th>Pagamento</th><th></th></tr></thead>
+      <tbody>${(incarichi || []).map(rigaInc).join('') || '<tr><td colspan="8" class="empty">Nessun incarico.</td></tr>'}</tbody>
     </table></div>
-    <button class="btn btn-ghost btn-sm" id="co-geninc" style="margin-top:6px">⚙ Proponi incarichi dai docenti del programma</button>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
+      <button class="btn btn-ghost btn-sm" id="co-geninc">⚙ Proponi incarichi dai docenti del programma</button>
+      <button class="btn btn-ghost btn-sm" id="co-addinc">+ Incarico / compenso</button>
+    </div>
+    <p class="hint" style="margin-top:4px">La proposta è solo una proposta: <strong>ore, tariffa e corrispettivo si correggono</strong> con «modifica».
+      Per un relatore ospite o un moderatore si aggiunge una riga a mano, anche con <strong>compenso forfettario</strong>
+      (corrispettivo senza ore né tariffa oraria).<br>
+      <strong>Dove finisce il compenso:</strong> per un <strong>tecnico dell'ente</strong> entra da sé nel riepilogo attività da fatturare
+      del suo mese (scheda «Incarichi e fatture tecnici»); per un <strong>esterno</strong> si registra qui la fattura che manda,
+      e da lì entra nel <strong>mandato all'Amministrazione</strong> come tutte le altre.</p>
 
     <hr style="margin:12px 0;border:0;border-top:1px solid var(--bordo)">
     <h4 style="margin:0 0 6px">👥 Iscritti</h4>
@@ -506,8 +541,40 @@ export async function apriCorso(id) {
     attendi(ev.currentTarget, false);
     apriCorso(c.id);
   });
+  $('#co-addinc').addEventListener('click', () => formIncarico(c, null, interventi || []));
+  $('#drawer-body').querySelectorAll('[data-fatt-inc]').forEach((a) => a.addEventListener('click', async (e) => {
+    e.preventDefault();
+    const k = (incarichi || []).find((x) => x.id === Number(a.dataset.fattInc));
+    if (!k) return;
+    const mod = await import('./fatture-tecnici.js');
+    if (a.dataset.fattId) {
+      /* la scheda della fattura vive nella sua vista: la si apre di là,
+         con lo stesso evento che usa la home */
+      document.dispatchEvent(new CustomEvent('apri-pratica', { detail: { vista: 'fatture-tecnici', id: Number(a.dataset.fattId) } }));
+      return;
+    }
+    /* ⚠️ per un tecnico dell'ente la docenza NON si fattura a parte:
+       entra nel riepilogo attività da fatturare del suo mese */
+    const { tecnicoId, email } = await datiTecnico(k.persona_id);
+    if (tecnicoId && !confirm(`${k.nominativo} è un tecnico dell'ente: questa docenza entra da sola nel riepilogo attività da fatturare del mese (scheda «Incarichi e fatture tecnici»), non serve registrare una fattura a parte.
+
+Registro lo stesso una fattura qui?`)) return;
+    await mod.fatturaDaIncaricoDocenza({
+      esterno: !tecnicoId, tecnico_id: tecnicoId || null,
+      nominativo: k.nominativo, persona_id: k.persona_id, soggetto_email: tecnicoId ? '' : email,
+      corso_incarico_id: k.id, importo: k.corrispettivo ?? '',
+    });
+  }));
+  $('#drawer-body').querySelectorAll('[data-mod-inc]').forEach((a) => a.addEventListener('click', (e) => {
+    e.preventDefault();
+    formIncarico(c, (incarichi || []).find((x) => x.id === Number(a.dataset.modInc)), interventi || []);
+  }));
   $('#drawer-body').querySelectorAll('[data-del-inc]').forEach((a) => a.addEventListener('click', async (e) => {
     e.preventDefault();
+    const k = (incarichi || []).find((x) => x.id === Number(a.dataset.delInc));
+    /* una riga già protocollata ha la sua lettera fuori: eliminarla
+       lascerebbe un protocollo senza pratica, quindi si chiede */
+    if (k?.protocollo_out_id && !confirm(`Per ${k.nominativo} la lettera è già uscita protocollata: elimino comunque la riga? Il protocollo resta nel registro.`)) return;
     await sb.from('s_corsi_incarichi').delete().eq('id', Number(a.dataset.delInc));
     apriCorso(c.id);
   }));
@@ -739,7 +806,16 @@ async function revocaAttestato(c, i) {
 
 /* ── LETTERA DI INCARICO: protocollo OUT + PDF + bozza .eml ── */
 async function letteraIncarico(c, k, interventi, giornate) {
-  if (!confirm(`Genero la lettera di incarico per ${k.nominativo} (${k.ore ?? '?'} ore a € ${k.tariffa_oraria ?? '?'}/h), protocollata in uscita nel registro unico. Procedo?`)) return;
+  /* ⚠️ il modello è quello della DOCENZA (contratto d'opera, i dieci
+     obblighi del docente, l'accordo quadro): per un relatore ospite o
+     un moderatore lo si può usare, ma va detto prima — scelta
+     dell'utente 19/09/2026, in attesa di un modello vero per gli ospiti */
+  if (k.qualita && !['docente', 'codocente'].includes(k.qualita)
+    && !confirm(`${k.nominativo} è registrato come «${QUALITA[k.qualita] || k.qualita}», ma la lettera è il modello della DOCENZA (contratto d'opera, obblighi del docente, accordo quadro). La uso lo stesso?`)) return;
+  const compenso = forfait(k)
+    ? `compenso forfettario di € ${k.corrispettivo}`
+    : `${k.ore ?? '?'} ore a € ${k.tariffa_oraria ?? '?'}/h`;
+  if (!confirm(`Genero la lettera di incarico per ${k.nominativo} (${compenso}), protocollata in uscita nel registro unico. Procedo?`)) return;
   try {
     const giornataDi = Object.fromEntries(giornate.map((g) => [g.id, g.data]));
     const miei = interventi
@@ -752,7 +828,7 @@ async function letteraIncarico(c, k, interventi, giornate) {
       data_doc: k.data_incarico || oggiIso(),
       persona: k.nominativo,
       oggetto: `Lettera di incarico per attività di docenza — ${c.titolo}`,
-      sintesi: `Incarico docenza corso n° ${c.id} (${TIPI[c.tipo] || c.tipo}): ${k.ore ?? '?'} ore a € ${k.tariffa_oraria ?? '?'}/h${k.corrispettivo ? `, corrispettivo € ${k.corrispettivo}` : ''}.`,
+      sintesi: `Incarico ${QUALITA[k.qualita] || 'docenza'} corso n° ${c.id} (${TIPI[c.tipo] || c.tipo}): ${compenso}${!forfait(k) && k.corrispettivo ? `, corrispettivo € ${k.corrispettivo}` : ''}.`,
       ufficio: 'Segreteria Area Sicurezza e Salute',
       mezzo: 'e-mail',
       tipo_doc_txt: 'Lettera di incarico docenza',
@@ -799,7 +875,7 @@ async function letteraIncarico(c, k, interventi, giornate) {
       oggetto: `Formedil Padova - Area Sicurezza e Salute - Lettera di incarico docenza ${codiceProtocollo(nuovo)} - ${c.titolo}`,
       corpo: `Egr. ${k.nominativo},
 
-in allegato la lettera di incarico per l'attività di docenza in oggetto (${k.ore ?? '?'} ore). La preghiamo di restituirla firmata per accettazione.
+in allegato la lettera di incarico per l'attività in oggetto (${compenso}). La preghiamo di restituirla firmata per accettazione.
 
 Distinti saluti.
 
@@ -896,40 +972,170 @@ function formIntervento(c, giornate, i) {
   });
 }
 
-/* ── incarichi proposti dal programma: ore sommate, tariffa dal
-      contratto del tecnico se c'è, altrimenti quella di default ── */
+/* ── incarichi proposti dal programma: ore sommate dagli interventi,
+      tariffa secondo il tipo di corso (vedi corsi-compensi.js).
+      È una PROPOSTA: ore, tariffa e corrispettivo si correggono
+      dalla riga con «modifica» — chiesto dall'utente il 19/09/2026,
+      perché il toast diceva «correggi se serve» e da correggere non
+      c'era niente. ── */
 async function proponiIncarichi(c, interventi, esistenti) {
   const docenti = new Map();
   for (const i of interventi) {
     if (!['docente', 'codocente'].includes(i.qualita)) continue;
     const k = i.persona_id || i.nominativo;
-    const d = docenti.get(k) || { persona_id: i.persona_id, nominativo: i.nominativo, ore: 0 };
+    const d = docenti.get(k) || { persona_id: i.persona_id, nominativo: i.nominativo, qualita: i.qualita, ore: 0 };
     d.ore += oreDa(i.dalle, i.alle);
     docenti.set(k, d);
   }
   const giaFatti = new Set(esistenti.map((k) => k.persona_id || k.nominativo));
   const def = Number(conf.docenza_tariffa_default || 65);
+  const tariffe = await leggiTariffe();
+  const progetto = progetti.find((p) => p.id === c.progetto_id) || null;
+  const data = c.data_inizio || oggiIso();
+  const motivi = new Set();
   let creati = 0;
   for (const d of docenti.values()) {
     if (giaFatti.has(d.persona_id || d.nominativo)) continue;
-    let tariffa = def;
-    if (d.persona_id) {
-      const { data: p } = await sb.from('persone').select('email').eq('persona_id', d.persona_id).maybeSingle();
-      if (p?.email) {
-        const { data: t } = await sb.from('tecnici').select('tariffa_docenza').eq('email', p.email).maybeSingle();
-        if (t?.tariffa_docenza) tariffa = Number(t.tariffa_docenza);
-      }
-    }
+    const { tariffaContratto } = await datiTecnico(d.persona_id);
+    const { importo, motivo } = proponiTariffa({
+      corso: c, progetto, tariffe, tariffaContratto, tariffaDefault: def, data,
+    });
+    motivi.add(motivo);
     const ore = d.ore || null;
     await sb.from('s_corsi_incarichi').insert({
       corso_id: c.id, persona_id: d.persona_id, nominativo: d.nominativo,
-      ore, tariffa_oraria: tariffa,
-      corrispettivo: ore ? Math.round(ore * tariffa * 100) / 100 : null,
+      qualita: d.qualita === 'codocente' ? 'codocente' : 'docente',
+      ore, tariffa_oraria: importo,
+      corrispettivo: calcolaCorrispettivo(ore, importo),
       data_incarico: oggiIso(),
+      aggiornato_da: state.email, updated_at: new Date().toISOString(),
     });
     creati += 1;
   }
-  toast(creati ? `${creati} incarichi proposti (tariffa dal contratto o € ${def}/h): controlla e correggi se serve.` : 'Nessun docente nuovo nel programma.', 'ok');
+  toast(creati
+    ? `${creati} incarichi proposti (${[...motivi].join('; ')}): controlla e correggi con «modifica».`
+    : 'Nessun docente nuovo nel programma.', 'ok');
+}
+
+/* le tariffe si leggono una volta sola per giro: s_tariffe è
+   leggibile dal personale, mentre la funzione s_tariffa del
+   database la può chiamare solo il service_role */
+let tariffeCache = null;
+async function leggiTariffe() {
+  if (!tariffeCache) {
+    const { data } = await sb.from('s_tariffe').select('codice, importo, valido_dal, valido_al, tecnico_id');
+    tariffeCache = data || [];
+  }
+  return tariffeCache;
+}
+
+/* persona → tecnico: serve la tariffa del suo contratto, se ce l'ha */
+async function datiTecnico(personaId) {
+  if (!personaId) return { tariffaContratto: null, tecnicoId: null, email: '' };
+  const { data: p } = await sb.from('persone').select('email').eq('persona_id', personaId).maybeSingle();
+  if (!p?.email) return { tariffaContratto: null, tecnicoId: null, email: '' };
+  const { data: t } = await sb.from('tecnici').select('tecnico_id, tariffa_docenza').ilike('email', p.email).maybeSingle();
+  return { tariffaContratto: t?.tariffa_docenza ?? null, tecnicoId: t?.tecnico_id || null, email: p.email };
+}
+
+/* ── incarico / compenso: la proposta si corregge, e una riga si
+      aggiunge a mano per chi non è un docente del programma
+      (relatore ospite, moderatore), anche a forfait ── */
+function formIncarico(c, k, interventi) {
+  const nuovo = !k;
+  const protocollata = !!k?.protocollo_out_id;
+  apriDrawer(nuovo ? `Nuovo incarico / compenso — corso n° ${c.id}` : `Incarico — ${k.nominativo}`, '', `
+    ${protocollata ? `<div class="dt-doc-riga" style="border-left:3px solid var(--arancio);padding-left:8px;margin-bottom:8px">
+      ⚠️ La lettera è <strong>già uscita protocollata</strong>: il foglio che ha in mano dice questi numeri.
+      Si corregge lo stesso, ma la variazione resta scritta nelle note.</div>` : ''}
+    <div class="field"><label>${k?.persona_id ? "Agganciato all’anagrafica ✓ — cerca per cambiare persona" : "Cerca in anagrafica"}</label>
+      <input id="fk-cerca" placeholder="cognome, nome o CF…">
+      <div id="fk-risultati"></div></div>
+    <div style="display:grid;grid-template-columns:2fr 1fr;gap:10px">
+      <div class="field"><label>Nominativo *</label><input id="fk-nome" value="${esc(k?.nominativo || '')}"></div>
+      <div class="field"><label>Qualità</label>
+        <select id="fk-qualita">${Object.entries(QUALITA).map(([v, l]) =>
+          `<option value="${v}" ${(k?.qualita || 'docente') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px">
+      <div class="field"><label>Ore</label><input type="number" step="0.5" min="0" id="fk-ore" value="${k?.ore ?? ''}"></div>
+      <div class="field"><label>Tariffa oraria €</label><input type="number" step="0.01" min="0" id="fk-tariffa" value="${k?.tariffa_oraria ?? ''}"></div>
+      <div class="field"><label>Corrispettivo €</label><input type="number" step="0.01" min="0" id="fk-corr" value="${k?.corrispettivo ?? ''}"></div>
+      <div class="field"><label>Data incarico</label><input type="date" id="fk-data" value="${k?.data_incarico || c.data_inizio || oggiIso()}"></div>
+    </div>
+    <p class="hint" id="fk-spiega" style="margin:-4px 0 6px"></p>
+    <div class="field"><label>Note</label><textarea id="fk-note" rows="2">${esc(k?.note || '')}</textarea></div>
+    <button class="btn btn-primary" id="fk-salva" style="margin-top:10px">${nuovo ? 'Aggiungi' : 'Salva'}</button>`);
+
+  let personaId = k?.persona_id || null;
+  collegaRicercaPersone('#fk-cerca', '#fk-risultati', async (p) => {
+    personaId = p.persona_id;
+    $('#fk-nome').value = [p.cognome, p.titolo, p.nome].filter(Boolean).join(' ');
+    $('#fk-risultati').innerHTML = '<p class="hint">agganciato all\'anagrafica ✓</p>';
+    /* ore dal programma, se questa persona ha già interventi */
+    const miei = (interventi || []).filter((x) => x.persona_id === p.persona_id);
+    const ore = miei.reduce((s, x) => s + oreDa(x.dalle, x.alle), 0);
+    if (ore && !$('#fk-ore').value) $('#fk-ore').value = ore;
+    await proponi();
+  });
+
+  /* la tariffa proposta si vede e si può accettare, ma resta scritta
+     la ragione: chi corregge deve sapere che numero sta correggendo */
+  async function proponi() {
+    const tariffe = await leggiTariffe();
+    const { tariffaContratto } = await datiTecnico(personaId);
+    const { importo, motivo } = proponiTariffa({
+      corso: c, progetto: progetti.find((p) => p.id === c.progetto_id) || null,
+      tariffe, tariffaContratto, tariffaDefault: Number(conf.docenza_tariffa_default || 65),
+      data: $('#fk-data').value || c.data_inizio || oggiIso(),
+    });
+    if (!$('#fk-tariffa').value) { $('#fk-tariffa').value = importo; ricalcola(); }
+    $('#fk-spiega').innerHTML = `Tariffa proposta <strong>€ ${importo}</strong> (${esc(motivo)}) — correggibile.
+      Per un <strong>compenso forfettario</strong> lascia vuote ore e tariffa e scrivi solo il corrispettivo.`;
+  }
+  const ricalcola = () => {
+    const v = calcolaCorrispettivo($('#fk-ore').value, $('#fk-tariffa').value);
+    if (v != null) $('#fk-corr').value = v;
+  };
+  /* il corrispettivo si ricalcola finché non lo si scrive a mano:
+     è il modo di tenere il forfait senza che un ricalcolo lo cancelli */
+  let corrAMano = false;
+  $('#fk-corr').addEventListener('input', () => { corrAMano = true; });
+  ['#fk-ore', '#fk-tariffa'].forEach((s) => $(s).addEventListener('input', () => { if (!corrAMano) ricalcola(); }));
+  proponi();   /* anche in modifica: chi corregge vede la tariffa di riferimento */
+
+  $('#fk-salva').addEventListener('click', async (ev) => {
+    const nome = $('#fk-nome').value.trim();
+    if (!nome) return toast('Serve il nominativo.', 'err');
+    const num = (sel) => ($(sel).value === '' ? null : Number($(sel).value));
+    const dati = {
+      nominativo: nome, persona_id: personaId,
+      qualita: $('#fk-qualita').value,
+      ore: num('#fk-ore'), tariffa_oraria: num('#fk-tariffa'), corrispettivo: num('#fk-corr'),
+      data_incarico: $('#fk-data').value || null,
+      note: $('#fk-note').value.trim() || null,
+      aggiornato_da: state.email, updated_at: new Date().toISOString(),
+    };
+    if (dati.corrispettivo == null && dati.ore == null && dati.tariffa_oraria == null
+      && !confirm('Salvo la riga senza nessun compenso?')) return;
+    /* lettera già uscita: si conferma e la variazione si scrive nelle note */
+    if (protocollata) {
+      const riga = variazioneNote(k, dati, state.email, dataIt(oggiIso()),
+        k.protocollo_out_id ? `Prot. id ${k.protocollo_out_id}` : null);
+      if (riga) {
+        if (!confirm(`La lettera di ${k.nominativo} è già protocollata. Salvo la correzione (${riga})?\n\nSe il compenso cambia davvero, va rifatta anche la lettera.`)) return;
+        dati.note = [dati.note, riga].filter(Boolean).join('\n');
+      }
+    }
+    attendi(ev.currentTarget, true);
+    const { error } = nuovo
+      ? await sb.from('s_corsi_incarichi').insert({ ...dati, corso_id: c.id })
+      : await sb.from('s_corsi_incarichi').update(dati).eq('id', k.id);
+    attendi(ev.currentTarget, false);
+    if (error) return toast(error.message, 'err');
+    toast(nuovo ? 'Incarico aggiunto.' : 'Incarico aggiornato.', 'ok');
+    apriCorso(c.id);
+  });
 }
 
 /* ── iscritto: persona dall'anagrafica, impresa proposta dal

@@ -60,7 +60,8 @@ const toB64Url = (s: string) => {
 }
 
 type Fattura = {
-  id: number; tecnico_id: string; tecnico_nome: string | null; numero: string | null
+  id: number; tecnico_id: string | null; tecnico_nome: string | null; numero: string | null
+  esterno?: boolean; soggetto_email?: string | null
   data_fattura: string | null; importo: number | null; pagata_il: string | null
   incarico_mensile_id: number | null; mandato_id: number | null
 }
@@ -102,13 +103,13 @@ serve(async (req) => {
       .not('pagata_il', 'is', null)
       .is('avviso_pagamento_il', null)
       .or(`avviso_pagamento_dal.is.null,avviso_pagamento_dal.lt.${scaduta}`)
-      .select('id, tecnico_id, tecnico_nome, numero, data_fattura, importo, pagata_il, incarico_mensile_id, mandato_id')
+      .select('id, tecnico_id, tecnico_nome, numero, data_fattura, importo, pagata_il, incarico_mensile_id, mandato_id, esterno, soggetto_email')
     if (ePren) throw new Error('Prenotazione non riuscita: ' + ePren.message)
     const fatture = (prese || []) as Fattura[]
     const saltate = ids.length - fatture.length
     if (!fatture.length) return json({ ok: true, inviati: [], errori: [], saltate })
 
-    const tecIds = [...new Set(fatture.map((f) => f.tecnico_id))]
+    const tecIds = [...new Set(fatture.map((f) => f.tecnico_id).filter(Boolean))] as string[]
     const incIds = [...new Set(fatture.map((f) => f.incarico_mensile_id).filter(Boolean))] as number[]
     const manIds = [...new Set(fatture.map((f) => f.mandato_id).filter(Boolean))] as number[]
     const [{ data: tt }, { data: ii }, { data: mm }, { data: cfg }] = await Promise.all([
@@ -129,16 +130,26 @@ serve(async (req) => {
     const inviati: unknown[] = []
     const errori: unknown[] = []
     const perTecnico: Record<string, Fattura[]> = {}
-    for (const f of fatture) (perTecnico[f.tecnico_id] = perTecnico[f.tecnico_id] || []).push(f)
+    /* ⚠️ Una fattura di un docente o relatore ESTERNO non ha tecnico_id
+       (19/09/2026): il suo indirizzo sta sulla fattura, e ogni fattura fa
+       gruppo a sé perché non c'è un'anagrafica che le tenga insieme. */
+    for (const f of fatture) {
+      const chiave = f.tecnico_id || `esterno:${f.id}`
+      ;(perTecnico[chiave] = perTecnico[chiave] || []).push(f)
+    }
 
     for (const [tecId, ff] of Object.entries(perTecnico)) {
       const t = tecDi[tecId] as Record<string, string> | undefined
       const idsT = ff.map((f) => f.id)
-      const email = String(t?.email || '').trim()
+      const esterno = !ff[0].tecnico_id
+      const email = String((t?.email || (esterno ? ff[0].soggetto_email : '')) || '').trim()
       const chi = t ? [t.titolo, t.tecnico_nome, t.tecnico_cognome].filter(Boolean).join(' ') : (ff[0].tecnico_nome || '')
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
-        await sb.from('s_fatture_tecnici').update({ avviso_pagamento_dal: null, avviso_pagamento_esito: 'non inviato: il tecnico non ha un indirizzo e-mail in anagrafica' }).in('id', idsT)
-        errori.push({ tecnico: chi, fatture: idsT, errore: 'tecnico senza indirizzo e-mail' })
+        const perche = esterno
+          ? 'non inviato: il soggetto esterno non ha un indirizzo e-mail sulla fattura'
+          : 'non inviato: il tecnico non ha un indirizzo e-mail in anagrafica'
+        await sb.from('s_fatture_tecnici').update({ avviso_pagamento_dal: null, avviso_pagamento_esito: perche }).in('id', idsT)
+        errori.push({ tecnico: chi, fatture: idsT, errore: perche })
         continue
       }
       const una = ff.length === 1
