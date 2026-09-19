@@ -23,7 +23,7 @@
 //   { azione:'scarica', codice }   → il PDF dell'ultima versione (application/octet-stream)
 //
 // Chi legge che cosa:
-//   tecnici, asseverazione → tutto il personale        (is_personale)
+//   tecnici, asseverazione, servizi → tutto il personale (is_personale)
 //   segreteria             → segreteria, coordinatore, Direttore
 //
 // Secret: GOOGLE_SERVICE_ACCOUNT_JSON
@@ -51,6 +51,10 @@ const CATALOGO: Record<string, { titolo: string; slug: string; app: string; chi:
   segreteria: {
     titolo: 'Manuale della segreteria', slug: 'manuale-segreteria',
     app: 'Segreteria e Gestionale Visite', chi: 'ufficio',
+  },
+  servizi: {
+    titolo: 'Manuale del portale servizi', slug: 'manuale-portale-servizi',
+    app: 'Portale servizi', chi: 'personale',
   },
 }
 
