@@ -55,7 +55,7 @@ create policy sgr_post_all on public.s_post
 
 -- updated_at
 create or replace function public.s_post_touch()
-returns trigger language plpgsql as $$
+returns trigger language plpgsql set search_path = public as $$
 begin new.updated_at = now(); return new; end $$;
 drop trigger if exists s_post_touch on public.s_post;
 create trigger s_post_touch before update on public.s_post

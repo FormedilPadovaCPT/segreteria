@@ -121,6 +121,7 @@ where not exists (select 1 from public.s_quest_domande d where d.tronco);
 create or replace function public.s_quest_domande_limite()
 returns trigger
 language plpgsql
+set search_path = public
 as $$
 begin
   if new.corso_id is not null
@@ -142,6 +143,7 @@ create trigger trg_s_quest_domande_limite
 create or replace function public.s_quest_tronco_fermo()
 returns trigger
 language plpgsql
+set search_path = public
 as $$
 begin
   if tg_op = 'DELETE' then

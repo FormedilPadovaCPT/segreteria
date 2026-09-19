@@ -24,6 +24,7 @@ create or replace function public.comune_norm(p text)
 returns text
 language sql
 immutable
+set search_path = public
 as $$
   select nullif(trim(regexp_replace(
            translate(upper(coalesce(p, '')), 'ÀÁÂÄÈÉÊËÌÍÎÏÒÓÔÖÙÚÛÜ''’', 'AAAAEEEEIIIIOOOOUUUU  '),
@@ -34,6 +35,7 @@ create or replace function public.comune_norm_base(p text)
 returns text
 language sql
 immutable
+set search_path = public
 as $$
   select nullif(trim(regexp_replace(public.comune_norm(p), '\s*-\s*Q\d.*$', '')), '');
 $$;
@@ -212,6 +214,7 @@ create or replace function public.forma_giuridica_da_nome(p_nome text)
 returns text
 language sql
 immutable
+set search_path = public
 as $$
   with s as (select ' ' || lower(coalesce(p_nome, '')) || ' ' n)
   select case
@@ -350,7 +353,7 @@ grant execute on function public.comune_norm(text), public.comune_norm_base(text
 -- ─── 8. correzioni e recupero dello storico (stesso giorno, ok dell'utente «a piccoli lotti») ─
 -- la sigla di provincia fra parentesi nel nome comune («Camposampiero (PD)») va tolta
 create or replace function public.comune_norm_base(p text)
-returns text language sql immutable as $$
+returns text language sql immutable set search_path = public as $$
   select nullif(trim(regexp_replace(regexp_replace(public.comune_norm(p), '\s*\([A-Z]{2}\)\s*$', ''), '\s*-\s*Q\d.*$', '')), '');
 $$;
 -- Vigonovo e' in provincia di Venezia: la mappa dell'app diceva 35010, il CAP e' 30030; Motta e' ambiguo, tolto

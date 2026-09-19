@@ -99,6 +99,7 @@ create or replace function public.url_encode_semplice(p text)
 returns text
 language sql
 immutable
+set search_path = public
 as $$
   select coalesce(string_agg(
     case when c ~ '^[A-Za-z0-9_.~-]$' then c
