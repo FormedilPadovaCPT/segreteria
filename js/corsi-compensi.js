@@ -3,14 +3,19 @@
    decidono un numero, tenute fuori dalla maschera perché siano
    provabili.
 
-   ⚠️ La tariffa NON è € 65 per tutti. In s_tariffe la docenza da
-   contratto vale € 50/h e la conferenza di cantiere € 50/h; i
-   € 65 di s_config.docenza_tariffa_default valgono per i
-   PROGETTI FINANZIATI, dove la tariffa cambia da progetto a
-   progetto e si scrive sull'incarico (regola del 17/09/2026 nel
-   CLAUDE.md). Fino al 19/09/2026 la proposta scriveva 65 a
-   chiunque: sulle conferenze di cantiere era il doppio di quel
-   che l'ente paga davvero.
+   ⚠️ La tariffa di contratto è € 50/h — docenza e conferenza di
+   cantiere — e vale anche per la formazione interna ai tecnici
+   (precisato dall'utente il 19/09/2026: «in contratto per docenze
+   ai tecnici viene riconosciuto 50, i 65 erano solo casi
+   particolari di progetti passati»; i contratti saranno rifatti
+   tutti, come chiesto dal Direttore). Fino a quel giorno la
+   proposta scriveva € 65 a chiunque, cioè il valore di certi
+   progetti passati applicato come se fosse la regola.
+
+   ⚠️ Nei PROGETTI FINANZIATI la tariffa la decide il progetto:
+   in archivio ci sono 52, 60, 65, 90 e 100 €/h. Non esiste «la
+   tariffa dei progetti», quindi non se ne propone una: si propone
+   quella di contratto e si dichiara che lì va confermata.
 
    ⚠️ Il COMPENSO FORFETTARIO non ha una colonna sua: è la riga
    con il corrispettivo ma senza ore o senza tariffa oraria —
@@ -47,21 +52,30 @@ export function tariffaDaTabella(tariffe, codice, data, tecnicoId) {
  * il numero che sta correggendo.
  */
 export function proponiTariffa({ corso, progetto, tariffe, tariffaContratto, tariffaDefault, data }) {
-  const def = Number(tariffaDefault || 65);
   const finanziato = progetto && Number(progetto.finanziamento) > 0;
+  const codice = corso && corso.tipo === 'conferenza_cantiere' ? 'conferenza_ora' : 'docenza_ora';
+  const base = (tariffaContratto != null && Number(tariffaContratto) > 0)
+    ? { importo: Number(tariffaContratto), motivo: 'contratto del tecnico' }
+    : (() => {
+      const t = tariffaDaTabella(tariffe, codice, data);
+      if (t != null) {
+        return { importo: t, motivo: codice === 'conferenza_ora' ? 'conferenza di cantiere, tariffa di contratto' : 'docenza, tariffa di contratto' };
+      }
+      return { importo: Number(tariffaDefault || 50), motivo: 'tariffa predefinita' };
+    })();
+  /* ⚠️ Nei progetti finanziati la tariffa può essere un'altra — nello storico
+     ci sono 52, 60, 65, 90, 100 € — ma NON esiste «la tariffa dei progetti»:
+     è decisa progetto per progetto. Quindi si propone quella di contratto e
+     si dichiara che va confermata, invece di scrivere un numero inventato
+     (precisato dall'utente il 19/09/2026: da contratto la docenza ai tecnici
+     vale 50 €/h, i 65 erano casi particolari di progetti passati). */
   if (finanziato) {
-    return { importo: def, motivo: `progetto finanziato «${String(progetto.titolo || '').slice(0, 40)}»: tariffa da confermare sul progetto` };
+    return {
+      importo: base.importo,
+      motivo: `${base.motivo}; progetto finanziato «${String(progetto.titolo || '').slice(0, 40)}»: se lì la tariffa è un'altra, va corretta a mano`,
+    };
   }
-  if (corso && corso.tipo === 'conferenza_cantiere') {
-    const t = tariffaDaTabella(tariffe, 'conferenza_ora', data);
-    if (t != null) return { importo: t, motivo: 'conferenza di cantiere, tariffa di contratto' };
-  }
-  if (tariffaContratto != null && Number(tariffaContratto) > 0) {
-    return { importo: Number(tariffaContratto), motivo: 'contratto del tecnico' };
-  }
-  const t = tariffaDaTabella(tariffe, 'docenza_ora', data);
-  if (t != null) return { importo: t, motivo: 'docenza, tariffa di contratto' };
-  return { importo: def, motivo: 'tariffa predefinita' };
+  return base;
 }
 
 const eur = (v) => (v == null ? '—' : `€ ${Number(v).toFixed(2).replace('.', ',')}`);

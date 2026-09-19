@@ -21,13 +21,23 @@ test('la conferenza di cantiere si paga la tariffa di contratto, non i 65 dei pr
   assert.match(p.motivo, /conferenza/);
 });
 
-test('dentro un progetto finanziato vale il default, e il motivo lo dice', () => {
+test('dentro un progetto finanziato NON si inventa una tariffa: vale il contratto, e il motivo avvisa', () => {
   const p = proponiTariffa({
     corso: { tipo: 'corso' }, progetto: { id: 13, titolo: 'Palestra della sicurezza', finanziamento: '200000' },
-    tariffe: TARIFFE, tariffaContratto: 50, tariffaDefault: 65, data: '2026-09-23',
+    tariffe: TARIFFE, tariffaContratto: null, tariffaDefault: 65, data: '2026-09-23',
   });
-  assert.equal(p.importo, 65);
-  assert.match(p.motivo, /finanziato/);
+  // in archivio i progetti hanno 52, 60, 65, 90, 100 €/h: non esiste «la tariffa dei progetti»
+  assert.equal(p.importo, 50);
+  assert.match(p.motivo, /progetto finanziato/);
+  assert.match(p.motivo, /corretta a mano/);
+});
+
+test('la formazione interna ai tecnici vale la tariffa di contratto, non i 65 dei progetti passati', () => {
+  const p = proponiTariffa({
+    corso: { tipo: 'corso', titolo: 'Formazione Tecnici Area Sicurezza e Salute' }, progetto: null,
+    tariffe: TARIFFE, tariffaContratto: null, tariffaDefault: 65, data: '2026-09-23',
+  });
+  assert.equal(p.importo, 50);
 });
 
 test('il contratto del tecnico batte la tariffa generale', () => {
