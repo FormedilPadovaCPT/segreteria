@@ -369,7 +369,9 @@ begin
   get diagnostics v_arch = row_count;
 
   -- il cantiere mantenuto eredita solo i campi che ha vuoti (nel riaggancio no: il provvisorio non e' una fonte)
-  if p_origine <> 'riaggancio' then
+  -- il vuoto vale «unione»: con NULL il confronto darebbe NULL e il completamento verrebbe saltato
+  -- (corretto lo stesso giorno, migrazione fondi_cantieri_origine_vuota_2026_09_19)
+  if coalesce(p_origine, 'unione') <> 'riaggancio' then
     select * into k from cantieri where cantiere_id = p_master_id;
     select (array_agg(cantiere_committente_id) filter (where coalesce(cantiere_committente_id,'') <> ''))[1] cantiere_committente_id,
            (array_agg(cantiere_importo) filter (where cantiere_importo is not null))[1] cantiere_importo,

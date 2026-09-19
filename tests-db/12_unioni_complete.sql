@@ -141,6 +141,20 @@ begin
     raise exception 'sono state toccate le tabelle dei cantieri di asseverazione';
   end if;
 
+  -- origine vuota: vale «unione», quindi il cantiere tenuto eredita cio' che gli manca
+  select c.cantiere_id into l1 from cantieri c where c.elimina = 0 and coalesce(trim(c.cantiere_cnce),'') = ''
+     and coalesce(trim(c.lotto),'') = '' and coalesce(c.cantiere_descrizione,'') = '' limit 1;
+  select c.cantiere_id into l2 from cantieri c where c.elimina = 0 and c.cantiere_id <> l1 and coalesce(trim(c.cantiere_cnce),'') = ''
+     and coalesce(trim(c.lotto),'') = '' and coalesce(c.cantiere_descrizione,'') <> '' limit 1;
+  if l1 is not null and l2 is not null then
+    perform fondi_cantieri(l1, array[l2], null);
+    if coalesce((select cantiere_descrizione from cantieri where cantiere_id = l1), '') = '' then
+      raise exception 'con origine vuota il cantiere tenuto doveva ereditare la descrizione';
+    end if;
+    rep := rep || jsonb_build_object('origine_vuota', 'eredita');
+  end if;
+  l1 := null; l2 := null;
+
   -- i lotti non si uniscono
   select a.cantiere_id, b.cantiere_id into l1, l2 from cantieri a join cantieri b
       on upper(a.cantiere_cnce) = upper(b.cantiere_cnce) and a.cantiere_id < b.cantiere_id
