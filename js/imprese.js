@@ -12,6 +12,7 @@
 
 import { sb, state, $, $$, esc, dataIt, leggiData, toast, attendi, mostraVista, apriDrawer } from './core.js';
 import { collegaDoppioClickMail } from './eml.js';
+import { cronologiaCassaHtml } from './cassa-storico.js';
 
 let scheda = null;          // ultimo JSON caricato
 let schedaTab = 'anagrafica';
@@ -219,6 +220,19 @@ export async function apriScheda(impresaId, tab = 'anagrafica') {
     scheda.certificazioni_dett = cert || [];
     scheda.cert_tipi = tipi || [];
   } catch { scheda.certificazioni_dett = []; scheda.cert_tipi = []; }
+
+  /* la storia dello stato in Cassa Edile (19/09/2026): la scrive il
+     database a ogni lista caricata, qui si legge soltanto */
+  try {
+    const [{ data: cassa }, { data: cfg }] = await Promise.all([
+      sb.from('imprese_cassa_storico')
+        .select('id, stato, cod_ceiv, visto_dal, visto_fino, attuale, fonte, nota')
+        .eq('impresa_id', impresaId),
+      sb.from('s_config').select('valore').eq('chiave', 'ceiv_lista_al').maybeSingle(),
+    ]);
+    scheda.cassa_storico = cassa || [];
+    scheda.ceiv_lista_al = cfg?.valore || null;
+  } catch { scheda.cassa_storico = []; scheda.ceiv_lista_al = null; }
 
   /* gli RLS comunicati dall'impresa (anagrafe CCPL 3/3/2022):
      compaiono fra le persone, accanto a dipendenti e nomine */
@@ -667,6 +681,11 @@ function tabAnagrafica() {
       <h3>Note d'ufficio</h3>
       <textarea id="ia-note_access" data-campo="note_access" style="min-height:110px;flex:1">${esc(i.note_access ?? '')}</textarea>
     </div>
+    </div>
+
+    <div class="sez">
+      <h3>Cassa Edile — storia dello stato</h3>
+      ${cronologiaCassaHtml(scheda.cassa_storico, scheda.ceiv_lista_al)}
     </div>
 
     <div class="sez">
