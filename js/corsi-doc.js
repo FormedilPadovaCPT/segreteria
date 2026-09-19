@@ -629,12 +629,17 @@ async function foglioTest(k, corso, test) {
 
   const lh = altLogo(k, 88);
   logoIn(k, pg, X1 - 88, H - 30 - lh, 88);
-  T(pg, `VERIFICA FINALE · CORSO ${corso.id}`, X0, H - 34, 7, F.r, C.arancio, { sp: 1.4 });
-  T(pg, cut(F.b, 10.5, corso.titolo || '', X1 - X0 - 104), X0, H - 49, 10.5, F.b, C.grigio);
+  /* col test per modulo in testa si scrive di quale verifica si tratta:
+     in un corso con più moduli i fogli si somigliano tutti (19/09/2026) */
+  T(pg, test && test.titolo ? `VERIFICA DI MODULO · CORSO ${corso.id}` : `VERIFICA FINALE · CORSO ${corso.id}`,
+    X0, H - 34, 7, F.r, C.arancio, { sp: 1.4 });
+  T(pg, cut(F.b, 10.5, (test && test.titolo ? test.titolo + ' — ' : '') + (corso.titolo || ''), X1 - X0 - 104),
+    X0, H - 49, 10.5, F.b, C.grigio);
   linea(pg, X0, H - 62, X1, H - 62, C.linea, 0.8);
 
   let y = H - 190;
-  T(pg, 'TEST DI VERIFICA', X0 + Wc / 2, y, 9, F.b, C.arancio, { sp: 2, al: 'c' });
+  T(pg, test && test.titolo ? cut(F.b, 9, test.titolo.toUpperCase(), Wc) : 'TEST DI VERIFICA',
+    X0 + Wc / 2, y, 9, F.b, C.arancio, { sp: 2, al: 'c' });
   y -= 42;
   T(pg, 'Il test si fa col telefono', X0 + Wc / 2, y, 30, F.b, C.grigio, { al: 'c' });
   y -= 28;

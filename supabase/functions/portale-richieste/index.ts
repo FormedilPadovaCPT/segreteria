@@ -306,6 +306,43 @@ async function agganciaTest(sb: SB, d: Dati): Promise<Dati> {
   }
 }
 
+/* ── il TEST scritto dal DOCENTE (19/09/2026) ──────────────────────────────
+   Chiesto dall'utente: il docente del corso deve poter caricare il test, anche
+   passando dalla segreteria. Arriva da un LINK TARGATO, come l'iscrizione;
+   quello che manda NON diventa il test — diventa una proposta che la
+   segreteria porta dentro con dtest_accetta.
+   ⚠️ Se l'invito non e' valido (firma sbagliata, revocato, scaduto) la
+   proposta si salva LO STESSO, col motivo scritto: chi ha compilato in buona
+   fede non deve perdere il lavoro (regola del 04/09 su da che parte sbagliare).
+   ⚠️ L'invito si segna «consegnato» QUI, un attimo prima che la riga venga
+   scritta: se l'inserimento fallisse resterebbe un invito consegnato senza
+   proposta, che si vede a colpo d'occhio nell'elenco — il contrario (proposta
+   arrivata e invito ancora «in attesa») farebbe credere che il docente non
+   abbia risposto. */
+async function agganciaPropostaTest(sb: SB, d: Dati): Promise<Dati> {
+  const rif = String(d.riferimento ?? '').trim()
+  const { data, error } = await sb.rpc('dtest_verifica', { p_riferimento: rif.slice(0, 200) })
+  if (error) return { riferimento_esito: 'verifica non riuscita: ' + error.message }
+  const r = (Array.isArray(data) ? data[0] : data) as Dati | undefined
+  if (!r || r.esito !== 'agganciato') {
+    /* il corso lo conserviamo lo stesso quando l'invito esiste ma e' chiuso:
+       serve alla segreteria per ritrovare la proposta */
+    return {
+      riferimento_esito: String(r?.esito || 'non agganciata'),
+      ...(r?.corso_id ? { corso_id: r.corso_id, invito_id: r.invito_id, nominativo: r.nominativo } : {}),
+      ...(r?.parte_id ? { parte_id: r.parte_id } : {}),
+    }
+  }
+  await sb.rpc('dtest_segna_consegnato', { p_invito_id: r.invito_id })
+  return {
+    corso_id: r.corso_id, invito_id: r.invito_id, nominativo: r.nominativo,
+    /* l'invito puo' riguardare un MODULO: la proposta se lo porta dietro, e
+       le domande finiranno in quella verifica e non nel mucchio del corso */
+    ...(r.parte_id ? { parte_id: r.parte_id } : {}),
+    riferimento_esito: 'agganciata',
+  }
+}
+
 /* ── l'iscrizione a un evento ──────────────────────────────────────────────
    Un motore solo per due porte: l'elenco pubblico dei corsi aperti e il link
    targato che la segreteria manda all'impresa dopo una conferenza. La prova
@@ -745,6 +782,24 @@ const MODULI: Record<string, Modulo> = {
       ['COMUNE', 'comune_impresa'], ['CAP', 'cap_impresa'], ['PROVINCIA', 'prov_impresa'],
       ['REFERENTE', 'referente'], ['EMAIL', 'email'], ['TELEFONO', 'telefono'],
       ['PERSONE', 'persone'], ['NOTE', 'note'], ['PRIVACY', 'privacy']],
+  },
+
+  /* il test scritto dal docente: testo puro, nessun allegato. Non e'
+     silenzioso — al contrario: la segreteria deve sapere che e' arrivato,
+     perche' finche' non lo porta dentro lei il test non esiste. */
+  dtst: {
+    tabella: 's_test_proposte',
+    obbligatori: [],
+    chi: 'nominativo',
+    colonne: {
+      /* il nominativo arriva dal modulo, ma se l'invito e' valido l'extra lo
+         sostituisce con quello scritto sull'invito: la fonte buona e' quella */
+      nominativo: 'nominativo',
+      domande: 'json:domande',
+      note: 'note',
+    },
+    extra: agganciaPropostaTest,
+    campi: [['PROGRESSIVO', '#prog'], ['DOCENTE', 'nominativo'], ['DOMANDE', 'domande'], ['NOTE', 'note']],
   },
 
   qev: {

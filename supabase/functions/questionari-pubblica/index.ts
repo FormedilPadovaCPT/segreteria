@@ -86,7 +86,11 @@ serve(async (req) => {
     }
 
     const corpo = await req.json().catch(() => ({})) as Record<string, unknown>
-    const corsi = Array.isArray(corpo.corsi) ? corpo.corsi : (corpo.corso_id != null ? [corpo.corso_id] : [])
+    /* con «test_parte» gli id sono di moduli: si accettano sia parte_id sia
+       le forme di sempre, cosi' chi chiama non deve ricordare due nomi */
+    const corsi = corpo.parte_id != null ? [corpo.parte_id]
+      : Array.isArray(corpo.parti) ? corpo.parti
+      : Array.isArray(corpo.corsi) ? corpo.corsi : (corpo.corso_id != null ? [corpo.corso_id] : [])
     const ids = corsi.map(Number).filter((n) => Number.isInteger(n) && n > 0).slice(0, 50)
     if (!ids.length) return json({ error: 'manca corso_id' }, 400)
 
@@ -94,9 +98,15 @@ serve(async (req) => {
        TEST (nominativo) e le ISCRIZIONI. Del test escono le domande senza le
        risposte giuste e, delle persone, impronta del codice personale e
        iniziali; delle iscrizioni esce solo che cos'e' l'evento. */
-    const test = corpo.cosa === 'test'
+    /* ⚠️ «test_parte» (19/09/2026): la verifica di un MODULO. Gli id qui sono
+       di s_test_parti, non di corsi; la tabella di destinazione sul portale e'
+       la stessa dei test (il codice della parte e' un altro, quindi
+       convivono) e l'esito si scrive sulla parte. */
+    const parte = corpo.cosa === 'test_parte'
+    const test = corpo.cosa === 'test' || parte
     const iscr = corpo.cosa === 'iscrizione'
-    const rpc = iscr ? 'iscr_pubblicazione' : test ? 'test_pubblicazione' : 'quest_pubblicazione'
+    const rpc = iscr ? 'iscr_pubblicazione' : parte ? 'test_pubblicazione_parte'
+      : test ? 'test_pubblicazione' : 'quest_pubblicazione'
     const azione = iscr ? 'pubblica_iscr' : test ? 'pubblica_test' : 'pubblica'
     const colonne = iscr
       ? { quando: 'iscr_pubblicato_il', esito: 'iscr_pubblica_esito' }
@@ -107,11 +117,11 @@ serve(async (req) => {
     const righe: Record<string, unknown>[] = []
     const saltati: { corso_id: number; motivo: string }[] = []
     for (const id of ids) {
-      const { data, error } = await sb.rpc(rpc, { p_corso_id: id })
+      const { data, error } = await sb.rpc(rpc, parte ? { p_parte_id: id } : { p_corso_id: id })
       if (error) { saltati.push({ corso_id: id, motivo: error.message }); continue }
       const p = data as Pubblicazione | null
-      const nome = iscr ? 'iscrizioni' : test ? 'test' : 'questionario'
-      if (!p || !p.codice) { saltati.push({ corso_id: id, motivo: `${nome}: non aperte su questo evento` }); continue }
+      const nome = iscr ? 'iscrizioni' : parte ? 'la verifica del modulo' : test ? 'test' : 'questionario'
+      if (!p || !p.codice) { saltati.push({ corso_id: id, motivo: `${nome}: non aperta` }); continue }
       if (!p.firma) { saltati.push({ corso_id: id, motivo: 'il codice non è firmato' }); continue }
       const comune = {
         codice: p.codice,
@@ -177,6 +187,12 @@ serve(async (req) => {
     const adesso = new Date().toISOString()
     for (const id of ids) {
       if (saltati.some((s) => s.corso_id === id)) continue
+      if (parte) {
+        await sb.from('s_test_parti').update(esito === 'ok'
+          ? { pubblicato_il: adesso, pubblica_esito: `pubblicato (${chi})` }
+          : { pubblica_esito: `non pubblicato: ${esito}`.slice(0, 300) }).eq('id', id)
+        continue
+      }
       await sb.from('s_corsi').update(esito === 'ok'
         ? { [colonne.quando]: adesso, [colonne.esito]: `pubblicato (${chi})` }
         : { [colonne.esito]: `non pubblicato: ${esito}`.slice(0, 300) }).eq('id', id)

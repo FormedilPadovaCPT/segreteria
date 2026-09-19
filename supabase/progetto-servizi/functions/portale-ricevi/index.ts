@@ -46,7 +46,7 @@ const CORS = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
-const TIPI = ['seg', 'not', 'cons', 'vis', 'conf', 'att', 'rlst', 'rls', 'qst', 'qev', 'tst', 'isc']
+const TIPI = ['seg', 'not', 'cons', 'vis', 'conf', 'att', 'rlst', 'rls', 'qst', 'qev', 'tst', 'isc', 'dtst']
 /* gli stessi campi obbligatori della tabella MODULI del Gestionale */
 const OBBLIGATORI: Record<string, string[]> = {
   seg: ['indirizzo_cantiere', 'comune_cantiere'], not: ['indirizzo_cantiere', 'comune_cantiere'],
@@ -63,6 +63,10 @@ const OBBLIGATORI: Record<string, string[]> = {
      se' (un libero professionista a un convegno). Che cosa serve davvero lo
      controlla il Gestionale, che sa di quale evento si tratta. */
   isc: [],
+  /* dtst: il TEST scritto dal DOCENTE (19/09/2026). Qui non si controlla
+     niente del contenuto: a dire se l'invito vale e se le domande stanno in
+     piedi e' il Gestionale, che conosce corso e invito. */
+  dtst: [],
 }
 const MAX_CARATTERI = 28 * 1024 * 1024
 const MAX_CARATTERI_MODULO: Record<string, number> = {
@@ -74,6 +78,8 @@ const MAX_CARATTERI_MODULO: Record<string, number> = {
   tst: 256 * 1024,
   /* un'iscrizione e' testo: tante anagrafiche, nessun allegato */
   isc: 256 * 1024,
+  /* un test: fino a 40 domande con le risposte proposte, nessun allegato */
+  dtst: 256 * 1024,
 }
 const MAX_CARATTERI_ALTRI = 256 * 1024
 const MAX_FOTO = 3
