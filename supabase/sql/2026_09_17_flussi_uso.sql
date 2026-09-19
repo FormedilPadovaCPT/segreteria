@@ -130,3 +130,17 @@ grant execute on function public.s_flussi_uso() to authenticated, service_role;
 
 comment on function public.s_flussi_uso() is
   'Per ogni flusso delle app: casi veri (storico importato e annullati esclusi), primo e ultimo uso. Cruscotto segreteria, riquadro «Flussi mai usati».';
+
+/* ── 19/09/2026: i tre flussi del test scritto dal docente ────────────────
+   Migrazione applicata a mano sul testo della funzione preso dal database
+   (pg_get_functiondef + replace + execute), come per le unioni complete:
+   una funzione di 10.000 caratteri non si ricopia a mano.
+
+     dtest_proposta   un test scritto da un docente è arrivato
+                      (s_test_proposte, escluse le righe di prova)
+     dtest_portato    la segreteria l'ha portato nel test (stato accettata)
+     test_modulo      è stata aperta una verifica per modulo (s_test_parti)
+
+   ⚠️ Vale la regola di sempre: un flusso nuovo si aggiunge in DUE punti —
+   la riga che lo conta e la riga dell'elenco che lo fa comparire anche a
+   zero. Al 19/09/2026 i flussi censiti sono 38, di cui 26 mai usati. */
