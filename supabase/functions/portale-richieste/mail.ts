@@ -21,6 +21,8 @@
 // in modo uniforme. Il logo e' un PNG RGB su GitHub Pages, non incorporato:
 // le stringhe lunghe si rompono nel deploy delle edge function (07/09/2026).
 
+import { RESA_STRUTTURATA, riassuntoStrutturato, sembraStrutturato } from './leggibili.js'
+
 export const MITTENTE = 'cptpd@did.formedilpadova.it'
 export const NOME_MITTENTE = 'Formedil Padova – Area Sicurezza e Salute'
 export const EMAIL_UFFICIO = 'cpt@formedilpadova.it'
@@ -264,7 +266,16 @@ function gruppiCampiCpt(tipo: string, d: Dati): Gruppo[] {
   const usati: Record<string, boolean> = {}
   const dati = Object.entries(d).filter(([k, v]) => v && !ESCLUDI.includes(k))
   const isData = (k: string) => /^data_|_il$|_nato_il$/.test(k)
-  const val = (k: string, v: unknown) => (isData(k) ? fmtDate(v) : s(v))
+  /* ⚠️ I campi strutturati (domande di un test, persone di un'iscrizione,
+     risposte di un questionario) NON si stampano in JSON: erano illeggibili e
+     nel test portavano in mail anche le risposte corrette (21/09/2026). Quel
+     che non si riconosce diventa «N voci — si leggono nell'app», mai il JSON. */
+  const val = (k: string, v: unknown) => {
+    if (isData(k)) return fmtDate(v)
+    const resa = (RESA_STRUTTURATA as Record<string, (x: unknown) => string>)[k]
+    if (resa) return resa(v)
+    return sembraStrutturato(v) ? riassuntoStrutturato(v) : s(v)
+  }
 
   const CHIAVI_IMPRESA = ['ragione_sociale', 'piva', 'cf_impresa', 'codice_ceiv', 'email', 'telefono', 'cellulare',
     'indirizzo_legale', 'comune_legale', 'indirizzo_amm', 'comune_amm', 'indirizzo_sede', 'ccnl', 'num_lavoratori',
