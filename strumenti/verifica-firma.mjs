@@ -48,7 +48,7 @@ for (const c of COPIE) {
   else ko(`${c.nome} ${k === null ? 'manca' : 'diverge da js/firma.js'} — esegui: npm run firma-sync`);
 }
 
-const { componiEml, FIRMA_SEGRETERIA, LOGO_FIRMA_CID, paginaHtml, testoInHtml, senzaFirma } = await import('../js/firma.js');
+const { componiEml, FIRMA_SEGRETERIA, LOGO_FIRMA_CID, paginaHtml, corpoInHtml, senzaFirma } = await import('../js/firma.js');
 const { LOGO_FIRMA_B64, LOGO_FIRMA_MIME } = await import('../js/firma-logo.js');
 
 /* Il logo dell'app e quello che la funzione scarica devono essere lo
@@ -78,6 +78,9 @@ buongiorno,
 
 le trasmettiamo in allegato la comunicazione in oggetto. Il modulo è raggiungibile da https://formedilpadovacpt.github.io/servizi/ e per ogni dubbio può scrivere a cpt@formedilpadova.it.
 
+>>> Apri la pratica (si apre direttamente nell'app):
+https://formedilpadovacpt.github.io/servizi/#prova
+
 Distinti saluti.
 
 ${FIRMA_SEGRETERIA}`;
@@ -93,7 +96,7 @@ const eml = componiEml({
 writeFileSync(join(qui, '_prova-firma.eml'), eml);
 writeFileSync(join(qui, '_prova-firma.html'),
   /* nell'anteprima il logo va in data: URI (in un browser va bene; nella mail no, vedi firma.js) */
-  paginaHtml(testoInHtml(senzaFirma(corpo))).replace(`cid:${LOGO_FIRMA_CID}`, `data:${LOGO_FIRMA_MIME};base64,${LOGO_FIRMA_B64}`));
+  paginaHtml(corpoInHtml(senzaFirma(corpo))).replace(`cid:${LOGO_FIRMA_CID}`, `data:${LOGO_FIRMA_MIME};base64,${LOGO_FIRMA_B64}`));
 
 const decodifica = (b64) => new TextDecoder().decode(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)));
 const parte = (intestazione) => {
@@ -116,7 +119,11 @@ for (const atteso of ['Content-Type: multipart/mixed', 'Content-Type: multipart/
 const html = parte('Content-Type: text/html; charset=utf-8');
 for (const [che, attesa] of [['logo cid', `cid:${LOGO_FIRMA_CID}`], ['nome', 'Renato Squizzato'], ['orari', 'Orari uff.'],
   ['servizi', 'Vai ai Servizi'], ['privacy', 'GDPR'], ['link cliccabile', 'href="https://formedilpadovacpt.github.io/servizi/"'],
-  ['mailto nel testo', 'href="mailto:cpt@formedilpadova.it"']]) {
+  ['mailto nel testo', 'href="mailto:cpt@formedilpadova.it"'],
+  /* il pulsante: il rilievo è un BORDO (Outlook per Windows ignora le ombre)
+     e sotto c'è sempre l'indirizzo scritto per chi ha i link bloccati */
+  ['pulsante col rilievo', 'border-bottom:3px solid #A83A0B'],
+  ['indirizzo di riserva sotto il pulsante', 'Se il pulsante non si apre']]) {
   if (!html.includes(attesa)) ko(`HTML senza ${che}`); else ok(`HTML con ${che}`);
 }
 if ((html.match(/Renato Squizzato/g) || []).length !== 1) ko("la firma compare più di una volta nell'HTML (la copia in righe non è stata tolta)");

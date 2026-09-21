@@ -633,7 +633,7 @@ async function richiestaAutorizzazione(p, btn) {
 vogliate trovare in allegato la richiesta di autorizzazione per la ${p.tipo_richiesta === 'serie' ? 'serie di visite' : 'visita'} n. ${n} richiesta da ${p.ragione_sociale || '?'} (${esitoBreve(p)}).
 Tecnico proposto: ${tecnico || 'da assegnare'}.
 
->>> AUTORIZZA DALL'APP (si apre direttamente la pratica):
+>>> Autorizza dall'app (si apre direttamente la pratica):
 ${APP_URL}#visita-${p.id}
 
 In alternativa resta il giro cartaceo: firmare il foglio allegato e restituirlo alla Segreteria.

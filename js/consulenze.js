@@ -452,7 +452,8 @@ quesito tecnico arrivato ${p.fonte === 'modulo' ? 'dal modulo online' : `per ${p
 
 ${quesito}
 
-Quando hai la risposta, riportala nella pratica: ${APP_URL}#consulenza-${p.id}
+>>> Apri la pratica (qui si riporta la risposta al quesito):
+${APP_URL}#consulenza-${p.id}
 
 Grazie.
 
@@ -569,7 +570,7 @@ async function richiestaAutorizzazione(p, btn) {
 vogliate trovare in allegato la richiesta di autorizzazione per la consulenza n. ${n} presso ${p.ragione_sociale || '?'} (${LUOGHI[p.luogo] || 'in sede impresa'}).
 Tecnico proposto: ${tecnico || 'da assegnare'}.
 
->>> AUTORIZZA DALL'APP (si apre direttamente la pratica):
+>>> Autorizza dall'app (si apre direttamente la pratica):
 ${APP_URL}#consulenza-${p.id}
 
 In alternativa resta il giro cartaceo: firmare il foglio allegato e restituirlo alla Segreteria.

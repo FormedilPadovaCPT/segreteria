@@ -447,7 +447,7 @@ async function richiestaAutorizzazione(p, btn) {
 vogliate trovare in allegato la richiesta di autorizzazione per la procedura di attestazione DM 132/2024 (crediti aggiuntivi patente) richiesta da ${p.ragione_sociale || '?'}.
 Requisiti verificati: iscrizione CEIV e regolarità versamenti. Tecnico proposto: ${tecnico || 'da assegnare'}.
 
->>> AUTORIZZA DALL'APP (si apre direttamente la pratica):
+>>> Autorizza dall'app (si apre direttamente la pratica):
 ${APP_URL}#attestazione-${p.id}
 
 In alternativa resta il giro cartaceo: firmare il foglio allegato e restituirlo alla Segreteria.

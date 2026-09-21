@@ -441,7 +441,11 @@ function mandaInvito(c, inv) {
     inv.parte ? `Le chiediamo di scrivere le domande del modulo «${inv.parte}» da questa pagina:`
               : 'Le chiediamo di scrivere le domande del test da questa pagina:',
     '',
-    inv.link || '',
+    /* col marcatore «>>> etichetta (nota):» la riga diventa un pulsante
+       nella versione HTML della mail (firma.js) e resta leggibile in
+       quella in righe. Senza link non si scrive il marcatore, che
+       resterebbe una promessa vuota. */
+    ...(inv.link ? ['>>> Scrivi le domande del test (si apre la pagina, senza bisogno di accesso):', inv.link] : ['']),
     '',
     'Per ogni domanda a risposta chiusa va segnata la risposta giusta: è così che il punteggio',
     'si calcola da sé, e non serve più il foglio del correttore. Le domande a risposta scritta',

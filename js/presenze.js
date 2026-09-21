@@ -667,7 +667,7 @@ async function mandaAlDirettore(r, btn) {
 in allegato la richiesta di ${r.tipo} n. ${r.id} di ${r.dipendente}:
 periodo ${dataIt(r.data_inizio)}${r.data_fine ? ` → ${dataIt(r.data_fine)}` : ''}${r.ore != null ? `, ${r.ore} ore` : ''}.
 
->>> AUTORIZZA DALL'APP (si apre direttamente la pratica):
+>>> Autorizza dall'app (si apre direttamente la pratica):
 ${APP_URL}#ferie-${r.id}
 
 In alternativa resta il giro cartaceo: firmare il modulo allegato e restituirlo alla Segreteria.

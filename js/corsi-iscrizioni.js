@@ -205,6 +205,7 @@ function mandaModulo(c, iz) {
     `in vista di ${c.titolo}${quando ? ` del ${quando}` : ''}${dove ? `, ${dove}` : ''},`,
     'vi chiediamo di indicare le persone che parteciperanno, compilando il modulo online:',
     '',
+    '>>> Compila il modulo di iscrizione (si apre la pagina, senza bisogno di accesso):',
     link,
     '',
     'Servono i dati anagrafici completi di ciascun partecipante — cognome, nome, codice fiscale,',

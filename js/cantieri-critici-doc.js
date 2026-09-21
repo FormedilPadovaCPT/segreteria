@@ -202,7 +202,7 @@ export function corpoRichiestaConferma(d, eventi, verbali, link) {
 
 si chiede la conferma per la segnalazione agli organi di vigilanza (SPISAL e/o ITL) del cantiere di ${d.cantiere_breve || d.cantiere_desc}, impresa ${d.impresa_nome} — caso n° ${d.id} del registro dei cantieri critici.
 ${decisioni ? `\nDecisione degli organi dell'Ente:\n${decisioni}\n` : '\nIn cronologia non è ancora registrata la decisione di Presidenza / Commissione Sicurezza.\n'}${vv ? `\nVerbali sul cantiere:\n${vv}\n` : ''}
-Conferma dall'app (si apre sul caso, con tutta la cronologia):
+>>> Conferma dall'app (si apre sul caso, con tutta la cronologia):
 ${link}
 
 In alternativa basta rispondere a questa mail: la conferma verrà registrata dalla segreteria.`;

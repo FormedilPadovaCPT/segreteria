@@ -184,6 +184,85 @@ export function testoInHtml(testo) {
       linkifica(esc(par)).replace(/\n/g, '<br>\n')}</p>`).join('\n');
 }
 
+/* ══════════════════════════════════════════════════════════════════
+   IL PULSANTE DELLE MAIL (21/09/2026, scelta dell'utente: la «7»)
+
+   Un indirizzo scritto nel testo non si vede, e un rettangolo pieno di
+   colore «sembra un riquadro qualunque»: che si possa premere va detto.
+   Il rilievo è fatto con un BORDO INFERIORE PIENO, non con un'ombra
+   sfumata. ⚠️ Outlook per Windows disegna le mail col motore di Word:
+   ignora box-shadow e border-radius, mentre un bordo lo rende ovunque.
+   Un'ombra morbida in più non farebbe danno — nei client che la sanno
+   fare si somma, negli altri sparisce — ma da sola non reggerebbe
+   proprio dove leggono le imprese.
+
+   ⚠️ Sotto al pulsante va SEMPRE l'indirizzo scritto per esteso: qualche
+   programma di posta blocca i link dentro i riquadri colorati, e senza
+   l'indirizzo la persona resta ferma.
+
+   La stessa forma è ricopiata a mano nella funzione send-verbale del
+   gestionale visite (Deno, altro repo, non può importare da qui): se
+   cambia qui, va cambiata anche lì.
+   ══════════════════════════════════════════════════════════════════ */
+const ARANCIO_SCURO = '#A83A0B';
+const CARTA_AZIONE = '#FAF8F4';
+const BORDO_AZIONE = '#E2DFD6';
+
+/* Il tasto da solo, per chi compone l'HTML a mano.
+     larga: true → occupa tutta la riga (la «6» delle proposte: più
+     facile da premere dal telefono, che è come si leggono queste mail
+     in cantiere). */
+export function bottoneMail({ href = '', testo = 'Apri', larga = false } = {}) {
+  const a = `<a href="${esc(href)}" style="display:${larga ? 'block' : 'inline-block'};padding:${larga ? '16px 20px' : '13px 26px'};font-family:${FONT};font-size:${larga ? '15px' : '14px'};line-height:20px;mso-line-height-rule:exactly;font-weight:700;color:#FFFFFF;text-decoration:none;">${esc(testo)} &rarr;</a>`;
+  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0"${larga ? ' width="100%" style="width:100%;border-collapse:collapse;"' : ' style="border-collapse:collapse;"'}>
+<tr><td align="center" bgcolor="${ARANCIO}" style="background:${ARANCIO};border-radius:${larga ? 8 : 6}px;border-bottom:${larga ? 4 : 3}px solid ${ARANCIO_SCURO};">${a}</td></tr>
+</table>`;
+}
+
+/* Il blocco completo: riquadro chiaro, quel che c'è da sapere, il tasto
+   e l'indirizzo di riserva. È la forma che l'utente ha scelto per TUTTE
+   le mail che chiedono di fare qualcosa. Titolo e testo sono
+   facoltativi: dove la mail ha già spiegato tutto, resta il solo tasto. */
+export function bloccoAzioneMail({ titolo = '', testo = '', href = '', etichetta = 'Apri', larga = false } = {}) {
+  const p = (t, extra = '') => `<p style="margin:0 0 ${extra ? '0' : '12px'};font-family:${FONT};font-size:14px;line-height:21px;color:#1F2933;${extra}">${esc(t)}</p>`;
+  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%;border-collapse:collapse;margin:0 0 16px;">
+<tr><td bgcolor="${CARTA_AZIONE}" style="background:${CARTA_AZIONE};border:1px solid ${BORDO_AZIONE};border-radius:8px;padding:18px 20px;">
+${titolo ? `<p style="margin:0 0 6px;font-family:${FONT};font-size:15px;line-height:21px;font-weight:700;color:${SCURO};">${esc(titolo)}</p>` : ''}
+${testo ? p(testo) : ''}
+${bottoneMail({ href, testo: etichetta, larga })}
+<p style="margin:12px 0 0;font-family:${FONT};font-size:12px;line-height:17px;color:${CHIARO};">Se il pulsante non si apre, copiate questo indirizzo nel browser:<br><a href="${esc(href)}" style="color:${ARANCIO};">${esc(href)}</a></p>
+</td></tr>
+</table>`;
+}
+
+/* ── Le mail dei moduli si scrivono in RIGHE, non in HTML: perché
+      prendano il pulsante senza doverle riscrivere una per una, una
+      riga nella forma
+
+        >>> Etichetta del tasto (cosa succede premendolo):
+        https://indirizzo
+
+      diventa il blocco qui sopra nella versione HTML, e resta com'è
+      scritta nella versione in righe. È l'unica forma interpretata:
+      tutto il resto del testo resta testo (vedi testoInHtml). ── */
+const AZIONE_RE = /^[ \t]*>>>[ \t]*([^\n(]{2,60}?)[ \t]*(?:\(([^)\n]{0,160})\))?[ \t]*:?[ \t]*\r?\n[ \t]*(https?:\/\/[^\s<]+)[ \t]*$/gm;
+
+export function corpoInHtml(testo) {
+  const s = String(testo ?? '').replace(/\r\n/g, '\n');
+  const pezzi = [];
+  let da = 0;
+  AZIONE_RE.lastIndex = 0;
+  for (let m = AZIONE_RE.exec(s); m; m = AZIONE_RE.exec(s)) {
+    const prima = s.slice(da, m.index).trim();
+    if (prima) pezzi.push(testoInHtml(prima));
+    pezzi.push(bloccoAzioneMail({ testo: (m[2] || '').trim(), href: m[3], etichetta: m[1].trim() }));
+    da = m.index + m[0].length;
+  }
+  const resto = s.slice(da).trim();
+  if (resto) pezzi.push(testoInHtml(resto));
+  return pezzi.join('\n');
+}
+
 /* ── una pagina HTML completa: corpo + firma ── */
 export function paginaHtml(corpoHtml, { firma = true } = {}) {
   return `<!DOCTYPE html><html lang="it"><head><meta charset="UTF-8"><meta name="color-scheme" content="light"></head>
@@ -249,7 +328,7 @@ export function senzaFirma(corpo) {
 export function componiEml({ from = '', replyTo = '', to = '', cc = [], oggetto = '', corpo = '', html = '', allegati = [], inline = [], firma = true, unsent = true }) {
   const testo = senzaFirma(corpo);
   const plain = firma ? `${testo}\n\n${FIRMA_SEGRETERIA}` : testo;
-  const pagina = html || paginaHtml(testoInHtml(testo), { firma });
+  const pagina = html || paginaHtml(corpoInHtml(testo), { firma });
   const conLogo = pagina.includes(`cid:${LOGO_FIRMA_CID}`);
   const immaginiInline = (inline || []).filter((i) => i && i.cid && i.byte && pagina.includes(`cid:${i.cid}`));
   const stampo = Date.now().toString(36);

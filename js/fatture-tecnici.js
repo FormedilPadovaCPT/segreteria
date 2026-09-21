@@ -45,7 +45,6 @@ import { risolviCartella, creaCartella, caricaByte } from './drive.js';
 import { scaricaEml, FIRMA_SEGRETERIA } from './eml.js';
 import { MESI, TIPI_PRESTAZIONE, euro, lordoDi } from './fatture-tecnici-doc.js';
 import { APP_URL } from './config.js';
-import { paginaHtml, testoInHtml } from './firma.js';
 import { datiMandato, inviaAvvisoPagamento, dettaglioMandato } from './amministrazione.js';
 /* la ricerca in anagrafica sta in un posto solo: serve per i docenti esterni */
 import { collegaRicercaPersone } from './ricerca-anagrafica.js';
@@ -1236,19 +1235,18 @@ ${fatture.map((f) => `- ${f.tecnico_nome}: fattura n° ${f.numero || '?'}${f.inc
 
 Importo totale: ${euro(totale)}.
 
-Per la presa visione con la firma, e poi per segnare i pagamenti, aprite il mandato nell'app Segreteria:`;
+Per la presa visione con la firma, e poi per segnare i pagamenti:
+
+>>> Apri il mandato n° ${m.id} (si apre nell'app Segreteria):
+${link}`;
     const dopo = `A pagamento registrato, ogni tecnico riceve da solo l'avviso via mail.
 
 Cordiali saluti.`;
-    const bottone = `<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:4px 0 16px;"><tr>
-<td style="background:#E7500F;border-radius:4px;padding:10px 18px;"><a href="${link}" style="color:#FFFFFF;text-decoration:none;font-weight:600;font-family:Barlow,'Segoe UI',Arial,sans-serif;font-size:14px;">Apri il mandato n° ${m.id} nell'app &rsaquo;</a></td>
-</tr></table>`;
     scaricaEml({
       to: conf.amministrazione_email || 'amministrazione@formedilpadova.it',
       cc: [conf.direttore_email].filter(Boolean),
       oggetto: `Mandato di pagamento n° ${m.id} del ${dataIt(m.data)} - fatture tecnici - alla c.a. Bertin Patrizia`,
-      corpo: `${prima}\n${link}\n\n${dopo}`,
-      html: paginaHtml(`${testoInHtml(prima)}\n${bottone}\n${testoInHtml(dopo)}`),
+      corpo: `${prima}\n\n${dopo}`,
       allegati: [{ nome: su.file_name || nomeFile, byte }],
       nomeFile: `mandato-${m.id}.eml`,
     });

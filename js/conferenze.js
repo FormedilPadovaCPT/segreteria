@@ -456,7 +456,7 @@ async function richiestaAutorizzazione(p, btn) {
 vogliate trovare in allegato la richiesta di autorizzazione per la conferenza di cantiere n. ${n} richiesta da ${p.ragione_sociale || '?'} (${[p.ind_cantiere, p.comune_cantiere].filter(Boolean).join(', ') || 'cantiere da individuare'}).
 Tecnico proposto: ${tecnico || 'da assegnare'}.
 
->>> AUTORIZZA DALL'APP (si apre direttamente la pratica):
+>>> Autorizza dall'app (si apre direttamente la pratica):
 ${APP_URL}#conferenza-${p.id}
 
 In alternativa resta il giro cartaceo: firmare il foglio allegato e restituirlo alla Segreteria.
