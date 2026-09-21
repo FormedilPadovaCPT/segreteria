@@ -39,6 +39,7 @@ import { dataIt, oggiIso, taglia, testoPdf } from './comune.js';
 import { pdfLib, qrGen } from './cdn.js';
 import { formattaCodice } from './attestati-verifica.js';
 import { testoCompenso } from './corsi-compensi.js';
+import { orarioGiornata } from './corsi-orari.js';
 
 const SX = 57;
 const DX = 538;
@@ -62,7 +63,7 @@ export function scaricaPdf(byte, nome) {
 
 const orario = (t) => (t ? String(t).slice(0, 5) : '');
 const fascia = (dalle, alle) => [orario(dalle), orario(alle)].filter(Boolean).join('–');
-const fasciaGiornata = (g) => fascia(g.dalle, g.alle) + (g.dalle2 ? ` e ${fascia(g.dalle2, g.alle2)}` : '');
+const fasciaGiornata = (g) => orarioGiornata(g, fascia);
 const GIORNI = ['domenica', 'lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato'];
 const giornoSett = (iso) => (iso ? GIORNI[new Date(`${String(iso).slice(0, 10)}T12:00:00`).getDay()] : '');
 const nome = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();

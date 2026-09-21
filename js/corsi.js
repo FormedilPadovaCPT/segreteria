@@ -31,6 +31,7 @@ import { datiTest, sezioneTest, collegaTest } from './corsi-test.js';
 import { datiIscr, sezioneIscr, collegaIscr } from './corsi-iscrizioni.js';
 /* le regole che decidono un compenso stanno a parte, per essere provabili */
 import { forfait, calcolaCorrispettivo, proponiTariffa, variazioneNote } from './corsi-compensi.js';
+import { orarioGiornata } from './corsi-orari.js';
 
 let corsi = [];
 let progetti = [];
@@ -81,6 +82,8 @@ const oreDa = (dalle, alle) => {
 };
 const oreGiornata = (g) => oreDa(g.dalle, g.alle) + oreDa(g.dalle2, g.alle2);
 const orario = (t) => t ? String(t).slice(0, 5) : '';
+/* la fascia di un turno; vuota se non c'è: la compone orarioGiornata */
+const fasciaOraria = (dalle, alle) => [orario(dalle), orario(alle)].filter(Boolean).join('–');
 
 /* ══════════ elenco ══════════ */
 
@@ -361,7 +364,7 @@ export async function apriCorso(id) {
 
   const rigaG = (g) => `<tr data-g="${g.id}">
     <td>${dataIt(g.data)}</td>
-    <td>${[orario(g.dalle), orario(g.alle)].filter(Boolean).join('–')}${g.dalle2 ? ` e ${orario(g.dalle2)}–${orario(g.alle2)}` : ''}</td>
+    <td>${orarioGiornata(g, fasciaOraria)}</td>
     <td>${esc([g.sede, g.aula].filter(Boolean).join(' · ') || '—')}</td>
     <td style="white-space:nowrap"><a href="#" data-mod-g="${g.id}">modifica</a> · <a href="#" data-del-g="${g.id}">elimina</a></td>
   </tr>`;
@@ -1232,7 +1235,7 @@ function formPresenze(c, iscritto, giornate, righe) {
         <label style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
           <input type="checkbox" class="pr-pres" ${r.presente !== false ? 'checked' : ''}>
           <strong>${dataIt(g.data)}</strong>
-          <span class="hint">${[orario(g.dalle), orario(g.alle)].filter(Boolean).join('–')}${g.dalle2 ? ` e ${orario(g.dalle2)}–${orario(g.alle2)}` : ''}</span>
+          <span class="hint">${orarioGiornata(g, fasciaOraria)}</span>
         </label>
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px">
           <div class="field"><label>Ingresso</label><input type="time" class="pr-i1" value="${orario(r.ingresso1) || orario(g.dalle)}"></div>
