@@ -130,7 +130,15 @@ async function zonaAttesa(token: string): Promise<string> {
   if (envId) return envId
   const c = cache.get('__attesa')
   if (c) return c
-  const inbox = await findFolder(token, '00_INBOX', null)
+  /* 00_INBOX si cerca PRIMA dentro la radice del Drive, che e' dove sta il
+     vault, e solo se li' non c'e' la si cerca dappertutto. Cercarla subito
+     dappertutto sembra piu' comodo ma prende la prima che capita: il
+     14/09/2026 e' finita dentro Drive la copia di un worktree git
+     (.claude/worktrees/…/00_INBOX) e da allora gli allegati dei protocolli
+     venivano depositati li', fuori dal vault (2580 e 2582, tre file).
+     Stessa logica gia' usata da risolviCartella per i percorsi.          */
+  const inbox = (await findFolder(token, '00_INBOX', 'root'))
+    ?? (await findFolder(token, '00_INBOX', null))
   if (!inbox) throw new Error('Cartella 00_INBOX non trovata su Drive')
   let id = await findFolder(token, '_protocollo', inbox)
   if (!id) id = await createFolder(token, '_protocollo', inbox)
