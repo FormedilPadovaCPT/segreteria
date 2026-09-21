@@ -29,7 +29,7 @@ const sincronizza = process.argv.includes('--sincronizza');
 /* Le funzioni che compongono posta con la firma dell'ufficio: ognuna ha
    la sua copia di firma.js e la sua firma-logo.js che scarica il logo.
    avviso-pagamento aggiunta il 16/09/2026. */
-const FUNZIONI_POSTA = ['send-protocollo', 'avviso-pagamento'];
+const FUNZIONI_POSTA = ['send-protocollo', 'avviso-pagamento', 'avviso-approvazione'];
 const COPIE = FUNZIONI_POSTA.flatMap((fn) => ['firma.js'].map((f) => ({
   orig: join(radice, 'js', f),
   copia: join(radice, 'supabase', 'functions', fn, f),

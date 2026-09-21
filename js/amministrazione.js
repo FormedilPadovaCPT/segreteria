@@ -113,7 +113,7 @@ export async function render() {
         <td><strong>${m.id}</strong></td><td>${dataIt(m.data)}</td>
         <td>${esc([...new Set(fatt.map((f) => (f.tecnico_nome || '').split(' ')[0]))].join(', '))}</td>
         <td>${fatt.length}</td><td><strong>${euro(m.totale)}</strong></td>
-        <td>${m.visto_il ? pill('dt-ok', dataIt(String(m.visto_il).slice(0, 10))) : pill('dt-senzadata', 'da vedere')}</td>
+        <td>${m.visto_il ? pill('dt-ok', `${dataIt(String(m.visto_il).slice(0, 10))}${m.visto_fonte === 'carta' ? ' su carta' : ''}`) : pill('dt-senzadata', 'da vedere')}</td>
         <td>${m.pagato_il ? pill('dt-ok', dataIt(m.pagato_il)) : pagate ? pill('dt-senzadata', `${pagate} di ${fatt.length}`) : '—'}</td></tr>`;
     }).join('') || `<tr><td colspan="7" class="empty">${vuoto}</td></tr>`}</tbody></table></div>`;
 
@@ -157,20 +157,26 @@ export async function dettaglioMandato(id) {
   const daPagare = fatture.filter((f) => f.stato === 'mandato');
   const senzaAvviso = fatture.filter((f) => f.stato === 'pagata' && f.pagata_il && !f.avviso_pagamento_il);
   const possoPagare = m.visto_il || !amm;
+  /* il visto arrivato su carta non si comporta come quello messo nell'app:
+     non ha un'ora, e non genera un PDF col visto (21/09/2026) */
+  const suCarta = m.visto_fonte === 'carta';
 
   apriDrawer(`Mandato di pagamento n° ${m.id} del ${dataIt(m.data)}`, '', `
     <div class="dt-doc-riga"><strong>Totale:</strong> ${euro(m.totale)} · ${fatture.length} fatture
       ${m.pagato_il ? ` · ${pill('dt-ok', `pagato il ${dataIt(m.pagato_il)}`)}` : ''}</div>
     <div class="dt-doc-riga"><strong>Presa visione:</strong> ${m.visto_il
-      ? `${pill('dt-ok', 'vista')} ${esc(m.visto_nome || '')}, ${oraIt(m.visto_il)} <span class="hint">(${esc(m.visto_da || '')})</span>`
+      ? `${pill('dt-ok', suCarta ? 'vista su carta' : 'vista')} ${esc(m.visto_nome || '')}, ${suCarta ? dataIt(String(m.visto_il).slice(0, 10)) : oraIt(m.visto_il)} <span class="hint">(${suCarta ? 'registrata da ' : ''}${esc(m.visto_da || '')})</span>`
       : pill('dt-senzadata', 'da fare')}</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin:10px 0">
       ${m.drive_file_id ? '<button class="btn btn-ghost btn-sm" id="mp-pdf">📄 Mandato (PDF)</button>' : ''}
       ${m.visto_drive_file_id ? '<button class="btn btn-ghost btn-sm" id="mp-pdf-visto">📄 Mandato con il visto (PDF)</button>' : ''}
       ${!m.visto_il && amm ? '<button class="btn btn-primary btn-sm" id="mp-visto">✍️ Presa visione e firma</button>' : ''}
-      ${m.visto_il && !m.visto_drive_file_id ? '<button class="btn btn-ghost btn-sm" id="mp-rigenera">🔁 Genera il PDF col visto</button>' : ''}
+      ${!m.visto_il && !amm ? '<button class="btn btn-ghost btn-sm" id="mp-carta">🖊 Registra il visto ricevuto su carta</button>' : ''}
+      ${m.visto_il && !m.visto_drive_file_id && !suCarta ? '<button class="btn btn-ghost btn-sm" id="mp-rigenera">🔁 Genera il PDF col visto</button>' : ''}
     </div>
-    ${!m.visto_il && !amm ? '<p class="hint">La presa visione la registra l\'Amministrazione dal suo accesso: la segreteria non la mette al suo posto.</p>' : ''}
+    ${!m.visto_il && !amm ? `<p class="hint">La presa visione la mette l'Amministrazione dal suo accesso: la segreteria non la firma al suo posto.
+      Se invece il mandato è stato firmato <strong>su carta</strong>, qui si registra che è arrivato — dicendo chi ha firmato e quando.</p>` : ''}
+    ${suCarta ? `<p class="hint">Il mandato è stato firmato su carta: il documento che vale è il foglio firmato, e l'app non ne stampa una copia con un visto digitale che nessuno ha messo.</p>` : ''}
 
     <div class="table-wrap"><table class="tbl" style="min-width:0">
       <thead><tr><th></th><th>Tecnico</th><th>Fattura</th><th>Mese</th><th>Importo</th><th>Stato</th><th>Avviso al tecnico</th></tr></thead>
@@ -218,6 +224,32 @@ export async function dettaglioMandato(id) {
     } catch (e) {
       toast('Presa visione: ' + e.message, 'err');
     } finally {
+      attendi(ev.currentTarget, false);
+      dettaglioMandato(m.id);
+      if (state.vistaCorrente === 'amministrazione') render();
+    }
+  });
+
+  /* il giro di carta: il mandato è stato stampato, firmato e riportato in
+     ufficio. Non è una presa visione messa dall'app e non deve sembrarlo —
+     si registra chi ha firmato e quando, e resta scritto che è stata di
+     carta (s_mandato_visto_cartaceo). Stessa doppia strada delle
+     autorizzazioni del Direttore. */
+  $('#mp-carta')?.addEventListener('click', async (ev) => {
+    const nome = prompt('Chi ha firmato il mandato su carta?', m.visto_nome || 'Bertin Patrizia');
+    if (nome == null) return;
+    if (!nome.trim()) return toast('Serve il nome di chi ha firmato.', 'err');
+    const risposta = prompt('Data della firma (gg/mm/aaaa). Se non la sai, lascia quella di oggi: è la data in cui lo stai registrando.', dataIt(oggi()));
+    if (risposta == null) return;
+    const q = risposta.trim().match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/);
+    const data = q ? `${q[3]}-${q[2].padStart(2, '0')}-${q[1].padStart(2, '0')}` : '';
+    if (!data || data > oggi()) return toast('Data non valida (e non può essere nel futuro).', 'err');
+    attendi(ev.currentTarget, true, 'Registro…');
+    try {
+      const { error } = await sb.rpc('s_mandato_visto_cartaceo', { p_id: m.id, p_nome: nome.trim(), p_data: data });
+      if (error) throw new Error(error.message);
+      toast('Visto su carta registrato.', 'ok');
+    } catch (e) { toast(e.message, 'err'); } finally {
       attendi(ev.currentTarget, false);
       dettaglioMandato(m.id);
       if (state.vistaCorrente === 'amministrazione') render();

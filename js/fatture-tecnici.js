@@ -574,6 +574,19 @@ function tabellaPrestazioni(prest, fatt) {
     </tr>`).join('')}</tbody></table></div>`;
 }
 
+/* ── l'avviso al coordinatore: «c'è una fattura da approvare» ──
+   (21/09/2026, chiesto dall'utente: «rischia che solo con l'app non la
+   veda»). La mail parte DA SOLA dalla edge function avviso-approvazione
+   ed è interna: va al coordinatore, che approva dalla Zona Coordinatore
+   del gestionale visite — nell'app segreteria non entra.
+   Non lancia: restituisce com'è andata, perché la verifica della
+   fattura vale comunque anche se la mail non parte. */
+async function avvisaCoordinatore(ids, { rimanda = false } = {}) {
+  const { data, error } = await sb.functions.invoke('avviso-approvazione', { body: { fatture: ids, rimanda } });
+  if (error || data?.error) return { inviata: false, errore: data?.error || error.message };
+  return data || { inviata: false, errore: 'nessuna risposta' };
+}
+
 /* ── chiusura del mese ── */
 async function chiudiMese(t, inc) {
   const [anno, mese] = inc ? [inc.anno, inc.mese] : cursore.split('-').map(Number);
@@ -592,6 +605,7 @@ async function chiudiMese(t, inc) {
   const { da: daMese } = meseRange(anno, mese);
   const { data: arr } = await sb.from('s_prestazioni')
     .select('*').eq('tecnico_id', t.tecnico_id).is('fattura_id', null)
+    .is('chiusa_il', null)          /* le chiuse non si fatturano piu' (21/09/2026) */
     .lt('data', daMese).order('data');
   const arretrate = (arr || []).map((r) => ({
     prestazione_id: r.id, arretrata: true,
@@ -603,7 +617,10 @@ async function chiudiMese(t, inc) {
     a_pratica_id: r.a_pratica_id, progetto_id: r.progetto_id, fattura_id: null,
   }));
 
-  const righe = [...arretrate, ...(calc || [])].map((r, k) => ({ ...r, k, sel: !r.fattura_id, gia: !!r.prestazione_id }));
+  /* una riga CHIUSA (non si fattura piu', 21/09/2026) non si ripropone
+     spuntata: resta visibile perche' si sappia che c'e', e si riapre
+     dalla scheda «Prestazioni e storico». */
+  const righe = [...arretrate, ...(calc || [])].map((r, k) => ({ ...r, k, sel: !r.fattura_id && !r.chiusa_il, gia: !!r.prestazione_id }));
   const fisc = fiscDi(t.tecnico_id, meseRange(anno, mese).a);
 
   const disegna = () => {
@@ -616,11 +633,13 @@ async function chiudiMese(t, inc) {
         (da una chiusura precedente o dall'import Access) si aggiornano al mese. Quantità e tariffa si possono correggere qui.</p>
       ${arretrate.length ? `<div class="dt-doc-riga" style="margin-bottom:8px"><strong>${arretrate.length} attività di mesi precedenti</strong>
         non ancora coperte da una fattura: sono in testa all'elenco e restano attribuite al loro mese, ma entrano in questo riepilogo
-        — altrimenti non verrebbero pagate. Togli la spunta se non devono andarci.</div>` : ''}
+        — altrimenti non verrebbero pagate. Togli la spunta se non devono andarci.
+        <br><button class="btn btn-ghost btn-sm" id="cm-chiudi-arr" style="margin-top:6px">🗄 Chiudi le arretrate senza spunta (non si fatturano più)</button>
+        <span class="hint">Non le cancella: restano in archivio con il motivo, e si riaprono dalla scheda «Prestazioni e storico».</span></div>` : ''}
       <div class="table-wrap"><table class="tbl" style="min-width:0">
         <thead><tr><th></th><th>Fonte</th><th>Data</th><th>Tipo</th><th>Descrizione</th><th>Q.tà</th><th>Tariffa</th><th>Netto</th><th>Stato</th></tr></thead>
         <tbody>${righe.map((r) => `<tr data-k="${r.k}" ${r.fattura_id ? 'style="opacity:.55"' : ''}>
-          <td><input type="checkbox" data-sel="${r.k}" ${r.sel ? 'checked' : ''} ${r.fattura_id ? 'disabled' : ''}></td>
+          <td><input type="checkbox" data-sel="${r.k}" ${r.sel ? 'checked' : ''} ${r.fattura_id || r.chiusa_il ? 'disabled' : ''}></td>
           <td class="hint">${esc(r.sorgente)}</td>
           <td>${dataIt(String(r.data || '').slice(0, 10))}</td>
           <td><select data-tipo="${r.k}" class="inp inp-sm">${Object.entries(TIPI_PRESTAZIONE).map(([v, l]) => `<option value="${v}" ${r.tipo === v ? 'selected' : ''}>${l}</option>`).join('')}</select></td>
@@ -628,7 +647,7 @@ async function chiudiMese(t, inc) {
           <td><input type="number" step="0.5" min="0" data-q="${r.k}" value="${r.quantita ?? 1}" style="width:58px"></td>
           <td><input type="number" step="0.01" min="0" data-t="${r.k}" value="${r.tariffa_unitaria ?? ''}" style="width:72px"></td>
           <td><strong data-imp="${r.k}">${euro(r.importo)}</strong></td>
-          <td>${r.fattura_id ? '<span class="dt-cella dt-ok" style="padding:0 5px">fatturata</span>' : r.gia ? '<span class="dt-cella dt-senzadata" style="padding:0 5px">congelata</span>' : '<span class="hint">nuova</span>'}</td>
+          <td>${r.fattura_id ? '<span class="dt-cella dt-ok" style="padding:0 5px">fatturata</span>' : r.chiusa_il ? '<span class="dt-cella dt-scaduto" style="padding:0 5px">chiusa</span>' : r.gia ? '<span class="dt-cella dt-senzadata" style="padding:0 5px">congelata</span>' : '<span class="hint">nuova</span>'}</td>
         </tr>`).join('') || '<tr><td colspan="9" class="empty">Nessuna prestazione trovata nel mese.</td></tr>'}</tbody></table></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0">
         <span class="dt-cella dt-ok" style="padding:4px 10px">Selezionate: <strong id="cm-n">${righe.filter((r) => r.sel).length}</strong> · netto <strong id="cm-tot">${euro(tot)}</strong> · lordo <strong id="cm-lordo">${euro(lordoDi(tot, fisc))}</strong>
@@ -670,6 +689,30 @@ async function chiudiMese(t, inc) {
       } catch (e) { toast(e.message, 'err'); } finally { attendi(ev.currentTarget, false); }
     });
     $('#cm-congela').addEventListener('click', async (ev) => { ricalcola(); await congelaEInvia(t, inc, anno, mese, righe.filter((r) => r.sel), fisc, $('#cm-note').value, ev.currentTarget); });
+    /* ── «non si fatturano più» ──
+       Le arretrate a cui si è tolta la spunta non spariscono da sole: al
+       giro dopo tornerebbero tutte. Qui si dichiara che non vanno pagate,
+       scrivendo perché: la riga resta in archivio (regola d'oro 4) e si
+       riapre quando serve. Chiesto dall'utente il 21/09/2026, guardando
+       le 42 arretrate del vecchio Access di Camuffo. */
+    $('#cm-chiudi-arr')?.addEventListener('click', async (ev) => {
+      ricalcola();
+      const daChiudere = righe.filter((r) => r.arretrata && !r.sel && r.prestazione_id && !r.chiusa_il);
+      if (!daChiudere.length) return toast('Togli la spunta alle arretrate che non si devono fatturare, poi riprova.', 'err');
+      const tot = daChiudere.reduce((x, r) => x + Number(r.importo || 0), 0);
+      const motivo = prompt(`Perché queste ${daChiudere.length} attività (${euro(tot)}) non si fatturano più?\nÈ la riga che rileggerà chi le ritroverà fra due anni.`,
+        'Arretrati del vecchio gestionale Access: nulla da fatturare.');
+      if (motivo == null) return;
+      if (!motivo.trim()) return toast('Serve il motivo.', 'err');
+      if (!confirm(`Chiudo ${daChiudere.length} attività di ${nomeTec(t)} per ${euro(tot)}: non entreranno più nei riepiloghi.\nSi riaprono dalla scheda «Prestazioni e storico».`)) return;
+      attendi(ev.currentTarget, true, 'Chiudo…');
+      try {
+        const { data, error } = await sb.rpc('s_prestazioni_chiudi', { p_ids: daChiudere.map((r) => r.prestazione_id), p_motivo: motivo.trim() });
+        if (error) throw new Error(error.message);
+        toast(`${data} attività chiuse: non si fatturano più.`, 'ok');
+        chiudiMese(t, inc);
+      } catch (e) { toast(e.message, 'err'); attendi(ev.currentTarget, false); }
+    });
   };
   disegna();
 }
@@ -977,6 +1020,11 @@ export async function dettaglioFattura(id) {
     <div class="dt-quadro-riga"><span class="dt-dot ${(STATI_FATT[f.stato] || [''])[0]}"></span><span class="dt-quadro-req">Stato</span>
       <span class="dt-quadro-stato">${pill(STATI_FATT, f.stato)}${f.verificata_il ? ` · verificata ${dataIt(f.verificata_il)}` : ''}${f.approvata_il ? ` · approvata ${dataIt(f.approvata_il)} (${esc(f.approvata_da || '')})` : ''}${f.mandato_data ? ` · mandato ${dataIt(f.mandato_data)}` : ''}</span></div>
     ${f.stato === 'standby' ? `<div class="dt-doc-riga" style="color:#a01f00"><strong>Stand-by:</strong> ${esc(f.standby_motivo || '')} — ${esc(f.standby_da || '')}${f.standby_il ? ` il ${dataIt(String(f.standby_il).slice(0, 10))}` : ''}. Il mandato non parte finché non si risolve (regola del controllo verbali).</div>` : ''}
+    ${['ricevuta', 'verificata', 'standby'].includes(f.stato) || f.avviso_appr_il ? `<div class="dt-doc-riga"><strong>Avviso al coordinatore:</strong> ${f.avviso_appr_il
+      ? `<span class="dt-cella dt-ok" style="padding:0 6px">inviato ${dataIt(String(f.avviso_appr_il).slice(0, 10))}</span> <span class="hint">a ${esc(f.avviso_appr_a || '')}</span>`
+      : f.avviso_appr_esito
+        ? `<span class="dt-cella dt-scaduto" style="padding:0 6px">non partito</span> <span class="hint">${esc(f.avviso_appr_esito)}</span>`
+        : '<span class="dt-cella dt-senzadata" style="padding:0 6px">non ancora</span> <span class="hint">parte da solo quando la segreteria la verifica</span>'}</div>` : ''}
     <div class="dt-doc-riga"><strong>Fattura:</strong> n° ${esc(f.numero || '—')}${f.data_fattura ? ` del ${dataIt(f.data_fattura)}` : ''} · ricevuta ${f.data_ricevimento ? dataIt(f.data_ricevimento) : '—'} · <strong>${euro(f.importo)}</strong>${f.imponibile != null ? ` (imponibile ${euro(f.imponibile)})` : ''}${f.cantieri_fatturati != null ? ` · ${f.cantieri_fatturati} cantieri` : ''}</div>
     <div class="dt-doc-riga"><strong>Mese:</strong> ${inc ? `<span data-inc="${inc.id}" style="cursor:pointer;text-decoration:underline">${MESI[inc.mese - 1]} ${inc.anno} — incarico n° ${inc.id}</span>` : '—'}
       · <strong>Protocollo IN:</strong> ${prot ? esc(codiceProtocollo(prot)) : '<span class="hint">non protocollata</span>'}</div>
@@ -994,6 +1042,7 @@ export async function dettaglioFattura(id) {
       ${['ricevuta', 'attesa'].includes(f.stato) ? '<button class="btn btn-ghost btn-sm" id="df-verif">✔ Verificata (segreteria)</button>' : ''}
       ${['ricevuta', 'verificata', 'standby'].includes(f.stato) ? '<button class="btn btn-primary btn-sm" id="df-appr">✅ Approva (coordinatore)</button>' : ''}
       ${['ricevuta', 'verificata', 'approvata'].includes(f.stato) ? '<button class="btn btn-ghost btn-sm" id="df-standby">⏸ Stand-by</button>' : ''}
+      ${['ricevuta', 'verificata', 'standby'].includes(f.stato) ? `<button class="btn btn-ghost btn-sm" id="df-avvisa">✉️ ${f.avviso_appr_il ? 'Avvisa di nuovo il coordinatore' : 'Avvisa il coordinatore'}</button>` : ''}
       ${f.stato === 'mandato' ? '<button class="btn btn-ghost btn-sm" id="df-pagata">💰 Segna pagata</button>' : ''}
       ${f.mandato_id ? `<button class="btn btn-ghost btn-sm" id="df-mandato">🏦 Mandato n° ${f.mandato_id}</button>` : ''}
       <button class="btn btn-ghost btn-sm" id="df-mod">✏️ Modifica</button>
@@ -1006,9 +1055,29 @@ export async function dettaglioFattura(id) {
   /* il netto gia' collegato entra nel conto della maschera: cosi' lo
      scarto che si vede mentre si spunta e' quello vero della fattura */
   $('#df-aggancia')?.addEventListener('click', () => agganciaPrestazioni({ ...f, __nettoGia: netto }));
-  $('#df-verif')?.addEventListener('click', async () => {
-    await sb.from('s_fatture_tecnici').update({ stato: 'verificata', verificata_da: state.email, verificata_il: oggiIso(), aggiornato_da: state.email, updated_at: new Date().toISOString() }).eq('id', f.id);
-    toast('Fattura verificata.', 'ok'); await renderFatture(); dettaglioFattura(f.id);
+  $('#df-verif')?.addEventListener('click', async (ev) => {
+    attendi(ev.currentTarget, true, 'Verifico…');
+    try {
+      await sb.from('s_fatture_tecnici').update({ stato: 'verificata', verificata_da: state.email, verificata_il: oggiIso(), aggiornato_da: state.email, updated_at: new Date().toISOString() }).eq('id', f.id);
+      /* e il coordinatore lo viene a sapere subito: la mail parte da sola
+         (21/09/2026). Se non parte non si annulla la verifica — la fattura
+         È verificata: resta scritto il motivo e si ritenta da qui o dal
+         cruscotto. */
+      const esito = await avvisaCoordinatore([f.id]);
+      toast(esito.inviata ? `Fattura verificata: avviso al coordinatore inviato a ${esito.a}.`
+        : `Fattura verificata. ⚠️ Avviso al coordinatore NON partito: ${esito.errore || 'motivo non riportato'}`,
+      esito.inviata ? 'ok' : 'err');
+    } catch (e) { toast(e.message, 'err'); } finally { attendi(ev.currentTarget, false); }
+    await renderFatture(); dettaglioFattura(f.id);
+  });
+  $('#df-avvisa')?.addEventListener('click', async (ev) => {
+    attendi(ev.currentTarget, true, 'Avviso…');
+    try {
+      const esito = await avvisaCoordinatore([f.id], { rimanda: true });
+      toast(esito.inviata ? `Avviso inviato a ${esito.a}.` : `Non inviato: ${esito.errore || 'nessuna fattura da avvisare'}`,
+        esito.inviata ? 'ok' : 'err');
+    } catch (e) { toast(e.message, 'err'); } finally { attendi(ev.currentTarget, false); }
+    dettaglioFattura(f.id);
   });
   $('#df-appr')?.addEventListener('click', async () => {
     if (!confirm('Approvi la fattura per il pagamento (tutte le attività del mese sono a posto)?')) return;
@@ -1093,7 +1162,8 @@ async function chiudiSeTuttoFatturato(incaricoId) {
 }
 
 async function agganciaPrestazioni(f) {
-  const { data: aperte } = await sb.from('s_prestazioni').select('*').eq('tecnico_id', f.tecnico_id).is('fattura_id', null).order('data', { ascending: false }).limit(300);
+  const { data: aperte } = await sb.from('s_prestazioni').select('*').eq('tecnico_id', f.tecnico_id)
+    .is('fattura_id', null).is('chiusa_il', null).order('data', { ascending: false }).limit(300);
   const righe = aperte || [];
   apriDrawer(`Aggancia prestazioni — fattura n° ${f.id} (${esc(f.numero || '')})`, 'IN', `
     <p class="hint" style="margin:0 0 8px">Prestazioni di ${esc(f.tecnico_nome || '')} ancora senza fattura, <strong>di qualunque mese</strong>.
@@ -1170,7 +1240,7 @@ async function renderMandati(hostArg) {
       <thead><tr><th>N°</th><th>Data</th><th>Totale</th><th>Note</th><th>Documento</th><th>Visto Amministrazione</th><th>Pagato</th></tr></thead>
       <tbody>${(mm || []).map((m) => `<tr data-m="${m.id}" style="cursor:pointer"><td>${m.id}</td><td>${dataIt(m.data)}</td><td><strong>${euro(m.totale)}</strong></td><td class="hint">${esc(m.note || '')}</td>
         <td>${m.drive_url ? `<a href="${esc(m.drive_url)}" target="_blank" rel="noopener">PDF</a>` : '—'}${m.visto_drive_url ? ` · <a href="${esc(m.visto_drive_url)}" target="_blank" rel="noopener">firmato</a>` : ''}${m.mail_at ? ' · 📧' : ''}</td>
-        <td>${m.visto_il ? `<span class="dt-cella dt-ok" style="padding:1px 6px">${dataIt(String(m.visto_il).slice(0, 10))}</span>` : '<span class="dt-cella dt-senzadata" style="padding:1px 6px">da vedere</span>'}</td>
+        <td>${m.visto_il ? `<span class="dt-cella dt-ok" style="padding:1px 6px">${dataIt(String(m.visto_il).slice(0, 10))}${m.visto_fonte === 'carta' ? ' su carta' : ''}</span>` : '<span class="dt-cella dt-senzadata" style="padding:1px 6px">da vedere</span>'}</td>
         <td>${m.pagato_il ? `<span class="dt-cella dt-ok" style="padding:1px 6px">${dataIt(m.pagato_il)}</span>` : '—'}</td></tr>`).join('') || '<tr><td colspan="7" class="empty">Nessun mandato ancora emesso dall\'app.</td></tr>'}</tbody></table></div>
     <p class="hint" style="margin-top:8px">Il mandato è un documento interno: non prende protocollo. Va all'Amministrazione (Patrizia) con la bozza mail e il link all'app,
       dove lei mette la presa visione con la firma e segna i pagamenti; le fatture passano a «in mandato» e il mese a «pagato». Clic su un mandato per il dettaglio.</p>`;
@@ -1264,7 +1334,8 @@ async function renderPrestazioni(hostArg) {
   /* un soggetto esterno non ha prestazioni nostre: il riepilogo e' del tecnico */
   if (filtroTec === '__esterno') q = q.eq('tecnico_id', '__nessuno__');
   else if (filtroTec) q = q.eq('tecnico_id', filtroTec);
-  if (filtroPrest === 'aperte') q = q.is('fattura_id', null);
+  if (filtroPrest === 'aperte') q = q.is('fattura_id', null).is('chiusa_il', null);
+  else if (filtroPrest === 'chiuse') q = q.not('chiusa_il', 'is', null);
   else q = q.eq('anno', annoPrest);
   const { data } = await q;
   const righe = data || [];
@@ -1276,7 +1347,7 @@ async function renderPrestazioni(hostArg) {
   host.innerHTML = `
     <div class="dt-barra">
       <div class="seg" id="pr-f">
-        ${[['aperte', 'Da fatturare'], ['anno', `Anno ${annoPrest}`]].map(([v, l]) => `<button class="seg-btn ${filtroPrest === v ? 'is-active' : ''}" data-val="${v}">${l}</button>`).join('')}
+        ${[['aperte', 'Da fatturare'], ['chiuse', 'Chiuse'], ['anno', `Anno ${annoPrest}`]].map(([v, l]) => `<button class="seg-btn ${filtroPrest === v ? 'is-active' : ''}" data-val="${v}">${l}</button>`).join('')}
       </div>
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         <input type="number" id="pr-anno" class="inp inp-sm" value="${annoPrest}" style="width:80px">
@@ -1291,7 +1362,9 @@ async function renderPrestazioni(hostArg) {
         <td>${dataIt(p.data)}</td><td>${esc((p.tecnico_nome || '').split(' ')[0])}</td><td>${esc(TIPI_PRESTAZIONE[p.tipo] || p.tipo)}</td>
         <td>${esc((p.descrizione || '').slice(0, 64))}${p.note ? ` <span class="hint" title="${esc(p.note)}">ⓘ</span>` : ''}</td>
         <td>${p.quantita ?? 1}</td><td><strong>${euro(p.importo)}</strong></td><td class="hint">${p.incarico_mensile_id ? `n° ${p.incarico_mensile_id}` : ''}</td>
-        <td>${f ? `<span class="dt-cella dt-ok" style="padding:1px 6px">n° ${esc(f.numero || f.id)}</span> <span class="hint">${dataIt(f.data_fattura || f.data_ricevimento)}</span>` : '<span class="dt-cella dt-senzadata" style="padding:1px 6px">aperta</span>'}</td>
+        <td>${f ? `<span class="dt-cella dt-ok" style="padding:1px 6px">n° ${esc(f.numero || f.id)}</span> <span class="hint">${dataIt(f.data_fattura || f.data_ricevimento)}</span>`
+          : p.chiusa_il ? `<span class="dt-cella dt-scaduto" style="padding:1px 6px">chiusa ${dataIt(String(p.chiusa_il).slice(0, 10))}</span> <span class="hint" title="${esc(p.chiusa_motivo || '')}">ⓘ</span>`
+          : '<span class="dt-cella dt-senzadata" style="padding:1px 6px">aperta</span>'}</td>
       </tr>`; }).join('') || '<tr><td colspan="8" class="empty">Nessuna prestazione con questo filtro.</td></tr>'}</tbody></table></div>
     <p class="hint" style="margin-top:8px">È la situazione storica: per ogni visita, docenza, servizio o asseverazione, con quale fattura è stata pagata.
       Le righe con «ⓘ» portano una nota dall'import Access (es. «DA VERIFICARE: possibile doppione»). Clic su una riga per agganciarla a una fattura o correggerla.</p>`;
@@ -1321,8 +1394,14 @@ async function formPrestazione(p) {
       <div class="field full"><label>Pagata con la fattura</label><select id="pp-f"><option value="">— aperta, ancora da fatturare —</option>${(ff || []).map((f) => `<option value="${f.id}" ${String(f.id) === String(p?.fattura_id || '') ? 'selected' : ''}>n° ${esc(f.numero || '?')} del ${dataIt(f.data_fattura || f.data_ricevimento)} (${f.stato}) — id ${f.id}</option>`).join('')}</select></div>
       <div class="field full"><label>Note</label><input id="pp-note" value="${esc(p?.note || '')}"></div>
     </div>
+    ${p?.chiusa_il ? `<div class="dt-doc-riga" style="color:#a01f00;margin-top:10px"><strong>Chiusa il ${dataIt(String(p.chiusa_il).slice(0, 10))}</strong>
+      da ${esc(p.chiusa_da || '')}: ${esc(p.chiusa_motivo || '')}. Non entra più nei riepiloghi da fatturare.</div>` : ''}
     <div style="display:flex;gap:8px;justify-content:space-between;margin-top:12px">
-      <div>${p && !p.visita_id && !p.corso_incarico_id ? '<button class="btn btn-ghost" id="pp-del">🗑 Elimina</button>' : ''}</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        ${p && !p.visita_id && !p.corso_incarico_id ? '<button class="btn btn-ghost" id="pp-del">🗑 Elimina</button>' : ''}
+        ${p?.chiusa_il ? '<button class="btn btn-ghost" id="pp-riapri">↩️ Riapri (torna da fatturare)</button>' : ''}
+        ${p && !p.chiusa_il && !p.fattura_id ? '<button class="btn btn-ghost" id="pp-chiudi">🗄 Non si fattura più</button>' : ''}
+      </div>
       <button class="btn btn-primary" id="pp-salva">💾 Salva</button>
     </div>
     ${p ? `<p class="hint" style="margin-top:8px">Origine: ${esc(p.origine || '')}${p.visita_id ? ` · visita ${esc(p.visita_id)}` : ''}${p.visita_stage_id ? ` · visita stage senza verbale n° ${p.visita_stage_id}` : ''}${p.corso_incarico_id ? ` · incarico corso ${p.corso_incarico_id}` : ''}${p.incarico_id ? ` · incarico gestionale ${p.incarico_id}` : ''}${p.a_pratica_id ? ' · pratica di asseverazione' : ''}</p>` : ''}`);
@@ -1347,6 +1426,23 @@ async function formPrestazione(p) {
     attendi(ev.currentTarget, false);
     if (error) return toast('Salvataggio non riuscito: ' + error.message, 'err');
     toast('Prestazione salvata.', 'ok'); chiudiDrawer(); renderPrestazioni();
+  });
+  $('#pp-riapri')?.addEventListener('click', async (ev) => {
+    attendi(ev.currentTarget, true);
+    const { error } = await sb.rpc('s_prestazione_riapri', { p_id: p.id });
+    attendi(ev.currentTarget, false);
+    if (error) return toast(error.message, 'err');
+    toast('Riaperta: torna fra quelle da fatturare.', 'ok'); chiudiDrawer(); renderPrestazioni();
+  });
+  $('#pp-chiudi')?.addEventListener('click', async (ev) => {
+    const motivo = prompt('Perché questa attività non si fattura più?\nÈ la riga che rileggerà chi la ritroverà fra due anni.');
+    if (motivo == null) return;
+    if (!motivo.trim()) return toast('Serve il motivo.', 'err');
+    attendi(ev.currentTarget, true);
+    const { error } = await sb.rpc('s_prestazioni_chiudi', { p_ids: [p.id], p_motivo: motivo.trim() });
+    attendi(ev.currentTarget, false);
+    if (error) return toast(error.message, 'err');
+    toast('Chiusa: resta in archivio, ma non si fattura più.', 'ok'); chiudiDrawer(); renderPrestazioni();
   });
   $('#pp-del')?.addEventListener('click', async () => {
     if (!confirm('Elimino la prestazione?')) return;

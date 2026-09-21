@@ -27,10 +27,15 @@ del gestionale visite e della webapp asseverazione, sulle tabelle `s_*`.
 | `js/timbro.js` | Lato browser del timbro: librerie, storage, scelta impaginazione |
 | `js/comune.js` | Funzioni pure condivise: codice del protocollo, date, escape |
 | `js/ordina.js` | Ordinamento per colonna di tutte le tabelle `.tbl`: clic sull'intestazione, date e importi come numeri, scelta ricordata al ridisegno; il registro (paginato) intercetta l'evento `ordina-colonna` e riordina dal server |
+| `js/spunta-tutti.js` | La casella **«spunta tutte le righe»** in testa alle tabelle `.tbl` che hanno una spunta nella prima cella (chiusura del mese, aggancio prestazioni, fatture del mandato). Sta in un posto solo e lavora per delega come `ordina.js`: una tabella nuova la eredita. Le righe disabilitate non si toccano, e parte **un solo evento** alla fine — non uno per casella |
 | `js/mail.js` | Avviso di protocollazione |
 | `js/imprese.js` | Ricerca e scheda impresa con le sue sottoschede |
 | `js/statistiche.js` | Numeri e distribuzioni del registro |
-| `js/fatture-tecnici.js` | Incarichi mensili ai tecnici, chiusura del mese, fatture, mandati, prestazioni (la fattura che ha pagato ogni visita) |
+| `js/fatture-tecnici.js` | Incarichi mensili ai tecnici, chiusura del mese, fatture, mandati, prestazioni (la fattura che ha pagato ogni visita). Dal 21/09/2026: **avviso automatico al coordinatore** quando la segreteria verifica una fattura, e **chiusura delle prestazioni arretrate** che non si fatturano più |
+| `supabase/functions/avviso-approvazione/` | La mail che parte **da sola** al coordinatore: «c'è una fattura da approvare», col pulsante che apre la Zona Coordinatore del gestionale visite |
+| `supabase/sql/2026_09_21_avviso_approvazione_fattura.sql` | Colonne `avviso_appr_*` su `s_fatture_tecnici`, chiave `avviso_approvazione_cc`, flusso nel riquadro «flussi mai usati» |
+| `supabase/sql/2026_09_21_prestazioni_chiuse.sql` | `s_prestazioni.chiusa_il/_da/_motivo` + `s_prestazioni_chiudi` / `s_prestazione_riapri`: un'attività che non si fattura più **non si cancella**, si chiude scrivendo perché |
+| `supabase/sql/2026_09_21_mandato_visto_cartaceo.sql` | `s_mandati_pagamento.visto_fonte` + `s_mandato_visto_cartaceo`: il visto dell'Amministrazione arrivato **su carta** si registra dicendo che è stato di carta |
 | `js/fatture-tecnici-doc.js` | I tre PDF: lettera di incarico, riepilogo attività da fatturare, mandato di pagamento |
 | `supabase/sql/2026_09_04_fatture_tecnici.sql` | Tabelle `s_tariffe`, `s_tecnici_fiscale`, `s_incarichi_mensili`, `s_fatture_tecnici`, `s_prestazioni`, `s_mandati_pagamento`, `s_visite_stage` e funzioni `s_prestazioni_calcola`, `s_fattura_decisione` |
 | `js/comunicazione.js` | La coda della **redazione automatica social** dell'Area: bozze scritte dalla routine cloud, ritocco, approvazione, scarto con motivo, pubblicazione su Telegram e app servizi, kit `.eml` per l'agenzia |
@@ -414,3 +419,52 @@ collegata a visite, cantieri e protocolli.
 - [ ] Scheda persona con storico nomine (`s_nomine`, 7.496 righe)
 - [ ] Aggancio dei vecchi documenti su Drive (`drive_file_id` / `drive_url`)
 - [ ] Rubriche (Enti, Fornitori, Sindacati, Stampa, ANCE)
+
+
+## L'avviso al coordinatore: «c'è una fattura da approvare» (21/09/2026)
+
+Chiesto dall'utente: «quando la segreteria approva una fattura tecnico
+potresti fare come per i mandati che inviamo a Patrizia, che anche il
+coordinatore riceva una mail con link all'applicazione per approvare […]
+tanto è solo interna non serve altro, perché rischia che solo con l'app
+non la veda».
+
+Quando la segreteria preme **«✔ Verificata (segreteria)»** su una fattura,
+parte **da sola** la mail al coordinatore (`s_config.coordinatore_email`,
+copie in `avviso_approvazione_cc`, vuota di suo). È la **seconda eccezione
+dichiarata** alla regola «la posta dell'ufficio la manda una persona» —
+dopo l'avviso di pagamento del 16/09 — e regge per lo stesso motivo: la
+mail non contiene niente scritto da chi la fa partire (tecnico, numero,
+data, importo, prestazioni collegate e netto si leggono dal database), ed
+è **interna**.
+
+⚠️ **Il pulsante porta alla Zona Coordinatore del GESTIONALE VISITE**
+(`?vista=admin`), non all'app Segreteria: il coordinatore nell'app
+Segreteria non entra (regola del 17/09/2026). Lì ci sono «Approva» e
+«Stand-by», che passano dalla RPC `s_fattura_decisione`.
+
+Si affianca alla **notifica al telefono** già esistente (`push_da_fatture`,
+17/09), non la sostituisce: quella arriva solo a chi l'ha attivata.
+
+**Se non parte, si sa**: l'esito resta su `avviso_appr_esito`, il dettaglio
+della fattura lo mostra in rosso, il cruscotto lo elenca e dal dettaglio si
+ritenta con «✉️ Avvisa il coordinatore». La verifica della fattura **non**
+si annulla se la mail fallisce: la fattura è verificata comunque.
+
+## Prestazioni chiuse: «non si fatturano più» (21/09/2026)
+
+Alla chiusura del mese comparivano fra le arretrate decine di attività del
+vecchio gestionale Access, mai agganciate a una fattura. Ora si possono
+**chiudere**: la riga resta, con la data e il **motivo scritto**, e non
+entra più né fra le arretrate né fra quelle agganciabili a una fattura.
+Non si cancella e non si aggancia a una fattura inventata (regola d'oro 4).
+
+Dalla maschera di chiusura del mese: si toglie la spunta alle arretrate che
+non vanno pagate — con la casella «spunta tutte» si fa in un colpo — e si
+preme **«🗄 Chiudi le arretrate senza spunta»**. Dalla scheda «Prestazioni e
+storico» il filtro **«Chiuse»** le ritrova, e da una singola prestazione si
+chiude o si **riapre**.
+
+Chiuse il 21/09/2026 su indicazione dell'utente: **150 attività** 2022-2026
+di Camuffo (42), Caon (29) e De Marco (79), per 7.200 € — arretrati Access
+senza nulla da fatturare.

@@ -8,6 +8,7 @@
 
 import { sb, state, $, $$, esc, toast, attendi, mostraVista, chiudiDrawer, leggiData } from './core.js';
 import './ordina.js';   // ordinamento per colonna di tutte le tabelle .tbl (solo effetto collaterale)
+import './spunta-tutti.js';   // la casella «spunta tutte le righe» in testa alle tabelle con le spunte
 
 /* ── accesso ──────────────────────────────────────────────── */
 async function accedi() {
