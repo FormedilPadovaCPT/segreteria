@@ -32,6 +32,7 @@ import { datiIscr, sezioneIscr, collegaIscr } from './corsi-iscrizioni.js';
 /* le regole che decidono un compenso stanno a parte, per essere provabili */
 import { forfait, calcolaCorrispettivo, proponiTariffa, variazioneNote } from './corsi-compensi.js';
 import { orarioGiornata } from './corsi-orari.js';
+import { datiMancantiAttestato, riassuntoMancanti, testoRichiestaDati, destinatariPossibili } from './corsi-anagrafica.js';
 
 let corsi = [];
 let progetti = [];
@@ -355,6 +356,35 @@ export async function apriCorso(id) {
     for (const r of ff || []) fattDi[r.corso_incarico_id] = r;
   }
 
+  /* ── i dati che servono per l'attestato (21/09/2026) ──
+     Si leggono QUI, non al momento di generare gli attestati: il senso
+     della richiesta dell'utente e' accorgersene mentre il corsista lo
+     si iscrive, quando il dato si puo' ancora chiedere. */
+  const pIds = [...new Set((iscritti || []).map((i) => i.persona_id).filter(Boolean))];
+  const anagDi = {};
+  if (pIds.length) {
+    const { data: pp } = await sb.from('persone')
+      .select('persona_id, cf, data_nascita, comune_nascita, email, email2').in('persona_id', pIds);
+    for (const x of pp || []) anagDi[x.persona_id] = x;
+  }
+  /* l'indirizzo dell'impresa serve alla mail che chiede i dati */
+  const impIds = [...new Set((iscritti || []).map((i) => i.impresa_id).filter(Boolean))];
+  const impDi = {};
+  if (impIds.length) {
+    const { data: ii } = await sb.from('imprese').select('impresa_id, email').in('impresa_id', impIds);
+    for (const x of ii || []) impDi[x.impresa_id] = x;
+  }
+  const esitoDati = {};
+  for (const i of iscritti || []) esitoDati[i.id] = datiMancantiAttestato(i, anagDi[i.persona_id] || null, c);
+  /* ⚠️ Si avvisa solo su chi l'attestato NON ce l'ha ancora, e solo se il
+     corso ne rilascia uno: su un attestato già emesso non c'è più niente
+     da chiedere, e riempire di rosso i corsi chiusi vorrebbe solo dire
+     insegnare a non guardare il rosso. Sullo storico la differenza è
+     grossa: 818 iscritti senza codice fiscale, ma 344 ancora da attestare. */
+  const daAttestare = (i) => (c.rilascio_attestato !== false) && !i.attestato_numero;
+  const incompleti = (iscritti || []).filter((i) => daAttestare(i) && esitoDati[i.id].mancanti.length);
+  const daCopiare = (iscritti || []).filter((i) => daAttestare(i) && esitoDati[i.id].recuperabili.length);
+
   const quest = await datiQuest(c);
   const test = await datiTest(c);
   const iscr = await datiIscr(c);
@@ -379,8 +409,16 @@ export async function apriCorso(id) {
 
   const rigaIscr = (i) => {
     const okFreq = i.perc_frequenza != null ? i.perc_frequenza >= (c.perc_freq_min || 90) : null;
-    return `<tr data-iscr="${i.id}">
-      <td><strong>${esc(i.nominativo)}</strong>${i.cf ? `<br><span class="hint">${esc(i.cf)}</span>` : ''}</td>
+    /* ⚠️ in rosso quello che manca per l'attestato: senza, il certificato
+       esce con «—» al posto del dato, e se ne accorge chi lo riceve */
+    const e = (daAttestare(i) && esitoDati[i.id]) || { mancanti: [], daCompletare: [], recuperabili: [] };
+    const avviso = e.mancanti.length
+      ? `<br><span class="dt-cella dt-scaduto" style="padding:1px 6px" title="Senza questi dati l&rsquo;attestato esce incompleto">⚠ manca: ${esc(riassuntoMancanti(e))}</span>`
+      : e.recuperabili.length
+        ? `<br><span class="dt-cella dt-senzadata" style="padding:1px 6px" title="Il dato c&rsquo;è in anagrafica ma non su questa riga: si copia, non si chiede">${esc(e.recuperabili.map((x) => x.etichetta.toLowerCase()).join(', '))} da copiare</span>`
+        : '';
+    return `<tr data-iscr="${i.id}"${e.mancanti.length ? ' style="background:#fff6f4"' : ''}>
+      <td><strong>${esc(i.nominativo)}</strong>${i.cf ? `<br><span class="hint">${esc(i.cf)}</span>` : ''}${avviso}</td>
       <td>${esc(i.impresa_txt || '—')}${i.ruolo ? `<br><span class="hint">${esc([i.ruolo, i.mansione].filter(Boolean).join(' · '))}</span>` : ''}</td>
       <td>${esc(ESITI_ISCR[i.esito] || i.esito)}</td>
       <td>${i.ore_frequentate != null ? `${i.ore_frequentate}h` : '—'}${i.perc_frequenza != null
@@ -475,6 +513,14 @@ export async function apriCorso(id) {
       <button class="btn btn-ghost btn-sm" id="co-addiscr">+ Iscrivi dall'anagrafica</button>
       <button class="btn btn-ghost btn-sm" id="co-calcola">🧮 Calcola frequenze dalle presenze</button>
     </div>
+    ${daCopiare.length ? `<div class="dt-doc-riga" style="margin-top:8px"><strong>${daCopiare.length} ${daCopiare.length === 1 ? 'iscritto ha' : 'iscritti hanno'} un dato già in anagrafica</strong>
+      che non è finito sulla riga del corso (tipicamente il codice fiscale). Non c'è niente da chiedere a nessuno:
+      <button class="btn btn-ghost btn-sm" id="co-copia-dati" style="margin-left:6px">⤵️ Copia dall'anagrafica</button></div>` : ''}
+    ${incompleti.length ? `<div class="dt-doc-riga" style="margin-top:8px;border-left:3px solid #c0392b;padding-left:8px">
+      <strong style="color:#a01f00">${incompleti.length} ${incompleti.length === 1 ? 'iscritto non ha' : 'iscritti non hanno'} tutti i dati che vanno sull'attestato.</strong>
+      Si può emettere lo stesso, ma il certificato uscirebbe con «—» al posto del dato — e se ne accorgerebbe chi lo riceve.
+      <br><button class="btn btn-primary btn-sm" id="co-chiedi-dati" style="margin-top:6px">✉️ Prepara la mail per chiedere i dati</button>
+      <span class="hint">La mail si scarica in bozza: la mandi tu da Outlook.</span></div>` : ''}
 
     ${sezioneIscr(c, iscr)}
 
@@ -583,6 +629,30 @@ Registro lo stesso una fattura qui?`)) return;
   }));
 
   $('#co-addiscr').addEventListener('click', () => formIscritto(c, null));
+
+  /* ⚠️ Un dato che C'È in anagrafica e non sulla riga del corso non si
+     chiede a nessuno: si copia. Chiedere all'impresa un codice fiscale
+     che abbiamo gia' e' la figura peggiore che si possa fare. */
+  $('#co-copia-dati')?.addEventListener('click', async (ev) => {
+    attendi(ev.currentTarget, true, 'Copio…');
+    try {
+      let n = 0;
+      for (const i of daCopiare) {
+        const agg = {};
+        for (const r of esitoDati[i.id].recuperabili) agg[r.campo] = r.valore;
+        if (!Object.keys(agg).length) continue;
+        agg.updated_at = new Date().toISOString();
+        const { error } = await sb.from('s_corsi_iscritti').update(agg).eq('id', i.id);
+        if (error) throw new Error(error.message);
+        n += 1;
+      }
+      toast(`${n} ${n === 1 ? 'riga completata' : 'righe completate'} dall'anagrafica.`, 'ok');
+      apriCorso(c.id);
+    } catch (e) { toast(e.message, 'err'); attendi(ev.currentTarget, false); }
+  });
+
+  $('#co-chiedi-dati')?.addEventListener('click', () => chiediDatiAttestato(c, incompleti, esitoDati, anagDi, impDi));
+
   $('#drawer-body').querySelectorAll('[data-mod-iscr]').forEach((a) => a.addEventListener('click', (e) => {
     e.preventDefault();
     formIscritto(c, (iscritti || []).find((x) => x.id === Number(a.dataset.modIscr)));
@@ -635,7 +705,7 @@ Registro lo stesso una fattura qui?`)) return;
     attendi(ev.currentTarget, false);
   });
   $('#co-attestati')?.addEventListener('click', (ev) =>
-    generaAttestati(c, giornate || [], interventi || [], iscritti || [], ev.currentTarget));
+    generaAttestati(c, giornate || [], interventi || [], iscritti || [], ev.currentTarget, esitoDati));
   $('#drawer-body').querySelectorAll('[data-lett-inc]').forEach((a) => a.addEventListener('click', (e) => {
     e.preventDefault();
     const k = (incarichi || []).find((x) => x.id === Number(a.dataset.lettInc));
@@ -648,13 +718,101 @@ Registro lo stesso una fattura qui?`)) return;
    ancora un numero lo riceve (progressivo dell'anno), chi ha già
    un numero della serie nuova ma non il PDF viene rigenerato.
    Gli attestati storici (numero senza /) non si toccano. */
-async function generaAttestati(c, giornate, interventi, iscritti, btn) {
+/* ── CHIEDERE I DATI CHE MANCANO PER L'ATTESTATO (21/09/2026) ──
+   Chiesto dall'utente: «sarebbe utile predisporre una mail con i dati che
+   necessitano, così la segreteria può inviarla e completare».
+
+   Una mail PER IMPRESA, non per persona: chi la riceve ha comunque un
+   elenco da girare a qualcuno, e dieci mail separate nessuno le legge.
+   Gli indirizzi si PROPONGONO (quello dato all'iscrizione, quello della
+   persona, quello dell'impresa) e restano modificabili: chi scrive lo
+   decide la segreteria.
+
+   ⚠️ La bozza si scarica, non parte: è il confine di sempre. */
+async function chiediDatiAttestato(c, incompleti, esitoDati, anagDi, impDi) {
+  const righe = incompleti.map((i) => ({
+    id: i.id, nominativo: i.nominativo, impresa_txt: i.impresa_txt || '', impresa_id: i.impresa_id || '',
+    mancanti: esitoDati[i.id].mancanti, daCompletare: esitoDati[i.id].daCompletare,
+    email_iscrizione: i.email_iscrizione, email_persona: anagDi[i.persona_id]?.email || anagDi[i.persona_id]?.email2,
+    email_impresa: impDi[i.impresa_id]?.email,
+  }));
+  /* un gruppo per impresa; chi non ne ha una fa gruppo a sé */
+  const gruppi = new Map();
+  for (const r of righe) {
+    const k = r.impresa_id || r.impresa_txt || `__solo_${r.id}`;
+    if (!gruppi.has(k)) gruppi.set(k, { etichetta: r.impresa_txt || 'Senza impresa indicata', righe: [] });
+    gruppi.get(k).righe.push(r);
+  }
+  const lista = [...gruppi.entries()].map(([k, g], n) => ({ k, n, ...g, dest: destinatariPossibili(g.righe) }));
+
+  apriDrawer(`Dati mancanti per l'attestato — corso n° ${c.id}`, 'OUT', `
+    <p class="hint" style="margin:0 0 8px">Questi sono i dati che <strong>vanno stampati sull'attestato</strong> e che non risultano.
+      Una bozza per impresa, con l'elenco di chi e di che cosa: la mandi tu da Outlook e poi registri le risposte.</p>
+    ${lista.map((g) => `
+      <div class="dt-doc-riga" style="margin-bottom:10px">
+        <label style="display:flex;gap:8px;align-items:flex-start">
+          <input type="checkbox" data-grp="${g.n}" checked style="margin-top:4px">
+          <span style="flex:1">
+            <strong>${esc(g.etichetta)}</strong> — ${g.righe.length} ${g.righe.length === 1 ? 'persona' : 'persone'}
+            <span class="hint" style="display:block;white-space:normal">${g.righe.map((r) =>
+              `${esc(r.nominativo)}: ${esc([...r.mancanti, ...r.daCompletare].map((x) => x.etichetta).join(', ')) || 'da confermare'}`).join(' · ')}</span>
+            <span style="display:block;margin-top:6px">
+              <input class="inp inp-sm" data-a="${g.n}" style="width:100%" placeholder="A: indirizzo del destinatario"
+                value="${esc(g.dest.map((d) => d.email).join(', '))}">
+              ${g.dest.length ? '' : '<span class="hint">Nessun indirizzo conosciuto per questo gruppo: scrivilo qui.</span>'}
+            </span>
+          </span>
+        </label>
+      </div>`).join('')}
+    <div class="field"><label>Righe da aggiungere alla mail (facoltativo)</label><input id="cd-nota" placeholder="es. servono entro venerdì per la consegna degli attestati"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+      <button class="btn btn-primary" id="cd-eml">✉️ Prepara le bozze</button>
+    </div>
+    <p class="hint" style="margin-top:8px">Un gruppo senza indirizzo non produce bozza: l'app non inventa un destinatario.</p>`);
+
+  $('#cd-eml').addEventListener('click', (ev) => {
+    const nota = $('#cd-nota').value.trim();
+    let fatte = 0; const senza = [];
+    for (const g of lista) {
+      if (!$(`[data-grp="${g.n}"]`)?.checked) continue;
+      const a = String($(`[data-a="${g.n}"]`)?.value || '').trim();
+      if (!a) { senza.push(g.etichetta); continue; }
+      const corpo = testoRichiestaDati({ corso: c, righe: g.righe, mittente: FIRMA_SEGRETERIA })
+        + (nota ? `\n\n${nota}` : '');
+      scaricaEml({
+        to: a,
+        oggetto: `Dati mancanti per l'attestato — ${c.titolo || `corso n° ${c.id}`}`,
+        corpo,
+        nomeFile: `dati-attestato-corso-${c.id}-${g.n + 1}.eml`,
+      });
+      fatte += 1;
+    }
+    if (!fatte) return toast('Nessuna bozza: spunta almeno un gruppo e scrivi un destinatario.', 'err');
+    toast(`${fatte} ${fatte === 1 ? 'bozza scaricata' : 'bozze scaricate'}${senza.length ? `; senza destinatario: ${senza.join(', ')}` : ''}.`,
+      senza.length ? 'err' : 'ok');
+    chiudiDrawer();
+  });
+}
+
+async function generaAttestati(c, giornate, interventi, iscritti, btn, esitoDati = {}) {
   if (!giornate.length) return toast('Un corso ha sempre almeno una giornata: aggiungila prima degli attestati.', 'err');
   const anno = (c.data_fine || c.data_inizio || oggiIso()).slice(0, 4);
   const candidati = iscritti.filter((i) =>
     ['presente', 'presente_online'].includes(i.esito) && i.ammesso !== false &&
     (!i.attestato_numero || (i.attestato_numero.includes('/') && !i.attestato_drive_id)));
   if (!candidati.length) return toast('Nessun iscritto da attestare (servono presenti senza attestato).', 'err');
+  /* ⚠️ ULTIMO AVVISO PRIMA DI STAMPARE (21/09/2026). Un attestato senza
+     codice fiscale o senza nascita esce con «—» al posto del dato, e il
+     nome del file resta senza CF: non si blocca — ci sono casi in cui si
+     emette lo stesso — ma non deve succedere per distrazione. */
+  const bucati = candidati
+    .map((i) => ({ i, e: esitoDati[i.id] }))
+    .filter((x) => x.e && x.e.mancanti.length);
+  if (bucati.length && !confirm(
+    `${bucati.length} ${bucati.length === 1 ? 'attestato uscirebbe incompleto' : 'attestati uscirebbero incompleti'}:\n\n`
+    + bucati.slice(0, 8).map((x) => `· ${x.i.nominativo} — manca: ${riassuntoMancanti(x.e)}`).join('\n')
+    + (bucati.length > 8 ? `\n· …e altri ${bucati.length - 8}` : '')
+    + '\n\nSull\'attestato quei campi escono con «—». Genero lo stesso?')) return;
   if (!confirm(`Genero ${candidati.length} attestati (serie N/${anno}, tipo «${TIPI_ATT[c.tipo_attestato]}»), li deposito su Drive in attestati_emessi/${anno} e scrivo i numeri sulle righe. Procedo?`)) return;
   attendi(btn, true, 'Genero…');
   try {
@@ -1165,12 +1323,49 @@ function formIscritto(c, i) {
       <div class="field"><label>Valutazione test</label><input id="fp-val" value="${esc(i?.valutazione || '')}" placeholder="es. 28/30"></div>
     </div>
     <div class="field"><label>Email (per l'invio dell'attestato)</label><input id="fp-email" data-mail="1" data-mail-chi="${esc(i?.nominativo || '')}" value="${esc(i?.email_iscrizione || '')}"></div>
+    <div id="fp-att-hint"></div>
     <button class="btn btn-primary" id="fp-salva" style="margin-top:10px" ${i ? '' : 'disabled'}>${i ? 'Salva' : 'Iscrivi'}</button>`);
 
   collegaDoppioClickMail($('#drawer-body'));
 
   let personaId = i?.persona_id || null;
   let impresaId = i?.impresa_id || null;
+
+  /* ⚠️ Lo si dice QUI, mentre lo si iscrive: è il momento in cui il dato
+     si può ancora chiedere. La ricerca in anagrafica non restituisce
+     nascita e luogo, quindi si va a leggerli. */
+  const avvisaDati = async () => {
+    const box = $('#fp-att-hint');
+    if (!box) return;
+    let persona = null;
+    if (personaId) {
+      const { data, error } = await sb.from('persone')
+        .select('cf, data_nascita, comune_nascita').eq('persona_id', personaId).maybeSingle();
+      /* un errore di lettura non è «non ha i dati»: si dice */
+      if (error) {
+        box.innerHTML = `<p class="hint" style="color:#a01f00">Non riesco a leggere l'anagrafica: ${esc(error.message)}</p>`;
+        return;
+      }
+      persona = data;
+    }
+    const e = datiMancantiAttestato({
+      cf: $('#fp-cf')?.value, impresa_txt: $('#fp-impresa')?.value,
+      ruolo: $('#fp-ruolo')?.value, mansione: $('#fp-mansione')?.value, persona_id: personaId,
+    }, persona, c);
+    if (e.recuperabili.length && $('#fp-cf') && !$('#fp-cf').value) {
+      const cf = e.recuperabili.find((x) => x.campo === 'cf');
+      if (cf) $('#fp-cf').value = cf.valore;     /* c'è in anagrafica: si copia, non si chiede */
+    }
+    box.innerHTML = e.mancanti.length
+      ? `<div class="dt-doc-riga" style="border-left:3px solid #c0392b;padding-left:8px;margin-top:8px">
+           <strong style="color:#a01f00">Per l'attestato manca: ${esc(riassuntoMancanti(e))}.</strong>
+           ${e.senzaAnagrafica
+             ? ' Questo iscritto non è agganciato a nessuna scheda in anagrafica: i dati non si possono ricavare.'
+             : ' Va completata la <strong>scheda in anagrafica</strong> (pagina Persone), oppure si chiedono all\'impresa dal riquadro in fondo alla scheda del corso.'}
+           <span class="hint" style="display:block">L'attestato si può emettere lo stesso, ma quei campi uscirebbero con «—».</span>
+         </div>`
+      : '';
+  };
 
   if (!i) {
     collegaRicercaPersone('#fp-cerca', '#fp-risultati', async (p) => {
@@ -1199,7 +1394,10 @@ function formIscritto(c, i) {
       } else {
         $('#fp-impresa-hint').textContent = 'nessun rapporto attivo in anagrafica alla data del corso: scrivi l\'impresa a mano (e valuta di registrare il rapporto).';
       }
+      avvisaDati().catch(() => {});
     });
+  } else {
+    avvisaDati().catch(() => {});
   }
 
   $('#fp-salva').addEventListener('click', async (ev) => {
