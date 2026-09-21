@@ -515,3 +515,38 @@ si registrano e basta.
    ha rifiutato, non quale sia l'indirizzo giusto: lo sistema il tecnico, che in
    cantiere c'è stato (regola d'oro 1). E la riga non si cancella — è la prova
    che quel verbale non è arrivato: si chiude con una nota.
+
+
+## I dati che servono per l'attestato (21/09/2026)
+
+Chiesto dall'utente: «quando in un corso si inserisce un corsista a cui mancano
+dati in anagrafica che sono indispensabili nell'attestato, il programma deve
+avvisare, magari evidenziandolo in rosso, ed eventualmente sarebbe utile
+predisporre una mail con i dati che necessitano».
+
+⚠️ **Il punto è accorgersene prima, non dopo.** `pdfAttestato` stampa «—» dove
+il dato manca e il nome del file resta senza codice fiscale: il certificato esce
+lo stesso, incompleto, e se ne accorge chi lo riceve.
+
+`js/corsi-anagrafica.js` (modulo **puro**, con i suoi test) dice che cosa manca,
+distinguendo **tre** cose che sembrano una sola:
+
+| Esito | Che cosa vuol dire | Che cosa si fa |
+|---|---|---|
+| **mancanti** | va sull'attestato e non c'è da nessuna parte | si chiede (rosso) |
+| **da completare** | compare sull'attestato ma non è bloccante (ruolo, mansione) | si può emettere |
+| **recuperabili** | ⚠️ **c'è in anagrafica ma non sulla riga del corso** | **si copia**, non si chiede |
+
+L'ultima riga è quella che conta: chiedere a un'impresa un codice fiscale che
+abbiamo già è la figura peggiore che si possa fare.
+
+**Dove si vede**: la riga dell'iscritto va in rosso con l'elenco; la maschera di
+iscrizione lo dice appena si sceglie la persona; sotto l'elenco un riquadro
+prepara la mail — **una bozza per impresa**, non una per persona, con gli
+indirizzi proposti fra quelli noti e modificabili; e prima di generare gli
+attestati compare un ultimo avviso, che **non blocca**.
+
+⚠️ **Si avvisa solo su chi l'attestato non ce l'ha ancora**, e solo se il corso
+ne rilascia uno. Sullo storico gli iscritti senza codice fiscale sono **818**,
+ma quelli ancora da attestare **344** in 46 corsi: riempire di rosso i corsi
+chiusi insegnerebbe soltanto a non guardare il rosso.
