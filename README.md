@@ -542,9 +542,19 @@ abbiamo già è la figura peggiore che si possa fare.
 
 **Dove si vede**: la riga dell'iscritto va in rosso con l'elenco; la maschera di
 iscrizione lo dice appena si sceglie la persona; sotto l'elenco un riquadro
-prepara la mail — **una bozza per impresa**, non una per persona, con gli
-indirizzi proposti fra quelli noti e modificabili; e prima di generare gli
-attestati compare un ultimo avviso, che **non blocca**.
+prepara le bozze; e prima di generare gli attestati compare un ultimo avviso,
+che **non blocca**.
+
+**Due modi, e si scelgono** (21/09/2026, precisato dall'utente: «non sempre son
+persone della stessa impresa oppure sono liberi professionisti»):
+`raggruppaRichieste(righe, modo)` fa **un gruppo per impresa** o **uno per
+persona**. ⚠️ Non è la stessa mail a un indirizzo diverso: cambia il soggetto —
+all'impresa «i partecipanti che avete iscritto», alla persona i **suoi** dati,
+dandole del lei. Anche `destinatariPossibili(righe, modo)` cambia ordine, e
+quando di una persona si conosce **solo** l'indirizzo dell'impresa la maschera
+lo dichiara. ⚠️ Chi non ha impresa fa gruppo a sé **anche** in modo «impresa»:
+due liberi professionisti non devono ricevere l'elenco dei dati l'uno
+dell'altro.
 
 ⚠️ **Si avvisa solo su chi l'attestato non ce l'ha ancora**, e solo se il corso
 ne rilascia uno. Sullo storico gli iscritti senza codice fiscale sono **818**,
