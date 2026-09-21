@@ -293,7 +293,7 @@ export async function apriDettaglio(id) {
           <button class="icon-btn" data-az="elimina-all" data-att="${a.id}" data-drive="${esc(a.drive_file_id || '')}" title="Metti nel cestino di Drive">🗑</button>
         </li>`).join('') || '<li class="empty" style="padding:12px">Nessun documento allegato.</li>'}
     </ul>
-    <input type="file" id="att-file" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.eml,.msg" style="display:none">
+    <input type="file" id="att-file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.eml,.msg" style="display:none">
     <button class="btn btn-ghost btn-sm" data-az="collega">🔗 Collega un documento già su Drive</button>
     <button class="btn btn-ghost btn-sm" data-az="carica">＋ Carica un documento nuovo</button>
     <p class="hint" style="margin:6px 0 0">
@@ -446,7 +446,13 @@ async function gestisciAzioneDrawer(e) {
     return;
   }
 
-  if (az === 'carica') { $('#att-file').click(); $('#att-file').onchange = (ev) => caricaAllegato(ev.target.files[0]); return; }
+  if (az === 'carica') {
+    const inp = $('#att-file');
+    inp.multiple = true;                 /* qui si può caricare più di un documento in un colpo */
+    inp.click();
+    inp.onchange = (ev) => caricaAllegati(ev.target.files);
+    return;
+  }
 
   if (az === 'collega') { collegaDaDrive(); return; }
 
@@ -569,6 +575,42 @@ async function caricaAllegato(file, poiTimbra = false) {
   /* Se il documento e' stato caricato apposta per timbrarlo, si va
      dritti all'anteprima invece di far ricominciare da capo. */
   if (poiTimbra && att && /\.pdf$/i.test(file.name)) return timbra(att.id);
+  apriDettaglio(p.id);
+}
+
+/* Più documenti in un colpo solo. Si caricano uno dopo l'altro e non in
+   parallelo: la funzione di Drive crea la cartella se manca, e due
+   caricamenti insieme la creerebbero due volte. Un file che fallisce non
+   ferma gli altri — a fine giro si dice che cosa è passato e che cosa no. */
+async function caricaAllegati(fileList) {
+  const files = Array.from(fileList || []);
+  if (!files.length || !recordCorrente) return;
+  if (files.length === 1) return caricaAllegato(files[0]);
+
+  const p = recordCorrente;
+  const fatti = [];
+  const falliti = [];
+  for (const file of files) {
+    if (file.size > LIMITE_MB * 1024 * 1024) {
+      falliti.push(`${file.name} (supera i ${LIMITE_MB} MB)`);
+      continue;
+    }
+    toast(`Caricamento su Drive: ${file.name} (${fatti.length + falliti.length + 1} di ${files.length})…`);
+    try {
+      const su = await caricaFile(p, file);
+      await sb.from('s_prot_allegati').insert({
+        protocollo_id: p.id, nome: su.file_name || file.name, mime: file.type,
+        dimensione: file.size, created_by: state.email,
+        drive_file_id: su.drive_file_id, drive_url: su.drive_url,
+      });
+      fatti.push(file.name);
+    } catch (err) {
+      falliti.push(`${file.name} (${err.message})`);
+    }
+  }
+
+  if (fatti.length) toast(`${fatti.length} document${fatti.length === 1 ? 'o allegato' : 'i allegati'} al protocollo.`, 'ok');
+  if (falliti.length) toast(`Non caricati: ${falliti.join('; ')}`, 'err');
   apriDettaglio(p.id);
 }
 
@@ -779,6 +821,7 @@ async function chiediQualeDocumento() {
       + '(finisce in 00_INBOX/_protocollo, da smistare)');
     if (su) { collegaDaDrive(); return; }
     const inp = $('#att-file');
+    inp.multiple = false;                /* si timbra un documento per volta */
     inp.click();
     inp.onchange = (ev) => caricaAllegato(ev.target.files[0], true);
     return;
@@ -813,6 +856,7 @@ async function chiediQualeDocumento() {
     if (b.dataset.collega) { collegaDaDrive(); return; }
     if (b.dataset.nuovo) {
       const inp = $('#att-file');
+      inp.multiple = false;              /* si timbra un documento per volta */
       inp.click();
       inp.onchange = (e2) => caricaAllegato(e2.target.files[0], true);
       return;
@@ -983,9 +1027,12 @@ export async function apriForm(direzione, record = null, duplica = false, dopoSa
 
         ${modificaId ? '' : `
         <fieldset class="fieldset">
-          <legend>Documento da protocollare</legend>
+          <legend>Documenti da protocollare</legend>
           <div class="field">
-            <input type="file" id="c-file" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.eml,.msg">
+            <input type="file" id="c-file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.eml,.msg">
+            <span class="hint">Si possono scegliere <strong>più file insieme</strong> — lettera e allegati.
+              Il <strong>primo</strong> è il documento principale: è quello che compare nell'elenco del
+              registro e quello che si propone per il timbro.</span>
           </div>
           <div class="field" style="margin-top:6px">
             <label style="font-weight:400"><input type="checkbox" id="c-timbra" style="width:auto" checked> Timbra subito il PDF con numero, data e QR</label>
@@ -1150,31 +1197,57 @@ async function salva(ev) {
     if (eDopo) toast('Protocollo salvato, ma invio o gruppo non sono stati scritti: ' + eDopo.message, 'err');
   }
 
-  /* allegato + timbro */
-  const file = $('#c-file')?.files?.[0];
-  if (file) {
-    try {
-      const su = await caricaFile(nuovo, file);
-      const { data: att } = await sb.from('s_prot_allegati').insert({
-        protocollo_id: nuovo.id, nome: su.file_name || file.name, mime: file.type,
-        dimensione: file.size, principale: true, created_by: state.email,
-        drive_file_id: su.drive_file_id, drive_url: su.drive_url,
-      }).select().single();
-
-      /* il link del documento principale sta anche sulla riga del
-         protocollo, cosi' si vede dall'elenco senza aprire nulla */
-      await sb.from('s_protocollo').update({
-        drive_file_id: su.drive_file_id, drive_url: su.drive_url,
-      }).eq('id', nuovo.id);
-
-      if (att && $('#c-timbra')?.checked && /pdf$/i.test(file.name)) {
-        const { timbraAllegato } = await import('./timbro.js');
-        await timbraAllegato(att.id, nuovo).catch((err) => {
-          if (err.message !== 'Timbro annullato') toast('Timbro non riuscito: ' + err.message, 'err');
-        });
+  /* allegati + timbro — si può protocollare una lettera con i suoi allegati
+     in un colpo solo. Il PRIMO file è il principale: va anche sulla riga del
+     protocollo ed è quello che si propone per il timbro. Si caricano uno dopo
+     l'altro, non in parallelo: la funzione di Drive crea la cartella se manca,
+     e due caricamenti insieme la creerebbero due volte. Un file che fallisce
+     non ferma gli altri, e alla fine si dice quali non sono passati. */
+  const files = Array.from($('#c-file')?.files || []);
+  if (files.length) {
+    let daTimbrare = null;               /* il primo PDF caricato */
+    const falliti = [];
+    for (const [i, file] of files.entries()) {
+      const principale = i === 0;
+      if (file.size > LIMITE_MB * 1024 * 1024) {
+        falliti.push(`${file.name} (supera i ${LIMITE_MB} MB)`);
+        continue;
       }
-    } catch (err) {
-      toast('Protocollo salvato, ma il documento non è stato caricato: ' + err.message, 'err');
+      try {
+        const su = await caricaFile(nuovo, file);
+        const { data: att } = await sb.from('s_prot_allegati').insert({
+          protocollo_id: nuovo.id, nome: su.file_name || file.name, mime: file.type,
+          dimensione: file.size, principale, created_by: state.email,
+          drive_file_id: su.drive_file_id, drive_url: su.drive_url,
+        }).select().single();
+
+        /* il link del documento principale sta anche sulla riga del
+           protocollo, cosi' si vede dall'elenco senza aprire nulla */
+        if (principale) {
+          await sb.from('s_protocollo').update({
+            drive_file_id: su.drive_file_id, drive_url: su.drive_url,
+          }).eq('id', nuovo.id);
+        }
+
+        if (att && !daTimbrare && /\.pdf$/i.test(file.name)) daTimbrare = att.id;
+      } catch (err) {
+        falliti.push(`${file.name} (${err.message})`);
+      }
+    }
+
+    if (falliti.length) {
+      toast(`Protocollo salvato. Non caricati: ${falliti.join('; ')}`, 'err');
+    } else if (files.length > 1) {
+      toast(`${files.length} documenti allegati al protocollo.`, 'ok');
+    }
+
+    /* Il timbro si chiede una volta sola, sul primo PDF: è il documento che
+       esce. Gli altri allegati si timbrano dal dettaglio, se serve. */
+    if (daTimbrare && $('#c-timbra')?.checked) {
+      const { timbraAllegato } = await import('./timbro.js');
+      await timbraAllegato(daTimbrare, nuovo).catch((err) => {
+        if (err.message !== 'Timbro annullato') toast('Timbro non riuscito: ' + err.message, 'err');
+      });
     }
   }
 
