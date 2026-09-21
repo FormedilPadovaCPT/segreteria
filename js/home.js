@@ -274,6 +274,17 @@ export async function render() {
     </div>`;
   })();
 
+  /* ── i verbali tornati indietro (21/09/2026) ──
+     Il rapporto di mancata consegna arriva alla casella dell'ufficio e lo
+     vedrebbe una persona sola: qui si vede da solo, insieme alla posta. */
+  let respinte = [];
+  try {
+    const { data } = await sb.from('s_mail_respinte')
+      .select('id, ricevuta_il, destinatario, codice, permanente, motivo, nr_verbale, tecnico_email, ruolo, impresa_nome, stato, avviso_il, avviso_esito')
+      .in('stato', ['nuova', 'avvisato']).order('ricevuta_il', { ascending: false }).limit(40);
+    respinte = data || [];
+  } catch { /* senza accesso il riquadro resta vuoto */ }
+
   /* la card «Posta e agenda»: gli eventi raggruppati per giorno, poi le mail
      che le regole hanno segnato come importanti, in ordine di punteggio */
   const cardBacheca = (() => {
@@ -323,6 +334,22 @@ export async function render() {
       + errori + piede);
     return { agenda, posta };
   })();
+
+  /* ⚠️ Un rimbalzo NON dice quale sia l'indirizzo giusto: dice che quello
+     non ha accettato la mail. Lo corregge il tecnico, che sa chi ha
+     incontrato in cantiere — qui si vede e si chiude, non si sistema. */
+  const cardRespinte = !respinte.length ? '' : card('📭 Verbali non consegnati', respinte.length, `
+    ${respinte.slice(0, 8).map((r) => `
+      <div class="hm-riga" data-respinta="${r.id}" title="${esc(r.motivo || '')}">
+        <span>${r.permanente === false ? '🕒' : '📭'}</span>
+        <span><strong>${esc(r.destinatario || '')}</strong>${r.ruolo ? ` <span class="hint">(${esc(r.ruolo)})</span>` : ''}
+          <span class="hint" style="display:block;white-space:normal">${r.nr_verbale ? `verbale ${esc(r.nr_verbale)}` : 'senza verbale agganciato'}${r.impresa_nome ? ` · ${esc(r.impresa_nome)}` : ''}${r.tecnico_email ? ` · ${esc(r.tecnico_email.split('@')[0])}` : ' · nessun tecnico'}${r.codice ? ` · ${esc(r.codice)}` : ''}</span></span>
+        <span class="hint" style="text-align:right">${r.ricevuta_il ? dataIt(String(r.ricevuta_il).slice(0, 10)) : ''}<br>
+          ${r.stato === 'avvisato' ? '<span class="hm-mini">tecnico avvisato</span>' : r.tecnico_email ? '<span class="hm-mini" style="color:#a01f00">da avvisare</span>' : '<span class="hm-mini">da guardare</span>'}</span>
+      </div>`).join('')}
+    ${respinte.length > 8 ? `<p class="hint">…e altri ${respinte.length - 8}.</p>` : ''}
+    <p class="hint" style="margin-top:6px">Il rapporto di mancata consegna torna alla casella dell'ufficio. Quelli <strong>definitivi</strong> (5.x.x) fanno partire da soli l'avviso al tecnico, perché è probabile che l'indirizzo sia sbagliato; i <strong>rinvii</strong> (🕒 4.x.x) si registrano e basta. L'indirizzo lo corregge il tecnico.</p>
+    <div class="hint" style="margin-top:6px"><button class="btn btn-ghost btn-sm" id="hm-respinte-cerca" title="Rilegge adesso i rapporti di mancata consegna">🔄 Cerca adesso</button></div>`);
 
   host.innerHTML = `
     ${bannerCanale}
@@ -530,6 +557,7 @@ export async function render() {
             <span class="hint">${dataIt(r.data_prot)}</span></div>`).join('')}`,
         vai('registro', 'Apri il registro'))}
       ${cardBacheca ? cardBacheca.agenda + cardBacheca.posta : ''}
+      ${cardRespinte}
     </div>
     <p class="hint" style="margin-top:12px">Il cruscotto conta le righe delle tabelle, non tiene una lista sua:
       un click porta sempre sulla pratica vera. Le pratiche chiuse e scartate non compaiono.</p>`;
@@ -542,6 +570,35 @@ export async function render() {
     if (error) { b.disabled = false; b.textContent = '🔄 Aggiorna adesso'; return toast('Aggiornamento non riuscito: ' + error.message, 'err'); }
     const err = data?.errori?.length ? ` (${data.errori.length} avvisi)` : '';
     toast(`Aggiornata: ${data?.scritte_mail ?? 0} mail, ${data?.scritti_eventi ?? 0} eventi${err}.`, 'ok');
+    render();
+  }));
+
+  /* «Cerca adesso» dei verbali non consegnati: rilegge i rapporti di
+     mancata consegna. È la stessa funzione del giro quotidiano, chiamata
+     con l'accesso della segreteria: non scrive altro e non manda mail
+     che non manderebbe da sola. */
+  $('#hm-respinte-cerca')?.addEventListener('click', async (ev) => {
+    const b = ev.currentTarget; b.disabled = true; b.textContent = '⏳ Cerco i rimbalzi…';
+    const { data, error } = await sb.functions.invoke('mail-respinte', { body: {} });
+    if (error || data?.error) {
+      b.disabled = false; b.textContent = '🔄 Cerca adesso';
+      return toast('Non riuscito: ' + (data?.error || error.message), 'err');
+    }
+    toast(`Esaminati ${data.esaminati} rapporti: ${data.nuovi} nuovi, ${data.avvisati} tecnici avvisati.`
+      + (data.errori?.length ? ` ⚠ ${data.errori.length} avvisi.` : ''), data.errori?.length ? 'err' : 'ok');
+    render();
+  });
+  host.querySelectorAll('[data-respinta]').forEach((r) => r.addEventListener('click', async () => {
+    const id = Number(r.dataset.respinta);
+    const riga = respinte.find((x) => x.id === id);
+    if (!riga) return;
+    const che = prompt(`Indirizzo respinto: ${riga.destinatario}\n${riga.nr_verbale ? `Verbale ${riga.nr_verbale}\n` : ''}${riga.motivo || ''}\n\n`
+      + 'Scrivi come si chiude (l\'indirizzo corretto, o perché non serviva). Lascia vuoto per non chiudere.');
+    if (!che || !che.trim()) return;
+    const stato = confirm('Chiudere come RISOLTA?\nOK = risolta (indirizzo sistemato) · Annulla = ignorata') ? 'risolta' : 'ignorata';
+    const { error } = await sb.rpc('s_mail_respinta_chiudi', { p_id: id, p_stato: stato, p_note: che.trim() });
+    if (error) return toast(error.message, 'err');
+    toast('Rimbalzo chiuso.', 'ok');
     render();
   }));
 

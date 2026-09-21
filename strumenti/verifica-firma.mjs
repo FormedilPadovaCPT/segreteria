@@ -29,12 +29,17 @@ const sincronizza = process.argv.includes('--sincronizza');
 /* Le funzioni che compongono posta con la firma dell'ufficio: ognuna ha
    la sua copia di firma.js e la sua firma-logo.js che scarica il logo.
    avviso-pagamento aggiunta il 16/09/2026. */
-const FUNZIONI_POSTA = ['send-protocollo', 'avviso-pagamento', 'avviso-approvazione'];
-const COPIE = FUNZIONI_POSTA.flatMap((fn) => ['firma.js'].map((f) => ({
-  orig: join(radice, 'js', f),
-  copia: join(radice, 'supabase', 'functions', fn, f),
-  nome: `${fn}/${f}`,
-})));
+const FUNZIONI_POSTA = ['send-protocollo', 'avviso-pagamento', 'avviso-approvazione', 'mail-respinte'];
+/* Altri moduli puri che una funzione tiene in copia, per poterli provare con
+   `node --test` senza Deno: la lettura dei rapporti di mancata consegna
+   (21/09/2026). Si allineano allo stesso modo. */
+const ALTRE_COPIE = [{ fn: 'mail-respinte', f: 'mail-respinte-lettura.js' }];
+const COPIE = FUNZIONI_POSTA.map((fn) => ({ fn, f: 'firma.js' })).concat(ALTRE_COPIE)
+  .map(({ fn, f }) => ({
+    orig: join(radice, 'js', f),
+    copia: join(radice, 'supabase', 'functions', fn, f),
+    nome: `${fn}/${f}`,
+  }));
 
 let errori = 0;
 const ko = (m) => { errori++; console.error('✗ ' + m); };
