@@ -468,3 +468,50 @@ chiude o si **riapre**.
 Chiuse il 21/09/2026 su indicazione dell'utente: **150 attività** 2022-2026
 di Camuffo (42), Caon (29) e De Marco (79), per 7.200 € — arretrati Access
 senza nulla da fatturare.
+
+
+## Verbali non consegnati: il rimbalzo della posta (21/09/2026)
+
+Chiesto dall'utente: «le nuove visite dei tecnici che partiranno col nuovo
+gestionale partiranno da cptpd@did.formedilpadova.it e se qualche mail fosse
+sbagliata il ritorno lo vedo solo io; servirebbe una funzione che una volta al
+giorno controllasse se c'è qualche mail di avviso che non è stato possibile
+inviare […] e che avvisasse il tecnico».
+
+⚠️ **Il problema non era la mancanza di un elenco: era che il rimbalzo non lo
+vedeva nessun automatismo.** Il verbale parte da `cptpd@did.formedilpadova.it`
+(`send-verbale`) e il rapporto di mancata consegna torna in quella casella; il
+cruscotto «Posta e agenda» non lo mostra, perché nelle regole di
+`bacheca-giornata` `mailer-daemon` sta fra i mittenti da **ignorare**. È la
+regola del 04/09 applicata al ritorno: *un canale che non si sorveglia è un
+canale di cui non si sa niente*.
+
+**Ogni giorno alle 05:45 UTC** (07:45 a Roma, prima di `bacheca-giornata`) il
+job pg_cron `mail-respinte-giro` chiama la edge function `mail-respinte`, che
+legge in sola lettura i rapporti degli ultimi 7 giorni, ne ricava indirizzo
+fallito, codice di errore e numero di verbale, aggancia visita e tecnico e
+scrive in `s_mail_respinte`. Per i rifiuti **permanenti (5.x.x)** manda al
+tecnico una mail e fa partire la notifica sul telefono; i **rinvii (4.x.x)**
+si registrano e basta.
+
+| File | A cosa serve |
+|---|---|
+| `js/mail-respinte-lettura.js` | La lettura del rapporto, modulo **puro** e quindi provabile: decodifica dell'oggetto (RFC 2047), estrazione degli indirizzi falliti, riconoscimento del numero di verbale. Copia nella funzione, allineata da `npm run firma-sync` |
+| `supabase/functions/mail-respinte/` | Il giro: Gmail in sola lettura, aggancio, scrittura, avviso al tecnico |
+| `supabase/sql/2026_09_21_mail_respinte.sql` | `s_mail_respinte`, RLS, `s_mail_respinta_chiudi`, `push_da_mail_respinte`, il job quotidiano |
+| `gestionale-visite/mail-respinte-tec.js` | Il riquadro del tecnico in Dashboard (altro repo) |
+
+**Tre cose che il codice tiene ferme, e il perché:**
+
+1. **L'oggetto di una mail è codificato.** `=?UTF-8?Q?…?=`: senza decodificarlo
+   il numero di verbale resta dentro la codifica e non si aggancia niente —
+   visto alla prima prova sulla casella vera, dove l'oggetto arrivava tutto in
+   Q-encoding.
+2. **Un rapporto può elencare più indirizzi falliti**, perché il verbale parte
+   a committente, RL, CSP, CSE e imprese in una mail sola. La chiave è
+   `(rapporto, indirizzo)`: con il solo id del messaggio il secondo indirizzo
+   sarebbe sparito in silenzio.
+3. **L'indirizzo non si corregge da solo.** Un rimbalzo dice che quella casella
+   ha rifiutato, non quale sia l'indirizzo giusto: lo sistema il tecnico, che in
+   cantiere c'è stato (regola d'oro 1). E la riga non si cancella — è la prova
+   che quel verbale non è arrivato: si chiude con una nota.
