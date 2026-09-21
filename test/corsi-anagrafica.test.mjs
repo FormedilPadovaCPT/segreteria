@@ -12,7 +12,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  datiMancantiAttestato, riassuntoMancanti, testoRichiestaDati, destinatariPossibili,
+  datiMancantiAttestato, riassuntoMancanti, raggruppaRichieste, testoRichiestaDati, destinatariPossibili,
 } from '../js/corsi-anagrafica.js';
 
 const CORSO = { titolo: 'Ponteggi — aggiornamento', tipo_attestato: 'frequenza' };
@@ -96,4 +96,65 @@ test('i destinatari si propongono senza doppioni e senza indirizzi rotti', () =>
     { nominativo: 'Bianchi Ada', impresa_txt: 'EDILE SRL', email_iscrizione: 'non-una-mail', email_persona: 'ada@esempio.example' },
   ]);
   assert.deepEqual(d.map((x) => x.email), ['ufficio@edile.example', 'ada@esempio.example']);
+});
+
+/* ── i due modi (21/09/2026, precisato dall'utente) ──
+   Non sempre i corsisti sono della stessa impresa, e qualcuno è un libero
+   professionista: dev'essere possibile sia una mail all'ufficio che una a
+   testa, e non è la stessa mail a un indirizzo diverso — cambia il soggetto. */
+
+const R = [
+  { id: 1, nominativo: 'Rossi Mario', impresa_txt: 'EDILE SRL', impresa_id: 'IMP1',
+    mancanti: [{ etichetta: 'Codice fiscale' }], daCompletare: [],
+    email_impresa: 'ufficio@edile.example', email_iscrizione: 'mario@esempio.example' },
+  { id: 2, nominativo: 'Verdi Ugo', impresa_txt: 'EDILE SRL', impresa_id: 'IMP1',
+    mancanti: [{ etichetta: 'Luogo di nascita' }], daCompletare: [],
+    email_impresa: 'ufficio@edile.example' },
+  { id: 3, nominativo: 'Bianchi Ada', impresa_txt: '', impresa_id: '',
+    mancanti: [{ etichetta: 'Luogo di nascita' }, { etichetta: 'Data di nascita' }], daCompletare: [],
+    email_iscrizione: 'ada@esempio.example' },
+];
+
+test('per impresa: chi lavora insieme sta in un gruppo solo', () => {
+  const g = raggruppaRichieste(R, 'impresa');
+  assert.deepEqual(g.map((x) => [x.etichetta, x.righe.length]), [['EDILE SRL', 2], ['Bianchi Ada', 1]]);
+});
+
+test('chi non ha impresa non finisce in un mucchio con gli altri senza impresa', () => {
+  const g = raggruppaRichieste([R[2], { ...R[2], id: 4, nominativo: 'Neri Ivo' }], 'impresa');
+  assert.equal(g.length, 2, 'due liberi professionisti non si scrivono a vicenda i propri dati');
+});
+
+test('per persona: una bozza a testa', () => {
+  const g = raggruppaRichieste(R, 'persona');
+  assert.deepEqual(g.map((x) => x.etichetta), ['Rossi Mario', 'Verdi Ugo', 'Bianchi Ada']);
+  assert.ok(g.every((x) => x.righe.length === 1));
+});
+
+test('alla persona si dà del lei e si chiedono i SUOI dati, non «i partecipanti che avete iscritto»', () => {
+  const t = testoRichiestaDati({ corso: CORSO, righe: [R[2]], modo: 'persona' });
+  assert.match(t, /Gentile Bianchi Ada,/);
+  assert.match(t, /il suo attestato/);
+  assert.match(t, /ci mancano questi dati:/);
+  assert.match(t, /^- Luogo di nascita$/m, 'l\u2019elenco non ripete il nome: sta parlando con lei');
+  assert.match(t, /Pu\u00f2 rispondere/);
+  assert.ok(!/avete iscritto/.test(t), 'a un libero professionista quella frase non vuol dire niente');
+});
+
+test('con un dato solo la mail alla persona va al singolare', () => {
+  const t = testoRichiestaDati({ corso: CORSO, righe: [R[0]], modo: 'persona' });
+  assert.match(t, /ci manca questo dato:/);
+});
+
+test('l\u2019ordine degli indirizzi segue il modo', () => {
+  assert.deepEqual(destinatariPossibili([R[0]], 'impresa').map((x) => x.email),
+    ['ufficio@edile.example', 'mario@esempio.example']);
+  assert.deepEqual(destinatariPossibili([R[0]], 'persona').map((x) => x.email),
+    ['mario@esempio.example', 'ufficio@edile.example'],
+    'scrivendo alla persona il suo indirizzo viene prima di quello dell\u2019ufficio');
+});
+
+test('si sa quando di una persona conosciamo solo l\u2019indirizzo dell\u2019impresa', () => {
+  const d = destinatariPossibili([R[1]], 'persona');
+  assert.deepEqual(d.map((x) => x.campo), ['email_impresa'], 'la maschera lo dichiara invece di farlo passare per suo');
 });

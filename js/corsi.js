@@ -32,7 +32,7 @@ import { datiIscr, sezioneIscr, collegaIscr } from './corsi-iscrizioni.js';
 /* le regole che decidono un compenso stanno a parte, per essere provabili */
 import { forfait, calcolaCorrispettivo, proponiTariffa, variazioneNote } from './corsi-compensi.js';
 import { orarioGiornata } from './corsi-orari.js';
-import { datiMancantiAttestato, riassuntoMancanti, testoRichiestaDati, destinatariPossibili } from './corsi-anagrafica.js';
+import { datiMancantiAttestato, riassuntoMancanti, raggruppaRichieste, testoRichiestaDati, destinatariPossibili } from './corsi-anagrafica.js';
 
 let corsi = [];
 let progetti = [];
@@ -722,13 +722,20 @@ Registro lo stesso una fattura qui?`)) return;
    Chiesto dall'utente: «sarebbe utile predisporre una mail con i dati che
    necessitano, così la segreteria può inviarla e completare».
 
-   Una mail PER IMPRESA, non per persona: chi la riceve ha comunque un
-   elenco da girare a qualcuno, e dieci mail separate nessuno le legge.
-   Gli indirizzi si PROPONGONO (quello dato all'iscrizione, quello della
-   persona, quello dell'impresa) e restano modificabili: chi scrive lo
-   decide la segreteria.
+   ⚠️ DUE MODI, e si scelgono (precisato dall'utente lo stesso giorno:
+   «deve essere possibile sia un'opzione che l'altra, perché non sempre
+   son persone della stessa impresa oppure sono liberi professionisti»):
+     · UNA MAIL PER IMPRESA — un elenco solo a chi ha iscritto il
+       gruppo; dieci mail separate allo stesso ufficio non le legge nessuno;
+     · UNA MAIL PER PERSONA — per i liberi professionisti e per chi è
+       venuto per conto suo. Non è la stessa mail a un altro indirizzo:
+       cambia il soggetto, e si chiedono i SUOI dati.
 
-   ⚠️ La bozza si scarica, non parte: è il confine di sempre. */
+   Gli indirizzi si PROPONGONO (iscrizione, persona, impresa) nell'ordine
+   che ha senso per il modo scelto, e restano modificabili: a chi scrivere
+   lo decide la segreteria.
+
+   ⚠️ Le bozze si scaricano, non partono: è il confine di sempre. */
 async function chiediDatiAttestato(c, incompleti, esitoDati, anagDi, impDi) {
   const righe = incompleti.map((i) => ({
     id: i.id, nominativo: i.nominativo, impresa_txt: i.impresa_txt || '', impresa_id: i.impresa_id || '',
@@ -736,62 +743,84 @@ async function chiediDatiAttestato(c, incompleti, esitoDati, anagDi, impDi) {
     email_iscrizione: i.email_iscrizione, email_persona: anagDi[i.persona_id]?.email || anagDi[i.persona_id]?.email2,
     email_impresa: impDi[i.impresa_id]?.email,
   }));
-  /* un gruppo per impresa; chi non ne ha una fa gruppo a sé */
-  const gruppi = new Map();
-  for (const r of righe) {
-    const k = r.impresa_id || r.impresa_txt || `__solo_${r.id}`;
-    if (!gruppi.has(k)) gruppi.set(k, { etichetta: r.impresa_txt || 'Senza impresa indicata', righe: [] });
-    gruppi.get(k).righe.push(r);
-  }
-  const lista = [...gruppi.entries()].map(([k, g], n) => ({ k, n, ...g, dest: destinatariPossibili(g.righe) }));
+  /* se nessuno ha un'impresa, «per impresa» non vuol dire niente:
+     si parte dal modo che in quel corso ha senso */
+  let modo = righe.some((r) => r.impresa_txt || r.impresa_id) ? 'impresa' : 'persona';
 
-  apriDrawer(`Dati mancanti per l'attestato — corso n° ${c.id}`, 'OUT', `
-    <p class="hint" style="margin:0 0 8px">Questi sono i dati che <strong>vanno stampati sull'attestato</strong> e che non risultano.
-      Una bozza per impresa, con l'elenco di chi e di che cosa: la mandi tu da Outlook e poi registri le risposte.</p>
-    ${lista.map((g) => `
-      <div class="dt-doc-riga" style="margin-bottom:10px">
-        <label style="display:flex;gap:8px;align-items:flex-start">
-          <input type="checkbox" data-grp="${g.n}" checked style="margin-top:4px">
-          <span style="flex:1">
-            <strong>${esc(g.etichetta)}</strong> — ${g.righe.length} ${g.righe.length === 1 ? 'persona' : 'persone'}
-            <span class="hint" style="display:block;white-space:normal">${g.righe.map((r) =>
-              `${esc(r.nominativo)}: ${esc([...r.mancanti, ...r.daCompletare].map((x) => x.etichetta).join(', ')) || 'da confermare'}`).join(' · ')}</span>
-            <span style="display:block;margin-top:6px">
-              <input class="inp inp-sm" data-a="${g.n}" style="width:100%" placeholder="A: indirizzo del destinatario"
-                value="${esc(g.dest.map((d) => d.email).join(', '))}">
-              ${g.dest.length ? '' : '<span class="hint">Nessun indirizzo conosciuto per questo gruppo: scrivilo qui.</span>'}
+  const disegna = () => {
+    const lista = raggruppaRichieste(righe, modo).map((g, n) => ({ ...g, n, dest: destinatariPossibili(g.righe, modo) }));
+    $('#drawer-body').innerHTML = `
+      <p class="hint" style="margin:0 0 8px">Questi sono i dati che <strong>vanno stampati sull'attestato</strong> e che non risultano.
+        Le bozze si scaricano: le mandi tu da Outlook e poi registri le risposte.</p>
+      <div class="dt-barra">
+        <div class="seg" id="cd-modo">
+          ${[['impresa', "Una mail per impresa"], ['persona', 'Una mail per persona']].map(([v, l]) =>
+            `<button class="seg-btn ${modo === v ? 'is-active' : ''}" data-val="${v}">${l}</button>`).join('')}
+        </div>
+        <span class="hint">${modo === 'impresa'
+          ? 'Un elenco solo a chi ha iscritto il gruppo.'
+          : 'Una bozza a testa, intestata alla persona: per i liberi professionisti e per chi è venuto per conto suo.'}</span>
+      </div>
+      ${lista.map((g) => `
+        <div class="dt-doc-riga" style="margin-bottom:10px">
+          <label style="display:flex;gap:8px;align-items:flex-start">
+            <input type="checkbox" data-grp="${g.n}" checked style="margin-top:4px">
+            <span style="flex:1">
+              <strong>${esc(g.etichetta)}</strong>${g.righe.length > 1 ? ` — ${g.righe.length} persone` : ''}
+              <span class="hint" style="display:block;white-space:normal">${g.righe.map((r) =>
+                `${esc(r.nominativo)}: ${esc([...r.mancanti, ...r.daCompletare].map((x) => x.etichetta).join(', ')) || 'da confermare'}`).join(' · ')}</span>
+              <span style="display:block;margin-top:6px">
+                <input class="inp inp-sm" data-a="${g.n}" style="width:100%" placeholder="A: indirizzo del destinatario"
+                  value="${esc(g.dest.map((d) => d.email).join(', '))}">
+                ${g.dest.length
+                  ? (modo === 'persona' && g.dest.every((d) => d.campo === 'email_impresa')
+                    ? '<span class="hint">⚠ di questa persona conosciamo solo l\'indirizzo dell\'impresa.</span>' : '')
+                  : '<span class="hint">Nessun indirizzo conosciuto: scrivilo qui.</span>'}
+              </span>
             </span>
-          </span>
-        </label>
-      </div>`).join('')}
-    <div class="field"><label>Righe da aggiungere alla mail (facoltativo)</label><input id="cd-nota" placeholder="es. servono entro venerdì per la consegna degli attestati"></div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
-      <button class="btn btn-primary" id="cd-eml">✉️ Prepara le bozze</button>
-    </div>
-    <p class="hint" style="margin-top:8px">Un gruppo senza indirizzo non produce bozza: l'app non inventa un destinatario.</p>`);
+          </label>
+        </div>`).join('')}
+      <div class="field"><label>Righe da aggiungere alla mail (facoltativo)</label><input id="cd-nota" value="${esc(nota)}" placeholder="es. servono entro venerdì per la consegna degli attestati"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+        <button class="btn btn-primary" id="cd-eml">✉️ Prepara le bozze</button>
+      </div>
+      <p class="hint" style="margin-top:8px">Un gruppo senza indirizzo non produce bozza: l'app non inventa un destinatario.</p>`;
 
-  $('#cd-eml').addEventListener('click', (ev) => {
-    const nota = $('#cd-nota').value.trim();
-    let fatte = 0; const senza = [];
-    for (const g of lista) {
-      if (!$(`[data-grp="${g.n}"]`)?.checked) continue;
-      const a = String($(`[data-a="${g.n}"]`)?.value || '').trim();
-      if (!a) { senza.push(g.etichetta); continue; }
-      const corpo = testoRichiestaDati({ corso: c, righe: g.righe, mittente: FIRMA_SEGRETERIA })
-        + (nota ? `\n\n${nota}` : '');
-      scaricaEml({
-        to: a,
-        oggetto: `Dati mancanti per l'attestato — ${c.titolo || `corso n° ${c.id}`}`,
-        corpo,
-        nomeFile: `dati-attestato-corso-${c.id}-${g.n + 1}.eml`,
-      });
-      fatte += 1;
-    }
-    if (!fatte) return toast('Nessuna bozza: spunta almeno un gruppo e scrivi un destinatario.', 'err');
-    toast(`${fatte} ${fatte === 1 ? 'bozza scaricata' : 'bozze scaricate'}${senza.length ? `; senza destinatario: ${senza.join(', ')}` : ''}.`,
-      senza.length ? 'err' : 'ok');
-    chiudiDrawer();
-  });
+    $('#cd-modo').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-val]');
+      if (!b || b.dataset.val === modo) return;
+      nota = $('#cd-nota')?.value || nota;      /* quello che hai scritto non si perde cambiando modo */
+      modo = b.dataset.val;
+      disegna();
+    });
+
+    $('#cd-eml').addEventListener('click', () => {
+      nota = $('#cd-nota').value.trim();
+      let fatte = 0; const senza = [];
+      for (const g of lista) {
+        if (!$(`[data-grp="${g.n}"]`)?.checked) continue;
+        const a = String($(`[data-a="${g.n}"]`)?.value || '').trim();
+        if (!a) { senza.push(g.etichetta); continue; }
+        const corpo = testoRichiestaDati({ corso: c, righe: g.righe, modo, mittente: FIRMA_SEGRETERIA })
+          + (nota ? `\n\n${nota}` : '');
+        scaricaEml({
+          to: a,
+          oggetto: `Dati mancanti per l'attestato — ${c.titolo || `corso n° ${c.id}`}`,
+          corpo,
+          nomeFile: `dati-attestato-corso-${c.id}-${g.n + 1}.eml`,
+        });
+        fatte += 1;
+      }
+      if (!fatte) return toast('Nessuna bozza: spunta almeno un gruppo e scrivi un destinatario.', 'err');
+      toast(`${fatte} ${fatte === 1 ? 'bozza scaricata' : 'bozze scaricate'}${senza.length ? `; senza destinatario: ${senza.join(', ')}` : ''}.`,
+        senza.length ? 'err' : 'ok');
+      chiudiDrawer();
+    });
+  };
+
+  let nota = '';
+  apriDrawer(`Dati mancanti per l'attestato — corso n° ${c.id}`, 'OUT', '<p class="empty">Un istante…</p>');
+  disegna();
 }
 
 async function generaAttestati(c, giornate, interventi, iscritti, btn, esitoDati = {}) {

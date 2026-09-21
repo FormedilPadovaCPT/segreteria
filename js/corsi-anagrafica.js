@@ -98,46 +98,97 @@ export function riassuntoMancanti(esito) {
   return esito.mancanti.map((c) => c.etichetta.toLowerCase()).join(', ');
 }
 
-/* ── la mail all'impresa (o alla persona) ──
-   Un testo solo per destinatario, con l'elenco di chi e di che
-   cosa: una mail per persona sarebbe una raffica, e chi la riceve
-   ha comunque un elenco da rigirare a qualcuno.
+/* ── A CHI SI SCRIVE: all'impresa o alla persona ──
+   (21/09/2026, precisato dall'utente: «deve essere possibile sia
+   un'opzione che l'altra, perché non sempre son persone della
+   stessa impresa oppure sono liberi professionisti»).
+
+   ⚠️ Non è la stessa mail scritta a due indirizzi diversi: cambia
+   chi è il soggetto. All'impresa si dice «i partecipanti che avete
+   iscritto»; a un libero professionista quella frase non vuol dire
+   niente, e gli si chiedono i SUOI dati. Il modo lo sceglie la
+   segreteria, che sa chi ha davanti. */
+
+/* i gruppi: uno per impresa, oppure uno per persona */
+export function raggruppaRichieste(righe, modo = 'impresa') {
+  const r = righe || [];
+  if (modo === 'persona') {
+    return r.map((x) => ({ chiave: `p${x.id}`, etichetta: x.nominativo, righe: [x], modo }));
+  }
+  const g = new Map();
+  for (const x of r) {
+    /* chi non ha un'impresa fa gruppo a sé anche in modo «impresa»:
+       metterli tutti insieme sotto «senza impresa» scriverebbe a uno
+       dei destinatari l'elenco dei dati di persone che non conosce */
+    const k = x.impresa_id || x.impresa_txt || `__solo_${x.id}`;
+    if (!g.has(k)) g.set(k, { chiave: String(k), etichetta: x.impresa_txt || x.nominativo, righe: [], modo });
+    g.get(k).righe.push(x);
+  }
+  return [...g.values()];
+}
+
+/* ── il testo ──
    ⚠️ Non si chiede il dato «per l'anagrafica»: si dice a che cosa
    serve, perché chi risponde capisca perché vale la pena. */
-export function testoRichiestaDati({ corso, righe, mittente = 'La Segreteria' } = {}) {
+export function testoRichiestaDati({ corso, righe, modo = 'impresa', mittente = 'La Segreteria' } = {}) {
   const r = righe || [];
   const una = r.length === 1;
-  const elenco = r.map((x) => {
-    const che = [...x.mancanti, ...x.daCompletare].map((c) => c.etichetta).join(', ');
-    return `- ${x.nominativo}: ${che || 'dati da confermare'}`;
-  }).join('\n');
-  const titolo = corso?.titolo ? `«${corso.titolo}»` : 'il corso';
+  const titolo = corso?.titolo ? `\u00ab${corso.titolo}\u00bb` : 'il corso';
+  const aPersona = modo === 'persona';
+
+  const elenco = aPersona
+    ? (r[0] ? [...r[0].mancanti, ...(r[0].daCompletare || [])] : []).map((c) => `- ${c.etichetta}`).join('\n')
+    : r.map((x) => {
+      const che = [...x.mancanti, ...(x.daCompletare || [])].map((c) => c.etichetta).join(', ');
+      return `- ${x.nominativo}: ${che || 'dati da confermare'}`;
+    }).join('\n');
+
+  const quanti = r[0] ? r[0].mancanti.length + (r[0].daCompletare || []).length : 0;
+  const apertura = aPersona
+    ? [
+      r[0]?.nominativo ? `Gentile ${r[0].nominativo},` : 'Buongiorno,',
+      '',
+      `per poter rilasciare il suo attestato di ${titolo} ${quanti === 1 ? 'ci manca questo dato' : 'ci mancano questi dati'}:`,
+    ]
+    : [
+      'Buongiorno,',
+      '',
+      una
+        ? `per poter rilasciare l\u2019attestato di ${titolo} ci manca qualche dato del partecipante che avete iscritto:`
+        : `per poter rilasciare gli attestati di ${titolo} ci mancano alcuni dati dei partecipanti che avete iscritto:`,
+    ];
+
   return [
-    'Buongiorno,',
-    '',
-    una
-      ? `per poter rilasciare l’attestato di ${titolo} ci manca qualche dato del partecipante che avete iscritto:`
-      : `per poter rilasciare gli attestati di ${titolo} ci mancano alcuni dati dei partecipanti che avete iscritto:`,
+    ...apertura,
     elenco,
     '',
-    'Sono i dati che vengono stampati sull’attestato: senza, il certificato uscirebbe incompleto.',
-    'Potete rispondere a questa mail indicandoli; li registriamo noi.',
+    'Sono i dati che vengono stampati sull\u2019attestato: senza, il certificato uscirebbe incompleto.',
+    aPersona
+      ? 'Pu\u00f2 rispondere a questa mail indicandoli; li registriamo noi.'
+      : 'Potete rispondere a questa mail indicandoli; li registriamo noi.',
     '',
     'Grazie e cordiali saluti.',
     mittente,
   ].filter((x, i, a) => !(x === '' && a[i - 1] === '')).join('\n');
 }
 
-/* i destinatari che l'app conosce: l'indirizzo dato all'iscrizione,
-   quello dell'anagrafica della persona, quello dell'impresa.
+/* ── gli indirizzi che l'app conosce ──
+   L'ordine cambia col modo, e non è un dettaglio: scrivendo a una
+   persona il suo indirizzo viene prima di quello dell'ufficio, e
+   viceversa. Quello dell'impresa resta in coda come ripiego —
+   dichiarato, non nascosto.
    ⚠️ Non si sceglie per conto della segreteria: si propongono. */
-export function destinatariPossibili(righe) {
+export function destinatariPossibili(righe, modo = 'impresa') {
+  const ordine = modo === 'persona'
+    ? ['email_iscrizione', 'email_persona', 'email_impresa']
+    : ['email_impresa', 'email_iscrizione', 'email_persona'];
   const out = new Map();
-  for (const x of righe || []) {
-    for (const e of [x.email_iscrizione, x.email_persona, x.email_impresa]) {
-      const v = String(e || '').trim().toLowerCase();
-      if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v) && !out.has(v)) out.set(v, x.impresa_txt || x.nominativo);
+  for (const campo of ordine) {
+    for (const x of righe || []) {
+      const v = String(x[campo] || '').trim().toLowerCase();
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v) || out.has(v)) continue;
+      out.set(v, { email: v, chi: x.impresa_txt || x.nominativo, campo });
     }
   }
-  return [...out.entries()].map(([email, chi]) => ({ email, chi }));
+  return [...out.values()];
 }
