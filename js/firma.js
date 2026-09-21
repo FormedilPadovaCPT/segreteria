@@ -86,6 +86,7 @@ const esc = (s) => String(s ?? '')
 
 const FONT = "Barlow,'Segoe UI',Arial,Helvetica,sans-serif";
 const ARANCIO = '#E7500F';
+const ARANCIO_SCURO = '#A83A0B';   /* il rilievo dei pulsanti (21/09/2026) */
 const GRIGIO = '#565C66';
 const SCURO = '#3F444C';
 const CHIARO = '#8A9099';
@@ -143,7 +144,7 @@ export function firmaHtml() {
 <td width="552" style="width:552px;padding:18px 0 0 0;">
 <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
 <tr>
-<td bgcolor="${ARANCIO}" style="background-color:${ARANCIO};border-radius:6px;padding:9px 18px;white-space:nowrap;${cella('font-size:13px;line-height:17px;mso-line-height-rule:exactly;font-weight:600;')}">
+<td bgcolor="${ARANCIO}" style="background-color:${ARANCIO};border-radius:6px;border-bottom:3px solid ${ARANCIO_SCURO};padding:9px 18px;white-space:nowrap;${cella('font-size:13px;line-height:17px;mso-line-height-rule:exactly;font-weight:600;')}">
 <a href="${esc(d.serviziUrl)}" style="display:block;color:#FFFFFF;text-decoration:none;font-weight:600;white-space:nowrap;">Vai ai Servizi &nbsp;&rsaquo;</a>
 </td>
 <td style="padding-left:14px;${cella(`font-size:13px;line-height:18px;mso-line-height-rule:exactly;color:${SCURO};`)}"><span style="font-weight:700;letter-spacing:0.6px;text-transform:uppercase;color:${GRIGIO};">App Servizi CPT</span> — ${esc(d.serviziTesto)}</td>
@@ -204,7 +205,6 @@ export function testoInHtml(testo) {
    gestionale visite (Deno, altro repo, non può importare da qui): se
    cambia qui, va cambiata anche lì.
    ══════════════════════════════════════════════════════════════════ */
-const ARANCIO_SCURO = '#A83A0B';
 const CARTA_AZIONE = '#FAF8F4';
 const BORDO_AZIONE = '#E2DFD6';
 
