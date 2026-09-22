@@ -15,6 +15,10 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const src = readFileSync(new URL('../js/presenze.js', import.meta.url), 'utf8');
+/* il codice senza commenti: i controlli «questa cosa NON deve esserci» vanno
+   fatti qui, o li fa scattare la spiegazione scritta nel commento accanto
+   (successo subito, al primo giro di questo test) */
+const codice = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
 
 /* estrae il contenuto di un array o di una costante dichiarata con const */
 function blocco(nome, aperta, chiusa) {
@@ -79,6 +83,28 @@ test('ogni tipo di richiesta porta la causale con cui finirà in banca ore', () 
     const c = r.match(/causale: '([^']+)'/)[1];
     assert.ok(causali.includes(`'${c}'`), `la causale «${c}» non è in CAUSALI_BASE`);
   }
+});
+
+test('delle ore sindacali si mostra il CONSUMATO, mai un residuo', () => {
+  // Regola dell'utente (22/09/2026): «sono circa 8 ore mensili ma non è un tetto
+  // fisso, perché possono essere aumentate o usufruite in modo da recuperare
+  // anche le ore non utilizzate da un altro RSU». Il monte è del GRUPPO, non
+  // della persona: un «ore rimaste» sarebbe un numero falso, e nessuno che
+  // arriva dopo deve aggiungerlo credendo di completare il lavoro.
+  assert.match(codice, /usati nel/, 'il riquadro deve parlare di ore usate');
+  // ⚠️ si vieta il CALCOLO, non la parola: nel riquadro la frase «qui non
+  // compare nessun residuo: sarebbe un numero falso» è quella che spiega la
+  // scelta a chi guarda, e deve poter restare (ci è inciampato il primo giro
+  // di questo test).
+  assert.doesNotMatch(codice, /(const|let|var)\s+\w*residu/i, 'non si calcola un residuo di ore sindacali');
+  assert.doesNotMatch(codice, /\bresidu\w*\s*=[^=]/i, 'non si assegna un residuo di ore sindacali');
+  assert.doesNotMatch(codice, /(const|let|var)\s+\w*(rimast|rimanent)/i, 'non si calcolano ore rimanenti');
+  // il riferimento mensile arriva da s_config, non è scritto nel codice
+  assert.match(codice, /presenze_rsu_ore_mensili_indicative/);
+  assert.doesNotMatch(codice, /const\s+ORE_RSU_MENSILI\s*=\s*8/, 'il riferimento non si cabla nel codice');
+  // e dev'essere dichiarato come indicativo
+  assert.match(codice, /Riferimento indicativo/);
+  assert.match(codice, /Non è un tetto/);
 });
 
 test('la generazione delle righe usa la causale del tipo, non un elenco a parte', () => {

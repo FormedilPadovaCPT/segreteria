@@ -62,6 +62,12 @@ const etichettaMonte = (m) => (MONTI.find((x) => x.monte === m)?.etichetta || m 
 /* I monti sindacali, contati a parte l'uno dall'altro nella scheda Ferie */
 const MONTI_SINDACALI = ['permessi_rsu', 'permessi_sindacali'];
 const causaliDelMonte = (m) => TIPI_RICHIESTA.filter((x) => x.monte === m).map((x) => x.causale);
+/* mesi già cominciati dell'anno: serve al solo confronto INDICATIVO col
+   riferimento di 8 ore al mese. ⚠️ Non è il calcolo di un residuo, e non deve
+   diventarlo: il monte RSU non è un tetto individuale — può essere aumentato e
+   si attinge anche alle ore non usate dagli altri RSU (regola dell'utente,
+   22/09/2026). Un «ore rimaste» qui sarebbe un numero falso. */
+const mesiTrascorsi = (anno) => (anno === new Date().getFullYear() ? new Date().getMonth() + 1 : 12);
 const AUT = {
   da_richiedere: ['dt-senzadata', 'da richiedere'],
   richiesta: ['dt-senzadata', 'dal Direttore'],
@@ -127,7 +133,8 @@ const totDaOrari = (e1, u1, e2, u2) => {
 
 async function caricaBase() {
   const [{ data: cfg }, { data: dd }] = await Promise.all([
-    sb.from('s_config').select('chiave, valore').in('chiave', ['direttore_email', 'direttore_nome', 'direttore_firma_id']),
+    sb.from('s_config').select('chiave, valore').in('chiave', ['direttore_email', 'direttore_nome', 'direttore_firma_id',
+      'presenze_rsu_ore_mensili_indicative', 'presenze_rsu_nota_monte']),
     sb.from('s_ferie_richieste').select('dipendente'),
   ]);
   conf = Object.fromEntries((cfg || []).map((r) => [r.chiave, r.valore]));
@@ -559,6 +566,13 @@ async function renderFerie(hostArg) {
       <p class="hint" style="margin:4px 0 0">Ore di ${esc(dipendente)}, contate dalle righe di banca ore.
         I <strong>permessi RSU</strong> e i <strong>permessi sindacali</strong> sono due monti distinti, e
         nessuno dei due scala i permessi retribuiti del contratto.</p>
+      ${conf.presenze_rsu_ore_mensili_indicative ? `<p class="hint" style="margin:4px 0 0">
+        <strong>Riferimento indicativo</strong>: circa ${esc(conf.presenze_rsu_ore_mensili_indicative)} ore al mese
+        per i permessi RSU — ${mesiTrascorsi(annoOra)} mes${mesiTrascorsi(annoOra) === 1 ? 'e' : 'i'} dell'anno
+        farebbero <strong>~${mm2hm(Number(conf.presenze_rsu_ore_mensili_indicative) * 60 * mesiTrascorsi(annoOra))}</strong>.
+        ⚠️ <strong>Non è un tetto</strong>: le ore possono essere aumentate e si possono usare quelle non
+        utilizzate dagli altri RSU — il monte è del gruppo, non della persona. Per questo qui non compare
+        nessun «residuo»: sarebbe un numero falso.</p>` : ''}
     </div>` : ''}
     <div class="dt-barra">
       <div class="seg" id="fe-f">
