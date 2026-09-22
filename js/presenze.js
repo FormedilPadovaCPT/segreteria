@@ -30,7 +30,34 @@ import { MESI, mm2hm } from './presenze-doc.js';
 
 const CARTELLA_FOGLI = '2_AREE/Amministrazione/personale/fogli_presenze';
 const CARTELLA_RICHIESTE = '2_AREE/Amministrazione/personale/richieste_ferie_permessi';
-const CAUSALI_BASE = ['Ore supplementari', 'Recupero', 'Ferie', 'Permesso', 'Malattia', 'Riunione', 'Formazione', 'Permesso sindacale RSU', 'Festività'];
+/* Le causali sono quelle che l'ufficio usa DAVVERO: l'elenco ricalca i valori
+   già presenti nello storico Access di s_presenze_extra, scritti identici.
+   ⚠️ «Riunione» è la riunione di lavoro, «Riunione sindacale» è un'altra cosa e
+   scala il monte RSU: non si accorpano (chiesto dall'utente il 22/09/2026). */
+const CAUSALI_BASE = ['Ore supplementari', 'Recupero', 'Ferie', 'Permesso', 'Malattia', 'Riunione', 'Formazione',
+  'Permesso sindacale RSU', 'Riunione sindacale', 'Permessi legge 104/92', 'Festività'];
+
+/* I tipi di richiesta e il monte da cui attingono. Le due voci sindacali
+   scalano il monte RSU, MAI i permessi retribuiti del contratto. */
+const TIPI_RICHIESTA = [
+  { tipo: 'ferie', etichetta: 'Ferie', monte: 'ferie', causale: 'Ferie' },
+  { tipo: 'permesso', etichetta: 'Permesso', monte: 'permessi', causale: 'Permesso' },
+  { tipo: 'permesso_rsu', etichetta: 'Permesso sindacale RSU', monte: 'permessi_rsu', causale: 'Permesso sindacale RSU' },
+  { tipo: 'riunione_sindacale', etichetta: 'Riunione sindacale', monte: 'permessi_rsu', causale: 'Riunione sindacale' },
+  { tipo: 'legge104', etichetta: 'Permesso legge 104/92', monte: 'legge104', causale: 'Permessi legge 104/92' },
+  { tipo: 'recupero', etichetta: 'Recupero', monte: 'banca_ore', causale: 'Recupero' },
+];
+const MONTI = [
+  { monte: 'ferie', etichetta: 'Ferie' },
+  { monte: 'permessi', etichetta: 'Permessi retribuiti (contratto)' },
+  { monte: 'permessi_rsu', etichetta: 'Permessi sindacali RSU' },
+  { monte: 'legge104', etichetta: 'Permessi legge 104/92' },
+  { monte: 'banca_ore', etichetta: 'Banca ore (recupero)' },
+];
+const tipoRic = (t) => TIPI_RICHIESTA.find((x) => x.tipo === t) || TIPI_RICHIESTA[0];
+const etichettaMonte = (m) => (MONTI.find((x) => x.monte === m)?.etichetta || m || 'ferie');
+/* le causali che attingono al monte RSU: serve al conteggio dell'anno */
+const CAUSALI_RSU = TIPI_RICHIESTA.filter((x) => x.monte === 'permessi_rsu').map((x) => x.causale);
 const AUT = {
   da_richiedere: ['dt-senzadata', 'da richiedere'],
   richiesta: ['dt-senzadata', 'dal Direttore'],
@@ -497,7 +524,29 @@ async function renderFerie(hostArg) {
     ? richieste.filter((r) => ['da_richiedere', 'richiesta'].includes(r.aut_stato))
     : richieste;
 
+  /* Ore sindacali RSU consumate nell'anno in corso dal dipendente selezionato.
+     Si contano dalle righe VERE di banca ore, non dalle richieste: una richiesta
+     approvata ma non ancora generata non ha scalato niente. ⚠️ Non c'è un tetto
+     annuo perché il monte contrattuale non è agli atti: si mostra il consumato,
+     non il residuo (vedi scadenze_ufficio). */
+  const annoOra = new Date().getFullYear();
+  const { data: righeRsu } = await sb.from('s_presenze_extra')
+    .select('data, causale, ore_min')
+    .eq('dipendente', dipendente)
+    .in('causale', CAUSALI_RSU)
+    .gte('data', `${annoOra}-01-01`).lte('data', `${annoOra}-12-31`);
+  const rsuTot = (righeRsu || []).reduce((s, x) => s + (x.ore_min || 0), 0);
+  const rsuPerCausale = {};
+  for (const x of (righeRsu || [])) rsuPerCausale[x.causale] = (rsuPerCausale[x.causale] || 0) + (x.ore_min || 0);
+
   host.innerHTML = `
+    ${rsuTot ? `<div class="dt-quadro" style="margin-bottom:10px">
+      <div class="dt-quadro-riga"><span class="dt-quadro-req">Permessi sindacali RSU usati nel ${annoOra}</span>
+        <span class="dt-cella"><strong>${mm2hm(rsuTot)}</strong></span></div>
+      <p class="hint" style="margin:4px 0 0">${Object.entries(rsuPerCausale)
+        .map(([c, m]) => `${esc(c)}: ${mm2hm(m)}`).join(' · ')} — contate dalle righe di banca ore
+        di ${esc(dipendente)}. Non scalano i permessi retribuiti del contratto.</p>
+    </div>` : ''}
     <div class="dt-barra">
       <div class="seg" id="fe-f">
         ${[['aperte', 'In attesa'], ['tutte', 'Tutte']].map(([v, l]) =>
@@ -542,22 +591,23 @@ function formRichiesta() {
       <div class="field"><label>Dipendente</label>
         <select id="fr-dip">${dipendenti.map((d) => `<option ${d === dipendente ? 'selected' : ''}>${esc(d)}</option>`).join('')}</select></div>
       <div class="field"><label>Tipo *</label>
-        <select id="fr-tipo"><option value="ferie">Ferie</option><option value="permesso">Permesso</option><option value="recupero">Recupero</option></select></div>
+        <select id="fr-tipo">${TIPI_RICHIESTA.map((t) => `<option value="${t.tipo}">${esc(t.etichetta)}</option>`).join('')}</select></div>
       <div class="field"><label>Data inizio *</label><input type="date" id="fr-da" value="${oggiIso()}"></div>
       <div class="field"><label>Data fine</label><input type="date" id="fr-a"></div>
       <div class="field"><label>Dalle ore</label><input type="time" id="fr-dalle"></div>
       <div class="field"><label>Alle ore</label><input type="time" id="fr-alle"></div>
       <div class="field"><label>Totale ore</label><input type="number" step="0.5" id="fr-ore" placeholder="es. 8"></div>
       <div class="field"><label>Monte ore</label>
-        <select id="fr-monte"><option value="ferie">Ferie</option><option value="permessi">Permessi retribuiti</option><option value="banca_ore">Banca ore (recupero)</option></select></div>
+        <select id="fr-monte">${MONTI.map((m) => `<option value="${m.monte}">${esc(m.etichetta)}</option>`).join('')}</select></div>
     </div>
     <div class="field" style="margin-top:8px"><label>Note (facoltative)</label><input id="fr-motivo"></div>
     <button class="btn btn-primary" id="fr-crea" style="margin-top:10px">Crea la richiesta</button>`);
 
   $('#fr-tipo').addEventListener('change', () => {
-    const t = $('#fr-tipo').value;
-    /* il recupero attinge alla BANCA ORE, mai ai monti del contratto */
-    $('#fr-monte').value = t === 'permesso' ? 'permessi' : t === 'recupero' ? 'banca_ore' : 'ferie';
+    /* ogni tipo ha il suo monte: il recupero attinge alla BANCA ORE e le due voci
+       sindacali al monte RSU, mai ai permessi retribuiti del contratto. Resta
+       modificabile a mano per i casi che non rientrano. */
+    $('#fr-monte').value = tipoRic($('#fr-tipo').value).monte;
   });
   $('#fr-crea').addEventListener('click', async (ev) => {
     if (!$('#fr-da').value) return toast('Serve la data di inizio.', 'err');
@@ -603,7 +653,7 @@ export async function apriRichiesta(id) {
     </div>
     <div class="dt-doc-riga"><strong>Periodo:</strong> ${dataIt(r.data_inizio)}${r.data_fine && r.data_fine !== r.data_inizio ? ' → ' + dataIt(r.data_fine) : ''}
       ${r.ora_dalle ? ` — dalle ${hm(r.ora_dalle)} alle ${hm(r.ora_alle)}` : ''}</div>
-    <div class="dt-doc-riga"><strong>Ore richieste:</strong> ${r.ore ?? '—'} — monte ${esc(r.monte === 'banca_ore' ? 'banca ore' : (r.monte || 'ferie'))}</div>
+    <div class="dt-doc-riga"><strong>Ore richieste:</strong> ${r.ore ?? '—'} — scalate da: <strong>${esc(etichettaMonte(r.monte))}</strong></div>
     ${r.motivo ? `<div class="dt-doc-riga"><strong>Note:</strong> ${esc(r.motivo)}</div>` : ''}
     ${r.aut_note ? `<div class="dt-doc-riga"><strong>Note del Direttore:</strong> ${esc(r.aut_note)}</div>` : ''}
 
@@ -763,7 +813,9 @@ async function generaRighe(r, btn) {
     if (dow !== 0 && dow !== 6) giorni.push(d.toISOString().slice(0, 10));
   }
   if (!giorni.length) return toast('Nessun giorno feriale nel periodo.', 'err');
-  const causale = r.tipo === 'ferie' ? 'Ferie' : r.tipo === 'permesso' ? 'Permesso' : 'Recupero';
+  /* la causale scritta in banca ore è quella del tipo, identica ai valori che
+     l'ufficio usa da sempre: è il testo su cui si contano i monti (RSU compreso) */
+  const causale = tipoRic(r.tipo).causale;
   const orePerGiorno = r.ore && giorni.length ? Math.round((Number(r.ore) * 60) / giorni.length) : 480;
   if (!confirm(`Creo ${giorni.length} giorni di ${causale} (${mm2hm(orePerGiorno)} ciascuno) in presenze e banca ore?`)) return;
   attendi(btn, true, 'Creo le righe…');
