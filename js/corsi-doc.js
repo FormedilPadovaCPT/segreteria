@@ -378,6 +378,17 @@ export async function pdfRegistro(corso, giornate, interventi, iscritti, conf, q
     .sort((a, b) => a.nominativo.localeCompare(b.nominativo, 'it', { numeric: true }));
   const docentiDi = (g) => interventi.filter((x) => x.giornata_id === g.id && QUALITA_DOCENTE.includes(x.qualita));
   const docentiUnici = [...new Map(interventi.filter((x) => QUALITA_DOCENTE.includes(x.qualita)).map((x) => [nome(x.nominativo), x])).values()];
+  /* ⚠️ La qualità si STAMPA, non si dà per scontata (22/09/2026, segnalato
+     dall'utente): chi interviene come «relatore» o «codocente» non è un
+     docente, e il registro che li chiama tutti così dice una cosa falsa —
+     sul foglio che poi si firma e si archivia. L'intestazione segue le
+     qualità che ci sono davvero. */
+  const qual = (x) => (x.qualita ? x.qualita.charAt(0).toUpperCase() + x.qualita.slice(1) : 'Docente');
+  const PLURALE = { docente: 'DOCENTI', codocente: 'CODOCENTI', relatore: 'RELATORI' };
+  const qualitaPresenti = [...new Set(docentiUnici.map((x) => x.qualita || 'docente'))];
+  const titoloDocenti = qualitaPresenti.length === 1
+    ? (PLURALE[qualitaPresenti[0]] || 'DOCENTI')
+    : 'DOCENTI E RELATORI';
 
   /* ── copertina ── */
   let pg = k.pagina();
@@ -427,12 +438,14 @@ export async function pdfRegistro(corso, giornate, interventi, iscritti, conf, q
   /* docenti a sinistra, responsabili e partecipanti a destra */
   const xR = X0 + Wc * 0.5;
   let yl = y;
-  T(pg, 'DOCENTI', X0, yl, 7.5, F.r, C.tenue, { sp: 1.4 });
+  T(pg, titoloDocenti, X0, yl, 7.5, F.r, C.tenue, { sp: 1.4 });
   yl -= 18;
   const mostrati = docentiUnici.slice(0, 5);
   for (const it of mostrati) {
     T(pg, cut(F.b, 13.5, it.nominativo, xR - X0 - 12), X0, yl, 13.5, F.b, C.grigio);
-    T(pg, cut(F.r, 8, it.materia || '', xR - X0 - 16), X0, yl - 12, 8, F.r, C.tenue);
+    /* la qualità prima della materia: «Relatore · Nuova App» */
+    const sotto = [qual(it), it.materia || ''].filter(Boolean).join('  ·  ');
+    T(pg, cut(F.r, 8, sotto, xR - X0 - 16), X0, yl - 12, 8, F.r, C.tenue);
     yl -= 33;
   }
   if (docentiUnici.length > mostrati.length) T(pg, `e altri ${docentiUnici.length - mostrati.length}`, X0, yl + 8, 8.5, F.i, C.tenue);
@@ -481,14 +494,19 @@ export async function pdfRegistro(corso, giornate, interventi, iscritti, conf, q
     const lista = docentiDi(g);
     if (lista.length) {
       const gap = 20, cw = (Wc - gap) / 2;
-      T(pg, 'DOCENTI DELLA GIORNATA', X0, y, 7, F.r, C.tenue, { sp: 1.4 });
+      const qualitaGiornata = [...new Set(lista.map((x) => x.qualita || 'docente'))];
+      T(pg, `${qualitaGiornata.length === 1 ? (PLURALE[qualitaGiornata[0]] || 'DOCENTI') : 'DOCENTI E RELATORI'} DELLA GIORNATA`,
+        X0, y, 7, F.r, C.tenue, { sp: 1.4 });
       y -= 16;
       for (let i = 0; i < lista.length; i += 2) {
         if (y - 56 < FONDO + 40) { pg = k.pagina(); y = testata(g, true); }
         lista.slice(i, i + 2).forEach((it, j) => {
           const x = X0 + j * (cw + gap);
           T(pg, cut(F.b, 10.5, it.nominativo, cw), x, y, 10.5, F.b, C.grigio);
-          T(pg, cut(F.r, 7.5, `${fascia(it.dalle, it.alle)}  ·  ${it.materia || ''}`, cw), x, y - 11, 7.5, F.r, C.tenue);
+          /* qualità sempre in chiaro accanto all'orario: chi firma questa riga
+             deve vedere scritto a che titolo è intervenuto */
+          T(pg, cut(F.r, 7.5, [qual(it), fascia(it.dalle, it.alle), it.materia || ''].filter(Boolean).join('  ·  '), cw),
+            x, y - 11, 7.5, F.r, C.tenue);
           if (it.argomenti) T(pg, cut(F.i, 7.5, it.argomenti, cw), x, y - 21, 7.5, F.i, C.grigio);
           T(pg, 'Firma', x, y - 40, 6.5, F.r, C.tenue);
           linea(pg, x + 24, y - 40, x + cw, y - 40, C.grigio, 0.7);
