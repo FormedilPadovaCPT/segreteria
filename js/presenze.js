@@ -37,13 +37,15 @@ const CARTELLA_RICHIESTE = '2_AREE/Amministrazione/personale/richieste_ferie_per
 const CAUSALI_BASE = ['Ore supplementari', 'Recupero', 'Ferie', 'Permesso', 'Malattia', 'Riunione', 'Formazione',
   'Permesso sindacale RSU', 'Riunione sindacale', 'Permessi legge 104/92', 'Festività'];
 
-/* I tipi di richiesta e il monte da cui attingono. Le due voci sindacali
-   scalano il monte RSU, MAI i permessi retribuiti del contratto. */
+/* I tipi di richiesta e il monte da cui attingono.
+   ⚠️ I DUE MONTI SINDACALI SONO DISTINTI (precisato dall'utente il 22/09/2026):
+   il permesso RSU sta sul suo, la riunione sindacale sui permessi sindacali.
+   Nessuno dei due tocca i permessi retribuiti del contratto. */
 const TIPI_RICHIESTA = [
   { tipo: 'ferie', etichetta: 'Ferie', monte: 'ferie', causale: 'Ferie' },
   { tipo: 'permesso', etichetta: 'Permesso', monte: 'permessi', causale: 'Permesso' },
   { tipo: 'permesso_rsu', etichetta: 'Permesso sindacale RSU', monte: 'permessi_rsu', causale: 'Permesso sindacale RSU' },
-  { tipo: 'riunione_sindacale', etichetta: 'Riunione sindacale', monte: 'permessi_rsu', causale: 'Riunione sindacale' },
+  { tipo: 'riunione_sindacale', etichetta: 'Riunione sindacale', monte: 'permessi_sindacali', causale: 'Riunione sindacale' },
   { tipo: 'legge104', etichetta: 'Permesso legge 104/92', monte: 'legge104', causale: 'Permessi legge 104/92' },
   { tipo: 'recupero', etichetta: 'Recupero', monte: 'banca_ore', causale: 'Recupero' },
 ];
@@ -51,13 +53,15 @@ const MONTI = [
   { monte: 'ferie', etichetta: 'Ferie' },
   { monte: 'permessi', etichetta: 'Permessi retribuiti (contratto)' },
   { monte: 'permessi_rsu', etichetta: 'Permessi sindacali RSU' },
+  { monte: 'permessi_sindacali', etichetta: 'Permessi sindacali' },
   { monte: 'legge104', etichetta: 'Permessi legge 104/92' },
   { monte: 'banca_ore', etichetta: 'Banca ore (recupero)' },
 ];
 const tipoRic = (t) => TIPI_RICHIESTA.find((x) => x.tipo === t) || TIPI_RICHIESTA[0];
 const etichettaMonte = (m) => (MONTI.find((x) => x.monte === m)?.etichetta || m || 'ferie');
-/* le causali che attingono al monte RSU: serve al conteggio dell'anno */
-const CAUSALI_RSU = TIPI_RICHIESTA.filter((x) => x.monte === 'permessi_rsu').map((x) => x.causale);
+/* I monti sindacali, contati a parte l'uno dall'altro nella scheda Ferie */
+const MONTI_SINDACALI = ['permessi_rsu', 'permessi_sindacali'];
+const causaliDelMonte = (m) => TIPI_RICHIESTA.filter((x) => x.monte === m).map((x) => x.causale);
 const AUT = {
   da_richiedere: ['dt-senzadata', 'da richiedere'],
   richiesta: ['dt-senzadata', 'dal Direttore'],
@@ -524,28 +528,37 @@ async function renderFerie(hostArg) {
     ? richieste.filter((r) => ['da_richiedere', 'richiesta'].includes(r.aut_stato))
     : richieste;
 
-  /* Ore sindacali RSU consumate nell'anno in corso dal dipendente selezionato.
-     Si contano dalle righe VERE di banca ore, non dalle richieste: una richiesta
-     approvata ma non ancora generata non ha scalato niente. ⚠️ Non c'è un tetto
-     annuo perché il monte contrattuale non è agli atti: si mostra il consumato,
-     non il residuo (vedi scadenze_ufficio). */
+  /* Ore sindacali consumate nell'anno in corso dal dipendente selezionato, sui
+     DUE monti separati: permessi RSU e permessi sindacali. Si contano dalle
+     righe VERE di banca ore, non dalle richieste: una richiesta approvata ma
+     non ancora generata non ha scalato niente. ⚠️ Non c'è un tetto annuo perché
+     i monti contrattuali non sono agli atti: si mostra il consumato, non il
+     residuo (vedi scadenze_ufficio). */
   const annoOra = new Date().getFullYear();
-  const { data: righeRsu } = await sb.from('s_presenze_extra')
+  const tutteSindacali = MONTI_SINDACALI.flatMap(causaliDelMonte);
+  const { data: righeSind } = await sb.from('s_presenze_extra')
     .select('data, causale, ore_min')
     .eq('dipendente', dipendente)
-    .in('causale', CAUSALI_RSU)
+    .in('causale', tutteSindacali)
     .gte('data', `${annoOra}-01-01`).lte('data', `${annoOra}-12-31`);
-  const rsuTot = (righeRsu || []).reduce((s, x) => s + (x.ore_min || 0), 0);
-  const rsuPerCausale = {};
-  for (const x of (righeRsu || [])) rsuPerCausale[x.causale] = (rsuPerCausale[x.causale] || 0) + (x.ore_min || 0);
+  const perMonte = MONTI_SINDACALI.map((m) => {
+    const cs = causaliDelMonte(m);
+    const righe = (righeSind || []).filter((x) => cs.includes(x.causale));
+    const dettaglio = {};
+    for (const x of righe) dettaglio[x.causale] = (dettaglio[x.causale] || 0) + (x.ore_min || 0);
+    return { monte: m, tot: righe.reduce((s, x) => s + (x.ore_min || 0), 0), dettaglio };
+  }).filter((x) => x.tot > 0);
 
   host.innerHTML = `
-    ${rsuTot ? `<div class="dt-quadro" style="margin-bottom:10px">
-      <div class="dt-quadro-riga"><span class="dt-quadro-req">Permessi sindacali RSU usati nel ${annoOra}</span>
-        <span class="dt-cella"><strong>${mm2hm(rsuTot)}</strong></span></div>
-      <p class="hint" style="margin:4px 0 0">${Object.entries(rsuPerCausale)
-        .map(([c, m]) => `${esc(c)}: ${mm2hm(m)}`).join(' · ')} — contate dalle righe di banca ore
-        di ${esc(dipendente)}. Non scalano i permessi retribuiti del contratto.</p>
+    ${perMonte.length ? `<div class="dt-quadro" style="margin-bottom:10px">
+      ${perMonte.map((x) => `<div class="dt-quadro-riga">
+        <span class="dt-quadro-req">${esc(etichettaMonte(x.monte))} usati nel ${annoOra}</span>
+        <span class="dt-cella"><strong>${mm2hm(x.tot)}</strong></span></div>
+        ${Object.keys(x.dettaglio).length > 1 ? `<p class="hint" style="margin:2px 0 6px">${
+          Object.entries(x.dettaglio).map(([c, m]) => `${esc(c)}: ${mm2hm(m)}`).join(' · ')}</p>` : ''}`).join('')}
+      <p class="hint" style="margin:4px 0 0">Ore di ${esc(dipendente)}, contate dalle righe di banca ore.
+        I <strong>permessi RSU</strong> e i <strong>permessi sindacali</strong> sono due monti distinti, e
+        nessuno dei due scala i permessi retribuiti del contratto.</p>
     </div>` : ''}
     <div class="dt-barra">
       <div class="seg" id="fe-f">

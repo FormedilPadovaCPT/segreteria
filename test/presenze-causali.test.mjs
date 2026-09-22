@@ -42,21 +42,26 @@ test('le due causali sindacali sono fra quelle proposte, scritte come nello stor
   assert.match(causali, /'Riunione'/);
 });
 
-test('esiste il monte «permessi sindacali RSU», distinto dai permessi del contratto', () => {
-  assert.match(monti, /monte: 'permessi_rsu'/);
-  assert.match(monti, /monte: 'permessi'/);
-  assert.notEqual(
-    monti.indexOf("monte: 'permessi'"),
-    monti.indexOf("monte: 'permessi_rsu'"),
-    'permessi e permessi_rsu devono essere due monti diversi',
-  );
+test('i monti sindacali sono DUE e distinti, e nessuno è quello del contratto', () => {
+  // precisato dall'utente il 22/09/2026: «Riunione sindacale → Permessi
+  // sindacali (quelli rsu sono a parte)»
+  for (const m of ['permessi_rsu', 'permessi_sindacali', 'permessi']) {
+    assert.match(monti, new RegExp(`monte: '${m}'`), `manca il monte ${m}`);
+  }
+  const posizioni = ['permessi', 'permessi_rsu', 'permessi_sindacali'].map((m) => monti.indexOf(`monte: '${m}'`));
+  assert.equal(new Set(posizioni).size, 3, 'i tre monti devono essere righe diverse');
 });
 
-test('i tipi sindacali attingono al monte RSU, non ai permessi retribuiti', () => {
-  for (const t of ['permesso_rsu', 'riunione_sindacale']) {
+test('ogni voce sindacale sta sul SUO monte, mai sui permessi retribuiti', () => {
+  const atteso = {
+    permesso_rsu: 'permessi_rsu',
+    riunione_sindacale: 'permessi_sindacali',   // NON permessi_rsu: sono a parte
+  };
+  for (const [t, m] of Object.entries(atteso)) {
     const riga = tipi.split('\n').find((r) => r.includes(`tipo: '${t}'`));
     assert.ok(riga, `manca il tipo di richiesta ${t}`);
-    assert.match(riga, /monte: 'permessi_rsu'/, `${t} deve scalare il monte RSU`);
+    assert.match(riga, new RegExp(`monte: '${m}'`), `${t} deve scalare il monte ${m}`);
+    assert.doesNotMatch(riga, /monte: 'permessi'[,\s]/, `${t} non deve scalare i permessi del contratto`);
   }
   const permesso = tipi.split('\n').find((r) => r.includes("tipo: 'permesso'"));
   assert.match(permesso, /monte: 'permessi'/, 'il permesso ordinario resta sul monte del contratto');
