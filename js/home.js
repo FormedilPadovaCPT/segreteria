@@ -285,6 +285,22 @@ export async function render() {
     respinte = data || [];
   } catch { /* senza accesso il riquadro resta vuoto */ }
 
+  /* ── proposte di chiusura dei cantieri (23/09/2026) ──
+     Il tecnico le fa dal gestionale; decide la segreteria. Un errore di
+     lettura non è «nessuna proposta»: si dice nella card. */
+  let propChius = [], propChiusErr = null;
+  try {
+    const { data, error } = await sb.from('cantieri_proposte_chiusura')
+      .select('id, cantiere_id, proposta_da, proposta_nome, proposta_il, motivo, cantieri(cantiere_etichetta, cantiere_indirizzo, cantiere_civico, comune_nome)')
+      .is('esito', null).order('proposta_il').limit(200);
+    if (error) propChiusErr = error.message;
+    propChius = data || [];
+  } catch (e) { propChiusErr = e.message || String(e); }
+  const lblCant = (p) => {
+    const c = p.cantieri || {};
+    return c.cantiere_etichetta || `${c.cantiere_indirizzo || ''} ${c.cantiere_civico || ''}`.trim() || p.cantiere_id;
+  };
+
   /* la card «Posta e agenda»: gli eventi raggruppati per giorno, poi le mail
      che le regole hanno segnato come importanti, in ordine di punteggio */
   const cardBacheca = (() => {
@@ -374,6 +390,22 @@ export async function render() {
               </div>`;
             }).join('') + '<p class="hint" style="margin-top:6px">Il tecnico ha dichiarato di non essere disponibile: riassegnando, l\'incarico torna «da vedere» per il nuovo.</p>'
           : '<p class="hint">Nessun incarico rifiutato.</p>')}
+
+      ${card('📨 Cantieri proposti per la chiusura', propChius.length,
+        propChiusErr
+          ? `<p class="hint" style="color:#b91c1c">Non sono riuscito a leggere le proposte: ${esc(propChiusErr)}</p>`
+          : propChius.length
+            ? propChius.slice(0, 8).map((p) => `<div class="hm-riga">
+                <span>📨</span>
+                <span><strong>${esc(lblCant(p))}</strong>${p.cantieri?.comune_nome ? ` <span class="hint">· ${esc(p.cantieri.comune_nome)}</span>` : ''}
+                  <span class="hint">(${esc(p.proposta_nome || p.proposta_da || '')}, ${dataIt(String(p.proposta_il).slice(0, 10))})</span>
+                  <br><span class="hint">«${esc(p.motivo || '')}»</span></span>
+                <span style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end">
+                  <button class="btn btn-sm" data-pc-chiudi="${p.id}">🔒 Chiudi cantiere</button>
+                  <button class="btn btn-ghost btn-sm" data-pc-respingi="${p.id}">✖ Respingi proposta</button></span>
+              </div>`).join('') + (propChius.length > 8 ? `<p class="hint">…e altre ${propChius.length - 8}.</p>` : '')
+              + '<p class="hint" style="margin-top:6px">Il tecnico dice che il cantiere è finito. Chiudendolo si chiudono anche le sue visite ed esce dalle scadenze; respingendo, il motivo resta scritto per chi l\'ha proposto.</p>'
+            : '<p class="hint">Nessuna proposta da decidere.</p>')}
 
       ${card('🚧 Cantieri critici', critici.length,
         (critici.length
@@ -599,6 +631,31 @@ export async function render() {
     const { error } = await sb.rpc('s_mail_respinta_chiudi', { p_id: id, p_stato: stato, p_note: che.trim() });
     if (error) return toast(error.message, 'err');
     toast('Rimbalzo chiuso.', 'ok');
+    render();
+  }));
+
+  host.querySelectorAll('[data-pc-chiudi]').forEach((b) => b.addEventListener('click', async (ev) => {
+    ev.stopPropagation();
+    const p = propChius.find((x) => x.id === Number(b.dataset.pcChiudi));
+    if (!p) return;
+    if (!confirm(`Chiudere il cantiere «${lblCant(p)}» per fine lavori?\nTutte le visite collegate verranno chiuse.\n\nProposta di ${p.proposta_nome || p.proposta_da}: «${p.motivo}»`)) return;
+    const note = prompt('Note sulla chiusura (facoltative). Annulla per interrompere.', p.motivo || '');
+    if (note === null) return;
+    const { data, error } = await sb.rpc('chiudi_cantiere', { p_cantiere_id: p.cantiere_id, p_motivo: 'termini_lavori', p_note: note.trim() || null });
+    if (error) return toast('Chiusura non riuscita: ' + error.message, 'err');
+    toast(`Cantiere chiuso · ${(data && data.visite_chiuse) || 0} visite chiuse. La proposta risulta accolta.`, 'ok');
+    render();
+  }));
+  host.querySelectorAll('[data-pc-respingi]').forEach((b) => b.addEventListener('click', async (ev) => {
+    ev.stopPropagation();
+    const p = propChius.find((x) => x.id === Number(b.dataset.pcRespingi));
+    if (!p) return;
+    const note = prompt(`Respingere la proposta di chiusura di «${lblCant(p)}»?\n\nPerché il cantiere resta aperto? (lo legge chi l'ha proposta)`);
+    if (note === null) return;
+    if (!note.trim()) return toast('Scrivi il motivo: è la risposta per chi ha proposto.', 'err');
+    const { error } = await sb.rpc('respingi_proposta_chiusura', { p_id: p.id, p_note: note.trim() });
+    if (error) return toast('Non riuscito: ' + error.message, 'err');
+    toast('Proposta respinta: il cantiere resta aperto.', 'ok');
     render();
   }));
 

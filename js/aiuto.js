@@ -84,6 +84,8 @@ window.AIUTO_TESTI = {
   'p:crea la pratica': 'Apre la pratica con i dati inseriti: da qui il giro è sempre lo stesso, richiesta di autorizzazione al Direttore, esito, esecuzione.',
   'p:richiesta di autorizzazione (pdf': 'Prepara la richiesta di autorizzazione al Direttore in PDF e la bozza mail. Nessuna uscita in cantiere parte senza la sua firma.',
   'p:approva (direttore)': 'Registra l\'approvazione del Direttore: la pratica passa a «autorizzata» e si può assegnare al tecnico.',
+  't:chiudi cantiere': 'Chiude il cantiere proposto dal tecnico: si chiudono anche le sue visite ed esce dalle scadenze e dai cantieri attivi. La proposta risulta accolta.',
+  't:respingi proposta': 'Il cantiere resta aperto. Chiede il motivo, che resta scritto accanto alla proposta per il tecnico che l\'ha fatta.',
   't:respingi': 'Registra il diniego del Direttore, con il motivo. La pratica si chiude e resta nello storico.',
   'p:registra l\'esito del giro cartaceo': 'Per quando il Direttore ha firmato su carta: registri l\'esito con la data, senza rifare il giro nell\'app.',
   'p:protocolla la richiesta (in)': 'Prende il numero in entrata per la richiesta arrivata e la collega alla pratica.',
