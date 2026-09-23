@@ -92,7 +92,10 @@ const SCURO = '#3F444C';
 const CHIARO = '#8A9099';
 
 /* ── la firma HTML: tabella a larghezza fissa, stili inline, nessun
-      CSS esterno — è quello che regge in Outlook ── */
+      CSS esterno — è quello che regge in Outlook ──
+   Dal 23/09/2026 gli indirizzi e-mail e il sito sono in carattere
+   normale, non più in grassetto (chiesto dall'utente): restano
+   arancioni, ed è il colore a dire che sono collegamenti. */
 export function firmaHtml() {
   const d = FIRMA_DATI;
   const cella = (extra = '') => `font-family:${FONT};${extra}`;
@@ -118,8 +121,8 @@ export function firmaHtml() {
 <div style="padding-top:1px;font-size:11px;line-height:16px;mso-line-height-rule:exactly;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:${GRIGIO};">${esc(d.ente)}</div>
 <div style="padding-top:10px;font-size:13px;line-height:19px;mso-line-height-rule:exactly;color:${GRIGIO};">${esc(d.indirizzo)}</div>
 <div style="padding-top:4px;font-size:13px;line-height:19px;mso-line-height-rule:exactly;color:${GRIGIO};">Tel. <a href="tel:${esc(d.telLink)}" style="color:${GRIGIO};text-decoration:none;">${esc(d.tel)}</a> (${esc(d.interno).replace(' ', '&nbsp;')})</div>
-<div style="padding-top:4px;font-size:13px;line-height:19px;mso-line-height-rule:exactly;color:${GRIGIO};">email: <a href="mailto:${esc(d.email)}" style="color:${ARANCIO};text-decoration:none;font-weight:600;">${esc(d.email)}</a> &middot; <a href="mailto:${esc(d.email2)}" style="color:${ARANCIO};text-decoration:none;font-weight:600;">${esc(d.email2)}</a></div>
-<div style="padding-top:4px;font-size:13px;line-height:19px;mso-line-height-rule:exactly;color:${GRIGIO};"><a href="${esc(d.sitoUrl)}" style="color:${ARANCIO};text-decoration:none;font-weight:600;">${esc(d.sito)}</a></div>
+<div style="padding-top:4px;font-size:13px;line-height:19px;mso-line-height-rule:exactly;color:${GRIGIO};">email: <a href="mailto:${esc(d.email)}" style="color:${ARANCIO};text-decoration:none;">${esc(d.email)}</a> &middot; <a href="mailto:${esc(d.email2)}" style="color:${ARANCIO};text-decoration:none;">${esc(d.email2)}</a></div>
+<div style="padding-top:4px;font-size:13px;line-height:19px;mso-line-height-rule:exactly;color:${GRIGIO};"><a href="${esc(d.sitoUrl)}" style="color:${ARANCIO};text-decoration:none;">${esc(d.sito)}</a></div>
 </td>
 </tr>
 </table>
