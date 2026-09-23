@@ -126,11 +126,26 @@ async function iscrivi(sb: SB, imp: Record<string, string>, req: Request, d: Rec
   if (qe) throw new Error('tetto: ' + qe.message)
   if (!ammessa) return json({ error: 'troppe richieste: riprova fra un\'ora' }, 429)
 
+  // 23/09/2026 — Il browser dice PERCHÉ si iscrive e da dove (le iscrizioni rinascevano
+  // e nessuna colonna diceva il motivo). Se ricorda il suo indirizzo precedente, quella
+  // riga si toglie: un browser, una riga. Dal service worker (pushsubscriptionchange)
+  // arriva con motivo «cambio» e l'indirizzo vecchio in «precedente».
+  const testo = (v: unknown, max: number) => (typeof v === 'string' ? v.replace(/[^\x20-\x7e]/g, ' ').slice(0, max) : null)
+  const MOTIVI = ['attiva', 'ripresa-dati-persi', 'ripresa-iscrizione-persa', 'rinnovo', 'cambio']
+  const precedente = typeof d.precedente === 'string' && d.precedente !== endpoint ? d.precedente.slice(0, 1000) : null
+  if (precedente) await sb.from('push_iscrizioni').delete().eq('endpoint', precedente)
+
   const { error } = await sb.from('push_iscrizioni').upsert({
     endpoint, p256dh, auth, dispositivo, aggiornata_il: new Date().toISOString(), errori_consecutivi: 0,
+    motivo: MOTIVI.includes(d.motivo) ? d.motivo : null,
+    origine: testo(d.origine, 300),
+    installata: typeof d.installata === 'boolean' ? d.installata : null,
+    persistente: typeof d.persistente === 'boolean' ? d.persistente : null,
+    user_agent: testo(d.user_agent, 300),
+    sostituisce: precedente,
   }, { onConflict: 'endpoint' })
   if (error) throw new Error('iscrizione: ' + error.message)
-  return json({ ok: true })
+  return json({ ok: true, sostituita: !!precedente })
 }
 
 async function cancella(sb: SB, d: Record<string, any>) {
