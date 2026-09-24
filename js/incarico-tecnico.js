@@ -31,8 +31,15 @@ import { RUBRICA_INTERNA } from './lookups.js';
 export async function creaIncaricoDaPratica({ tabella, pratica, tipo, tipologia, tecnicoEmail, tecnicoNome,
   richiedente, testo, impresa, impresaId, indirizzo, comune, oggetto, referente, cellReferente,
   mezzo, visitePreviste, cantiereId }) {
-  if (!tecnicoEmail) { toast('Incarico non creato: manca il tecnico assegnato.', 'err'); return null; }
   if (pratica.incarico_id) return pratica.incarico_id;   /* già creato */
+  /* il Direttore approva con un account di sola consultazione: il database gli
+     rifiuta gli incarichi, e l'errore lo vedeva solo lui (consulenza n. 1 del
+     24/09/2026, prima approvazione dall'app). L'incarico lo crea la segreteria. */
+  if (state.soloDirettore) {
+    toast('Autorizzazione registrata. L\'incarico al tecnico e la lettera li prepara la segreteria dalla pratica.', 'ok');
+    return null;
+  }
+  if (!tecnicoEmail) { toast('Incarico non creato: manca il tecnico assegnato.', 'err'); return null; }
 
   /* prosegue il contatore interno (max + 1) guardando ANCHE il
      registro storico: la serie vecchia arriva a numeri che in
@@ -77,6 +84,73 @@ export async function creaIncaricoDaPratica({ tabella, pratica, tipo, tipologia,
   else toast(`Incarico n° ${nuovoId} assegnato a ${tecnicoNome || tecnicoEmail} nel gestionale visite.`, 'ok');
   pratica.incarico_id = nuovoId;
   return nuovoId;
+}
+
+/* ============================================================
+   LETTERA DI INCARICO AL TECNICO per un servizio autorizzato
+   (24/09/2026, chiesto dall'utente sulla consulenza n. 1 Noventa:
+   «ho risposto all'impresa, mi manca la lettera per il tecnico»).
+
+   Un gesto: se l'incarico nel gestionale non c'è lo crea, poi
+   prepara la bozza .eml al tecnico (coordinatore in copia) con la
+   scheda dell'attività letta dall'incarico e, in allegato, il
+   documento di autorizzazione col visto del Direttore. L'invio lo
+   fa una persona da Outlook, come sempre. Nessun protocollo: è la
+   stessa comunicazione interna dell'assegnazione in riassegnazione.
+   ============================================================ */
+export async function letteraIncaricoTecnico({ tabella, pratica, campi, oggettoPratica, spesaTxt = null }) {
+  if (state.soloDirettore) { toast('La lettera al tecnico la prepara la segreteria.', 'err'); return null; }
+  const id = pratica.incarico_id || await creaIncaricoDaPratica({ tabella, pratica, ...campi });
+  if (!id) return null;
+  const { data: inc, error } = await sb.from('incarichi').select('*').eq('id', id).maybeSingle();
+  if (error || !inc) { toast(`Non sono riuscito a leggere l'incarico n° ${id}: ${error?.message || 'non trovato'}`, 'err'); return null; }
+  const to = inc.tecnico_email || campi.tecnicoEmail;
+  if (!to) { toast('Manca il tecnico: assegnalo nella pratica e salva.', 'err'); return null; }
+  const { data: tec } = await sb.from('tecnici').select('tecnico_nome, tecnico_cognome').eq('email', to).maybeSingle();
+  const coord = RUBRICA_INTERNA.find((x) => /coordinatore/i.test(x.nome));
+  const cc = coord && coord.email.toLowerCase() !== to.toLowerCase() ? [coord.email] : [];
+
+  const righe = [
+    ['Impresa', inc.impresa],
+    ['Dove', [inc.indirizzo, inc.comune].filter(Boolean).join(', ')],
+    ['Referente', [inc.referente, inc.cell_referente].filter(Boolean).join(' — ')],
+    ['Richiesta', inc.testo_richiesta],
+    ['Spesa prevista', spesaTxt],
+    ['Autorizzata', pratica.data_autorizzazione
+      ? `dal Direttore il ${dataIt(pratica.data_autorizzazione)}${pratica.aut_modalita === 'cartacea' ? ' (firma sul modulo)' : ' (dall\'app)'}` : null],
+  ].filter(([, v]) => v && String(v).trim());
+  const scheda = righe.map(([k, v]) => `${k}: ${v}`).join('\n');
+
+  /* l'autorizzazione col visto, se è su Drive: se non si legge si dice, non si tace */
+  const allegati = [];
+  let notaAllegato = '';
+  if (pratica.aut_drive_id) {
+    try {
+      const { leggiByte } = await import('./drive.js');
+      allegati.push({ nome: `autorizzazione-direttore_incarico-${id}.pdf`, byte: await leggiByte(pratica.aut_drive_id) });
+    } catch (e) {
+      toast('Non sono riuscito ad allegare l\'autorizzazione: la trovi nel link della mail.', 'err');
+      notaAllegato = pratica.aut_drive_url ? `\nL'autorizzazione del Direttore è qui: ${pratica.aut_drive_url}\n` : '';
+    }
+  }
+
+  scaricaEml({
+    to, cc,
+    oggetto: `Formedil Padova - Incarico n° ${id} - ${oggettoPratica}`,
+    corpo: `Ciao ${[tec?.tecnico_nome, tec?.tecnico_cognome].filter(Boolean).join(' ') || inc.tecnico_nome || ''},
+
+ti affido l'incarico n° ${id}: ${oggettoPratica}.
+
+${scheda}
+${allegati.length ? '\nIn allegato l\'autorizzazione del Direttore.\n' : notaAllegato}
+Lo trovi nel gestionale visite fra gli incarichi assegnati: prendine visione e accettalo da lì, poi concorda l'appuntamento con il referente. Quando l'attività è fatta avvisami, così chiudo la pratica.
+
+${FIRMA_SEGRETERIA}`,
+    allegati,
+    nomeFile: `incarico-${id}-lettera-al-tecnico.eml`,
+  });
+  toast(`Bozza della lettera di incarico n° ${id} scaricata: aprila da Outlook e premi Invia.`, 'ok');
+  return id;
 }
 
 /* ============================================================

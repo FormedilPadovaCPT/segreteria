@@ -94,7 +94,20 @@ function campiIncarico(p, email) {
     testo: p.quesito || p.note_modulo,
     impresa: p.ragione_sociale, impresaId: p.impresa_id,
     oggetto: p.tipi_consulenza || 'Consulenza', mezzo: p.fonte,
+    /* chi chiamare per l'appuntamento (24/09/2026: l'incarico nasceva senza) */
+    referente: [[p.rl_titolo, p.rl_nome, p.rl_cognome].filter(Boolean).join(' '), p.email].filter(Boolean).join(' — ') || null,
+    cellReferente: [p.cellulare, p.telefono].filter(Boolean).join(' / ') || null,
   };
+}
+/* la consulenza in sede si fa all'indirizzo dell'impresa: la pratica non ce l'ha,
+   lo sa l'anagrafica (chiave impresa_id, o la P.IVA per le ditte individuali) */
+async function sedeImpresa(p) {
+  if (p.luogo !== 'sede_impresa') return {};
+  const { data, error } = p.impresa_id
+    ? await sb.from('imprese').select('indirizzo, comune').eq('impresa_id', p.impresa_id).maybeSingle()
+    : await impresaPerPiva(p.partita_iva, 'indirizzo, comune');
+  if (error) { toast('Non sono riuscito a leggere l\'indirizzo dell\'impresa: scrivilo nella lettera.', 'err'); return {}; }
+  return data ? { indirizzo: data.indirizzo || null, comune: data.comune || null } : {};
 }
 
 /* ══════════ elenco ══════════ */
@@ -392,6 +405,8 @@ export async function apriPratica(id) {
       ${p.aut_stato === 'approvata' ? `
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn btn-primary" id="cn-conferma">📧 Mail di conferma all'impresa</button>
+        ${state.soloDirettore ? '' : `<button class="btn btn-primary" id="cn-lettera">📨 Lettera di incarico al tecnico</button>`}
+        ${p.incarico_id ? `<span class="dt-cella dt-ok" style="padding:4px 10px">incarico n° ${p.incarico_id} nel gestionale</span>` : ''}
       </div>` : ''}` : `
       <p class="hint" style="margin:0 0 10px">La consulenza in sede o in cantiere comporta una spesa:
         non è lavorabile finché il Direttore non autorizza.</p>
@@ -536,6 +551,16 @@ ${FIRMA_SEGRETERIA}`,
   $('#cn-respingi')?.addEventListener('click', (ev) => decidiDaApp(p, 'respinta', ev.currentTarget));
   $('#cn-cartacea')?.addEventListener('click', () => registraCartacea(p));
   $('#cn-conferma')?.addEventListener('click', () => mailConferma(p));
+  $('#cn-lettera')?.addEventListener('click', async (ev) => {
+    attendi(ev.currentTarget, true);
+    const { letteraIncaricoTecnico } = await import('./incarico-tecnico.js');
+    const id = await letteraIncaricoTecnico({ tabella: 's_consulenze', pratica: p,
+      campi: { ...campiIncarico(p, $('#cn-tecnico')?.value || p.tecnico_assegnato || p.tecnico_proposto), ...(await sedeImpresa(p)) },
+      oggettoPratica: `consulenza n° ${p.progressivo ?? p.id} ${LUOGHI[p.luogo] ? '(' + LUOGHI[p.luogo].toLowerCase() + ') ' : ''}presso ${p.ragione_sociale || '?'}`,
+      spesaTxt: testoSpesa(daMaschera(p)) });
+    attendi(ev.currentTarget, false);
+    if (id) { await render(); apriPratica(p.id); }
+  });
 
   /* ── protocollo facoltativo ── */
   $('#cn-protin')?.addEventListener('click', () => protocolla(p, 'IN'));

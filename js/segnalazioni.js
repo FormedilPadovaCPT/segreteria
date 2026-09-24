@@ -471,6 +471,7 @@ export async function apriPratica(id) {
     <h4 style="margin:0 0 6px">Protocollo e riscontro</h4>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       ${!p.protocollo_in_id ? '<button class="btn btn-ghost" id="sg-protin">📥 Protocolla la segnalazione (IN)</button>' : ''}
+      ${state.soloDirettore ? '' : `<button class="btn btn-primary" id="sg-lettera">📨 Lettera di incarico al tecnico</button>`}
     </div>
 
     ${esitoDovuto(p.segnalante_tipo) ? `
@@ -544,6 +545,15 @@ export async function apriPratica(id) {
   $('#sg-respingi')?.addEventListener('click', (ev) => decidiDaApp(p, 'respinta', ev.currentTarget));
   $('#sg-cartacea')?.addEventListener('click', () => registraCartacea(p));
   $('#sg-protin')?.addEventListener('click', () => protocollaIn(p));
+  $('#sg-lettera')?.addEventListener('click', async (ev) => {
+    attendi(ev.currentTarget, true);
+    const { letteraIncaricoTecnico } = await import('./incarico-tecnico.js');
+    const id = await letteraIncaricoTecnico({ tabella: 's_segnalazioni', pratica: p,
+      campi: campiIncarico(p, $('#sg-tecnico')?.value || p.tecnico_assegnato || p.tecnico_proposto),
+      oggettoPratica: `visita su segnalazione n° ${p.progressivo ?? p.id}${p.comune_cantiere ? ' a ' + p.comune_cantiere : ''}` });
+    attendi(ev.currentTarget, false);
+    if (id) { await render(); apriPratica(p.id); }
+  });
   $('#sg-riscontro')?.addEventListener('click', (ev) => preparaRiscontro(p, ev.currentTarget));
   $('#sg-eml')?.addEventListener('click', (ev) => riscaricaEml(p, ev.currentTarget));
   $('#sg-esito')?.addEventListener('click', (ev) => preparaEsito(p, ev.currentTarget, ceiv));
