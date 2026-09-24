@@ -1,7 +1,7 @@
 -- La funzione interna presuppone il rapporto (24/09/2026, regola dell'utente: «al preposto,
 -- se non ha un rapporto per quell'azienda, va creato»).
 -- Vale per i ruoli con s_ruoli.propone_rapporto (preposto, capocantiere, caposquadra, RLS,
--- addetti alle emergenze, dirigente, direttore tecnico): quando nasce una nomina con persona
+-- addetti alle emergenze, dirigente): quando nasce una nomina con persona
 -- e impresa, e la persona non ha un rapporto con quell'impresa che copra il periodo della
 -- nomina, si apre il rapporto «dipendente» con le date della nomina.
 -- Un trigger solo, cosi' vale per TUTTE le strade: maschera nomine, «+ Aggiungi persona»,

@@ -92,7 +92,7 @@ begin
   if r->>'rapporto' <> 'creato' then raise exception 'FALLITO: riassunzione %', r; end if;
 
   -- la mappa sta nel database
-  if (select count(*) from s_ruoli where propone_rapporto) <> 8 then raise exception 'FALLITO: ruoli interni'; end if;
+  if (select count(*) from s_ruoli where propone_rapporto) <> 7 then raise exception 'FALLITO: ruoli interni'; end if;
   if (select count(*) from s_tipi_rapporto where ruolo_id is not null) <> 5 then raise exception 'FALLITO: tipi-ruolo'; end if;
 
   raise notice 'OK rapporti e nomine';

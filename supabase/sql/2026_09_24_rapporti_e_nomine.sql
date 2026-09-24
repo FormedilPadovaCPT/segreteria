@@ -8,7 +8,7 @@
 --   1. DIPENDENTE, APPRENDISTA, TIROCINANTE, TITOLARE, SOCIO sono RAPPORTI e non piu'
 --      nomine: se li si sceglie come ruolo, l'app registra il rapporto.
 --   2. Le funzioni INTERNE (preposto, capocantiere, caposquadra, RLS, addetti alle
---      emergenze, dirigente, direttore tecnico) PROPONGONO il rapporto «dipendente»
+--      emergenze, dirigente) PROPONGONO il rapporto «dipendente»
 --      con la spunta gia' messa; RSPP, medico, coordinatori no: possono essere esterni.
 --   3. Quali ruoli sono l'una o l'altra cosa lo dice il DATABASE, non il codice:
 --      s_tipi_rapporto e la colonna s_ruoli.propone_rapporto. Si cambia una riga.
@@ -46,9 +46,10 @@ grant select on public.s_tipi_rapporto to authenticated;
 alter table public.s_ruoli add column if not exists propone_rapporto boolean not null default false;
 comment on column public.s_ruoli.propone_rapporto is
   'Funzione interna all''impresa: registrando la nomina si propone anche il rapporto «dipendente» (spunta gia'' messa, si toglie). RSPP, medico e coordinatori restano false: possono essere esterni.';
-update public.s_ruoli set propone_rapporto = (id_ruolo in (2, 12, 14, 15, 21, 22, 41, 53));
+update public.s_ruoli set propone_rapporto = (id_ruolo in (2, 12, 14, 15, 21, 22, 53));
 -- 2 RLS · 12 PREPOSTO · 14 ADD. EMERGENZA INCENDI · 15 ADD. PRIMO SOCCORSO
--- 21 CAPOCANTIERE · 22 CAPOSQUADRA · 41 DIRETTORE TECNICO · 53 DIRIGENTE
+-- 21 CAPOCANTIERE · 22 CAPOSQUADRA · 53 DIRIGENTE
+-- (41 DIRETTORE TECNICO tolto lo stesso giorno: spesso non e' dipendente — vedi 2026_09_24_direttore_tecnico_non_interno.sql)
 
 -- ── 3. la segreteria scrive i rapporti ────────────────────────────────────────
 -- Le policy di persone_imprese nascono dall'app asseverazione (ufficio, coordinatore,
