@@ -480,11 +480,12 @@ async function formMovimento(e) {
          recuperata) sono due cose diverse: prima erano tre spunte in fila, e «Recuperata»
          veniva letta come «si recupera» (movimento del 07/09/2026). -->
     <div id="mv-compensa-box" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:6px">
-      <div class="field"><label>Come si compensa</label>
-        <select id="mv-modo">
-          <option value="recupero" ${e?.pagato ? '' : 'selected'}>Da recuperare — banca ore</option>
-          <option value="paga" ${e?.pagato ? 'selected' : ''}>Da pagare — busta paga</option>
-        </select></div>
+      <!-- la SCELTA DEL LAVORATORE, sempre una delle due (utente, 24/09/2026) -->
+      <div class="field"><label>Scelta del lavoratore</label>
+        <label style="display:flex;gap:6px;align-items:center;cursor:pointer;font-weight:600">
+          <input type="radio" name="mv-modo" value="recupero" ${e?.pagato ? '' : 'checked'} style="width:auto;margin:0"> Da recuperare <span class="hint" style="font-weight:400">— alimenta la banca ore</span></label>
+        <label style="display:flex;gap:6px;align-items:center;cursor:pointer;font-weight:600;margin-top:3px">
+          <input type="radio" name="mv-modo" value="paga" ${e?.pagato ? 'checked' : ''} style="width:auto;margin:0"> Da pagare <span class="hint" style="font-weight:400">— in busta paga</span></label></div>
       <div class="field" id="mv-recu-box"><label style="display:flex;gap:6px;align-items:center;cursor:pointer">
           <input type="checkbox" id="mv-recu" ${e?.recuperato ? 'checked' : ''} style="width:auto;margin:0"> Già recuperata il</label>
         <input type="date" id="mv-recdata" value="${e?.recuperato_il || ''}"></div>
@@ -502,12 +503,13 @@ async function formMovimento(e) {
 
   /* «come si compensa» vale per le ore supplementari; «già recuperata» solo se si recuperano */
   const causaleScelta = () => ($('#mv-causale-sel').value === '__altra__' ? $('#mv-causale-libera').value : $('#mv-causale-sel').value);
+  const modoScelto = () => document.querySelector('input[name="mv-modo"]:checked')?.value || 'recupero';
   const aggiornaCompensa = () => {
     const suppl = /suppl|straord/i.test(causaleScelta() || '');
     $('#mv-compensa-box').style.display = suppl ? 'grid' : 'none';
-    $('#mv-recu-box').style.visibility = suppl && $('#mv-modo').value === 'recupero' ? 'visible' : 'hidden';
+    $('#mv-recu-box').style.visibility = suppl && modoScelto() === 'recupero' ? 'visible' : 'hidden';
   };
-  $('#mv-modo').addEventListener('change', aggiornaCompensa);
+  document.querySelectorAll('input[name="mv-modo"]').forEach((r) => r.addEventListener('change', aggiornaCompensa));
   $('#mv-causale-libera').addEventListener('input', aggiornaCompensa);
   $('#mv-recdata').addEventListener('change', () => { if ($('#mv-recdata').value) $('#mv-recu').checked = true; });
   aggiornaCompensa();
@@ -522,7 +524,7 @@ async function formMovimento(e) {
     const causale = (sel === '__altra__' ? $('#mv-causale-libera').value : sel).trim();
     if (!$('#mv-data').value || oreMin == null || !causale) return toast('Servono data, ore (hh:mm) e causale.', 'err');
     const suppl = /suppl|straord/i.test(causale);
-    const pagato = suppl ? $('#mv-modo').value === 'paga' : !!e?.pagato;
+    const pagato = suppl ? modoScelto() === 'paga' : !!e?.pagato;
     const recuperato = suppl && !pagato ? $('#mv-recu').checked : !!e?.recuperato && !suppl;
     const recuperatoIl = recuperato ? ($('#mv-recdata').value || null) : (suppl ? null : e?.recuperato_il || null);
     /* «recuperata» è un fatto: senza la data del recupero non si registra */
