@@ -167,7 +167,15 @@ export async function pdfFoglioPresenze({ dipendente, anno, mese, presenze, extr
         const stato = e.chiuso ? 'chiusa' : 'APERTA';
         c.stato.pagina.drawText(stato, { x: SX + 116, y: c.stato.y, size: 7.6,
           font: e.chiuso ? c.italic : c.bold, color: e.chiuso ? c.grigio : c.arancio });
-        const flag = [e.pagato ? 'pagata' : null, e.recuperato ? `recuperata${e.recuperato_il ? ' il ' + dataIt(e.recuperato_il) : ''}` : null].filter(Boolean).join(', ');
+        /* per le supplementari si dice sempre la scelta: da recuperare, da pagare,
+           oppure recuperata con la data (24/09/2026: il prospetto diceva «recuperata»
+           per un'ora ancora da recuperare, e taceva quando non c'era nessuna spunta) */
+        const suppl = /suppl|straord/i.test(e.causale || '');
+        const flag = suppl
+          ? (e.pagato ? 'da pagare (busta paga)'
+            : e.recuperato ? `recuperata${e.recuperato_il ? ' il ' + dataIt(e.recuperato_il) : ''}`
+            : 'da recuperare')
+          : [e.pagato ? 'pagata' : null, e.recuperato ? `recuperata${e.recuperato_il ? ' il ' + dataIt(e.recuperato_il) : ''}` : null].filter(Boolean).join(', ');
         if (flag) c.stato.pagina.drawText(flag, { x: SX + 158, y: c.stato.y, size: 7.4, font: c.italic, color: c.grigio });
         if (e.note) c.stato.pagina.drawText(taglia(c.font, 7.6, String(e.note), DX - (SX + 244) - 4), { x: SX + 244, y: c.stato.y, size: 7.6, font: c.font, color: c.nero });
         c.stato.pagina.drawLine({ start: { x: SX, y: c.stato.y - 4 }, end: { x: DX, y: c.stato.y - 4 }, thickness: 0.4, color: c.grigioChiaro });

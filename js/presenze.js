@@ -427,7 +427,11 @@ async function renderBanca(hostArg) {
           <td>${esc(e.causale)}</td>
           <td><strong>${mm2hm(e.ore_min)}</strong></td>
           <td>${e.chiuso ? '<span class="dt-cella dt-ok" style="padding:1px 6px">chiusa</span>' : '<span class="dt-cella dt-senzadata" style="padding:1px 6px">APERTA</span>'}
-            ${e.pagato ? ' 💶' : ''}${e.recuperato ? ` ↩${e.recuperato_il ? ' ' + dataIt(e.recuperato_il) : ''}` : ''}</td>
+            ${/suppl|straord/i.test(e.causale || '')
+              ? (e.pagato ? ' <span class="hint">💶 da pagare</span>'
+                : e.recuperato ? ` <span class="hint">↩ recuperata${e.recuperato_il ? ' il ' + dataIt(e.recuperato_il) : ''}</span>`
+                : ' <span class="hint">⏳ da recuperare</span>')
+              : `${e.pagato ? ' 💶' : ''}${e.recuperato ? ` ↩${e.recuperato_il ? ' ' + dataIt(e.recuperato_il) : ''}` : ''}`}</td>
           <td class="hint">${esc(e.note || '')}</td>
         </tr>`).join('') || '<tr><td colspan="5" class="empty">Nessun movimento con questo filtro.</td></tr>'}</tbody>
       </table>
@@ -472,35 +476,63 @@ async function formMovimento(e) {
     <div class="field ${inLista ? 'hidden' : ''}" id="mv-causale-libera-box"><label>Causale (testo libero)</label>
       <input id="mv-causale-libera" value="${inLista ? '' : esc(corrente)}" placeholder="es. Progettazione SPISAL (2027 …)"></div>
     <div class="field"><label>Note</label><input id="mv-note" value="${esc(e?.note || '')}"></div>
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:6px">
-      <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="mv-pagato" ${e?.pagato ? 'checked' : ''}> Pagata</label>
-      <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="mv-recu" ${e?.recuperato ? 'checked' : ''}> Recuperata</label>
-      <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="mv-chiuso" ${e?.chiuso ? 'checked' : ''}> Chiusa</label>
+    <!-- La SCELTA (concordata col Direttore: si recupera o si paga) e il FATTO (è stata
+         recuperata) sono due cose diverse: prima erano tre spunte in fila, e «Recuperata»
+         veniva letta come «si recupera» (movimento del 07/09/2026). -->
+    <div id="mv-compensa-box" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:6px">
+      <div class="field"><label>Come si compensa</label>
+        <select id="mv-modo">
+          <option value="recupero" ${e?.pagato ? '' : 'selected'}>Da recuperare — banca ore</option>
+          <option value="paga" ${e?.pagato ? 'selected' : ''}>Da pagare — busta paga</option>
+        </select></div>
+      <div class="field" id="mv-recu-box"><label style="display:flex;gap:6px;align-items:center;cursor:pointer">
+          <input type="checkbox" id="mv-recu" ${e?.recuperato ? 'checked' : ''} style="width:auto;margin:0"> Già recuperata il</label>
+        <input type="date" id="mv-recdata" value="${e?.recuperato_il || ''}"></div>
     </div>
-    <div class="field" style="margin-top:6px"><label>Recuperata in data</label>
-      <input type="date" id="mv-recdata" value="${e?.recuperato_il || ''}"></div>
-    <p class="hint" style="margin-top:6px">Supplementare: <strong>Pagata</strong> = circuito ordinario
-      (busta paga); non pagata = banca ore, da recuperare. Il <strong>Recupero</strong> preleva dalla
-      banca ore e non scala i permessi del contratto.</p>
+    <label style="display:flex;gap:6px;align-items:center;margin-top:6px;cursor:pointer">
+      <input type="checkbox" id="mv-chiuso" ${e?.chiuso ? 'checked' : ''} style="width:auto;margin:0"> Chiusa (partita saldata)</label>
+    <p class="hint" style="margin-top:6px"><strong>Da recuperare</strong> = va in banca ore finché non la recuperi;
+      <strong>da pagare</strong> = circuito ordinario (busta paga), fuori dalla banca ore. «Già recuperata» si spunta
+      solo quando il recupero è avvenuto, con la sua data. Il <strong>Recupero</strong> preleva dalla banca ore e non
+      scala i permessi del contratto.</p>
     <div style="display:flex;gap:8px;justify-content:space-between;margin-top:12px">
       <div>${e ? '<button class="btn btn-ghost" id="mv-elimina">🗑 Elimina</button>' : ''}</div>
       <button class="btn btn-primary" id="mv-salva">Salva</button>
     </div>`);
 
+  /* «come si compensa» vale per le ore supplementari; «già recuperata» solo se si recuperano */
+  const causaleScelta = () => ($('#mv-causale-sel').value === '__altra__' ? $('#mv-causale-libera').value : $('#mv-causale-sel').value);
+  const aggiornaCompensa = () => {
+    const suppl = /suppl|straord/i.test(causaleScelta() || '');
+    $('#mv-compensa-box').style.display = suppl ? 'grid' : 'none';
+    $('#mv-recu-box').style.visibility = suppl && $('#mv-modo').value === 'recupero' ? 'visible' : 'hidden';
+  };
+  $('#mv-modo').addEventListener('change', aggiornaCompensa);
+  $('#mv-causale-libera').addEventListener('input', aggiornaCompensa);
+  $('#mv-recdata').addEventListener('change', () => { if ($('#mv-recdata').value) $('#mv-recu').checked = true; });
+  aggiornaCompensa();
+
   $('#mv-causale-sel').addEventListener('change', () => {
     $('#mv-causale-libera-box').classList.toggle('hidden', $('#mv-causale-sel').value !== '__altra__');
+    aggiornaCompensa();
   });
   $('#mv-salva').addEventListener('click', async (ev) => {
     const oreMin = hm2min($('#mv-ore').value.trim());
     const sel = $('#mv-causale-sel').value;
     const causale = (sel === '__altra__' ? $('#mv-causale-libera').value : sel).trim();
     if (!$('#mv-data').value || oreMin == null || !causale) return toast('Servono data, ore (hh:mm) e causale.', 'err');
+    const suppl = /suppl|straord/i.test(causale);
+    const pagato = suppl ? $('#mv-modo').value === 'paga' : !!e?.pagato;
+    const recuperato = suppl && !pagato ? $('#mv-recu').checked : !!e?.recuperato && !suppl;
+    const recuperatoIl = recuperato ? ($('#mv-recdata').value || null) : (suppl ? null : e?.recuperato_il || null);
+    /* «recuperata» è un fatto: senza la data del recupero non si registra */
+    if (suppl && recuperato && !recuperatoIl) return toast('Per segnarla «già recuperata» serve la data del recupero. Se è ancora da recuperare, togli la spunta.', 'err');
     attendi(ev.currentTarget, true);
     const dati = {
       dipendente, data: $('#mv-data').value, causale, ore_min: oreMin,
       note: $('#mv-note').value.trim() || null,
-      pagato: $('#mv-pagato').checked, recuperato: $('#mv-recu').checked, chiuso: $('#mv-chiuso').checked,
-      recuperato_il: $('#mv-recdata').value || null,
+      pagato, recuperato, chiuso: $('#mv-chiuso').checked,
+      recuperato_il: recuperatoIl,
       aggiornato_da: state.email, updated_at: new Date().toISOString(),
     };
     const { error } = e
