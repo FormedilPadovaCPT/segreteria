@@ -409,7 +409,15 @@ async function esitoCeiv(sb: SB, piva: string | null): Promise<{ impresa_id: str
   let impresaId: string | null = null
   let esito = 'da_verificare'
   if (piva) {
-    const { data: imp } = await sb.from('imprese').select('impresa_id, cod_ceiv, stato_cassa').eq('impresa_id', piva).maybeSingle()
+    /* la chiave impresa_id e' la P.IVA per le societa', ma per le DITTE
+       INDIVIDUALI e' il codice fiscale del titolare e la P.IVA sta in piva:
+       cercando la sola chiave uscivano «da verificare» anche se attive in
+       lista (Noventa Christian, 24/09/2026). Si cercano tutte e due; a
+       parita' vince la riga non eliminata, poi quella con chiave = P.IVA. */
+    const { data: righe } = await sb.from('imprese').select('impresa_id, piva, elimina, cod_ceiv, stato_cassa')
+      .or(`impresa_id.eq.${piva},piva.eq.${piva}`).limit(10)
+    const punti = (r: Record<string, unknown>) => (r.elimina ? 0 : 2) + (r.impresa_id === piva ? 1 : 0)
+    const imp = (righe || []).sort((a, b) => punti(b) - punti(a))[0]
     if (imp) {
       impresaId = imp.impresa_id as string
       const ceivOk = !!(imp.cod_ceiv && String(imp.cod_ceiv).trim())

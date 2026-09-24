@@ -20,7 +20,7 @@
    bozza .eml con cc al Direttore e al coordinatore.
    ============================================================ */
 
-import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo, siglaProtocollo } from './core.js';
+import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo, siglaProtocollo, impresaPerPiva } from './core.js';
 import { risolviCartella, caricaByte, leggiByte, idDaLink } from './drive.js';
 import { scaricaEml, FIRMA_SEGRETERIA } from './eml.js';
 
@@ -157,7 +157,7 @@ function nuovaComunicazione() {
     attendi(ev.currentTarget, true);
     let impresaId = null;
     if (piva) {
-      const { data: imp } = await sb.from('imprese').select('impresa_id').eq('impresa_id', piva).maybeSingle();
+      const { data: imp } = await impresaPerPiva(piva);
       impresaId = imp?.impresa_id || null;
     }
     const cf = $('#nc-rlscf').value.trim().toUpperCase();
@@ -217,9 +217,7 @@ async function apriComunicazione(id) {
 
   let imp = null;
   if (r.partita_iva && /^\d{11}$/.test(r.partita_iva)) {
-    const { data } = await sb.from('imprese')
-      .select('impresa_id, impresa_nome, cod_ceiv, cassa_edile, stato_cassa, data_agg_access')
-      .eq('impresa_id', r.partita_iva).maybeSingle();
+    const { data } = await impresaPerPiva(r.partita_iva, 'impresa_id, impresa_nome, cod_ceiv, cassa_edile, stato_cassa, data_agg_access');
     imp = data;
   }
   let per = null;

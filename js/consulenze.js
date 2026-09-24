@@ -23,7 +23,7 @@
    lavorazione), settore edile dall'ATECO.
    ============================================================ */
 
-import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo } from './core.js';
+import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo, impresaPerPiva, testoSpesa } from './core.js';
 import { APP_URL } from './config.js';
 import { risolviCartella, leggiByte, idDaLink } from './drive.js';
 import { scaricaEml, FIRMA_SEGRETERIA } from './eml.js';
@@ -225,8 +225,7 @@ function nuovaConsulenza() {
     let impresaId = null;
     let esito = 'da_verificare';
     if (piva) {
-      const { data: imp } = await sb.from('imprese')
-        .select('impresa_id, cod_ceiv, stato_cassa').eq('impresa_id', piva).maybeSingle();
+      const { data: imp } = await impresaPerPiva(piva, 'impresa_id, cod_ceiv, stato_cassa');
       if (imp) {
         impresaId = imp.impresa_id;
         esito = imp.cod_ceiv && /attiv/i.test(imp.stato_cassa || '') ? 'iscritta' : 'non_iscritta';
@@ -274,9 +273,7 @@ export async function apriPratica(id) {
   /* quadro CEIV/anagrafica/ATECO, lo stesso dell'RLST */
   let imp = null;
   if (p.partita_iva && /^\d{11}$/.test(p.partita_iva)) {
-    const { data } = await sb.from('imprese')
-      .select('impresa_id, impresa_nome, cod_ceiv, cassa_edile, stato_cassa, data_agg_access')
-      .eq('impresa_id', p.partita_iva).maybeSingle();
+    const { data } = await impresaPerPiva(p.partita_iva, 'impresa_id, impresa_nome, cod_ceiv, cassa_edile, stato_cassa, data_agg_access');
     imp = data;
   }
   let ateco = [];
@@ -286,6 +283,11 @@ export async function apriPratica(id) {
     ateco = data || [];
   }
   const edile = ateco.length ? ateco.some((a) => /^4[123]/.test(a.codice)) : null;
+  /* l'esito CEIV «da verificare» si propone dall'anagrafica (lista Cassa
+     Edile): la maschera lo mostra già scelto, il Salva lo conferma */
+  const esitoAnag = imp ? (imp.cod_ceiv && /attiv/i.test(imp.stato_cassa || '') ? 'iscritta' : 'non_iscritta') : null;
+  const esitoProposto = p.esito_ceiv === 'da_verificare' && esitoAnag ? esitoAnag : p.esito_ceiv;
+  const codiceProposto = p.codice_ceiv_dich || imp?.cod_ceiv || '';
 
   const sonoDirettore = state.email && conf.direttore_email &&
     state.email.toLowerCase() === conf.direttore_email.toLowerCase();
@@ -343,6 +345,11 @@ export async function apriPratica(id) {
       <div class="field"><label>Modalità</label>
         <select id="cn-luogo">${Object.entries(LUOGHI).map(([k, l]) =>
           `<option value="${k}" ${p.luogo === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+      <div class="field"><label>Esito CEIV${esitoProposto !== p.esito_ceiv ? ' <span class="hint">(dall’anagrafica: Salva per confermare)</span>' : ''}</label>
+        <select id="cn-esitoceiv">${Object.keys(ESITI).map((k) =>
+          `<option value="${k}" ${esitoProposto === k ? 'selected' : ''}>${ESITI[k][1]}</option>`).join('')}</select></div>
+      <div class="field"><label>Codice CEIV</label>
+        <input id="cn-codceiv" value="${esc(codiceProposto)}"></div>
       ${uscita ? `
       <div class="field"><label>Tecnico assegnato</label>
         <select id="cn-tecnico"><option value="">—</option>${tecnici.map((t) =>
@@ -356,7 +363,7 @@ export async function apriPratica(id) {
         </select></div>
       <div class="field"><label>Ore</label>
         <input type="number" step="0.5" id="cn-ore" value="${p.ore ?? ''}"></div>
-      <div class="field"><label>Corrispettivo €</label>
+      <div class="field"><label>Tariffa €/ora</label>
         <input type="number" step="0.01" id="cn-corr" value="${p.corrispettivo ?? ''}"></div>` : ''}
     </div>
     ${uscita ? `<div class="field" style="margin-top:8px"><label>Esito intervento</label>
@@ -412,6 +419,8 @@ export async function apriPratica(id) {
       risposta: $('#cn-risposta').value.trim() || null,
       stato: $('#cn-stato').value,
       luogo: $('#cn-luogo').value,
+      esito_ceiv: $('#cn-esitoceiv').value,
+      codice_ceiv_dich: $('#cn-codceiv').value.trim() || null,
       note_ufficio: $('#cn-note').value.trim() || null,
       aggiornato_da: state.email,
       updated_at: new Date().toISOString(),
@@ -435,6 +444,12 @@ export async function apriPratica(id) {
       await riassegnaTecnico({ tabella: 's_consulenze', pratica: p, nuovoEmail: agg.tecnico_assegnato,
         noteAttuali: agg.note_ufficio });
     }
+    /* la scheda resta aperta sullo stesso oggetto: senza questo i bottoni
+       successivi (PDF al Direttore) lavoravano coi dati di prima del
+       salvataggio — spesa «ordinaria» sul foglio di una pratica a
+       corrispettivo, consulenza n. 1 del 24/09/2026. Dopo la
+       riassegnazione, che confronta il tecnico vecchio col nuovo. */
+    Object.assign(p, agg);
     await render();
   });
 
@@ -527,6 +542,22 @@ ${FIRMA_SEGRETERIA}`,
   $('#cn-protout')?.addEventListener('click', () => protocolla(p, 'OUT'));
 }
 
+/* La pratica con i campi come sono A VIDEO nella maschera, anche se non
+   ancora salvati: il foglio al Direttore dice quello che l'ufficio ha
+   scelto, non quello che c'era nel database all'apertura (24/09/2026). */
+function daMaschera(p) {
+  const q = { ...p };
+  if ($('#cn-esitoceiv')) q.esito_ceiv = $('#cn-esitoceiv').value;
+  if ($('#cn-codceiv')) q.codice_ceiv_dich = $('#cn-codceiv').value.trim() || null;
+  if ($('#cn-spesa')) {
+    q.spesa_ordinaria = $('#cn-spesa').value === 'ordinaria';
+    q.ore = $('#cn-ore')?.value ? Number($('#cn-ore').value) : null;
+    q.corrispettivo = $('#cn-corr')?.value ? Number($('#cn-corr').value) : null;
+  }
+  return q;
+}
+const voce = (campi, etichetta) => campi.find(([l]) => l === etichetta)?.[1] || '—';
+
 function campiConsulenza(p) {
   return [
     ['Pratica', `Consulenza n° ${p.progressivo || p.id}${p.fonte && p.fonte !== 'modulo' ? ` (arrivata per ${p.fonte})` : ' (modulo online)'}`],
@@ -537,18 +568,9 @@ function campiConsulenza(p) {
     ['Referente', [[p.rl_titolo, p.rl_nome, p.rl_cognome].filter(Boolean).join(' '), p.telefono, p.cellulare, p.email].filter(Boolean).join(' — ')],
     ['Quesito', p.quesito],
     ['Temi', p.tipi_consulenza],
-    /* Il Direttore autorizza una SPESA, e deve vederla. Ma «senza importo»
-       non vuol dire «dato mancante»: vuol dire ORDINARIA — la prestazione
-       rientra fra le visite gia' assegnate al tecnico per il mese, quindi
-       e' gia' pagata. Sono due cose diverse e il foglio le distingue. */
-    ['Spesa prevista', p.spesa_ordinaria === false
-      ? ([
-          p.ore != null ? `${p.ore} ore` : null,
-          p.corrispettivo != null
-            ? `€ ${Number(p.corrispettivo).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-            : null,
-        ].filter(Boolean).join(' — ') || 'a corrispettivo, importo da definire')
-      : `ordinaria — rientra nelle visite già assegnate al tecnico per il mese`],
+    /* Il Direttore autorizza una SPESA, e deve vederla: tariffa oraria e
+       totale, oppure «ordinaria» (testoSpesa in core.js) */
+    ['Spesa prevista', testoSpesa(p)],
     ['Note', p.note_modulo],
   ];
 }
@@ -557,8 +579,10 @@ async function richiestaAutorizzazione(p, btn) {
   attendi(btn, true, 'Preparo…');
   try {
     const tecnico = nomeTecnico($('#cn-tecnico')?.value || p.tecnico_assegnato);
+    const q = daMaschera(p);
+    const campi = campiConsulenza(q);
     const { pdfRichiestaAutCampi } = await import('./segnalazioni-doc.js');
-    const byte = await pdfRichiestaAutCampi(campiConsulenza(p), tecnico,
+    const byte = await pdfRichiestaAutCampi(campi, tecnico,
       'Ai sensi della procedura sui servizi CPT, si chiede al Direttore l’autorizzazione a effettuare la consulenza presso l’impresa richiedente.');
     const n = p.progressivo ?? `m${p.id}`;
     scaricaEml({
@@ -569,6 +593,8 @@ async function richiestaAutorizzazione(p, btn) {
 
 vogliate trovare in allegato la richiesta di autorizzazione per la consulenza n. ${n} presso ${p.ragione_sociale || '?'} (${LUOGHI[p.luogo] || 'in sede impresa'}).
 Tecnico proposto: ${tecnico || 'da assegnare'}.
+Spesa prevista: ${voce(campi, 'Spesa prevista')}.
+CEIV: ${voce(campi, 'CEIV')}.
 
 >>> Autorizza dall'app (si apre direttamente la pratica):
 ${APP_URL}#consulenza-${p.id}
@@ -581,11 +607,15 @@ ${FIRMA_SEGRETERIA}`,
       allegati: [{ nome: `richiesta-autorizzazione_consulenza-${n}_${slug(p.ragione_sociale)}.pdf`, byte }],
       nomeFile: `richiesta-autorizzazione-consulenza-${n}.eml`,
     });
-    await sb.from('s_consulenze').update({
+    /* quello che è uscito sul foglio si salva: pratica e documento dicono la stessa cosa */
+    const { error: errAgg } = await sb.from('s_consulenze').update({
       aut_stato: p.aut_stato === 'da_richiedere' ? 'richiesta' : p.aut_stato,
       aut_richiesta_il: new Date().toISOString(),
+      esito_ceiv: q.esito_ceiv, codice_ceiv_dich: q.codice_ceiv_dich,
+      spesa_ordinaria: q.spesa_ordinaria, ore: q.ore, corrispettivo: q.corrispettivo,
       aggiornato_da: state.email, updated_at: new Date().toISOString(),
     }).eq('id', p.id);
+    if (errAgg) toast('Bozza scaricata, ma la pratica non si è aggiornata: ' + errAgg.message, 'err');
     toast('Bozza mail al Direttore scaricata: aprila da Outlook e premi Invia.', 'ok');
     await render();
   } catch (e) {
@@ -614,7 +644,7 @@ async function decidiDaApp(p, esito, btn) {
       note,
     };
     const { pdfAutorizzazioneCampi } = await import('./segnalazioni-doc.js');
-    const byte = await pdfAutorizzazioneCampi(campiConsulenza(p), tecnico, visto, firmaByte,
+    const byte = await pdfAutorizzazioneCampi(campiConsulenza(daMaschera(p)), tecnico, visto, firmaByte,
       'Autorizzazione consulenza presso l’impresa');
 
     const cart = await risolviCartella(PERCORSO_VAULT);

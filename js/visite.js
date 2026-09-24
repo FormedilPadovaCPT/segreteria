@@ -19,7 +19,7 @@
    al tecnico; il verbale poi vive nel gestionale visite.
    ============================================================ */
 
-import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo } from './core.js';
+import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo, impresaPerPiva, testoSpesa } from './core.js';
 import { APP_URL } from './config.js';
 import { risolviCartella, leggiByte, idDaLink } from './drive.js';
 import { scaricaEml, FIRMA_SEGRETERIA } from './eml.js';
@@ -288,7 +288,7 @@ function nuovaRichiesta() {
       </select></div>
     <div id="nv-spesa-campi" style="display:none;grid-template-columns:1fr 1fr;gap:10px">
       <div class="field"><label>Ore previste</label><input type="number" step="0.5" min="0" id="nv-ore"></div>
-      <div class="field"><label>Corrispettivo €</label><input type="number" step="0.01" min="0" id="nv-corr"></div>
+      <div class="field"><label>Tariffa €/ora</label><input type="number" step="0.01" min="0" id="nv-corr"></div>
     </div>
     <p class="hint" style="margin:4px 0 8px">È il dato su cui il Direttore autorizza, e finisce nel foglio della richiesta:
       «ordinaria» gli dice che la prestazione è già coperta dal monte visite del mese e non costa in più.</p>
@@ -346,8 +346,7 @@ function nuovaRichiesta() {
     let impresaId = impresaScelta?.impresa_id || null;
     let ceivDati = impresaScelta;
     if (!impresaId && piva) {
-      const { data: imp } = await sb.from('imprese')
-        .select('impresa_id, cod_ceiv, stato_cassa').eq('impresa_id', piva).maybeSingle();
+      const { data: imp } = await impresaPerPiva(piva, 'impresa_id, cod_ceiv, stato_cassa');
       if (imp) { impresaId = imp.impresa_id; ceivDati = imp; }
     }
     const esito = ceivDati
@@ -407,9 +406,7 @@ export async function apriPratica(id) {
 
   let imp = null;
   if (p.partita_iva && /^\d{11}$/.test(p.partita_iva)) {
-    const { data } = await sb.from('imprese')
-      .select('impresa_id, impresa_nome, cod_ceiv, cassa_edile, stato_cassa, data_agg_access')
-      .eq('impresa_id', p.partita_iva).maybeSingle();
+    const { data } = await impresaPerPiva(p.partita_iva, 'impresa_id, impresa_nome, cod_ceiv, cassa_edile, stato_cassa, data_agg_access');
     imp = data;
   }
   let ateco = [];
@@ -419,6 +416,11 @@ export async function apriPratica(id) {
   }
   const edile = ateco.length ? ateco.some((a) => /^4[123]/.test(a.codice)) : null;
 
+  /* l'esito CEIV «da verificare» si propone dall'anagrafica (lista Cassa
+     Edile): la maschera lo mostra già scelto, il Salva lo conferma */
+  const esitoAnag = imp ? (imp.cod_ceiv && /attiv/i.test(imp.stato_cassa || '') ? 'iscritta' : 'non_iscritta') : null;
+  const esitoProposto = p.esito_ceiv === 'da_verificare' && esitoAnag ? esitoAnag : p.esito_ceiv;
+  const codiceProposto = p.codice_ceiv_dich || imp?.cod_ceiv || '';
   const sonoDirettore = state.email && conf.direttore_email &&
     state.email.toLowerCase() === conf.direttore_email.toLowerCase();
   const [cAut, lAut] = AUT[p.aut_stato] || ['', p.aut_stato];
@@ -483,6 +485,11 @@ export async function apriPratica(id) {
       <div class="field"><label>Tecnico assegnato</label>
         <select id="vs-tecnico"><option value="">—</option>${tecnici.map((t) =>
           `<option value="${t.email}" ${(p.tecnico_assegnato || p.tecnico_proposto) === t.email ? 'selected' : ''}>${esc(nomeTecnico(t.email))}</option>`).join('')}</select></div>
+      <div class="field"><label>Esito CEIV${esitoProposto !== p.esito_ceiv ? ' <span class="hint">(dall’anagrafica: Salva per confermare)</span>' : ''}</label>
+        <select id="vs-esitoceiv">${Object.keys(ESITI).map((k) =>
+          `<option value="${k}" ${esitoProposto === k ? 'selected' : ''}>${ESITI[k][1]}</option>`).join('')}</select></div>
+      <div class="field"><label>Codice CEIV</label>
+        <input id="vs-codceiv" value="${esc(codiceProposto)}"></div>
       <div class="field"><label>Spesa</label>
         <select id="vs-spesa">
           <option value="ordinaria" ${p.spesa_ordinaria === false ? '' : 'selected'}>Ordinaria — già nelle visite del mese</option>
@@ -490,7 +497,7 @@ export async function apriPratica(id) {
         </select></div>
       <div class="field"><label>Ore</label>
         <input type="number" step="0.5" id="vs-ore" value="${p.ore ?? ''}"></div>
-      <div class="field"><label>Corrispettivo €</label>
+      <div class="field"><label>Tariffa €/ora</label>
         <input type="number" step="0.01" id="vs-corr" value="${p.corrispettivo ?? ''}"></div>
     </div>
     <div class="field" style="margin-top:8px"><label>Note dell'ufficio</label>
@@ -541,6 +548,8 @@ export async function apriPratica(id) {
     const { error } = await sb.from('s_visite_richieste').update({
       stato: $('#vs-stato').value,
       tecnico_assegnato: $('#vs-tecnico').value || null,
+      esito_ceiv: $('#vs-esitoceiv').value,
+      codice_ceiv_dich: $('#vs-codceiv').value.trim() || null,
       spesa_ordinaria: $('#vs-spesa').value === 'ordinaria',
       ore: $('#vs-ore').value ? Number($('#vs-ore').value) : null,
       corrispettivo: $('#vs-corr').value ? Number($('#vs-corr').value) : null,
@@ -557,6 +566,10 @@ export async function apriPratica(id) {
       await riassegnaTecnico({ tabella: 's_visite_richieste', pratica: p, nuovoEmail: $('#vs-tecnico').value,
         noteAttuali: $('#vs-note').value.trim() || null });
     }
+    /* la scheda resta aperta sullo stesso oggetto: senza questo i bottoni
+       successivi (PDF al Direttore) lavoravano coi dati di prima del
+       salvataggio (consulenza n. 1 del 24/09/2026) */
+    Object.assign(p, daMaschera(p), { tecnico_assegnato: $('#vs-tecnico').value || null });
     await render();
   });
 
@@ -577,6 +590,22 @@ export async function apriPratica(id) {
   });
   $('#vs-protin')?.addEventListener('click', () => protocollaIn(p));
 }
+
+/* La pratica con i campi come sono A VIDEO nella maschera, anche se non
+   ancora salvati: il foglio al Direttore dice quello che l'ufficio ha
+   scelto, non quello che c'era nel database all'apertura (24/09/2026). */
+function daMaschera(p) {
+  const q = { ...p };
+  if ($('#vs-esitoceiv')) q.esito_ceiv = $('#vs-esitoceiv').value;
+  if ($('#vs-codceiv')) q.codice_ceiv_dich = $('#vs-codceiv').value.trim() || null;
+  if ($('#vs-spesa')) {
+    q.spesa_ordinaria = $('#vs-spesa').value === 'ordinaria';
+    q.ore = $('#vs-ore')?.value ? Number($('#vs-ore').value) : null;
+    q.corrispettivo = $('#vs-corr')?.value ? Number($('#vs-corr').value) : null;
+  }
+  return q;
+}
+const voce = (campi, etichetta) => campi.find(([l]) => l === etichetta)?.[1] || '—';
 
 function campiVisita(p) {
   const cc = cantieriDi(p);
@@ -600,18 +629,9 @@ function campiVisita(p) {
     ['Legale rappr.', [[p.rl_titolo, p.rl_nome, p.rl_cognome].filter(Boolean).join(' '), p.telefono, p.cellulare, p.email].filter(Boolean).join(' — ')],
     ...righeCantieri,
     ['Referente sopralluogo', [[p.ref_titolo, p.ref_nome, p.ref_cognome].filter(Boolean).join(' '), p.ref_tel].filter(Boolean).join(' — ')],
-    /* Il Direttore autorizza una SPESA, e deve vederla. Ma «senza importo»
-       non vuol dire «dato mancante»: vuol dire ORDINARIA — la prestazione
-       rientra fra le visite gia' assegnate al tecnico per il mese, quindi
-       e' gia' pagata. Sono due cose diverse e il foglio le distingue. */
-    ['Spesa prevista', p.spesa_ordinaria === false
-      ? ([
-          p.ore != null ? `${p.ore} ore` : null,
-          p.corrispettivo != null
-            ? `€ ${Number(p.corrispettivo).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-            : null,
-        ].filter(Boolean).join(' — ') || 'a corrispettivo, importo da definire')
-      : `ordinaria — rientra nelle visite già assegnate al tecnico per il mese`],
+    /* Il Direttore autorizza una SPESA, e deve vederla: tariffa oraria e
+       totale, oppure «ordinaria» (testoSpesa in core.js) */
+    ['Spesa prevista', testoSpesa(p)],
     ['Note', p.note_modulo],
   ];
 }
@@ -620,8 +640,10 @@ async function richiestaAutorizzazione(p, btn) {
   attendi(btn, true, 'Preparo…');
   try {
     const tecnico = nomeTecnico($('#vs-tecnico')?.value || p.tecnico_assegnato || p.tecnico_proposto);
+    const q = daMaschera(p);
+    const campi = campiVisita(q);
     const { pdfRichiestaAutCampi } = await import('./segnalazioni-doc.js');
-    const byte = await pdfRichiestaAutCampi(campiVisita(p), tecnico,
+    const byte = await pdfRichiestaAutCampi(campi, tecnico,
       'Ai sensi della procedura sui servizi CPT, si chiede al Direttore l’autorizzazione a effettuare la visita richiesta dall’impresa.');
     const n = p.progressivo ?? `m${p.id}`;
     scaricaEml({
@@ -630,8 +652,9 @@ async function richiestaAutorizzazione(p, btn) {
       oggetto: `Formedil Padova - Area Sicurezza e Salute - Richiesta di autorizzazione - ${p.tipo_richiesta === 'serie' ? 'serie di visite' : 'visita'} n. ${n}`,
       corpo: `Egr. Direttore,
 
-vogliate trovare in allegato la richiesta di autorizzazione per la ${p.tipo_richiesta === 'serie' ? 'serie di visite' : 'visita'} n. ${n} richiesta da ${p.ragione_sociale || '?'} (${esitoBreve(p)}).
+vogliate trovare in allegato la richiesta di autorizzazione per la ${p.tipo_richiesta === 'serie' ? 'serie di visite' : 'visita'} n. ${n} richiesta da ${p.ragione_sociale || '?'} (${esitoBreve(q)}).
 Tecnico proposto: ${tecnico || 'da assegnare'}.
+Spesa prevista: ${voce(campi, 'Spesa prevista')}.
 
 >>> Autorizza dall'app (si apre direttamente la pratica):
 ${APP_URL}#visita-${p.id}
@@ -644,11 +667,15 @@ ${FIRMA_SEGRETERIA}`,
       allegati: [{ nome: `richiesta-autorizzazione_visita-${n}_${slug(p.ragione_sociale)}.pdf`, byte }],
       nomeFile: `richiesta-autorizzazione-visita-${n}.eml`,
     });
-    await sb.from('s_visite_richieste').update({
+    /* quello che è uscito sul foglio si salva: pratica e documento dicono la stessa cosa */
+    const { error: errAgg } = await sb.from('s_visite_richieste').update({
       aut_stato: p.aut_stato === 'da_richiedere' ? 'richiesta' : p.aut_stato,
       aut_richiesta_il: new Date().toISOString(),
+      esito_ceiv: q.esito_ceiv, codice_ceiv_dich: q.codice_ceiv_dich,
+      spesa_ordinaria: q.spesa_ordinaria, ore: q.ore, corrispettivo: q.corrispettivo,
       aggiornato_da: state.email, updated_at: new Date().toISOString(),
     }).eq('id', p.id);
+    if (errAgg) toast('Bozza scaricata, ma la pratica non si è aggiornata: ' + errAgg.message, 'err');
     toast('Bozza mail al Direttore scaricata: aprila da Outlook e premi Invia.', 'ok');
     await render();
   } catch (e) {
@@ -680,7 +707,7 @@ async function decidiDaApp(p, esito, btn) {
       note,
     };
     const { pdfAutorizzazioneCampi } = await import('./segnalazioni-doc.js');
-    const byte = await pdfAutorizzazioneCampi(campiVisita(p), tecnico, visto, firmaByte,
+    const byte = await pdfAutorizzazioneCampi(campiVisita(daMaschera(p)), tecnico, visto, firmaByte,
       p.tipo_richiesta === 'serie' ? 'Autorizzazione serie di visite' : 'Autorizzazione visita richiesta dall’impresa');
 
     const cart = await risolviCartella(PERCORSO_VAULT);

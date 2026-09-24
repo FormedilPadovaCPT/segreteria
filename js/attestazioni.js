@@ -22,7 +22,7 @@
       presidente_nome / presidente_firma_id).
    ============================================================ */
 
-import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo, siglaProtocollo } from './core.js';
+import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo, siglaProtocollo, impresaPerPiva } from './core.js';
 import { APP_URL } from './config.js';
 import { risolviCartella, caricaByte, leggiByte, idDaLink } from './drive.js';
 import { scaricaEml, FIRMA_SEGRETERIA } from './eml.js';
@@ -201,8 +201,7 @@ function nuovaRichiesta() {
     let impresaId = null;
     let esito = 'da_verificare';
     if (piva) {
-      const { data: imp } = await sb.from('imprese')
-        .select('impresa_id, cod_ceiv, stato_cassa').eq('impresa_id', piva).maybeSingle();
+      const { data: imp } = await impresaPerPiva(piva, 'impresa_id, cod_ceiv, stato_cassa');
       if (imp) {
         impresaId = imp.impresa_id;
         esito = imp.cod_ceiv && /attiv/i.test(imp.stato_cassa || '') ? 'iscritta' : 'non_iscritta';
@@ -241,9 +240,7 @@ export async function apriPratica(id) {
 
   let imp = null;
   if (p.partita_iva && /^\d{11}$/.test(p.partita_iva)) {
-    const { data } = await sb.from('imprese')
-      .select('impresa_id, impresa_nome, cod_ceiv, cassa_edile, stato_cassa, data_agg_access')
-      .eq('impresa_id', p.partita_iva).maybeSingle();
+    const { data } = await impresaPerPiva(p.partita_iva, 'impresa_id, impresa_nome, cod_ceiv, cassa_edile, stato_cassa, data_agg_access');
     imp = data;
   }
   const sonoDirettore = state.email && conf.direttore_email &&

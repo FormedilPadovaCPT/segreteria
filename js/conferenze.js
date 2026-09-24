@@ -14,7 +14,7 @@
    (regola del vault sulle note di riepilogo con formazione).
    ============================================================ */
 
-import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo } from './core.js';
+import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo, impresaPerPiva, testoSpesa } from './core.js';
 import { APP_URL } from './config.js';
 import { risolviCartella, leggiByte, idDaLink } from './drive.js';
 import { scaricaEml, FIRMA_SEGRETERIA } from './eml.js';
@@ -212,8 +212,7 @@ function nuovaRichiesta() {
     let impresaId = null;
     let esito = 'da_verificare';
     if (piva) {
-      const { data: imp } = await sb.from('imprese')
-        .select('impresa_id, cod_ceiv, stato_cassa').eq('impresa_id', piva).maybeSingle();
+      const { data: imp } = await impresaPerPiva(piva, 'impresa_id, cod_ceiv, stato_cassa');
       if (imp) {
         impresaId = imp.impresa_id;
         esito = imp.cod_ceiv && /attiv/i.test(imp.stato_cassa || '') ? 'iscritta' : 'non_iscritta';
@@ -253,11 +252,14 @@ export async function apriPratica(id) {
 
   let imp = null;
   if (p.partita_iva && /^\d{11}$/.test(p.partita_iva)) {
-    const { data } = await sb.from('imprese')
-      .select('impresa_id, impresa_nome, cod_ceiv, cassa_edile, stato_cassa, data_agg_access')
-      .eq('impresa_id', p.partita_iva).maybeSingle();
+    const { data } = await impresaPerPiva(p.partita_iva, 'impresa_id, impresa_nome, cod_ceiv, cassa_edile, stato_cassa, data_agg_access');
     imp = data;
   }
+  /* l'esito CEIV «da verificare» si propone dall'anagrafica (lista Cassa
+     Edile): la maschera lo mostra già scelto, il Salva lo conferma */
+  const esitoAnag = imp ? (imp.cod_ceiv && /attiv/i.test(imp.stato_cassa || '') ? 'iscritta' : 'non_iscritta') : null;
+  const esitoProposto = p.esito_ceiv === 'da_verificare' && esitoAnag ? esitoAnag : p.esito_ceiv;
+  const codiceProposto = p.codice_ceiv_dich || imp?.cod_ceiv || '';
   const sonoDirettore = state.email && conf.direttore_email &&
     state.email.toLowerCase() === conf.direttore_email.toLowerCase();
   const [cAut, lAut] = AUT[p.aut_stato] || ['', p.aut_stato];
@@ -316,6 +318,11 @@ export async function apriPratica(id) {
         <input type="date" id="cf-data" value="${p.data_conferenza || ''}"></div>
       <div class="field"><label>N° partecipanti</label>
         <input type="number" id="cf-npart" value="${p.n_partecipanti ?? ''}"></div>
+      <div class="field"><label>Esito CEIV${esitoProposto !== p.esito_ceiv ? ' <span class="hint">(dall’anagrafica: Salva per confermare)</span>' : ''}</label>
+        <select id="cf-esitoceiv">${Object.keys(ESITI).map((k) =>
+          `<option value="${k}" ${esitoProposto === k ? 'selected' : ''}>${ESITI[k][1]}</option>`).join('')}</select></div>
+      <div class="field"><label>Codice CEIV</label>
+        <input id="cf-codceiv" value="${esc(codiceProposto)}"></div>
       <div class="field"><label>Spesa</label>
         <select id="cf-spesa">
           <option value="ordinaria" ${p.spesa_ordinaria === false ? '' : 'selected'}>Ordinaria — nessun costo in più</option>
@@ -323,7 +330,7 @@ export async function apriPratica(id) {
         </select></div>
       <div class="field"><label>Ore</label>
         <input type="number" step="0.5" id="cf-ore" value="${p.ore ?? ''}"></div>
-      <div class="field"><label>Corrispettivo €</label>
+      <div class="field"><label>Tariffa €/ora</label>
         <input type="number" step="0.01" id="cf-corr" value="${p.corrispettivo ?? ''}"></div>
     </div>
     <div class="field" style="margin-top:8px"><label>Argomenti trattati</label>
@@ -378,6 +385,8 @@ export async function apriPratica(id) {
     const { error } = await sb.from('s_conferenze_cantiere').update({
       stato: $('#cf-stato').value,
       tecnico_assegnato: $('#cf-tecnico').value || null,
+      esito_ceiv: $('#cf-esitoceiv').value,
+      codice_ceiv_dich: $('#cf-codceiv').value.trim() || null,
       data_conferenza: $('#cf-data').value || null,
       n_partecipanti: $('#cf-npart').value ? Number($('#cf-npart').value) : null,
       ore: $('#cf-ore').value ? Number($('#cf-ore').value) : null,
@@ -398,6 +407,10 @@ export async function apriPratica(id) {
       await riassegnaTecnico({ tabella: 's_conferenze_cantiere', pratica: p, nuovoEmail: $('#cf-tecnico').value,
         noteAttuali: $('#cf-note').value.trim() || null });
     }
+    /* la scheda resta aperta sullo stesso oggetto: senza questo i bottoni
+       successivi (PDF al Direttore) lavoravano coi dati di prima del
+       salvataggio (consulenza n. 1 del 24/09/2026) */
+    Object.assign(p, daMaschera(p), { tecnico_assegnato: $('#cf-tecnico').value || null });
     await render();
   });
 
@@ -413,6 +426,22 @@ export async function apriPratica(id) {
   $('#cf-protin')?.addEventListener('click', () => protocollaIn(p));
 }
 
+/* La pratica con i campi come sono A VIDEO nella maschera, anche se non
+   ancora salvati: il foglio al Direttore dice quello che l'ufficio ha
+   scelto, non quello che c'era nel database all'apertura (24/09/2026). */
+function daMaschera(p) {
+  const q = { ...p };
+  if ($('#cf-esitoceiv')) q.esito_ceiv = $('#cf-esitoceiv').value;
+  if ($('#cf-codceiv')) q.codice_ceiv_dich = $('#cf-codceiv').value.trim() || null;
+  if ($('#cf-spesa')) {
+    q.spesa_ordinaria = $('#cf-spesa').value === 'ordinaria';
+    q.ore = $('#cf-ore')?.value ? Number($('#cf-ore').value) : null;
+    q.corrispettivo = $('#cf-corr')?.value ? Number($('#cf-corr').value) : null;
+  }
+  return q;
+}
+const voce = (campi, etichetta) => campi.find(([l]) => l === etichetta)?.[1] || '—';
+
 function campiConferenza(p) {
   return [
     ['Pratica', `Conferenza di cantiere n° ${p.progressivo || p.id}${p.fonte && p.fonte !== 'modulo' ? ` (arrivata per ${p.fonte})` : ' (modulo online)'}`],
@@ -423,18 +452,9 @@ function campiConferenza(p) {
     ['Legale rappr.', [[p.rl_titolo, p.rl_nome, p.rl_cognome].filter(Boolean).join(' '), p.telefono, p.cellulare, p.email].filter(Boolean).join(' — ')],
     ['Cantiere', [p.ind_cantiere, p.comune_cantiere].filter(Boolean).join(', ')],
     ['Referente in cantiere', [[p.ref_titolo, p.ref_nome, p.ref_cognome].filter(Boolean).join(' '), p.ref_tel].filter(Boolean).join(' — ')],
-    /* Il Direttore autorizza una SPESA, e deve vederla. Ma «senza importo»
-       non vuol dire «dato mancante»: vuol dire ORDINARIA — la prestazione
-       rientra fra le visite gia' assegnate al tecnico per il mese, quindi
-       e' gia' pagata. Sono due cose diverse e il foglio le distingue. */
-    ['Spesa prevista', p.spesa_ordinaria === false
-      ? ([
-          p.ore != null ? `${p.ore} ore` : null,
-          p.corrispettivo != null
-            ? `€ ${Number(p.corrispettivo).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-            : null,
-        ].filter(Boolean).join(' — ') || 'a corrispettivo, importo da definire')
-      : `ordinaria — rientra nelle visite già assegnate al tecnico per il mese`],
+    /* Il Direttore autorizza una SPESA, e deve vederla: tariffa oraria e
+       totale, oppure «ordinaria» (testoSpesa in core.js) */
+    ['Spesa prevista', testoSpesa(p)],
     ['Note', p.note_modulo],
   ];
 }
@@ -443,8 +463,10 @@ async function richiestaAutorizzazione(p, btn) {
   attendi(btn, true, 'Preparo…');
   try {
     const tecnico = nomeTecnico($('#cf-tecnico')?.value || p.tecnico_assegnato || p.tecnico_proposto);
+    const q = daMaschera(p);
+    const campi = campiConferenza(q);
     const { pdfRichiestaAutCampi } = await import('./segnalazioni-doc.js');
-    const byte = await pdfRichiestaAutCampi(campiConferenza(p), tecnico,
+    const byte = await pdfRichiestaAutCampi(campi, tecnico,
       'Ai sensi della procedura sui servizi CPT, si chiede al Direttore l’autorizzazione a svolgere la conferenza di cantiere richiesta dall’impresa.');
     const n = p.progressivo ?? `m${p.id}`;
     scaricaEml({
@@ -455,6 +477,8 @@ async function richiestaAutorizzazione(p, btn) {
 
 vogliate trovare in allegato la richiesta di autorizzazione per la conferenza di cantiere n. ${n} richiesta da ${p.ragione_sociale || '?'} (${[p.ind_cantiere, p.comune_cantiere].filter(Boolean).join(', ') || 'cantiere da individuare'}).
 Tecnico proposto: ${tecnico || 'da assegnare'}.
+Spesa prevista: ${voce(campi, 'Spesa prevista')}.
+CEIV: ${voce(campi, 'CEIV')}.
 
 >>> Autorizza dall'app (si apre direttamente la pratica):
 ${APP_URL}#conferenza-${p.id}
@@ -467,11 +491,15 @@ ${FIRMA_SEGRETERIA}`,
       allegati: [{ nome: `richiesta-autorizzazione_conferenza-${n}_${slug(p.ragione_sociale)}.pdf`, byte }],
       nomeFile: `richiesta-autorizzazione-conferenza-${n}.eml`,
     });
-    await sb.from('s_conferenze_cantiere').update({
+    /* quello che è uscito sul foglio si salva: pratica e documento dicono la stessa cosa */
+    const { error: errAgg } = await sb.from('s_conferenze_cantiere').update({
       aut_stato: p.aut_stato === 'da_richiedere' ? 'richiesta' : p.aut_stato,
       aut_richiesta_il: new Date().toISOString(),
+      esito_ceiv: q.esito_ceiv, codice_ceiv_dich: q.codice_ceiv_dich,
+      spesa_ordinaria: q.spesa_ordinaria, ore: q.ore, corrispettivo: q.corrispettivo,
       aggiornato_da: state.email, updated_at: new Date().toISOString(),
     }).eq('id', p.id);
+    if (errAgg) toast('Bozza scaricata, ma la pratica non si è aggiornata: ' + errAgg.message, 'err');
     toast('Bozza mail al Direttore scaricata: aprila da Outlook e premi Invia.', 'ok');
     await render();
   } catch (e) {
@@ -500,7 +528,7 @@ async function decidiDaApp(p, esito, btn) {
       note,
     };
     const { pdfAutorizzazioneCampi } = await import('./segnalazioni-doc.js');
-    const byte = await pdfAutorizzazioneCampi(campiConferenza(p), tecnico, visto, firmaByte,
+    const byte = await pdfAutorizzazioneCampi(campiConferenza(daMaschera(p)), tecnico, visto, firmaByte,
       'Autorizzazione conferenza di cantiere');
 
     const cart = await risolviCartella(PERCORSO_VAULT);

@@ -51,6 +51,45 @@ export {
 } from './comune.js';
 
 let toastTimer;
+/* L'impresa in anagrafica a partire dalla P.IVA. La chiave impresa_id è la
+   P.IVA per le società, ma per le DITTE INDIVIDUALI è il codice fiscale del
+   titolare, e la P.IVA sta nel campo piva: cercando la sola chiave le ditte
+   individuali non si trovavano, e la pratica usciva «CEIV da verificare»
+   anche con l'impresa attiva in lista (Noventa Christian, consulenza n. 1
+   del 24/09/2026). Si cercano tutte e due; a parità vince la riga non
+   eliminata, poi quella la cui chiave è la P.IVA. Stessa forma di risposta
+   di maybeSingle(), così i chiamanti non cambiano. */
+export async function impresaPerPiva(piva, colonne = 'impresa_id') {
+  const v = String(piva || '').trim();
+  if (!/^[0-9A-Za-z]+$/.test(v)) return { data: null, error: null };
+  const { data, error } = await sb.from('imprese')
+    .select(`${colonne}, impresa_id, piva, elimina`)
+    .or(`impresa_id.eq.${v},piva.eq.${v}`)
+    .limit(10);
+  if (error || !data?.length) return { data: null, error };
+  const punti = (r) => (r.elimina ? 0 : 2) + (r.impresa_id === v ? 1 : 0);
+  return { data: [...data].sort((a, b) => punti(b) - punti(a))[0], error: null };
+}
+
+/* La riga «Spesa prevista» dei servizi CPT (consulenze, visite su richiesta,
+   conferenze), uguale sul foglio al Direttore e nella mail. Il campo
+   corrispettivo è la TARIFFA ORARIA, come negli incarichi del gestionale
+   (dove la fattura del tecnico fa corrispettivo × ore): «2 ore — € 50» si
+   leggeva come un totale, quindi si scrivono tariffa e totale (24/09/2026).
+   «Ordinaria» non è un dato mancante: la prestazione rientra fra le visite
+   già assegnate al tecnico per il mese, quindi è già pagata. */
+export function testoSpesa(p) {
+  if (p.spesa_ordinaria !== false) return 'ordinaria — rientra nelle visite già assegnate al tecnico per il mese';
+  const eur = (n) => `€ ${Number(n).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const ore = p.ore != null && p.ore !== '' ? Number(p.ore) : null;
+  const tariffa = p.corrispettivo != null && p.corrispettivo !== '' ? Number(p.corrispettivo) : null;
+  const oreTxt = ore != null ? `${ore.toLocaleString('it-IT')} ${ore === 1 ? 'ora' : 'ore'}` : null;
+  if (ore != null && tariffa != null) return `a corrispettivo — ${oreTxt} × ${eur(tariffa)}/ora = ${eur(ore * tariffa)} totale`;
+  if (tariffa != null) return `a corrispettivo — ${eur(tariffa)}/ora, ore da definire`;
+  if (ore != null) return `a corrispettivo — ${oreTxt}, tariffa oraria da definire`;
+  return 'a corrispettivo, importo da definire';
+}
+
 export function toast(msg, tipo = '') {
   const el = $('#toast');
   el.textContent = msg;

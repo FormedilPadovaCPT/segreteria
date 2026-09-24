@@ -14,7 +14,7 @@
    quando viene creato); il verbale vive di là.
    ============================================================ */
 
-import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo, siglaProtocollo } from './core.js';
+import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo, siglaProtocollo, impresaPerPiva } from './core.js';
 import { scaricaEml, FIRMA_SEGRETERIA } from './eml.js';
 import { risolviCartella, caricaByte } from './drive.js';
 
@@ -175,7 +175,7 @@ function nuovaNotifica() {
     const piva = m ? m[0].padStart(11, '0') : null;
     let impresaId = null;
     if (piva) {
-      const { data: imp } = await sb.from('imprese').select('impresa_id').eq('impresa_id', piva).maybeSingle();
+      const { data: imp } = await impresaPerPiva(piva);
       impresaId = imp?.impresa_id || null;
     }
     const { data: nuova, error } = await sb.from('s_notifiche_cantiere').insert({
