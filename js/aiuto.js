@@ -79,6 +79,12 @@ window.AIUTO_TESTI = {
   'nm-elenco': 'Stampa l\'elenco delle nomine in PDF.',
   'nm-presenze': 'Stampa il foglio presenze per la riunione del ruolo scelto.',
   'fn-chiudi': 'Chiude la nomina a oggi: resta nello storico, non compare più fra quelle in corso.',
+  'fn-salva': 'Registra la nomina. Se il ruolo è Dipendente, Titolare, Socio, Apprendista o Tirocinante registra invece il rapporto con l\'impresa.',
+  'imp-agg-persona': 'Aggiunge una persona a questa impresa: la scegli dall\'anagrafica o la crei, con il rapporto e le sue funzioni in un colpo solo.',
+  'imp-nuova-nomina': 'Registra una nomina per questa impresa, anche di una figura esterna (medico, RSPP di uno studio, coordinatore).',
+  'ap-salva': 'Registra persona, rapporto e nomine. Non crea doppioni: stesso codice fiscale = stessa persona, rapporto o nomina già in corso = non se ne apre un altro.',
+  'rp-salva': 'Salva tipo, qualifica, mansione e data di assunzione del rapporto.',
+  'rp-cessa': 'Chiude il rapporto alla data scritta: resta nello storico. Con la spunta chiude alla stessa data anche le nomine della persona per questa impresa.',
 
   /* ── servizi alle imprese (segnalazioni, consulenze, visite, conferenze, attestazioni) ── */
   'p:crea la pratica': 'Apre la pratica con i dati inseriti: da qui il giro è sempre lo stesso, richiesta di autorizzazione al Direttore, esito, esecuzione.',

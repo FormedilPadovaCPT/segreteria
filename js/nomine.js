@@ -18,6 +18,7 @@ import { collegaDoppioClickMail } from './eml.js';
 
 let nomine = [];
 let ruoli = [];
+let tipiRapporto = [];   // s_tipi_rapporto: i ruoli che sono rapporti, non nomine (24/09/2026)
 let tutte = null;   // archivio completo in memoria (si ricarica dopo ogni salvataggio)
 let filtroRuolo = '';
 let filtroStato = 'attive';
@@ -132,8 +133,12 @@ export async function render() {
 
 async function caricaRuoli() {
   if (ruoli.length) return;
-  const { data } = await sb.from('s_ruoli').select('id_ruolo, ruolo').order('ruolo');
+  const { data } = await sb.from('s_ruoli').select('id_ruolo, ruolo, propone_rapporto').order('ruolo');
   ruoli = data || [];
+  /* i ruoli che sono RAPPORTI (dipendente, apprendista, tirocinante,
+     titolare, socio): sceglierli registra il rapporto, non la nomina */
+  const { data: t } = await sb.from('s_tipi_rapporto').select('codice, etichetta, ruolo_id');
+  tipiRapporto = t || [];
 }
 
 /* Apertura di una singola nomina da un'altra maschera (es. dalla
@@ -207,6 +212,7 @@ function formNomina(n, { prefill = {}, dopo } = {}) {
       <div id="fn-persona-esiti"></div></div>
     <div class="field"><label>Ruolo *</label>
       <select id="fn-ruolo"><option value="">—</option></select></div>
+    <div id="fn-rapporto-box" class="hint" style="margin:-2px 0 6px"></div>
     <div class="field"><label>Impresa / ente</label>
       <input type="text" id="fn-impresa" value="${esc(d.impresa_txt || '')}" placeholder="Ragione sociale (3 lettere per cercare)…">
       <input type="hidden" id="fn-impresa-id" value="${esc(d.impresa_id || '')}">
@@ -233,6 +239,48 @@ function formNomina(n, { prefill = {}, dopo } = {}) {
   /* persona già scelta dalla scheda: si parte dal ruolo */
   if (nuova && d.persona_id) $('#fn-ruolo').focus();
 
+  /* RAPPORTO O NOMINA (24/09/2026, decisione dell'utente).
+     · Un ruolo che è un rapporto (dipendente, apprendista, tirocinante,
+       titolare, socio) non diventa nomina: si registra il rapporto.
+     · Una funzione interna (preposto, capocantiere, RLS…) propone il
+       rapporto «dipendente» con la spunta già messa, se la persona non
+       ne ha già uno in corso con quell'impresa. */
+  const ruoloScelto = () => {
+    const sel = $('#fn-ruolo');
+    const id = Number(sel.options[sel.selectedIndex]?.dataset.id) || null;
+    return ruoli.find((r) => r.id_ruolo === id) || null;
+  };
+  const tipoDelRuolo = (r) => r ? tipiRapporto.find((t) => t.ruolo_id === r.id_ruolo) || null : null;
+  const aggiornaBox = async () => {
+    const box = $('#fn-rapporto-box');
+    const r = ruoloScelto();
+    const t = tipoDelRuolo(r);
+    $('#fn-salva').textContent = nuova ? (t ? 'Registra il rapporto' : 'Registra la nomina') : 'Salva le modifiche';
+    if (!nuova) {
+      box.innerHTML = t ? `«${esc(r.ruolo)}» oggi si registra come rapporto con l'impresa, non come nomina: questa è una nomina storica.` : '';
+      return;
+    }
+    if (t) {
+      box.innerHTML = `<strong>«${esc(r.ruolo)}» è un rapporto con l'impresa, non una funzione</strong>: premendo il pulsante
+        si registra il rapporto «${esc(t.etichetta)}», con «Inizio incarico» come data di assunzione.`;
+      return;
+    }
+    const pid = $('#fn-persona-id').value;
+    const iid = $('#fn-impresa-id').value;
+    if (!r?.propone_rapporto || !pid || !iid) { box.innerHTML = ''; return; }
+    const { data, error } = await sb.from('persone_imprese').select('id')
+      .eq('persona_id', pid).eq('impresa_id', iid)
+      .or(`data_cessazione.is.null,data_cessazione.gte.${oggiIso()}`).limit(1);
+    if (error) { box.innerHTML = `Non sono riuscito a leggere i rapporti della persona: ${esc(error.message)}`; return; }
+    box.innerHTML = data?.length
+      ? 'Ha già un rapporto in corso con questa impresa.'
+      : `<label style="display:flex;gap:6px;align-items:center;cursor:pointer;color:var(--testo)">
+           <input type="checkbox" id="fn-apri-rapporto" checked>
+           Apri anche il rapporto «dipendente» con l'impresa (togli la spunta se non lo è)</label>`;
+  };
+  $('#fn-ruolo').addEventListener('change', aggiornaBox);
+  if (d.ruolo_txt) aggiornaBox();
+
   /* ricerca persone in anagrafica */
   $('#fn-persona').addEventListener('input', (e) => {
     $('#fn-persona-id').value = '';
@@ -250,6 +298,7 @@ function formNomina(n, { prefill = {}, dopo } = {}) {
         $('#fn-persona-id').value = b.dataset.pid;
         $('#fn-persona-esiti').innerHTML = '';
         $('#fn-persona-hint').textContent = 'Agganciata all\'anagrafica persone.';
+        aggiornaBox();
       }));
     }, 350);
   });
@@ -268,6 +317,7 @@ function formNomina(n, { prefill = {}, dopo } = {}) {
         $('#fn-impresa').value = b.dataset.nome;
         $('#fn-impresa-id').value = b.dataset.iid;
         $('#fn-impresa-esiti').innerHTML = '';
+        aggiornaBox();
       }));
     }, 350);
   });
@@ -304,6 +354,27 @@ function formNomina(n, { prefill = {}, dopo } = {}) {
       note: $('#fn-note').value.trim() || null,
       updated_at: new Date().toISOString(),
     };
+    /* un ruolo che è un rapporto: si registra il rapporto, non la nomina */
+    const tipoRap = nuova ? tipoDelRuolo(ruoloScelto()) : null;
+    if (tipoRap) {
+      if (!riga.persona_id) return toast('Per registrare il rapporto la persona dev\'essere in anagrafica: sceglila dall\'elenco, oppure aggiungila dalla scheda impresa.', 'err');
+      if (!riga.impresa_id) return toast('Il rapporto è con un\'impresa: scegli l\'impresa dall\'elenco.', 'err');
+      attendi(btn, true);
+      const { data: esito, error: errRap } = await sb.rpc('s_registra_persona_impresa', { p: {
+        persona_id: riga.persona_id, impresa_id: riga.impresa_id,
+        rapporto: { tipo: tipoRap.codice, mansione: riga.mansione, data_assunzione: riga.data_inizio, note: riga.note },
+      } });
+      attendi(btn, false);
+      if (errRap) return toast('Registrazione del rapporto non riuscita: ' + errRap.message, 'err');
+      toast(esito.rapporto === 'gia_in_corso'
+        ? 'Aveva già un rapporto in corso con questa impresa: non ne ho aperto un secondo.'
+        : `Rapporto «${tipoRap.etichetta}» registrato.`, 'ok');
+      chiudiDrawer();
+      ridisegna();
+      return;
+    }
+    const apriRapporto = nuova && $('#fn-apri-rapporto')?.checked && riga.persona_id && riga.impresa_id;
+
     attendi(btn, true);
     let error;
     if (nuova) {
@@ -330,9 +401,20 @@ function formNomina(n, { prefill = {}, dopo } = {}) {
     } else {
       ({ error } = await sb.from('s_nomine').update(riga).eq('access_id', d.access_id));
     }
-    attendi(btn, false);
-    if (error) return toast('Salvataggio non riuscito: ' + error.message, 'err');
-    toast(nuova ? 'Nomina registrata.' : 'Modifiche salvate.', 'ok');
+    if (error) { attendi(btn, false); return toast('Salvataggio non riuscito: ' + error.message, 'err'); }
+    /* funzione interna con la spunta: si apre anche il rapporto «dipendente» */
+    if (apriRapporto) {
+      const { data: esito, error: errRap } = await sb.rpc('s_registra_persona_impresa', { p: {
+        persona_id: riga.persona_id, impresa_id: riga.impresa_id,
+        rapporto: { tipo: 'dipendente', data_assunzione: riga.data_inizio },
+      } });
+      attendi(btn, false);
+      if (errRap) toast('Nomina registrata, ma il rapporto non si è aperto: ' + errRap.message, 'err');
+      else toast(esito.rapporto === 'creato' ? 'Nomina registrata e rapporto «dipendente» aperto.' : 'Nomina registrata (il rapporto era già in corso).', 'ok');
+    } else {
+      attendi(btn, false);
+      toast(nuova ? 'Nomina registrata.' : 'Modifiche salvate.', 'ok');
+    }
     chiudiDrawer();
     ridisegna();
   });

@@ -244,6 +244,12 @@ export async function apriScheda(impresaId, tab = 'anagrafica') {
     scheda.rls = rls || [];
   } catch { scheda.rls = []; }
 
+  /* i tipi di rapporto (24/09/2026): danno l'etichetta alla colonna «Rapporto» */
+  try {
+    const { caricaTipiERuoli } = await import('./rapporti.js');
+    scheda.tipi_rapporto = (await caricaTipiERuoli()).tipi;
+  } catch { scheda.tipi_rapporto = []; }
+
   disegnaScheda();
 }
 
@@ -337,6 +343,26 @@ function disegnaTab() {
       const id = scheda.impresa.impresa_id;
       apriNomina(Number(tr.dataset.nomina), () => apriScheda(id, 'persone'));
     }));
+  /* persone, rapporti e nomine si inseriscono da qui (24/09/2026) */
+  const idImp = scheda.impresa.impresa_id;
+  const ricarica = () => apriScheda(idImp, 'persone');
+  $('#imp-agg-persona')?.addEventListener('click', async () => {
+    const { aggiungiPersona } = await import('./rapporti.js');
+    aggiungiPersona({ impresa_id: idImp, impresa_nome: scheda.impresa.impresa_nome }, ricarica);
+  });
+  $('#imp-nuova-nomina')?.addEventListener('click', async () => {
+    const { nuovaNomina } = await import('./nomine.js');
+    nuovaNomina({ impresa_id: idImp, impresa_txt: scheda.impresa.impresa_nome }, ricarica);
+  });
+  host.querySelectorAll('[data-rap]').forEach((b) =>
+    b.addEventListener('click', async (ev) => {
+      ev.stopPropagation();   // la riga apre la persona, il bottone il rapporto
+      const r = (scheda.persone || []).find((x) => String(x.id) === b.dataset.rap);
+      if (!r) return;
+      const { apriRapporto } = await import('./rapporti.js');
+      apriRapporto(r, ricarica);
+    }));
+
   host.querySelectorAll('tr[data-rlscom]').forEach((tr) =>
     tr.addEventListener('click', async () => {
       const { apriComunicazioneId } = await import('./rls.js');
@@ -1065,40 +1091,74 @@ function tabPersone() {
 ` + tabPersoneResto();
 }
 
+const QUALIFICHE_TXT = {
+  operaio: 'Operaio', impiegato_tecnico: 'Impiegato tecnico',
+  impiegato_amministrativo: 'Impiegato amministrativo', dirigente: 'Dirigente',
+  apprendista: 'Apprendista', altro: 'Altro',
+};
+/* l'etichetta del tipo di rapporto (s_tipi_rapporto); un tipo storico
+   dell'import Access («rspp», «preposto»…) si mostra com'è, in corsivo */
+function etichettaRapporto(codice) {
+  if (!codice) return '';
+  const t = (scheda.tipi_rapporto || []).find((x) => x.codice === codice);
+  return t ? t.etichetta : `${String(codice).replace(/_/g, ' ')} (import)`;
+}
+
 function tabPersoneResto() {
   const persone = scheda.persone || [];
   const nomine = scheda.nomine || [];
 
+  /* in forza prima, poi i cessati: chi lavora oggi per l'impresa si vede subito */
+  const oggi = new Date().toISOString().slice(0, 10);
+  /* le figure esterne (RSPP esterno, consulente…) non sono «in forza»:
+     stanno dopo i dipendenti, con la loro etichetta */
+  const esterna = (p) => p.tipo_rapporto === 'esterno';
+  const inForza = (p) => !esterna(p) && (!p.data_cessazione || p.data_cessazione > oggi);
+  const peso = (p) => (inForza(p) ? 0 : esterna(p) ? 1 : 2);
+  const ordinate = [...persone].sort((a, b) => peso(a) - peso(b));
+  const nInForza = persone.filter(inForza).length;
+  const nEsterne = persone.filter(esterna).length;
+
   return `
     <div class="sez">
-      <h3>Dipendenti e rapporti — ${persone.length}</h3>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:4px">
+        <h3 style="margin:0;flex:1">Dipendenti e rapporti — ${persone.length}${persone.length ? ` (${nInForza} in forza${nEsterne ? `, ${nEsterne} figure esterne` : ''})` : ''}</h3>
+        <button class="btn btn-primary btn-sm" id="imp-agg-persona">+ Aggiungi persona</button>
+      </div>
       ${persone.length ? `
       <div class="table-wrap">
         <table class="tbl">
           <thead><tr>
             <th>Nominativo</th><th style="width:150px">Codice fiscale</th>
-            <th style="width:150px">Qualifica</th><th style="width:150px">Mansione</th>
-            <th style="width:110px">Assunzione</th><th style="width:110px">Cessazione</th>
-            <th style="width:200px">Contatti</th>
+            <th style="width:120px">Rapporto</th>
+            <th style="width:140px">Qualifica</th><th style="width:140px">Mansione</th>
+            <th style="width:100px">Assunzione</th><th style="width:100px">Cessazione</th>
+            <th style="width:190px">Contatti</th><th style="width:40px"></th>
           </tr></thead>
           <tbody>
-            ${persone.map((p) => `
-              <tr data-pers="${esc(p.persona_id)}" title="Apri la scheda persona">
+            ${ordinate.map((p) => `
+              <tr data-pers="${esc(p.persona_id)}" title="Apri la scheda persona" class="${inForza(p) || esterna(p) ? '' : 'dt-riga-storico'}">
                 <td><strong>${esc([p.titolo, p.nominativo].filter(Boolean).join(' '))}</strong></td>
                 <td style="font-size:12px">${esc(p.cf || '')}</td>
-                <td>${esc(p.qualifica || '')}</td>
+                <td>${esc(etichettaRapporto(p.tipo_rapporto))}</td>
+                <td>${esc(QUALIFICHE_TXT[p.qualifica] || p.qualifica || '')}</td>
                 <td>${esc(p.mansione || '')}</td>
                 <td>${dataIt(p.data_assunzione)}</td>
-                <td>${p.data_cessazione ? dataIt(p.data_cessazione) : '<span class="pill pill-prima">in forza</span>'}</td>
+                <td>${p.data_cessazione ? dataIt(p.data_cessazione)
+                  : esterna(p) ? '<span class="pill pill-off">esterna</span>' : '<span class="pill pill-prima">in forza</span>'}</td>
                 <td style="font-size:12px">${esc([p.email, p.telefono].filter(Boolean).join(' · '))}</td>
+                <td><button class="btn btn-ghost btn-sm" data-rap="${esc(p.id)}" title="Modifica o cessa il rapporto">✎</button></td>
               </tr>`).join('')}
           </tbody>
         </table>
-      </div>` : '<p class="empty">Nessuna persona collegata.</p>'}
+      </div>` : '<p class="empty">Nessuna persona collegata. Con «+ Aggiungi persona» la registri insieme al rapporto e alle sue funzioni.</p>'}
     </div>
 
     <div class="sez">
-      <h3>Nomine — ${nomine.length}</h3>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:4px">
+        <h3 style="margin:0;flex:1">Nomine — ${nomine.length}</h3>
+        <button class="btn btn-ghost btn-sm" id="imp-nuova-nomina">+ Nuova nomina</button>
+      </div>
       ${nomine.length ? `
       <div class="table-wrap">
         <table class="tbl">
