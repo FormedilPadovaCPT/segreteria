@@ -48,7 +48,15 @@ const TIPI_RICHIESTA = [
   { tipo: 'riunione_sindacale', etichetta: 'Riunione sindacale', monte: 'permessi_sindacali', causale: 'Riunione sindacale' },
   { tipo: 'legge104', etichetta: 'Permesso legge 104/92', monte: 'legge104', causale: 'Permessi legge 104/92' },
   { tipo: 'recupero', etichetta: 'Recupero', monte: 'banca_ore', causale: 'Recupero' },
+  /* ORE SUPPLEMENTARI da fare (24/09/2026, chiesto dall'utente): il lavoratore chiede
+     di fermarsi e dichiara PRIMA se le recupererà (alimentano la banca ore) o se le
+     vuole pagate (busta paga); passa dal nulla osta del Direttore come le altre.
+     Non scala nessun monte: il campo che conta è `compenso`. */
+  { tipo: 'supplementari', etichetta: 'Ore supplementari', monte: null, causale: 'Ore supplementari' },
 ];
+const COMPENSO = { recupero: 'da recuperare — alimenta la banca ore', paga: 'da pagare — in busta paga' };
+const eSuppl = (r) => r?.tipo === 'supplementari';
+const etichettaTipo = (t) => TIPI_RICHIESTA.find((x) => x.tipo === t)?.etichetta || t;
 const MONTI = [
   { monte: 'ferie', etichetta: 'Ferie' },
   { monte: 'permessi', etichetta: 'Permessi retribuiti (contratto)' },
@@ -623,7 +631,7 @@ async function renderFerie(hostArg) {
           return `<tr data-id="${r.id}">
             <td>${r.id}</td>
             <td>${esc(r.dipendente)}</td>
-            <td>${esc(r.tipo)}</td>
+            <td>${esc(etichettaTipo(r.tipo))}${eSuppl(r) && r.compenso ? `<span class="cell-sub">${r.compenso === 'paga' ? '💶 da pagare' : '⏳ da recuperare'}</span>` : ''}</td>
             <td>${dataIt(r.data_inizio)}${r.data_fine && r.data_fine !== r.data_inizio ? ' → ' + dataIt(r.data_fine) : ''}</td>
             <td>${r.ore ?? '—'}</td>
             <td><span class="dt-cella ${cA}" style="padding:2px 8px">${esc(lA)}</span>${r.aut_modalita === 'cartacea' ? ' ✍️' : ''}</td>
@@ -647,7 +655,7 @@ async function renderFerie(hostArg) {
 }
 
 function formRichiesta() {
-  apriDrawer('Nuova richiesta ferie / permesso / recupero', '', `
+  apriDrawer('Nuova richiesta ferie / permesso / recupero / ore supplementari', '', `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
       <div class="field"><label>Dipendente</label>
         <select id="fr-dip">${dipendenti.map((d) => `<option ${d === dipendente ? 'selected' : ''}>${esc(d)}</option>`).join('')}</select></div>
@@ -658,9 +666,14 @@ function formRichiesta() {
       <div class="field"><label>Dalle ore</label><input type="time" id="fr-dalle"></div>
       <div class="field"><label>Alle ore</label><input type="time" id="fr-alle"></div>
       <div class="field"><label>Totale ore</label><input type="number" step="0.5" id="fr-ore" placeholder="es. 8"></div>
-      <div class="field"><label>Monte ore</label>
+      <div class="field" id="fr-monte-box"><label>Monte ore</label>
         <select id="fr-monte">${MONTI.map((m) => `<option value="${m.monte}">${esc(m.etichetta)}</option>`).join('')}</select></div>
     </div>
+    <div class="field hidden" id="fr-compenso-box" style="margin-top:8px"><label>Scelta del lavoratore *</label>
+      <label style="display:flex;gap:6px;align-items:center;cursor:pointer;font-weight:600">
+        <input type="radio" name="fr-compenso" value="recupero" style="width:auto;margin:0"> Da recuperare <span class="hint" style="font-weight:400">— alimenta la banca ore</span></label>
+      <label style="display:flex;gap:6px;align-items:center;cursor:pointer;font-weight:600;margin-top:3px">
+        <input type="radio" name="fr-compenso" value="paga" style="width:auto;margin:0"> Da pagare <span class="hint" style="font-weight:400">— in busta paga</span></label></div>
     <div class="field" style="margin-top:8px"><label>Note (facoltative)</label><input id="fr-motivo"></div>
     <button class="btn btn-primary" id="fr-crea" style="margin-top:10px">Crea la richiesta</button>`);
 
@@ -668,10 +681,25 @@ function formRichiesta() {
     /* ogni tipo ha il suo monte: il recupero attinge alla BANCA ORE e le due voci
        sindacali al monte RSU, mai ai permessi retribuiti del contratto. Resta
        modificabile a mano per i casi che non rientrano. */
-    $('#fr-monte').value = tipoRic($('#fr-tipo').value).monte;
+    const suppl = $('#fr-tipo').value === 'supplementari';
+    if (!suppl) $('#fr-monte').value = tipoRic($('#fr-tipo').value).monte;
+    $('#fr-monte-box').classList.toggle('hidden', suppl);
+    $('#fr-compenso-box').classList.toggle('hidden', !suppl);
   });
+  /* dalle/alle → totale ore, se il totale non è stato scritto a mano */
+  const calcolaOre = () => {
+    const a = hm2min($('#fr-dalle').value); const b = hm2min($('#fr-alle').value);
+    if (a != null && b != null && b > a && !$('#fr-ore').dataset.mano) $('#fr-ore').value = String(Math.round((b - a) / 30) / 2);
+  };
+  $('#fr-dalle').addEventListener('change', calcolaOre);
+  $('#fr-alle').addEventListener('change', calcolaOre);
+  $('#fr-ore').addEventListener('input', () => { $('#fr-ore').dataset.mano = '1'; });
   $('#fr-crea').addEventListener('click', async (ev) => {
     if (!$('#fr-da').value) return toast('Serve la data di inizio.', 'err');
+    const suppl = $('#fr-tipo').value === 'supplementari';
+    const compenso = document.querySelector('input[name="fr-compenso"]:checked')?.value || null;
+    if (suppl && !compenso) return toast('Scegli se le ore saranno da recuperare o da pagare: è la scelta che va al Direttore.', 'err');
+    if (suppl && !$('#fr-ore').value) return toast('Scrivi quante ore (o dalle/alle).', 'err');
     attendi(ev.currentTarget, true);
     const { data: nuova, error } = await sb.from('s_ferie_richieste').insert({
       dipendente: $('#fr-dip').value,
@@ -681,7 +709,8 @@ function formRichiesta() {
       ora_dalle: $('#fr-dalle').value || null,
       ora_alle: $('#fr-alle').value || null,
       ore: $('#fr-ore').value ? Number($('#fr-ore').value) : null,
-      monte: $('#fr-monte').value,
+      monte: suppl ? (compenso === 'recupero' ? 'banca_ore' : null) : $('#fr-monte').value,
+      compenso: suppl ? compenso : null,
       motivo: $('#fr-motivo').value.trim() || null,
       aggiornato_da: state.email,
     }).select('*').single();
@@ -705,7 +734,7 @@ export async function apriRichiesta(id) {
     state.email.toLowerCase() === conf.direttore_email.toLowerCase();
   const decisa = ['approvata', 'respinta'].includes(r.aut_stato);
 
-  apriDrawer(`Richiesta n° ${r.id} — ${r.tipo} — ${r.dipendente}`, '', `
+  apriDrawer(`Richiesta n° ${r.id} — ${etichettaTipo(r.tipo)} — ${r.dipendente}`, '', `
     <div class="dt-quadro-riga">
       <span class="dt-dot ${cA}"></span>
       <span class="dt-quadro-req">Nulla osta Direttore</span>
@@ -714,17 +743,22 @@ export async function apriRichiesta(id) {
     </div>
     <div class="dt-doc-riga"><strong>Periodo:</strong> ${dataIt(r.data_inizio)}${r.data_fine && r.data_fine !== r.data_inizio ? ' → ' + dataIt(r.data_fine) : ''}
       ${r.ora_dalle ? ` — dalle ${hm(r.ora_dalle)} alle ${hm(r.ora_alle)}` : ''}</div>
-    <div class="dt-doc-riga"><strong>Ore richieste:</strong> ${r.ore ?? '—'} — scalate da: <strong>${esc(etichettaMonte(r.monte))}</strong></div>
+    <div class="dt-doc-riga"><strong>Ore richieste:</strong> ${r.ore ?? '—'} — ${eSuppl(r)
+      ? `scelta del lavoratore: <strong>${esc(COMPENSO[r.compenso] || 'non indicata')}</strong>`
+      : `scalate da: <strong>${esc(etichettaMonte(r.monte))}</strong>`}</div>
     ${r.motivo ? `<div class="dt-doc-riga"><strong>Note:</strong> ${esc(r.motivo)}</div>` : ''}
     ${r.aut_note ? `<div class="dt-doc-riga"><strong>Note del Direttore:</strong> ${esc(r.aut_note)}</div>` : ''}
 
     <hr style="margin:14px 0;border:0;border-top:1px solid var(--bordo)">
     ${decisa ? `
       ${r.aut_stato === 'approvata' && !r.righe_generate && !state.soloDirettore ? `
-      <p class="hint" style="margin:0 0 8px">Richiesta approvata: posso creare le righe dei giorni
+      ${eSuppl(r) ? `<p class="hint" style="margin:0 0 8px">Richiesta approvata: registro il movimento di ore
+        supplementari in banca ore, ${esc(COMPENSO[r.compenso] || '')}. Le ore fatte davvero si segnano come sempre
+        nel foglio del mese, con gli orari.</p>
+      <button class="btn btn-primary" id="fe-genera">⏱ Registra in banca ore</button>` : `<p class="hint" style="margin:0 0 8px">Richiesta approvata: posso creare le righe dei giorni
         (presenze con la nota e movimenti in banca ore), da correggere poi se serve.</p>
-      <button class="btn btn-primary" id="fe-genera">📅 Genera le righe dei giorni</button>` :
-      r.righe_generate ? '<p class="hint">Righe di presenza e banca ore già generate.</p>' : ''}` : `
+      <button class="btn btn-primary" id="fe-genera">📅 Genera le righe dei giorni</button>`}` :
+      r.righe_generate ? `<p class="hint">${eSuppl(r) ? 'Movimento già registrato in banca ore.' : 'Righe di presenza e banca ore già generate.'}</p>` : ''}` : `
       <h4 style="margin:0 0 6px">Nulla osta</h4>
       <p class="hint" style="margin:0 0 10px">Scegli la strada: dall'app (mail al Direttore col link) o giro cartaceo.</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -772,11 +806,12 @@ async function mandaAlDirettore(r, btn) {
     const byte = await pdfRichiestaFerie(r, null, null);
     scaricaEml({
       to: conf.direttore_email || 'direzione@formedilpadova.it',
-      oggetto: `Formedil Padova - Richiesta ${r.tipo} - ${r.dipendente} - n. ${r.id}`,
+      oggetto: `Formedil Padova - Richiesta ${etichettaTipo(r.tipo).toLowerCase()} - ${r.dipendente} - n. ${r.id}`,
       corpo: `Egr. Direttore,
 
-in allegato la richiesta di ${r.tipo} n. ${r.id} di ${r.dipendente}:
-periodo ${dataIt(r.data_inizio)}${r.data_fine ? ` → ${dataIt(r.data_fine)}` : ''}${r.ore != null ? `, ${r.ore} ore` : ''}.
+in allegato la richiesta di ${etichettaTipo(r.tipo).toLowerCase()} n. ${r.id} di ${r.dipendente}:
+${eSuppl(r) ? 'il giorno' : 'periodo'} ${dataIt(r.data_inizio)}${r.data_fine ? ` → ${dataIt(r.data_fine)}` : ''}${r.ora_dalle ? ` dalle ${hm(r.ora_dalle)} alle ${hm(r.ora_alle)}` : ''}${r.ore != null ? `, ${r.ore} ore` : ''}.${eSuppl(r) ? `
+Scelta del lavoratore: ${COMPENSO[r.compenso] || 'non indicata'}.` : ''}
 
 >>> Autorizza dall'app (si apre direttamente la pratica):
 ${APP_URL}#ferie-${r.id}
@@ -867,6 +902,7 @@ function esitoCartaceo(r) {
 
 /* a richiesta approvata: righe di presenza (nota) + banca ore per i giorni feriali */
 async function generaRighe(r, btn) {
+  if (eSuppl(r)) return registraSupplementari(r, btn);
   const giorni = [];
   const fine = r.data_fine || r.data_inizio;
   for (let d = new Date(r.data_inizio + 'T12:00'); d.toISOString().slice(0, 10) <= fine; d.setDate(d.getDate() + 1)) {
@@ -895,6 +931,31 @@ async function generaRighe(r, btn) {
       righe_generate: true, aggiornato_da: state.email, updated_at: new Date().toISOString(),
     }).eq('id', r.id);
     toast(`${giorni.length} giorni creati in presenze e banca ore.`, 'ok');
+    chiudiDrawer();
+    await renderFerie();
+  } catch (e) { toast(e.message, 'err'); } finally { attendi(btn, false); }
+}
+
+/* ore supplementari approvate: UN movimento in banca ore, con la scelta del lavoratore.
+   Nessuna riga nel foglio presenze: le ore fatte si segnano con gli orari veri. */
+async function registraSupplementari(r, btn) {
+  const oreMin = r.ore != null ? Math.round(Number(r.ore) * 60) : null;
+  if (!oreMin) return toast('La richiesta non ha il totale ore: correggila prima di registrare.', 'err');
+  if (!r.compenso) return toast('La richiesta non dice se le ore sono da recuperare o da pagare.', 'err');
+  if (!confirm(`Registro ${mm2hm(oreMin)} di ore supplementari del ${dataIt(r.data_inizio)}, ${COMPENSO[r.compenso]}?`)) return;
+  attendi(btn, true, 'Registro…');
+  try {
+    const { error } = await sb.from('s_presenze_extra').insert({
+      dipendente: r.dipendente, data: r.data_inizio, causale: 'Ore supplementari', ore_min: oreMin,
+      pagato: r.compenso === 'paga', recuperato: false, chiuso: false,
+      note: `Richiesta n° ${r.id}, nulla osta ${r.aut_modalita === 'cartacea' ? 'cartaceo' : 'dall\'app'}${r.motivo ? ' — ' + r.motivo : ''}`,
+      aggiornato_da: state.email,
+    });
+    if (error) throw new Error(error.message);
+    await sb.from('s_ferie_richieste').update({
+      righe_generate: true, aggiornato_da: state.email, updated_at: new Date().toISOString(),
+    }).eq('id', r.id);
+    toast(`Ore supplementari registrate in banca ore (${r.compenso === 'paga' ? 'da pagare' : 'da recuperare'}).`, 'ok');
     chiudiDrawer();
     await renderFerie();
   } catch (e) { toast(e.message, 'err'); } finally { attendi(btn, false); }

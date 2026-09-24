@@ -217,7 +217,8 @@ export async function pdfFoglioPresenze({ dipendente, anno, mese, presenze, extr
    { esito, nome, data_ora, utente, note }; firmaByte = png/jpg o null. */
 export async function pdfRichiestaFerie(r, visto, firmaByte) {
   const c = await apriCarta();
-  c.scrivi('Richiesta di ferie o permessi del personale dipendente', c.bold, 13, c.nero);
+  c.scrivi(r.tipo === 'supplementari' ? 'Richiesta di ore supplementari del personale dipendente'
+    : 'Richiesta di ferie o permessi del personale dipendente', c.bold, 13, c.nero);
   c.scrivi('Modulo compilato dall’app Segreteria e sottoposto al Direttore per nulla osta; l’originale resta all’amministrazione per i calcoli a registro presenze.', c.italic, 7.5, c.grigio);
   c.stato.y -= 8;
   c.campo('Il dipendente', r.dipendente);
@@ -248,15 +249,26 @@ export async function pdfRichiestaFerie(r, visto, firmaByte) {
     c.campo('In data', [dataIt(r.data_inizio), r.data_fine ? `→ ${dataIt(r.data_fine)}` : ''].filter(Boolean).join(' '));
     if (r.ora_dalle || r.ora_alle) c.campo('Dalle / alle', `${oraTxt(r.ora_dalle)} — ${oraTxt(r.ora_alle)}`);
   }
+  casella(r.tipo === 'supplementari', 'chiede di effettuare ORE SUPPLEMENTARI');
+  if (r.tipo === 'supplementari') {
+    c.campo('In data', dataIt(r.data_inizio));
+    if (r.ora_dalle || r.ora_alle) c.campo('Dalle / alle', `${oraTxt(r.ora_dalle)} — ${oraTxt(r.ora_alle)}`);
+  }
   c.campo('Per totale ore', r.ore != null ? String(r.ore) : '—');
   if (r.motivo) c.campo('Note', r.motivo);
   c.stato.y -= 4;
   /* il recupero attinge alla BANCA ORE e non scala i monti del contratto
      (regola dell'utente, 03/09/2026) */
-  const monteEff = r.monte || (r.tipo === 'recupero' ? 'banca_ore' : 'ferie');
-  casella(monteEff === 'permessi', 'chiede di utilizzare il monte ore di PERMESSI retribuiti disponibile');
-  casella(monteEff === 'ferie', 'chiede di utilizzare il monte ore di FERIE disponibile');
-  casella(monteEff === 'banca_ore', 'recupera dalla BANCA ORE (non scala ferie né permessi del contratto)');
+  if (r.tipo === 'supplementari') {
+    /* la scelta del lavoratore, che il Direttore vede prima di dare il nulla osta */
+    casella(r.compenso === 'recupero', 'le ore saranno RECUPERATE: alimentano la BANCA ORE');
+    casella(r.compenso === 'paga', 'chiede che le ore siano PAGATE in busta paga');
+  } else {
+    const monteEff = r.monte || (r.tipo === 'recupero' ? 'banca_ore' : 'ferie');
+    casella(monteEff === 'permessi', 'chiede di utilizzare il monte ore di PERMESSI retribuiti disponibile');
+    casella(monteEff === 'ferie', 'chiede di utilizzare il monte ore di FERIE disponibile');
+    casella(monteEff === 'banca_ore', 'recupera dalla BANCA ORE (non scala ferie né permessi del contratto)');
+  }
   c.stato.y -= 8;
 
   c.scrivi('La Direzione, con il nulla osta della Presidenza FORMEDIL PADOVA', c.font, 9.5, c.grigio);
