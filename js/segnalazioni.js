@@ -507,19 +507,29 @@ export async function apriPratica(id) {
   `);
 
   $('#sg-salva').addEventListener('click', async (ev) => {
-    attendi(ev.currentTarget, true);
-    const { error } = await sb.from('s_segnalazioni').update({
-      stato: $('#sg-stato').value,
-      segnalante_tipo: $('#sg-tiposeg').value || null,
-      tecnico_assegnato: $('#sg-tecnico').value || null,
-      data_verbale: $('#sg-dataverb').value || null,
-      esito_visita: $('#sg-esitovisita').value.trim() || null,
-      risposta_testo: $('#sg-risposta').value.trim() || null,
-      note_ufficio: $('#sg-note').value.trim() || null,
-      aggiornato_da: state.email,
-      updated_at: new Date().toISOString(),
-    }).eq('id', p.id);
-    attendi(ev.currentTarget, false);
+    const btn = ev.currentTarget;
+    attendi(btn, true);
+    let error;
+    try {
+      ({ error } = await sb.from('s_segnalazioni').update({
+        stato: $('#sg-stato').value,
+        segnalante_tipo: $('#sg-tiposeg').value || null,
+        tecnico_assegnato: $('#sg-tecnico').value || null,
+        data_verbale: $('#sg-dataverb').value || null,
+        esito_visita: $('#sg-esitovisita').value.trim() || null,
+        /* il campo c'è solo se la visita l'ha chiesta la Cassa Edile: senza,
+           leggerlo rompeva il Salva e la rotellina girava per sempre
+           (segnalazione n° 1 Casale di Scodosia, 24/09/2026) */
+        risposta_testo: $('#sg-risposta') ? ($('#sg-risposta').value.trim() || null) : (p.risposta_testo ?? null),
+        note_ufficio: $('#sg-note').value.trim() || null,
+        aggiornato_da: state.email,
+        updated_at: new Date().toISOString(),
+      }).eq('id', p.id));
+    } catch (e) {
+      error = e;
+    } finally {
+      attendi(btn, false);
+    }
     if (error) return toast('Salvataggio non riuscito: ' + error.message, 'err');
     toast('Pratica aggiornata.', 'ok');
     /* tecnico cambiato su una pratica che ha già l'incarico: si

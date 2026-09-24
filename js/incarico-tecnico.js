@@ -206,7 +206,17 @@ export async function riassegnaTecnico({ incaricoId, tabella = null, pratica = n
 
   if (chiedi) {
     if (!confirm(`Il tecnico è cambiato: riassegno l'incarico n° ${id} da ${nomeVecchio} a ${nomeNuovo} nel gestionale visite`
-      + (avvisa ? ' e preparo le due bozze mail (avviso al precedente, assegnazione al nuovo)?' : '?'))) return false;
+      + (avvisa ? ' e preparo le due bozze mail (avviso al precedente, assegnazione al nuovo)?' : '?'))) {
+      /* il Salva ha già scritto il tecnico nuovo sulla pratica: se non si
+         riassegna, la pratica torna al tecnico dell'incarico, altrimenti
+         pratica e gestionale direbbero due tecnici diversi (24/09/2026) */
+      if (tabella && pratica?.id && vecchioEmail) {
+        const { error: eBack } = await sb.from(tabella).update({ tecnico_assegnato: vecchioEmail }).eq('id', pratica.id);
+        toast(eBack ? `Riassegnazione annullata, ma la pratica è rimasta col tecnico nuovo: ${eBack.message}`
+          : `Riassegnazione annullata: la pratica resta a ${nomeVecchio}, come l'incarico.`, eBack ? 'err' : 'ok');
+      }
+      return false;
+    }
     motivo = (prompt('Motivo della riassegnazione (finisce nelle mail e nello storico; facoltativo):',
       motivo || 'tecnico non disponibile nei tempi richiesti') || '').trim() || null;
   }
