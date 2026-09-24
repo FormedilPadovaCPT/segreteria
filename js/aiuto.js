@@ -100,6 +100,7 @@ window.AIUTO_TESTI = {
   'p:protocolla la comunicazione (in)': 'Prende il numero in entrata per la comunicazione di nomina.',
   'p:mail di conferma all\'impresa': 'Prepara la bozza mail che conferma all\'impresa che la richiesta è stata presa in carico.',
   'vs-incarico': 'Crea l\'incarico al tecnico nel gestionale visite: lui lo trova nei suoi incarichi e, se ha le notifiche, riceve l\'avviso.',
+  'cn-conferma': 'Prepara la bozza di conferma all\'impresa (tecnico incaricato, data se c\'è) e segna nella pratica che la conferma è partita. L\'invio lo fai tu da Outlook.',
   'cn-lettera': 'Crea l\'incarico al tecnico nel gestionale (se manca) e prepara la bozza della lettera di incarico, con l\'autorizzazione del Direttore allegata. L\'invio lo fai tu da Outlook.',
   'vs-lettera': 'Crea l\'incarico al tecnico nel gestionale (se manca) e prepara la bozza della lettera di incarico, con l\'autorizzazione del Direttore allegata. L\'invio lo fai tu da Outlook.',
   'cf-lettera': 'Crea l\'incarico al tecnico nel gestionale (se manca) e prepara la bozza della lettera di incarico, con l\'autorizzazione del Direttore allegata. L\'invio lo fai tu da Outlook.',

@@ -206,7 +206,7 @@ export async function render() {
       const riga = {
         vista: s.vista, id: p.id, icona: s.icona, nome: s.nome,
         chi: s.chi(p) || '?', quando: p.timestamp_modulo ? p.timestamp_modulo.slice(0, 10) : null,
-        n: p.progressivo ?? `m${p.id}`,
+        n: p.progressivo ?? `m${p.id}`, incarico_id: p.incarico_id || null,
       };
       if (['da_richiedere', 'richiesta'].includes(p.aut_stato)) daAutorizzare.push(riga);
       else if (p.aut_stato === 'approvata' && !['svolta'].includes(p.stato)) daEseguire.push(riga);
@@ -214,15 +214,51 @@ export async function render() {
   }
   daAutorizzare.sort((a, b) => String(a.quando || '').localeCompare(String(b.quando || '')));
 
+  /* dopo l'autorizzazione il passo che conta e' il tecnico (24/09/2026,
+     chiesto dall'utente sulla consulenza Noventa): l'incarico l'ha visto?
+     l'ha accettato? Si legge dal gestionale, riga per riga */
+  const incDi = {};
+  const idsInc = daEseguire.map((r) => r.incarico_id).filter(Boolean);
+  if (idsInc.length) {
+    const { data, error } = await sb.from('incarichi')
+      .select('id, stato, tecnico_nome, presa_visione_il, accettato_il, rifiutato_il, rifiuto_motivo, eseguito_il')
+      .in('id', idsInc);
+    if (error) console.warn('stato incarichi non letto:', error.message);
+    for (const i of data || []) incDi[i.id] = i;
+    for (const r of daEseguire) if (r.incarico_id && !incDi[r.incarico_id]) incDi[r.incarico_id] = error ? 'errore' : null;
+  }
+  const passoTecnico = (r) => {
+    if (!r.incarico_id) return '📨 incarico al tecnico da preparare';
+    const i = incDi[r.incarico_id];
+    if (i === 'errore') return `incarico n° ${r.incarico_id} — non sono riuscito a leggerne lo stato`;
+    if (!i) return `incarico n° ${r.incarico_id} non trovato nel gestionale`;
+    const chi = esc(i.tecnico_nome || 'il tecnico');
+    if (i.eseguito_il || i.stato === 'eseguito') return `🔧 eseguito da ${chi}`;
+    if (i.rifiutato_il) return `<strong style="color:#a01f00">❌ rifiutato da ${chi}</strong>${i.rifiuto_motivo ? ' — ' + esc(i.rifiuto_motivo) : ''}`;
+    if (i.accettato_il) return `✅ accettato da ${chi} il ${dataIt(String(i.accettato_il).slice(0, 10))}`;
+    if (i.presa_visione_il) return `👁 visto da ${chi}, non ancora accettato`;
+    return `⏳ ${chi} non l'ha ancora aperto`;
+  };
+  const rigaEseguire = (r) => `
+    <div class="hm-riga" data-vista="${r.vista}" data-id="${r.id}">
+      <span>${r.icona}</span>
+      <span><strong>${esc(r.nome)} n° ${esc(String(r.n))}</strong> — ${esc(r.chi)}
+        <br><span class="hint">${passoTecnico(r)}</span></span>
+      <span class="hint">${r.quando ? dataIt(r.quando) : ''}</span>
+    </div>`;
+
   /* segnalazioni aperte: hanno anche il loro riquadro, oltre ai mucchi
      autorizzativi comuni (chiesto dall'utente il 01/09) */
   const segnalazioni = servizi.find((s) => s.vista === 'segnalazioni').righe;
 
   /* consulenze in corsia immediata: il giro segreteria→coordinatore→impresa */
   const cons = servizi.find((s) => s.vista === 'consulenze').righe;
-  const consDaGirare = cons.filter((p) => p.corsia !== 'uscita' && !p.girata_il && !p.risposta);
-  const consInAttesa = cons.filter((p) => p.girata_il && !p.risposta);
-  const consDaTrasmettere = cons.filter((p) => p.risposta && !p.trasmessa_il);
+  /* solo la corsia immediata: quelle con uscita stanno fra le autorizzazioni
+     (Noventa 24/09/2026 era contata qui come «risposta da trasmettere») */
+  const consImm = cons.filter((p) => p.corsia !== 'uscita');
+  const consDaGirare = consImm.filter((p) => !p.girata_il && !p.risposta);
+  const consInAttesa = consImm.filter((p) => p.girata_il && !p.risposta);
+  const consDaTrasmettere = consImm.filter((p) => p.risposta && !p.trasmessa_il);
 
   const docScaduti = (docTec || []).filter((d) => !d.disdetto_il && d.data_fine < oggi);
   const docInScadenza = (docTec || []).filter((d) => !d.disdetto_il && d.data_fine >= oggi);
@@ -469,7 +505,7 @@ export async function render() {
 
       ${card('✅ Autorizzate — da eseguire', daEseguire.length,
         daEseguire.length
-          ? daEseguire.slice(0, 8).map(rigaPratica).join('') + (daEseguire.length > 8 ? `<p class="hint">…e altre ${daEseguire.length - 8}.</p>` : '')
+          ? daEseguire.slice(0, 8).map(rigaEseguire).join('') + (daEseguire.length > 8 ? `<p class="hint">…e altre ${daEseguire.length - 8}.</p>` : '')
           : '<p class="hint">Niente in coda: le autorizzate sono state svolte.</p>')}
 
       ${card('💬 Consulenze — corsia immediata', consDaGirare.length + consInAttesa.length + consDaTrasmettere.length, `

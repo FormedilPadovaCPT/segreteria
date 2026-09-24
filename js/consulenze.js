@@ -307,6 +307,24 @@ export async function apriPratica(id) {
   const uscita = p.corsia === 'uscita';
   const [cAut, lAut] = AUT[p.aut_stato] || ['', p.aut_stato];
   const coord = coordinatore();
+  /* corsia con uscita: dopo l'autorizzazione conta il tecnico — l'incarico
+     l'ha visto, l'ha accettato? (24/09/2026) */
+  let inc = null, incErr = false;
+  if (p.incarico_id) {
+    const { data, error } = await sb.from('incarichi')
+      .select('stato, tecnico_nome, presa_visione_il, accettato_il, rifiutato_il, rifiuto_motivo, eseguito_il')
+      .eq('id', p.incarico_id).maybeSingle();
+    inc = data; incErr = !!error;
+  }
+  const quando = (t) => t ? dataIt(String(t).slice(0, 10)) : '';
+  const statoInc = !p.incarico_id ? ''
+    : incErr ? `incarico n° ${p.incarico_id} — non sono riuscito a leggerne lo stato`
+    : !inc ? `incarico n° ${p.incarico_id} non trovato nel gestionale`
+    : inc.eseguito_il || inc.stato === 'eseguito' ? `incarico n° ${p.incarico_id}: 🔧 eseguito da ${esc(inc.tecnico_nome || 'il tecnico')}`
+    : inc.rifiutato_il ? `incarico n° ${p.incarico_id}: ❌ RIFIUTATO da ${esc(inc.tecnico_nome || 'il tecnico')} il ${quando(inc.rifiutato_il)}${inc.rifiuto_motivo ? ' — ' + esc(inc.rifiuto_motivo) : ''}`
+    : inc.accettato_il ? `incarico n° ${p.incarico_id}: ✅ accettato da ${esc(inc.tecnico_nome || 'il tecnico')} il ${quando(inc.accettato_il)}`
+    : inc.presa_visione_il ? `incarico n° ${p.incarico_id}: 👁 visto da ${esc(inc.tecnico_nome || 'il tecnico')} il ${quando(inc.presa_visione_il)}, non ancora accettato`
+    : `incarico n° ${p.incarico_id}: ⏳ ${esc(inc.tecnico_nome || 'il tecnico')} non l'ha ancora aperto`;
   const campo = (l, v) => v ? `<div class="dt-doc-riga"><strong>${l}:</strong> ${esc(v)}</div>` : '';
 
   apriDrawer(`Consulenza n° ${p.progressivo ?? `m${p.id}`} — ${p.ragione_sociale || ''}`, '', `
@@ -406,8 +424,10 @@ export async function apriPratica(id) {
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn btn-primary" id="cn-conferma">📧 Mail di conferma all'impresa</button>
         ${state.soloDirettore ? '' : `<button class="btn btn-primary" id="cn-lettera">📨 Lettera di incarico al tecnico</button>`}
-        ${p.incarico_id ? `<span class="dt-cella dt-ok" style="padding:4px 10px">incarico n° ${p.incarico_id} nel gestionale</span>` : ''}
-      </div>` : ''}` : `
+      </div>
+      <p class="hint" style="margin:8px 0 0">
+        ${p.trasmessa_il ? `📧 Conferma all'impresa preparata il ${quando(p.trasmessa_il)}.` : '📧 Conferma all\'impresa non ancora preparata.'}<br>
+        ${statoInc || '📨 Lettera di incarico al tecnico non ancora preparata.'}</p>` : ''}` : `
       <p class="hint" style="margin:0 0 10px">La consulenza in sede o in cantiere comporta una spesa:
         non è lavorabile finché il Direttore non autorizza.</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -747,7 +767,7 @@ function registraCartacea(p) {
 }
 
 /* riscontro della corsia con uscita: solo mail di conferma (scelta utente) */
-function mailConferma(p) {
+async function mailConferma(p) {
   const rl = [p.rl_titolo || 'Sig.', p.rl_nome, p.rl_cognome].filter(Boolean).join(' ');
   scaricaEml({
     to: p.email || '',
@@ -765,7 +785,16 @@ Distinti saluti.
 ${FIRMA_SEGRETERIA}`,
     nomeFile: `conferma-consulenza-${p.progressivo ?? `m${p.id}`}.eml`,
   });
+  /* la conferma e' il riscontro all'impresa della corsia con uscita: si
+     registra, altrimenti l'app non sa che e' partita (Noventa 24/09/2026) */
+  const { error } = await sb.from('s_consulenze').update({
+    trasmessa_il: new Date().toISOString(),
+    aggiornato_da: state.email, updated_at: new Date().toISOString(),
+  }).eq('id', p.id);
+  if (error) return toast(`Bozza scaricata, ma non sono riuscito a registrarla nella pratica: ${error.message}`, 'err');
   toast('Bozza di conferma scaricata: aprila da Outlook e premi Invia.', 'ok');
+  await render();
+  apriPratica(p.id);
 }
 
 /* protocollo facoltativo, precompilato; il numero si collega da solo */
