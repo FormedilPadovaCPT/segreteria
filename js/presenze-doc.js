@@ -36,6 +36,20 @@ export const mm2hm = (min) => {
 
 const salva = async (doc) => new Uint8Array(await doc.save());
 
+/* Il PERMESSO SINDACALE (RSU o sindacale) è una RIPARTIZIONE dentro la giornata
+   lavorativa, non un'ora in più o in meno (regola dell'utente, 24/09/2026): la sua
+   riga si mostra, con le sue ore «di cui», ma NON si somma al totale. Prima il
+   22/09 e il 24/09 contavano 5 ore in più. Vale per schermata, mail e PDF. */
+/* La riga-ripartizione è quella della CAUSALE, scritta in maiuscolo come le assenze
+   («PERMESSO SINDACALE RSU»); la riga della giornata può CITARE il permesso nella sua
+   nota («Permesso sindacale RSU dalle 10 alle 12») e quella si somma, eccome. */
+export const eRipartizione = (p) => {
+  const n = String(p?.note || '').trim();
+  return n.length >= 4 && n === n.toUpperCase() && /SINDACAL|\bRSU\b/.test(n);
+};
+export const totaleOre = (presenze) =>
+  (presenze || []).reduce((s, p) => s + (eRipartizione(p) ? 0 : (p.tot_min || 0)), 0);
+
 /* ── 1. foglio rilevazione presenze ──
    presenze = righe s_presenze del mese (ordinate per data),
    extra = righe s_presenze_extra del mese.
@@ -82,6 +96,7 @@ export async function pdfFoglioPresenze({ dipendente, anno, mese, presenze, extr
   const assenza = (n) => /^[A-ZÀÈÌÒÙ' .]+$/.test(String(n || '').trim()) && String(n).trim().length >= 4;
   let totMese = 0;
   let giorniLavorati = 0;
+  const contato = {};   /* un giorno si conta una volta, qualunque riga venga prima */
 
   const rigaGriglia = (yTop) => {
     /* verticali + fondo riga, tra yTop e yTop-RH */
@@ -112,7 +127,10 @@ export async function pdfFoglioPresenze({ dipendente, anno, mese, presenze, extr
         for (let k = 0; k < 4; k++) {
           if (ore[k]) c.stato.pagina.drawText(ore[k], { x: B[k + 1] + 11, y: c.stato.y, size: 8.5, font: c.font, color: c.nero });
         }
-        if (p.tot_min) {
+        if (p.tot_min && eRipartizione(p)) {
+          /* quota della giornata, non un'ora in più: si legge, non si somma */
+          c.stato.pagina.drawText(`di cui ${mm2hm(p.tot_min)}`, { x: B[5] + 4, y: c.stato.y, size: 7.6, font: c.italic, color: c.grigio });
+        } else if (p.tot_min) {
           c.stato.pagina.drawText(mm2hm(p.tot_min), { x: B[5] + 11, y: c.stato.y, size: 8.5, font: c.bold, color: c.nero });
           totMese += p.tot_min;
         }
@@ -124,7 +142,7 @@ export async function pdfFoglioPresenze({ dipendente, anno, mese, presenze, extr
             c.stato.pagina.drawText(taglia(c.italic, 7.4, nota, DX - B[6] - 10), { x: B[6] + 6, y: c.stato.y, size: 7.4, font: c.italic, color: c.grigio });
           }
         }
-        if (i === 0 && (p.tot_min || 0) > 0) giorniLavorati += 1;
+        if ((p.tot_min || 0) > 0 && !eRipartizione(p) && !contato[g]) { contato[g] = true; giorniLavorati += 1; }
       }
       c.stato.y -= RH;
     }

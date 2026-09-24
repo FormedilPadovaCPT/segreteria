@@ -26,7 +26,7 @@ import { APP_URL } from './config.js';
 import { risolviCartella, leggiByte } from './drive.js';
 import { scaricaEml, FIRMA_SEGRETERIA } from './eml.js';
 import { RUBRICA_INTERNA } from './lookups.js';
-import { MESI, mm2hm } from './presenze-doc.js';
+import { MESI, mm2hm, eRipartizione, totaleOre } from './presenze-doc.js';
 
 const CARTELLA_FOGLI = '2_AREE/Amministrazione/personale/fogli_presenze';
 const CARTELLA_RICHIESTE = '2_AREE/Amministrazione/personale/richieste_ferie_permessi';
@@ -201,7 +201,7 @@ async function renderMese(hostArg) {
   const perGiorno = {};
   for (const p of presenze) (perGiorno[p.data] = perGiorno[p.data] || []).push(p);
   const nGiorni = new Date(anno, mese, 0).getDate();
-  const totMese = presenze.reduce((s, p) => s + (p.tot_min || 0), 0);
+  const totMese = totaleOre(presenze);   /* il permesso sindacale non si somma */
   const oggi = oggiIso();
 
   let righe = '';
@@ -215,7 +215,7 @@ async function renderMese(hostArg) {
         <td>${i === 0 ? `<strong>${g}</strong> ${['dom', 'lun', 'mar', 'mer', 'gio', 'ven', 'sab'][dow]}` : ''}</td>
         <td>${p ? hm(p.entra1) : ''}</td><td>${p ? hm(p.esce1) : ''}</td>
         <td>${p ? hm(p.entra2) : ''}</td><td>${p ? hm(p.esce2) : ''}</td>
-        <td><strong>${p && p.tot_min ? mm2hm(p.tot_min) : ''}</strong></td>
+        <td>${p && p.tot_min ? (eRipartizione(p) ? `<span class="hint" title="Permesso sindacale: quota della giornata, non si somma al totale">di cui ${mm2hm(p.tot_min)}</span>` : `<strong>${mm2hm(p.tot_min)}</strong>`) : ''}</td>
         <td class="hint">${p ? esc(p.note || '') : ''}</td>
       </tr>`;
     });
@@ -344,7 +344,7 @@ async function chiudiMese(btn, conMail) {
     if (errUp || su?.error) throw new Error('Deposito su Drive non riuscito: ' + (su?.error || errUp.message));
 
     const amm = RUBRICA_INTERNA.find((x) => /amministrazione/i.test(x.nome));
-    const totMese = presenze.reduce((s, p) => s + (p.tot_min || 0), 0);
+    const totMese = totaleOre(presenze);   /* il permesso sindacale non si somma */
     const perCausale = {};
     for (const e of extra) perCausale[e.causale] = (perCausale[e.causale] || 0) + (e.ore_min || 0);
     const riepilogo = Object.entries(perCausale).map(([c, m]) => `- ${c}: ${mm2hm(m)}`).join('\n');
