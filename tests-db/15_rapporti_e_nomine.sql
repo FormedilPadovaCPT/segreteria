@@ -138,3 +138,39 @@ begin
 end $$;
 
 rollback;
+
+-- La funzione interna apre il rapporto se manca (trigger trg_nomina_apre_rapporto, 24/09/2026).
+begin;
+
+do $$
+declare pid uuid; pid2 uuid; imp text; b int; r record;
+begin
+  select impresa_id into imp from imprese where coalesce(elimina,0)=0 order by impresa_id limit 1;
+  insert into persone (cognome, nome) values ('ZZPROVA','Preposto') returning persona_id into pid;
+  select max(access_id) into b from s_nomine;
+
+  insert into s_nomine (access_id, data_reg, persona_id, impresa_id, ruolo_id, ruolo_txt) values (b+1, current_date, pid, imp, 1, 'RSPP');
+  if (select count(*) from persone_imprese where persona_id=pid) <> 0 then raise exception 'FALLITO: RSPP ha aperto un rapporto'; end if;
+  insert into s_nomine (access_id, data_reg, persona_id, impresa_id, ruolo_id, ruolo_txt, data_inizio) values (b+2, current_date, pid, imp, 12, 'PREPOSTO', '2026-03-01');
+  select * into r from persone_imprese where persona_id=pid;
+  if r.tipo_rapporto <> 'dipendente' or r.data_assunzione <> '2026-03-01' then raise exception 'FALLITO preposto: %', row_to_json(r); end if;
+  insert into s_nomine (access_id, data_reg, persona_id, impresa_id, ruolo_id, ruolo_txt) values (b+3, current_date, pid, imp, 21, 'CAPOCANTIERE');
+  if (select count(*) from persone_imprese where persona_id=pid) <> 1 then raise exception 'FALLITO: doppione'; end if;
+
+  insert into persone (cognome, nome) values ('ZZPROVA','Cambio') returning persona_id into pid2;
+  insert into s_nomine (access_id, data_reg, persona_id, impresa_id, ruolo_id, ruolo_txt) values (b+4, current_date, pid2, imp, 1, 'RSPP');
+  update s_nomine set ruolo_id = 12, ruolo_txt = 'PREPOSTO' where access_id = b+4;
+  if (select count(*) from persone_imprese where persona_id=pid2) <> 1 then raise exception 'FALLITO: cambio ruolo'; end if;
+  -- cambio d'impresa (come in un'unione): nessun rapporto nuovo
+  update s_nomine set impresa_id = (select impresa_id from imprese where coalesce(elimina,0)=0 and impresa_id<>imp order by impresa_id limit 1) where access_id = b+4;
+  if (select count(*) from persone_imprese where persona_id=pid2) <> 1 then raise exception 'FALLITO: il cambio di impresa ha aperto un rapporto'; end if;
+
+  delete from persone_imprese where persona_id = pid;
+  insert into s_nomine (access_id, data_reg, persona_id, impresa_id, ruolo_id, ruolo_txt, data_inizio, data_fine) values (b+5, current_date, pid, imp, 2, 'RLS', '2019-01-01', '2021-12-31');
+  select * into r from persone_imprese where persona_id=pid;
+  if r.data_cessazione <> '2021-12-31' then raise exception 'FALLITO nomina chiusa: %', row_to_json(r); end if;
+
+  raise notice 'OK funzione interna apre il rapporto';
+end $$;
+
+rollback;

@@ -151,12 +151,22 @@ export async function aggiungiPersona(impresa, dopo) {
     $('#ap-rapporto').style.opacity = $('#ap-con-rapporto').checked ? '1' : '.45';
     $('#ap-rapporto').querySelectorAll('input,select').forEach((el) => { el.disabled = !$('#ap-con-rapporto').checked; });
   };
-  $('#ap-con-rapporto').addEventListener('change', aggiornaRapporto);
+  /* una funzione interna PRESUPPONE il rapporto (regola dell'utente, 24/09/2026):
+     con una di queste spuntate il rapporto non si toglie — lo aprirebbe comunque
+     il database (trg_nomina_apre_rapporto), meglio che sia quello scritto qui */
+  const internaSpuntata = () => !!document.querySelector('.ap-fun[data-interna="1"]:checked');
+  $('#ap-con-rapporto').addEventListener('change', () => {
+    if (!$('#ap-con-rapporto').checked && internaSpuntata()) {
+      $('#ap-con-rapporto').checked = true;
+      toast('Con una funzione interna (preposto, capocantiere, RLS…) il rapporto con l\'impresa c\'è per forza.', '');
+    }
+    aggiornaRapporto();
+  });
   document.querySelectorAll('.ap-fun').forEach((c) => c.addEventListener('change', () => {
     if (c.checked && c.dataset.interna === '1' && !$('#ap-con-rapporto').checked) {
       $('#ap-con-rapporto').checked = true;
       aggiornaRapporto();
-      toast('Funzione interna: ho riattivato il rapporto «dipendente». Togli la spunta se non lo è.', '');
+      toast('Funzione interna: ho riattivato il rapporto con l\'impresa, che la funzione presuppone.', '');
     }
   }));
 

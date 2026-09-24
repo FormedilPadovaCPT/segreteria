@@ -272,11 +272,12 @@ function formNomina(n, { prefill = {}, dopo } = {}) {
       .eq('persona_id', pid).eq('impresa_id', iid)
       .or(`data_cessazione.is.null,data_cessazione.gte.${oggiIso()}`).limit(1);
     if (error) { box.innerHTML = `Non sono riuscito a leggere i rapporti della persona: ${esc(error.message)}`; return; }
+    /* dal 24/09/2026 non è più una scelta: la funzione interna presuppone il
+       rapporto, e lo apre il database (trigger trg_nomina_apre_rapporto) */
     box.innerHTML = data?.length
       ? 'Ha già un rapporto in corso con questa impresa.'
-      : `<label style="display:flex;gap:6px;align-items:center;cursor:pointer;color:var(--testo)">
-           <input type="checkbox" id="fn-apri-rapporto" checked>
-           Apri anche il rapporto «dipendente» con l'impresa (togli la spunta se non lo è)</label>`;
+      : `<span id="fn-apre-rapporto" style="color:var(--testo)">Non ha un rapporto con questa impresa:
+           registrando la nomina si apre anche il rapporto «dipendente», perché la funzione lo presuppone.</span>`;
   };
   $('#fn-ruolo').addEventListener('change', aggiornaBox);
   if (d.ruolo_txt) aggiornaBox();
@@ -373,7 +374,7 @@ function formNomina(n, { prefill = {}, dopo } = {}) {
       ridisegna();
       return;
     }
-    const apriRapporto = nuova && $('#fn-apri-rapporto')?.checked && riga.persona_id && riga.impresa_id;
+    const apreRapporto = nuova && !!$('#fn-apre-rapporto') && riga.persona_id && riga.impresa_id;
 
     attendi(btn, true);
     let error;
@@ -401,20 +402,10 @@ function formNomina(n, { prefill = {}, dopo } = {}) {
     } else {
       ({ error } = await sb.from('s_nomine').update(riga).eq('access_id', d.access_id));
     }
-    if (error) { attendi(btn, false); return toast('Salvataggio non riuscito: ' + error.message, 'err'); }
-    /* funzione interna con la spunta: si apre anche il rapporto «dipendente» */
-    if (apriRapporto) {
-      const { data: esito, error: errRap } = await sb.rpc('s_registra_persona_impresa', { p: {
-        persona_id: riga.persona_id, impresa_id: riga.impresa_id,
-        rapporto: { tipo: 'dipendente', data_assunzione: riga.data_inizio },
-      } });
-      attendi(btn, false);
-      if (errRap) toast('Nomina registrata, ma il rapporto non si è aperto: ' + errRap.message, 'err');
-      else toast(esito.rapporto === 'creato' ? 'Nomina registrata e rapporto «dipendente» aperto.' : 'Nomina registrata (il rapporto era già in corso).', 'ok');
-    } else {
-      attendi(btn, false);
-      toast(nuova ? 'Nomina registrata.' : 'Modifiche salvate.', 'ok');
-    }
+    attendi(btn, false);
+    if (error) return toast('Salvataggio non riuscito: ' + error.message, 'err');
+    toast(!nuova ? 'Modifiche salvate.'
+      : apreRapporto ? 'Nomina registrata e rapporto «dipendente» aperto.' : 'Nomina registrata.', 'ok');
     chiudiDrawer();
     ridisegna();
   });
