@@ -269,7 +269,7 @@ export async function riassegnaTecnico({ incaricoId, tabella = null, pratica = n
         oggetto: `Formedil Padova - Incarico n° ${id} riassegnato - ${dove}`,
         corpo: `Ciao ${cognomeNome(tVecchio) || nomeVecchio},
 
-ti avviso che l'incarico n° ${id} (${inc.oggetto || inc.tipo_richiesta || inc.tipologia_richiesta || 'visita'} — ${dove}) dal ${dataIt(oggi)} non è più a tuo carico: è stato riassegnato a ${cognomeNome(tNuovo) || nomeNuovo}${motivo ? ` (${motivo})` : ''}.
+ti avviso che l'incarico n° ${id} (${inc.oggetto || inc.tipo_richiesta || inc.tipologia_richiesta || 'visita'} — ${dove}) dal ${dataIt(oggi)} non è più a tuo carico: è stato riassegnato a un altro tecnico${motivo ? ` (${motivo})` : ''}.
 
 Non devi fare nulla: nel gestionale visite l'incarico non compare più fra i tuoi.
 
