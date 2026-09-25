@@ -105,6 +105,7 @@ window.AIUTO_TESTI = {
   'vs-lettera': 'Crea l\'incarico al tecnico nel gestionale (se manca) e prepara la bozza della lettera di incarico, con l\'autorizzazione del Direttore allegata. L\'invio lo fai tu da Outlook.',
   'cf-lettera': 'Crea l\'incarico al tecnico nel gestionale (se manca) e prepara la bozza della lettera di incarico, con l\'autorizzazione del Direttore allegata. L\'invio lo fai tu da Outlook.',
   'sg-lettera': 'Crea l\'incarico al tecnico nel gestionale (se manca) e prepara la bozza della lettera di incarico, con l\'autorizzazione del Direttore allegata. L\'invio lo fai tu da Outlook.',
+  'p:🎓 formazione mancante segnalata': 'Le segnalazioni partite da sole all\'ufficio corsi dai verbali con «contattare l\'ufficio corsi». Dalla tendina registri com\'è andata (contattata, iscritta, non interessata).',
   'cn-gira': 'Prepara la mail con il quesito per chi hai scelto nella tendina (di norma il coordinatore; un altro tecnico se lui lo chiede). La pratica passa «girata» a quella persona e la data riparte.',
   'cn-gira-a': 'A chi girare il quesito: coordinatore, tecnici in servizio, rubrica interna o un altro indirizzo.',
   'cn-trasmetti': 'Prepara la mail con la risposta del coordinatore all\'impresa.',
