@@ -47,6 +47,13 @@ const GRUPPI = [
 ];
 const TUTTI = GRUPPI.flatMap(([, campi]) => campi.map(([k]) => k));
 
+/* Contatti che si possono nascondere ai tecnici in Rubrica (gestionale
+   visite), campo per campo — non tutta la scheda insieme: una persona
+   può avere sia un contatto d'ufficio pubblico sia un cellulare
+   personale da tenere solo per la segreteria (25/09/2026). Stessi nomi
+   di campo del vincolo su persone.contatti_riservati nel database. */
+const CAMPI_RISERVABILI = [['email', 'Email'], ['email2', 'Email 2'], ['email3', 'Email 3'], ['telefono', 'Telefono'], ['telefono2', 'Cellulare']];
+
 const nomePersona = (p) => [p.nome, p.titolo, p.cognome].filter(Boolean).join(' ');
 
 /* ── vista principale: ricerca o scheda ───────────────────── */
@@ -180,6 +187,13 @@ async function scheda(host) {
                      ${tipo === 'email' ? `data-mail="1" data-mail-chi="${esc(nomePersona(p))}"` : ''}
                      value="${esc(p[k] ?? '')}"></div>`).join('')}
         </div>
+        ${titolo === 'Contatti e codici' ? `
+        <div style="background:#faf7fc;border-radius:8px;padding:8px 10px;margin-top:10px;font-size:13px"
+             title="I campi spuntati non compaiono in Rubrica ai tecnici del gestionale visite: solo la segreteria li vede.">
+          <label style="display:block;font-weight:600;color:#8e44ad;margin-bottom:4px">🔒 Nascondi ai tecnici</label>
+          ${CAMPI_RISERVABILI.map(([k, l]) => `
+            <label style="margin-right:14px"><input type="checkbox" id="pe-ris-${k}" ${(p.contatti_riservati || []).includes(k) ? 'checked' : ''}> ${l}</label>`).join('')}
+        </div>` : ''}
       </div>`).join('')}
 
     <div class="sez">
@@ -333,6 +347,7 @@ async function scheda(host) {
     const agg = {};
     for (const k of TUTTI) agg[k] = $(`#pe-${k}`).value.trim() || null;
     agg.note = $('#pe-note').value.trim() || null;
+    agg.contatti_riservati = CAMPI_RISERVABILI.filter(([k]) => $(`#pe-ris-${k}`)?.checked).map(([k]) => k);
     if (agg.cf) agg.cf = agg.cf.toUpperCase();
     if (!agg.cognome && !agg.nome) return toast('Serve almeno il cognome o il nome.', 'err');
     attendi(ev.currentTarget, true);

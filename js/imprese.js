@@ -608,6 +608,16 @@ const OPZIONI = {
 /* «Stato» qui è la nazione della sede: quasi sempre ITALIA */
 const STATI = ['ITALIA', 'ALBANIA', 'AUSTRIA', 'CROAZIA', 'FRANCIA', 'GERMANIA', 'MOLDAVIA', 'POLONIA', 'ROMANIA', 'SAN MARINO', 'SLOVENIA', 'SVIZZERA', 'UCRAINA'];
 
+/* Contatti che si possono nascondere ai tecnici in Rubrica (gestionale
+   visite), campo per campo (25/09/2026). Stessi nomi ammessi dal vincolo
+   su imprese.contatti_riservati; si scrivono con la RPC dedicata
+   s_imposta_contatti_riservati_impresa, non con s_aggiorna_impresa (che
+   non sa scrivere una colonna array). */
+const CAMPI_RISERVABILI_IMPRESA = [
+  ['impresa_email_ref', 'Email di riferimento'], ['impresa_email2', 'Email 2'], ['impresa_email3', 'Email 3'],
+  ['pec', 'PEC'], ['impresa_telefono', 'Telefono'], ['impresa_telefono2', 'Telefono 2'],
+];
+
 /* ── Date che si possono incollare (08/09/2026, chiesto dall'utente) ──
    Il campo «date» del browser accetta solo la digitazione o il
    calendario: incollarci «12/03/2021» non fa nulla. Qui le date sono
@@ -673,6 +683,13 @@ function tabAnagrafica() {
       <div class="sez">
         <h3>${esc(titolo)}</h3>
         <div class="${griglia}">${campi.map(campo).join('')}</div>
+        ${titolo === 'Contatti' ? `
+        <div style="background:#faf7fc;border-radius:8px;padding:8px 10px;margin-top:10px;font-size:13px"
+             title="I campi spuntati non compaiono in Rubrica ai tecnici del gestionale visite: solo la segreteria li vede.">
+          <label style="display:block;font-weight:600;color:#8e44ad;margin-bottom:4px">🔒 Nascondi ai tecnici</label>
+          ${CAMPI_RISERVABILI_IMPRESA.map(([k, l]) => `
+            <label style="margin-right:14px"><input type="checkbox" id="ia-ris-${k}" ${(i.contatti_riservati || []).includes(k) ? 'checked' : ''}> ${esc(l)}</label>`).join('')}
+        </div>` : ''}
       </div>`).join('')}
 
     <div class="affiancate">
@@ -874,16 +891,28 @@ function agganciaAnagrafica() {
       if ((scheda.impresa[k] ?? '') + '' !== v) dati[k] = v === '' ? null : v;
     });
 
-    if (!Object.keys(dati).length) return toast('Nessuna modifica da salvare.');
+    const riservatiNuovo = CAMPI_RISERVABILI_IMPRESA.filter(([k]) => $(`#ia-ris-${k}`)?.checked).map(([k]) => k);
+    const riservatiPrima = scheda.impresa.contatti_riservati || [];
+    const riservatiCambiati = riservatiNuovo.join(',') !== riservatiPrima.join(',');
+
+    if (!Object.keys(dati).length && !riservatiCambiati) return toast('Nessuna modifica da salvare.');
 
     attendi(e.currentTarget, true, 'Salvataggio…');
-    const { data, error } = await sb.rpc('s_aggiorna_impresa', {
-      p_id: scheda.impresa.impresa_id, p_dati: dati,
-    });
+    if (Object.keys(dati).length) {
+      const { data, error } = await sb.rpc('s_aggiorna_impresa', {
+        p_id: scheda.impresa.impresa_id, p_dati: dati,
+      });
+      if (error) { attendi(e.currentTarget, false); return toast('Salvataggio non riuscito: ' + error.message, 'err'); }
+      toast(`Salvato: ${data.modificati} ${data.modificati === 1 ? 'campo modificato' : 'campi modificati'}.`, 'ok');
+    }
+    if (riservatiCambiati) {
+      const { error } = await sb.rpc('s_imposta_contatti_riservati_impresa', {
+        p_id: scheda.impresa.impresa_id, p_campi: riservatiNuovo,
+      });
+      if (error) { attendi(e.currentTarget, false); return toast('Contatti riservati non salvati: ' + error.message, 'err'); }
+      if (!Object.keys(dati).length) toast('Contatti riservati aggiornati.', 'ok');
+    }
     attendi(e.currentTarget, false);
-
-    if (error) return toast('Salvataggio non riuscito: ' + error.message, 'err');
-    toast(`Salvato: ${data.modificati} ${data.modificati === 1 ? 'campo modificato' : 'campi modificati'}.`, 'ok');
     apriScheda(scheda.impresa.impresa_id, 'anagrafica');
   });
 }
