@@ -105,3 +105,38 @@ begin
 end $$;
 
 rollback;
+
+-- ── le PROPOSTE dal vault (stesso giorno): le vede solo la segreteria, che le spunta ──
+begin;
+do $$
+declare v_dir text; v_coord text; v_id bigint;
+begin
+  select lower(valore) into v_dir from public.s_config where chiave = 'direttore_email';
+  select lower(valore) into v_coord from public.s_config where chiave = 'coordinatore_email';
+  perform set_config('request.jwt.claims', json_build_object('role','authenticated','email','cptpd@did.formedilpadova.it')::text, true);
+  perform set_config('role', 'authenticated', true);
+  insert into public.s_decisioni (questione, riguarda, stato, origine, origine_rif, aperta_il)
+    values ('TEST proposta', '_SISTEMA/scadenze_ufficio.md', 'proposta', 'vault', 'vault:test:0000', '2026-09-01') returning id into v_id;
+  assert (select stato = 'proposta' from public.s_decisioni where id = v_id), 'all''insert la proposta resta proposta';
+  perform set_config('role', 'postgres', true);
+  perform set_config('request.jwt.claims', json_build_object('role','authenticated','email', v_dir)::text, true);
+  perform set_config('role', 'authenticated', true);
+  assert (select count(*) from public.s_decisioni where id = v_id) = 0, 'il Direttore non vede le proposte';
+  perform set_config('role', 'postgres', true);
+  perform set_config('request.jwt.claims', json_build_object('role','authenticated','email', v_coord)::text, true);
+  perform set_config('role', 'authenticated', true);
+  assert (select count(*) from public.s_decisioni where id = v_id) = 0, 'il coordinatore non vede le proposte';
+  perform set_config('role', 'postgres', true);
+  perform set_config('request.jwt.claims', json_build_object('role','authenticated','email','cptpd@did.formedilpadova.it')::text, true);
+  perform set_config('role', 'authenticated', true);
+  update public.s_decisioni set stato = 'aperta' where id = v_id;
+  assert (select stato = 'aperta' and pubblicata_da = 'cptpd@did.formedilpadova.it' and aperta_il = '2026-09-01' from public.s_decisioni where id = v_id), 'la spunta registra chi e quando e tiene la data';
+  assert (select count(*) from public.s_decisioni_eventi where decisione_id = v_id and tipo = 'pubblicazione') = 1, 'cronologia: pubblicazione';
+  perform set_config('role', 'postgres', true);
+  perform set_config('request.jwt.claims', json_build_object('role','authenticated','email', v_dir)::text, true);
+  perform set_config('role', 'authenticated', true);
+  assert (select count(*) from public.s_decisioni where id = v_id) = 1, 'spuntata, il Direttore la vede';
+  perform set_config('role', 'postgres', true);
+  raise notice 'OK proposte dal vault';
+end $$;
+rollback;
