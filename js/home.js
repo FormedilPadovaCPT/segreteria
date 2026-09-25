@@ -33,7 +33,8 @@ export async function render() {
 
   const [servizi, { data: rlst }, { data: docTecTutti }, { data: corsi }, { data: prot }, { data: tecAttivi }] = await Promise.all([
     Promise.all(SERVIZI.map(async (s) => {
-      const { data } = await sb.from(s.tab).select('*').order('id', { ascending: false }).limit(400);
+      /* le chiuse restano sul server (26/09/2026: sul telefono il cruscotto era lento); una riga senza stato passa, come prima */
+      const { data } = await sb.from(s.tab).select('*').or(`stato.is.null,stato.not.in.(${CHIUSE.map((c) => `"${c}"`).join(',')})`).order('id', { ascending: false }).limit(400);
       return { ...s, righe: (data || []).filter((p) => !CHIUSE.includes(p.stato)) };
     })),
     sb.from('s_rlst_pratiche').select('id, progressivo, ragione_sociale, stato, timestamp_modulo').neq('stato', 'chiusa'),
@@ -48,7 +49,7 @@ export async function render() {
      alle 8 dalle caselle e dai calendari dell'ufficio. Solo intestazioni
      e anteprima: la mail si apre in Gmail. ─────────────────────────── */
   let bacheca = null;
-  try {
+  const pBacheca = (async () => { try {
     const [{ data: bMail }, { data: bEventi }, { data: bCfg }] = await Promise.all([
       sb.from('s_bacheca_mail').select('casella, thread_id, gmail_id, mittente, mittente_email, oggetto, data, letta, ha_allegati, anteprima, punteggio, motivi, importante')
         .eq('importante', true).order('data', { ascending: false }).limit(40),
@@ -59,31 +60,31 @@ export async function render() {
     const cfgB = Object.fromEntries((bCfg || []).map((r) => [r.chiave, r.valore]));
     let esitoB = null; try { esitoB = cfgB.bacheca_esito ? JSON.parse(cfgB.bacheca_esito) : null; } catch { esitoB = null; }
     bacheca = { mail: bMail || [], eventi: bEventi || [], al: cfgB.bacheca_al || null, esito: esitoB };
-  } catch { /* senza il ruolo segreteria la card non compare */ }
+  } catch { /* senza il ruolo segreteria la card non compare */ } })();
 
   /* ── flussi mai usati (17/09/2026): quante volte ogni flusso ha lavorato su
      un caso vero. Serve a provarli prima che arrivi il primo caso: chi lo
      usa fra tre mesi non ricorda come funziona. Il conto lo fa il database
      (s_flussi_uso), che esclude lo storico importato e gli annullati. ── */
   let flussi = null;
-  try {
+  const pFlussi = (async () => { try {
     const { data, error } = await sb.rpc('s_flussi_uso');
     if (!error) flussi = data || [];
-  } catch { /* senza il ruolo segreteria la card non compare */ }
+  } catch { /* senza il ruolo segreteria la card non compare */ } })();
 
   /* ── formazione mancante dai verbali (25/09/2026): le segnalazioni partite
      all'ufficio corsi di cui non si è ancora registrato l'esito, e lo stato
      del calendario corsi (se sta per finire, la segreteria deve importare la
      programmazione nuova: senza date la mail all'impresa non propone niente) ── */
   let formSegn = [], formStato = null, formErr = null;
-  try {
+  const pForm = (async () => { try {
     const [{ data: fs, error: e1 }, { data: st, error: e2 }] = await Promise.all([
       sb.from('s_formazione_segnalazioni').select('id, created_at, impresa_nome, partita_iva, ceiv, tipi, nota, stato, tecnico_nome, nr_verbale, email, telefono, referente, mail_esito').in('stato', ['inviata', 'contattata']).order('created_at', { ascending: false }).limit(40),
       sb.rpc('formazione_programmazione_stato'),
     ]);
     if (e1) formErr = e1.message; else formSegn = fs || [];
     if (!e2) formStato = st;
-  } catch (e) { formErr = e?.message || String(e); }
+  } catch (e) { formErr = e?.message || String(e); } })();
 
   /* ── stato del canale del portale servizi (04/09/2026, rifatto il 13/09/2026) ──
      Un canale senza richieste nuove e' ambiguo: puo' voler dire che non ha
@@ -92,7 +93,7 @@ export async function render() {
      foglio Google e Apps Script sono spenti: restano il battito della funzione
      portale-richieste e il giro della cassetta delle lettere sul progetto Servizi. */
   let canale = null;
-  try {
+  const pCanale = (async () => { try {
     const [{ data: cfg }, { count: senzaRiscontro }] = await Promise.all([
       sb.from('s_config').select('chiave, valore').in('chiave', ['portale_battito_ore', 'portale_diretto_battito_al', 'cassetta_giro_al', 'cassetta_in_attesa']),
       /* «senza riscontro» = richiesta scritta nella scatola nera e non ancora
@@ -125,7 +126,7 @@ export async function render() {
   } catch (e) {
     /* la tabella o le chiavi non ci sono ancora: si tace, non si inventa */
     console.warn('stato canale portale non disponibile:', e.message);
-  }
+  } })();
 
   /* le visite ESEGUITE dai tecnici (gestionale): la chiusura arriva qui,
      poi la segreteria decide se e a chi comunicare (deciso 01/09/2026) */
@@ -136,27 +137,27 @@ export async function render() {
      verbali. Un registro solo, gestito da segreteria e coordinatore */
   let critici = [];
   let ccMod = null;
-  try { ccMod = await import('./cantieri-critici.js'); critici = await ccMod.aperti(); } catch { /* senza accesso la card resta vuota */ }
+  const pCritici = (async () => { try { ccMod = await import('./cantieri-critici.js'); critici = await ccMod.aperti(); } catch { /* senza accesso la card resta vuota */ } })();
   /* questionari sul sopralluogo (18/09/2026): da quando l'invito parte dalla
      mail del verbale le risposte arrivano davvero, e vanno guardate — un
      giudizio basso invecchia male, e chi ha chiesto di essere richiamato
      aspetta */
   let questionari = [];
   let qsMod = null;
-  try { qsMod = await import('./questionari.js'); questionari = await qsMod.daLavorare(); } catch { /* senza accesso la card resta vuota */ }
+  const pQuest = (async () => { try { qsMod = await import('./questionari.js'); questionari = await qsMod.daLavorare(); } catch { /* senza accesso la card resta vuota */ } })();
   /* iscrizioni arrivate dal portale (18/09/2026): sono richieste, non
      iscritti, e finche' restano in coda OCCUPANO IL POSTO nel conteggio dei
      liberi — un evento puo' sembrare pieno solo perche' nessuno le ha
      guardate. Per questo stanno qui e non solo dentro la scheda del corso. */
   let iscrizioni = [];
-  try {
+  const pIscr = (async () => { try {
     const { data } = await sb.from('s_iscrizioni')
       .select('id, corso_id, stato, per_conto, ragione_sociale, persone, email, creato_il, timestamp_modulo, esito_ceiv')
       .in('stato', ['nuova', 'in_attesa']).order('id', { ascending: false }).limit(30);
     iscrizioni = data || [];
-  } catch { /* senza accesso la card resta vuota */ }
+  } catch { /* senza accesso la card resta vuota */ } })();
   const praticaDi = {};
-  try {
+  const pEseguiti = (async () => { try {
     const { data } = await sb.from('incarichi')
       .select('id, tipo_richiesta, impresa, comune, tecnico_nome, visita_id, eseguito_il, data_richiesta')
       .eq('stato', 'eseguito').order('eseguito_il', { ascending: false }).limit(30);
@@ -171,13 +172,13 @@ export async function render() {
     rifiutati = rif || [];
     const ids = [...eseguiti.map((r) => r.id), ...rifiutati.map((r) => r.id)];
     if (ids.length) {
-      for (const [tab, vista] of [['s_segnalazioni', 'segnalazioni'], ['s_visite_richieste', 'visite'],
-        ['s_conferenze_cantiere', 'conferenze'], ['s_consulenze', 'consulenze']]) {
+      await Promise.all([['s_segnalazioni', 'segnalazioni'], ['s_visite_richieste', 'visite'],
+        ['s_conferenze_cantiere', 'conferenze'], ['s_consulenze', 'consulenze']].map(async ([tab, vista]) => {
         const { data: pr } = await sb.from(tab).select('id, incarico_id').in('incarico_id', ids);
         for (const r of pr || []) praticaDi[r.incarico_id] = { vista, id: r.id };
-      }
+      }));
     }
-  } catch { /* senza accesso agli incarichi la card resta vuota */ }
+  } catch { /* senza accesso agli incarichi la card resta vuota */ } })();
   /* incarichi mensili e fatture dei tecnici: i mesi passati ancora aperti,
      le fatture da verificare/approvare, quelle approvate senza mandato */
   let ftMesiAperti = [], ftDaLavorare = [], ftDaMandato = 0, ftStandby = 0;
@@ -188,7 +189,7 @@ export async function render() {
   /* dal 21/09/2026: fatture verificate il cui avviso automatico al
      coordinatore non è partito — anche questo canale va sorvegliato */
   let avvisiApprNonPartiti = [];
-  try {
+  const pFatture = (async () => { try {
     const meseCorr = oggi.slice(0, 7);
     const [{ data: im }, { data: ft }] = await Promise.all([
       sb.from('s_incarichi_mensili').select('id, tecnico_nome, anno, mese, stato').eq('stato', 'aperto').order('anno').order('mese').limit(200),
@@ -206,7 +207,11 @@ export async function render() {
     ]);
     mandDaVedere = nv || 0;
     avvisiNonPartiti = av || [];
-  } catch { /* senza accesso il riquadro resta vuoto */ }
+  } catch { /* senza accesso il riquadro resta vuoto */ } })();
+
+  /* 26/09/2026: le nove letture qui sopra sono indipendenti e partono insieme —
+     prima erano una dopo l'altra, e sul telefono ogni giro di rete si sommava */
+  await Promise.all([pBacheca, pFlussi, pForm, pCanale, pCritici, pQuest, pIscr, pEseguiti, pFatture]);
 
   /* contano solo i documenti dei tecnici ATTIVI: gli altri sono storia */
   const attivi = new Set((tecAttivi || []).map((t) => t.tecnico_id));

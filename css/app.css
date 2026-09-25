@@ -237,7 +237,9 @@ textarea{resize:vertical;min-height:80px;line-height:1.5}
 .ac-item small{display:block;color:var(--testo-soft)}
 
 /* ── cruscotto (home) ──────────────────── */
-.hm-griglia{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px}
+/* min(340px,100%): su un telefono più stretto di 340px la colonna non può
+   allargare la pagina (26/09/2026: sul cellulare la pagina «si spostava») */
+.hm-griglia{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(340px,100%),1fr));gap:14px}
 .hm-card{background:#fff;border:1px solid var(--bordo);border-radius:10px;padding:14px 16px;box-shadow:0 1px 3px rgba(0,0,0,.05)}
 .hm-card.hm-vuota{opacity:.75}
 .hm-testa{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
@@ -373,6 +375,12 @@ tr.riga-ceiv{border-left:4px solid var(--ceiv);background:var(--ceiv-bg)}
   .user-email{display:none}
   .veste-scelta span{display:none}
   .bar-row .lb{width:120px;flex:0 0 120px}
+  /* cruscotto sul telefono (26/09/2026): niente testi su una riga sola che
+     sfondano il bordo, e la pagina non scorre di lato */
+  html,body{overflow-x:hidden}
+  .hm-card,.hm-riga,.hm-banner,.hm-allarme{min-width:0;overflow-wrap:anywhere}
+  .hm-riga .hint{white-space:normal}
+  .hm-riga>span:last-child{flex-shrink:1}
 }
 
 
