@@ -140,3 +140,60 @@ begin
   raise notice 'OK proposte dal vault';
 end $$;
 rollback;
+
+-- ── il terzo esito «propone un incontro» e la priorità (25/09/2026) ──
+begin;
+do $$
+declare v_dir text; v_coord text; v_id bigint; r jsonb; ok boolean;
+begin
+  select lower(valore) into v_dir from public.s_config where chiave = 'direttore_email';
+  select lower(valore) into v_coord from public.s_config where chiave = 'coordinatore_email';
+  perform set_config('request.jwt.claims', json_build_object('role', 'authenticated', 'email', v_coord)::text, true);
+  perform set_config('role', 'authenticated', true);
+  insert into public.s_decisioni (questione, decisore) values ('TEST: incontro?', 'direttore') returning id into v_id;
+  assert (select priorita = 'normale' from public.s_decisioni where id = v_id), 'priorità normale di default';
+  update public.s_decisioni set priorita = 'alta' where id = v_id;
+  assert (select priorita = 'alta' from public.s_decisioni where id = v_id), 'il coordinatore imposta la priorità';
+
+  -- il Direttore propone un incontro, senza data (facoltativa)
+  perform set_config('role', 'postgres', true);
+  perform set_config('request.jwt.claims', json_build_object('role', 'authenticated', 'email', v_dir)::text, true);
+  perform set_config('role', 'authenticated', true);
+  r := public.s_decisione_rispondi(v_id, 'incontro', 'Ne parliamo insieme.');
+  assert (select stato = 'incontro' and incontro_data is null and decisione = 'Ne parliamo insieme.' and decisa_da_email = v_dir from public.s_decisioni where id = v_id), 'incontro proposto senza data';
+  assert (select count(*) from public.s_decisioni_eventi where decisione_id = v_id and tipo = 'incontro_proposto') = 1, 'cronologia: incontro_proposto';
+  -- non si scrive a mano nemmeno la data dell'incontro (il trigger la riscrive muta, come rinviata_al)
+  update public.s_decisioni set incontro_data = current_date where id = v_id;
+  assert (select incontro_data is null from public.s_decisioni where id = v_id), 'incontro_data non si scrive a mano fuori dalla funzione';
+  -- una questione chiusa/ritirata non riceve un nuovo incontro
+  perform set_config('role', 'postgres', true);
+  perform set_config('request.jwt.claims', json_build_object('role', 'authenticated', 'email', v_coord)::text, true);
+  perform set_config('role', 'authenticated', true);
+  update public.s_decisioni set stato = 'ritirata', ritirata_motivo = 'test' where id = v_id;
+  perform set_config('role', 'postgres', true);
+  perform set_config('request.jwt.claims', json_build_object('role', 'authenticated', 'email', v_dir)::text, true);
+  perform set_config('role', 'authenticated', true);
+  ok := false;
+  begin perform public.s_decisione_rispondi(v_id, 'incontro', null, current_date + 3);
+  exception when raise_exception then ok := true; end;
+  assert ok, 'una questione ritirata non riceve un nuovo incontro';
+
+  -- data dell'incontro nel passato: rifiutata
+  perform set_config('role', 'postgres', true);
+  perform set_config('request.jwt.claims', json_build_object('role', 'authenticated', 'email', v_coord)::text, true);
+  perform set_config('role', 'authenticated', true);
+  insert into public.s_decisioni (questione, decisore) values ('TEST: incontro con data passata', 'direttore') returning id into v_id;
+  perform set_config('role', 'postgres', true);
+  perform set_config('request.jwt.claims', json_build_object('role', 'authenticated', 'email', v_dir)::text, true);
+  perform set_config('role', 'authenticated', true);
+  ok := false;
+  begin perform public.s_decisione_rispondi(v_id, 'incontro', null, current_date - 1);
+  exception when raise_exception then ok := true; end;
+  assert ok, 'la data dell''incontro non può essere nel passato';
+  r := public.s_decisione_rispondi(v_id, 'incontro', null, current_date + 5);
+  assert (select stato = 'incontro' and incontro_data = current_date + 5 from public.s_decisioni where id = v_id), 'incontro proposto con data futura';
+
+  perform set_config('role', 'postgres', true);
+  raise notice 'OK incontro e priorità';
+end $$;
+rollback;
