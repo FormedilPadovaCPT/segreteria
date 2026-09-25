@@ -30,7 +30,7 @@ import { TIPO_DOC_ACCESSO_NEGATO, CARTELLA_VAULT, oggettoLettera, paragrafiAcces
   corpoMail, corpoRichiestaPec, nomeFileLettera, TIPO_DOC_SEGNALAZIONE, TIPO_DOC_CONFERENZA, SEGNAPOSTO_MERITO, DESTINAZIONI,
   destinatariSegnalazione, oggettoSegnalazione, scheletroSegnalazione, corpoUlterioreVisita, corpoPropostaConferenza,
   corpoDemanda, corpoRichiestaConferma } from './cantieri-critici-doc.js';
-import { APP_URL } from './config.js';
+import { APP_URL, GESTIONALE_URL } from './config.js';
 
 export const GIORNI_TERMINE = 15;   /* quanto si aspetta che l'impresa ricontatti (deciso dall'utente) */
 
@@ -511,7 +511,7 @@ async function contesto(d) {
     d.impresa_id ? sb.from('imprese').select('impresa_nome, impresa_email_ref, impresa_email2').eq('impresa_id', d.impresa_id).maybeSingle() : Promise.resolve({ data: null }),
     d.tecnico_id ? sb.from('tecnici').select('titolo, tecnico_nome, tecnico_cognome, email').eq('tecnico_id', d.tecnico_id).maybeSingle() : Promise.resolve({ data: null }),
     d.cantiere_id ? sb.from('cantieri').select('cantiere_indirizzo, cantiere_civico, comune_nome').eq('cantiere_id', d.cantiere_id).maybeSingle() : Promise.resolve({ data: null }),
-    sb.from('s_config').select('chiave, valore').in('chiave', ['direttore_email', 'coordinatore_email', 'organi_vigilanza_contatti']),
+    sb.from('s_config').select('chiave, valore').in('chiave', ['direttore_email', 'coordinatore_email', 'presidente_email', 'vicepresidente_email', 'organi_vigilanza_contatti']),
     d.cantiere_id ? sb.from('visite').select('visita_id, nr_verbale, data_visita, ipc, segnalazione, elimina').eq('cantiere_id', d.cantiere_id).order('data_visita') : Promise.resolve({ data: [] }),
   ]);
   const c = Object.fromEntries((conf || []).map((r) => [r.chiave, r.valore]));
@@ -598,31 +598,39 @@ async function proponiConferenza(d, dopo) {
 async function demanda(d, eventi, dopo) {
   const k = await contesto(d);
   maschera(d, dopo, '🏛 Demanda a Presidenza / Commissione Sicurezza', `
-    <p class="hint">Comunicazione interna: niente protocollo. Si prepara la bozza col fascicolo del caso (dati, verbali del cantiere, che cosa è stato fatto) e il caso passa «in attesa di decisione».</p>
+    <p class="hint">Comunicazione interna: niente protocollo. Il caso passa «in attesa di decisione».
+      Per la <strong>Presidenza</strong> (Presidente e Vicepresidente) è un passo vero: entrano nel gestionale con il link della mail e rispondono da lì, come già fa il Direttore — non serve più aspettare che qualcuno lo scriva a mano dopo.
+      Per la <strong>Commissione Sicurezza</strong> resta solo la mail, come oggi: chi ha la nomina non ha un accesso proprio.</p>
     <div class="field"><label>A chi</label>
       <select id="mk-chi"><option value="presidenza">Presidenza</option><option value="commissione">Commissione Sicurezza (chi ha oggi la nomina)</option></select></div>
     <div class="field"><label>Due righe tue, in testa <span class="hint">(facoltative)</span></label><textarea id="mk-testo" rows="3" style="width:100%"></textarea></div>`,
   '📨 Registra e prepara la mail', async () => {
     const chi = $('#mk-chi').value;
-    let to = ['presidente@formedilpadova.it'];
-    if (chi === 'commissione') {
+    const premessa = $('#mk-testo').value.trim();
+    let to = [];
+    if (chi === 'presidenza') {
+      const { error } = await sb.rpc('s_critico_coinvolgi_presidenza', { p_id: d.id, p_nota: premessa || null });
+      if (error) throw new Error(error.message);
+      to = [k.c.presidente_email || 'presidente@formedilpadova.it', k.c.vicepresidente_email || 'vicepresidente@formedilpadova.it'].filter(Boolean);
+    } else {
       const { data: membri, error } = await sb.rpc('s_gruppo_destinatari', { p_codice: 'commissione_sicurezza' });
       if (error) throw new Error('Commissione Sicurezza non letta: ' + error.message);
       to = (membri || []).map((m) => m.email).filter(Boolean);
       if (!to.length) { toast('Nessun membro della Commissione con un indirizzo: controlla le nomine.', 'err'); return false; }
+      const { error: e2 } = await sb.from('s_cantieri_critici_eventi').insert({ critico_id: d.id, tipo: 'demandata', visibile_tecnico: true,
+        testo: 'Demandato alla Commissione Sicurezza.', dati: { chi: 'commissione', a: to } });
+      if (e2) throw new Error(e2.message);
+      await sb.from('s_cantieri_critici').update({ stato: 'attesa_decisione', gestione_note: d.gestione_note || null }).eq('id', d.id);
     }
-    const { error } = await sb.from('s_cantieri_critici_eventi').insert({ critico_id: d.id, tipo: 'demandata', visibile_tecnico: true,
-      testo: `Demandato ${chi === 'commissione' ? 'alla Commissione Sicurezza' : 'alla Presidenza'}.`, dati: { a: to } });
-    if (error) throw new Error(error.message);
-    await sb.from('s_cantieri_critici').update({ stato: 'attesa_decisione', gestione_note: d.gestione_note || null }).eq('id', d.id);
-    const premessa = $('#mk-testo').value.trim();
+    const link = `${GESTIONALE_URL}#critico-${d.id}`;
     const { scaricaEml } = await import('./eml.js');
     scaricaEml({
       to: to.join(', '), cc: [k.c.direttore_email || 'direzione@formedilpadova.it', k.c.coordinatore_email].filter(Boolean),
       oggetto: `Cantiere critico da valutare — ${k.caso.cantiere_breve} — ${d.impresa_nome}`,
-      corpo: `${premessa ? premessa + '\n\n' : ''}${corpoDemanda(k.caso, eventi, k.verbali, chi)}`, nomeFile: `demanda-caso-${d.id}.eml`,
+      corpo: `${premessa ? premessa + '\n\n' : ''}${corpoDemanda(k.caso, eventi, k.verbali, chi)}${chi === 'presidenza' ? `\n\nApri il caso e rispondi da qui: ${link}` : ''}`,
+      nomeFile: `demanda-caso-${d.id}.eml`,
     });
-    toast('Registrato: caso in attesa di decisione, bozza scaricata.', 'ok');
+    toast(chi === 'presidenza' ? 'Coinvolta la Presidenza: hanno ricevuto un avviso nell\'app, e trovi qui la bozza della mail.' : 'Registrato: caso in attesa di decisione, bozza scaricata.', 'ok');
   });
 }
 
@@ -766,7 +774,7 @@ async function segnalaOrgani(d, eventi, dopo) {
    per mail. */
 async function chiediConfermaDirettore(d, eventi, dopo) {
   const k = await contesto(d);
-  const link = `${APP_URL}#critico-${d.id}`;
+  const link = `${GESTIONALE_URL}#critico-${d.id}`;
   maschera(d, dopo, '🖊 Conferma del Direttore', `
     <p class="hint">Comunicazione interna: niente protocollo. Si prepara la bozza per il Direttore con il link che apre il caso nell'app; il caso passa «in attesa di decisione». ${eventi.some((e) => e.tipo === 'decisione_organo') ? '' : '<strong>In cronologia non c\'è ancora la decisione di Presidenza / Commissione Sicurezza</strong>: la mail lo dirà.'}</p>
     <div class="field"><label>A</label><input type="text" id="mk-a" value="${esc(k.c.direttore_email || 'direzione@formedilpadova.it')}"></div>

@@ -36,7 +36,7 @@ let protDi = {};
 let filtro = 'aperte';
 
 const STATI = {
-  ricevuta: 'Ricevuta', girata: 'Dal coordinatore', risposta_pronta: 'Risposta pronta',
+  ricevuta: 'Ricevuta', girata: 'Girata, in attesa di risposta', risposta_pronta: 'Risposta pronta',
   autorizzata: 'Autorizzata', eseguita: 'Eseguita', chiusa: 'Chiusa', scartata: 'Scartata',
 };
 const ESITI = {
@@ -61,6 +61,24 @@ const slug = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
   .replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
 
 const coordinatore = () => RUBRICA_INTERNA.find((x) => /coordinatore/i.test(x.nome)) || null;
+
+/* a chi si puo' girare un quesito (25/09/2026): il coordinatore per primo, poi i
+   tecnici in servizio, poi la rubrica interna; il nome di chi ce l'ha in mano */
+function destinatariQuesito() {
+  const c = coordinatore();
+  const out = [];
+  const visti = new Set();
+  const aggiungi = (email, nome) => { const e = (email || '').toLowerCase(); if (!e || visti.has(e)) return; visti.add(e); out.push({ email, nome }); };
+  if (c) aggiungi(c.email, c.nome);
+  tecnici.slice().sort((a, b) => (a.tecnico_cognome || '').localeCompare(b.tecnico_cognome || '')).forEach((t) => aggiungi(t.email, nomeTecnico(t.email)));
+  RUBRICA_INTERNA.forEach((r) => { if (!/segreteria/i.test(r.nome)) aggiungi(r.email, r.nome); });
+  return out;
+}
+const nomeGirata = (email) => {
+  if (!email) return '';
+  const d = destinatariQuesito().find((x) => x.email.toLowerCase() === email.toLowerCase());
+  return d ? d.nome : email;
+};
 
 async function carica() {
   const [{ data: p }, { data: t }, { data: c }] = await Promise.all([
@@ -154,19 +172,19 @@ export async function render() {
       <td><span class="dt-cella ${cCeiv}" style="padding:2px 8px">${esc(lCeiv)}</span></td>
       <td>${corsia}</td>
       <td class="hint" style="white-space:nowrap">${prot}</td>
-      <td>${esc(STATI[p.stato] || p.stato)}</td>
+      <td>${p.stato === 'girata' && p.girata_a ? `Girata a ${esc(nomeGirata(p.girata_a).split(' — ')[0])}` : esc(STATI[p.stato] || p.stato)}</td>
     </tr>`;
   }).join('');
 
   host.innerHTML = `
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
-      <span class="dt-cella ${dalCoord.length ? 'dt-senzadata' : 'dt-ok'}" style="padding:4px 10px">📨 ${dalCoord.length} dal coordinatore</span>
+      <span class="dt-cella ${dalCoord.length ? 'dt-senzadata' : 'dt-ok'}" style="padding:4px 10px">📨 ${dalCoord.length} girate, in attesa di risposta</span>
       <span class="dt-cella ${daAutorizzare.length ? 'dt-senzadata' : 'dt-ok'}" style="padding:4px 10px">⏳ ${daAutorizzare.length} da autorizzare (uscite)</span>
       <span class="dt-cella dt-ok" style="padding:4px 10px">🗂 ${aperte.length} aperte in tutto</span>
     </div>
     <div class="dt-barra">
       <div class="seg" id="cn-f">
-        ${[['aperte', 'Da lavorare'], ['coordinatore', '📨 Dal coordinatore'], ['autorizzare', '⏳ Da autorizzare'], ['tutte', 'Tutte'], ['chiuse', 'Chiuse']].map(([v, l]) =>
+        ${[['aperte', 'Da lavorare'], ['coordinatore', '📨 Girate'], ['autorizzare', '⏳ Da autorizzare'], ['tutte', 'Tutte'], ['chiuse', 'Chiuse']].map(([v, l]) =>
           `<button class="seg-btn ${filtro === v ? 'is-active' : ''}" data-val="${v}">${l}</button>`).join('')}
       </div>
       <div style="display:flex;gap:6px">
@@ -351,7 +369,7 @@ export async function apriPratica(id) {
       <span class="dt-dot ${p.stato === 'girata' ? 'dt-senzadata' : p.risposta ? 'dt-ok' : 'dt-mancante'}"></span>
       <span class="dt-quadro-req">Quesito</span>
       <span class="dt-quadro-stato">${p.stato === 'girata'
-        ? `girato al coordinatore${p.girata_il ? ` il ${dataIt(p.girata_il.slice(0, 10))}` : ''} — in attesa di risposta`
+        ? `girato a <strong>${esc(nomeGirata(p.girata_a) || 'coordinatore')}</strong>${p.girata_il ? ` il ${dataIt(p.girata_il.slice(0, 10))}` : ''} — in attesa di risposta`
         : p.trasmessa_il ? `risposta trasmessa il ${dataIt(p.trasmessa_il.slice(0, 10))}`
         : p.risposta ? 'risposta pronta, da trasmettere' : 'in attesa di risposta'}</span>
     </div>`}
@@ -408,10 +426,13 @@ export async function apriPratica(id) {
     <hr style="margin:16px 0;border:0;border-top:1px solid var(--bordo)">
     ${!uscita ? `
     <h4 style="margin:0 0 6px">Il giro del quesito</h4>
-    <p class="hint" style="margin:0 0 10px">Quesito tecnico → coordinatore; la risposta la trasmette la segreteria.
+    <p class="hint" style="margin:0 0 10px">Quesito tecnico → a chi lo scegli (di norma il coordinatore; può chiedere di girarlo a un altro tecnico); la risposta la trasmette la segreteria.
       Se invece serve un sopralluogo, si passa alla corsia con autorizzazione.</p>
-    <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <button class="btn btn-ghost" id="cn-gira">📧 Gira il quesito al coordinatore</button>
+    ${p.stato === 'girata' && p.girata_a ? `<p class="hint" style="margin:0 0 8px">Adesso è in mano a <strong>${esc(nomeGirata(p.girata_a))}</strong>${p.girata_il ? ` dal ${dataIt(p.girata_il.slice(0, 10))}` : ''}: girandolo a un altro, la pratica passa a lui e la data riparte.</p>` : ''}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <select id="cn-gira-a" style="max-width:320px">${destinatariQuesito().map((d) =>
+        `<option value="${esc(d.email)}" ${(p.girata_a || coord?.email || '').toLowerCase() === d.email.toLowerCase() ? 'selected' : ''}>${esc(d.nome)}</option>`).join('')}<option value="__altro">Altro indirizzo…</option></select>
+      <button class="btn btn-ghost" id="cn-gira">📧 Gira il quesito</button>
       <button class="btn btn-primary" id="cn-trasmetti" ${!(p.risposta || '').trim() && true ? '' : ''}>📧 Trasmetti la risposta all'impresa</button>
       <button class="btn btn-ghost" id="cn-uscita">🚧 Serve un'uscita → richiedi autorizzazione</button>
     </div>` : `
@@ -492,29 +513,42 @@ export async function apriPratica(id) {
   $('#cn-gira')?.addEventListener('click', async () => {
     const quesito = $('#cn-quesito').value.trim() || p.quesito;
     if (!quesito) return toast('Scrivi prima il quesito.', 'err');
-    if (!coord) return toast('Coordinatore non trovato nella rubrica interna.', 'err');
+    /* a chi: dalla tendina (25/09/2026), oppure un indirizzo scritto a mano */
+    let email = $('#cn-gira-a')?.value || coord?.email || '';
+    let nome = nomeGirata(email);
+    if (email === '__altro') {
+      email = (prompt('Indirizzo e-mail a cui girare il quesito:') || '').trim();
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return toast('Indirizzo non valido.', 'err');
+      nome = email;
+    }
+    if (!email) return toast('Scegli a chi girare il quesito.', 'err');
+    const precedente = p.stato === 'girata' && p.girata_a && p.girata_a.toLowerCase() !== email.toLowerCase() ? nomeGirata(p.girata_a) : null;
+    const eTecnico = tecnici.some((t) => (t.email || '').toLowerCase() === email.toLowerCase());
     scaricaEml({
-      to: coord.email,
+      to: email,
+      cc: precedente && coord && coord.email.toLowerCase() !== email.toLowerCase() ? [coord.email] : [],
       oggetto: `Formedil Padova - Quesito tecnico da ${p.ragione_sociale || 'impresa'} - consulenza n. ${p.progressivo ?? `m${p.id}`}`,
-      corpo: `Ciao,
+      corpo: `${eTecnico ? 'Ciao' : 'Buongiorno'},
 
-quesito tecnico arrivato ${p.fonte === 'modulo' ? 'dal modulo online' : `per ${p.fonte}`} da ${p.ragione_sociale || '?'}${p.partita_iva ? ` (P.IVA ${p.partita_iva})` : ''}:
+${precedente ? `su indicazione di ${precedente}, ti giro il` : 'quesito tecnico arrivato'} ${p.fonte === 'modulo' ? 'dal modulo online' : `per ${p.fonte}`} da ${p.ragione_sociale || '?'}${p.partita_iva ? ` (P.IVA ${p.partita_iva})` : ''}:
 
 ${quesito}
 
->>> Apri la pratica (qui si riporta la risposta al quesito):
-${APP_URL}#consulenza-${p.id}
+Ti chiedo una risposta scritta, rispondendo a questa mail${eTecnico ? ` oppure riportandola nella pratica:
+${APP_URL}#consulenza-${p.id}` : ''}: la trasmette la segreteria all'impresa.
 
 Grazie.
 
 ${FIRMA_SEGRETERIA}`,
       nomeFile: `quesito-consulenza-${p.progressivo ?? `m${p.id}`}.eml`,
     });
+    const nota = precedente ? `${new Date().toLocaleDateString('it-IT')}: quesito girato a ${nome} su indicazione di ${precedente}.` : null;
     await sb.from('s_consulenze').update({
-      stato: 'girata', girata_a: coord.email, girata_il: new Date().toISOString(),
+      stato: 'girata', girata_a: email, girata_il: new Date().toISOString(),
       quesito, aggiornato_da: state.email, updated_at: new Date().toISOString(),
+      ...(nota ? { note_ufficio: [p.note_ufficio, nota].filter(Boolean).join('\n') } : {}),
     }).eq('id', p.id);
-    toast('Bozza per il coordinatore scaricata: aprila da Outlook e premi Invia.', 'ok');
+    toast(`Bozza per ${nome} scaricata: aprila da Outlook e premi Invia.`, 'ok');
     await render();
   });
 

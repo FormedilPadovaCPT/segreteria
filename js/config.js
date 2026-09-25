@@ -20,6 +20,14 @@ export const PAGE_SIZE = 50;
    profondi nelle mail — es. «Autorizza dall'app» al Direttore. */
 export const APP_URL = 'https://formedilpadovacpt.github.io/segreteria/';
 
+/* Il gestionale visite (radice dello stesso dominio GitHub Pages): i link
+   #critico-<id> dei cantieri critici aprono LÌ, non qui — la pagina
+   Direzione/Presidenza (con Confermo/Decido) sta in gestionale-visite,
+   non in questa app. Scoperto il 25/09/2026: chiediConfermaDirettore
+   costruiva il link con APP_URL (…/segreteria/#critico-…), che non porta
+   da nessuna parte perché questa app non ha quella route. */
+export const GESTIONALE_URL = 'https://formedilpadovacpt.github.io/';
+
 /* Dati dell'ente usati nel timbro di protocollo */
 export const ENTE = {
   nome: 'FORMEDIL PADOVA',
