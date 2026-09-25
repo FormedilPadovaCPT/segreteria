@@ -172,6 +172,37 @@ export function testoRichiestaDati({ corso, righe, modo = 'impresa', mittente = 
   ].filter((x, i, a) => !(x === '' && a[i - 1] === '')).join('\n');
 }
 
+/* ── LA MAIL CHE ACCOMPAGNA GLI ATTESTATI (25/09/2026) ──
+   Stesso principio del modo impresa/persona di sopra: all'impresa si dice
+   «in allegato gli attestati dei partecipanti che avete iscritto», alla
+   persona «in allegato il suo attestato» — non è la stessa mail a un
+   indirizzo diverso, cambia il soggetto a cui ci si rivolge. */
+export function testoInvioAttestati({ corso, righe, modo = 'impresa', mittente = 'La Segreteria' } = {}) {
+  const r = righe || [];
+  const una = r.length === 1;
+  const titolo = corso?.titolo ? `«${corso.titolo}»` : 'il corso';
+  const aPersona = modo === 'persona';
+
+  const corpo = aPersona
+    ? [
+      r[0]?.nominativo ? `Gentile ${r[0].nominativo},` : 'Buongiorno,',
+      '',
+      `in allegato il suo attestato di ${titolo}.`,
+    ]
+    : [
+      'Buongiorno,',
+      '',
+      una
+        ? `in allegato l’attestato di ${titolo} del partecipante che avete iscritto:`
+        : `in allegato gli attestati di ${titolo} dei partecipanti che avete iscritto:`,
+      r.map((x) => `- ${x.nominativo}`).join('\n'),
+    ];
+
+  return [...corpo, '', 'Grazie e cordiali saluti.', mittente]
+    .filter((x, i, a) => !(x === '' && a[i - 1] === ''))
+    .join('\n');
+}
+
 /* ── gli indirizzi che l'app conosce ──
    L'ordine cambia col modo, e non è un dettaglio: scrivendo a una
    persona il suo indirizzo viene prima di quello dell'ufficio, e

@@ -12,7 +12,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  datiMancantiAttestato, riassuntoMancanti, raggruppaRichieste, testoRichiestaDati, destinatariPossibili,
+  datiMancantiAttestato, riassuntoMancanti, raggruppaRichieste, testoRichiestaDati, testoInvioAttestati, destinatariPossibili,
 } from '../js/corsi-anagrafica.js';
 
 const CORSO = { titolo: 'Ponteggi — aggiornamento', tipo_attestato: 'frequenza' };
@@ -157,4 +157,26 @@ test('l\u2019ordine degli indirizzi segue il modo', () => {
 test('si sa quando di una persona conosciamo solo l\u2019indirizzo dell\u2019impresa', () => {
   const d = destinatariPossibili([R[1]], 'persona');
   assert.deepEqual(d.map((x) => x.campo), ['email_impresa'], 'la maschera lo dichiara invece di farlo passare per suo');
+});
+
+/* \u2500\u2500 la mail che accompagna gli attestati (25/09/2026) \u2500\u2500 */
+
+test('a un\u2019impresa con pi\u00f9 attestati la mail li elenca tutti', () => {
+  const t = testoInvioAttestati({ corso: CORSO, righe: [{ nominativo: 'Rossi Mario' }, { nominativo: 'Verdi Ugo' }] });
+  assert.match(t, /in allegato gli attestati di .Ponteggi \u2014 aggiornamento. dei partecipanti che avete iscritto:/);
+  assert.match(t, /^- Rossi Mario$/m);
+  assert.match(t, /^- Verdi Ugo$/m);
+});
+
+test('a un\u2019impresa con un solo attestato la mail va al singolare', () => {
+  const t = testoInvioAttestati({ corso: CORSO, righe: [{ nominativo: 'Rossi Mario' }] });
+  assert.match(t, /in allegato l.attestato di .Ponteggi \u2014 aggiornamento. del partecipante che avete iscritto:/);
+  assert.match(t, /^- Rossi Mario$/m);
+});
+
+test('alla persona si d\u00e0 del lei e non le si elencano i nomi: \u00e8 il suo', () => {
+  const t = testoInvioAttestati({ corso: CORSO, righe: [{ nominativo: 'Bianchi Ada' }], modo: 'persona' });
+  assert.match(t, /Gentile Bianchi Ada,/);
+  assert.match(t, /in allegato il suo attestato/);
+  assert.ok(!/^- /m.test(t), 'alla persona non serve un elenco di un nome solo');
 });

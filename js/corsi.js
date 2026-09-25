@@ -32,7 +32,7 @@ import { datiIscr, sezioneIscr, collegaIscr } from './corsi-iscrizioni.js';
 /* le regole che decidono un compenso stanno a parte, per essere provabili */
 import { forfait, calcolaCorrispettivo, proponiTariffa, variazioneNote } from './corsi-compensi.js';
 import { orarioGiornata } from './corsi-orari.js';
-import { datiMancantiAttestato, riassuntoMancanti, raggruppaRichieste, testoRichiestaDati, destinatariPossibili } from './corsi-anagrafica.js';
+import { datiMancantiAttestato, riassuntoMancanti, raggruppaRichieste, testoRichiestaDati, testoInvioAttestati, destinatariPossibili } from './corsi-anagrafica.js';
 
 let corsi = [];
 let progetti = [];
@@ -426,7 +426,7 @@ export async function apriCorso(id) {
       <td>${esc(i.valutazione || '—')}</td>
       <td>${c.quest_codice ? cellaSpunta(i) : '—'}</td>
       <td>${i.attestato_numero ? esc(i.attestato_numero) : '—'}${i.attestato_revocato_il ? '<br><span class="dt-cella dt-scaduto" style="padding:1px 6px">revocato</span>' : ''}</td>
-      <td style="white-space:nowrap"><a href="#" data-pres="${i.id}">presenze</a> · <a href="#" data-mod-iscr="${i.id}">modifica</a>${i.attestato_numero ? ` · <a href="#" data-rist="${i.id}" title="Ristampa l'attestato col suo numero (storico compreso), sul modello standard">🖨 attestato</a>` : ''}${serieVerificabile(i.attestato_numero) && !i.attestato_revocato_il ? ` · <a href="#" data-revoca="${i.id}" title="Revoca: la pagina pubblica di verifica lo mostrerà come revocato">revoca</a>` : ''} · <a href="#" data-del-iscr="${i.id}">togli</a></td>
+      <td style="white-space:nowrap"><a href="#" data-pres="${i.id}">presenze</a> · <a href="#" data-mod-iscr="${i.id}">modifica</a>${i.attestato_numero ? ` · <a href="#" data-rist="${i.id}" title="Ristampa l'attestato col suo numero (storico compreso), sul modello standard">🖨 attestato</a> · <a href="#" data-invia="${i.id}" title="Prepara una bozza mail con l'attestato in allegato">✉️ invia</a>` : ''}${serieVerificabile(i.attestato_numero) && !i.attestato_revocato_il ? ` · <a href="#" data-revoca="${i.id}" title="Revoca: la pagina pubblica di verifica lo mostrerà come revocato">revoca</a>` : ''} · <a href="#" data-del-iscr="${i.id}">togli</a></td>
     </tr>`;
   };
 
@@ -511,6 +511,7 @@ export async function apriCorso(id) {
     </table></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
       <button class="btn btn-ghost btn-sm" id="co-addiscr">+ Iscrivi dall'anagrafica</button>
+      <button class="btn btn-ghost btn-sm" id="co-tuttipresenti" title="Segna presenti tutti gli iscritti, in tutte le giornate, con gli orari previsti: poi togli la presenza a chi non c'era dalla sua scheda «presenze»">✅ Segna tutti presenti</button>
       <button class="btn btn-ghost btn-sm" id="co-calcola">🧮 Calcola frequenze dalle presenze</button>
     </div>
     ${daCopiare.length ? `<div class="dt-doc-riga" style="margin-top:8px"><strong>${daCopiare.length} ${daCopiare.length === 1 ? 'iscritto ha' : 'iscritti hanno'} un dato già in anagrafica</strong>
@@ -533,6 +534,7 @@ export async function apriCorso(id) {
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn btn-ghost btn-sm" id="co-registro">📋 Registro presenze (PDF)</button>
       ${c.rilascio_attestato ? `<button class="btn btn-primary btn-sm" id="co-attestati">🎓 Genera attestati (serie N/${(c.data_fine || c.data_inizio || oggiIso()).slice(0, 4)})</button>` : ''}
+      ${c.rilascio_attestato ? '<button class="btn btn-ghost btn-sm" id="co-invia-att">✉️ Invia attestati</button>' : ''}
     </div>
     <p class="hint" style="margin-top:8px">L'impresa dell'iscritto è uno <strong>snapshot al momento del corso</strong>,
       proposta dal rapporto attivo in anagrafica: se la persona cambia datore dopo, l'attestato resta giusto.
@@ -673,11 +675,27 @@ Registro lo stesso una fattura qui?`)) return;
     const i = (iscritti || []).find((x) => x.id === Number(a.dataset.rist));
     if (i) await ristampaAttestato(c, i, giornate || [], interventi || []);
   }));
+  $('#drawer-body').querySelectorAll('[data-invia]').forEach((a) => a.addEventListener('click', async (e) => {
+    e.preventDefault();
+    const i = (iscritti || []).find((x) => x.id === Number(a.dataset.invia));
+    if (i) await inviaAttestatoSingolo(c, i, giornate || [], interventi || [], anagDi, impDi);
+  }));
   $('#drawer-body').querySelectorAll('[data-revoca]').forEach((a) => a.addEventListener('click', async (e) => {
     e.preventDefault();
     const i = (iscritti || []).find((x) => x.id === Number(a.dataset.revoca));
     if (i) await revocaAttestato(c, i);
   }));
+
+  $('#co-tuttipresenti').addEventListener('click', async (ev) => {
+    if (!(giornate || []).length) return toast('Un corso ha sempre almeno una giornata: aggiungila prima.', 'err');
+    if (!(iscritti || []).length) return toast('Nessun iscritto.', 'err');
+    if (!confirm(`Segno presenti tutti i ${iscritti.length} iscritti in tutte le ${giornate.length} giornate, con gli orari previsti di ciascuna (sovrascrive le presenze già salvate). Poi togli la presenza a chi non c'era, dalla sua scheda «presenze». Procedo?`)) return;
+    attendi(ev.currentTarget, true, 'Salvo…');
+    await segnaTuttiPresenti(giornate || [], iscritti || []);
+    attendi(ev.currentTarget, false);
+    toast('Tutti segnati presenti: togli chi non c\'era, poi ricalcola le frequenze.', 'ok');
+    apriCorso(c.id);
+  });
 
   $('#co-calcola').addEventListener('click', async (ev) => {
     attendi(ev.currentTarget, true, 'Calcolo…');
@@ -706,6 +724,8 @@ Registro lo stesso una fattura qui?`)) return;
   });
   $('#co-attestati')?.addEventListener('click', (ev) =>
     generaAttestati(c, giornate || [], interventi || [], iscritti || [], ev.currentTarget, esitoDati));
+  $('#co-invia-att')?.addEventListener('click', () =>
+    inviaAttestati(c, giornate || [], interventi || [], iscritti || [], anagDi, impDi));
   $('#drawer-body').querySelectorAll('[data-lett-inc]').forEach((a) => a.addEventListener('click', (e) => {
     e.preventDefault();
     const k = (incarichi || []).find((x) => x.id === Number(a.dataset.lettInc));
@@ -914,53 +934,176 @@ async function generaAttestati(c, giornate, interventi, iscritti, btn, esitoDati
   }
 }
 
+/* ── RIGENERA IL PDF di un attestato GIÀ NUMERATO (storico compreso):
+   stesso modello standard, stessa firma, stesso QR — usata sia dalla
+   ristampa sia dall'invio per mail, così non serve riscaricarlo da Drive
+   e i due punti non possono disallinearsi. Se il numero è della serie
+   nuova e non ha ancora un codice di verifica, lo crea e lo salva qui
+   (unico caso in cui questa funzione scrive sulla riga, 17/09/2026). */
+async function pdfByteAttestatoEsistente(c, i, giornate, interventi) {
+  const { pdfAttestato } = await import('./corsi-doc.js');
+  let firmaByte = null;
+  if (conf.responsabile_formativo_firma_id) {
+    try { firmaByte = await leggiByte(conf.responsabile_formativo_firma_id); } catch { /* senza firma */ }
+  }
+  let logoRegioneByte = null;
+  if (c.riconosciuto_regione) {
+    try { logoRegioneByte = new Uint8Array(await (await fetch('img/logo-regione.png')).arrayBuffer()); } catch { /* senza logo */ }
+  }
+  let anagrafica = null;
+  if (i.persona_id) {
+    const { data: p } = await sb.from('persone')
+      .select('comune_nascita, data_nascita').eq('persona_id', i.persona_id).maybeSingle();
+    if (p) anagrafica = { nato_luogo: p.comune_nascita, nato_il: p.data_nascita };
+  }
+  let verifica = null;
+  if (serieVerificabile(i.attestato_numero)) {
+    let codice = i.verifica_codice;
+    if (!codice) {
+      codice = generaCodice();
+      const { error } = await sb.from('s_corsi_iscritti').update({ verifica_codice: codice }).eq('id', i.id);
+      if (error) throw new Error('Codice di verifica non salvato: ' + error.message);
+      i.verifica_codice = codice;
+    }
+    verifica = { codice, url: urlVerifica(i.attestato_numero, codice, conf.attestati_verifica_url || URL_VERIFICA_PREDEFINITA) };
+  }
+  const byte = await pdfAttestato(c, i, anagrafica, giornate, interventi, {
+    numero: i.attestato_numero,
+    firmaByte, firmaNome: c.responsabile_formativo || conf.responsabile_formativo_nome,
+    logoRegioneByte, loghiExtra: [],
+    dataRilascio: i.attestato_data || c.data_fine || c.data_inizio,
+    verifica,
+  });
+  const numeroFile = String(i.attestato_numero).replace('/', '-');
+  const nome = `${(c.data_fine || c.data_inizio || oggiIso())}_Attestato_${i.nominativo}${i.cf ? `_${i.cf}` : ''}_Prot_${numeroFile}.pdf`;
+  if (verifica) await aggiornaVerificaPubblica(true);
+  return { byte, nome };
+}
+
 /* ── RISTAMPA di un attestato già numerato (storico compreso):
       stesso modello standard, il numero resta quello suo — per lo
       storico è il «Prot.» dell'Access. Solo scarico locale, non
       tocca Drive né la riga. ── */
 async function ristampaAttestato(c, i, giornate, interventi) {
   try {
-    const { pdfAttestato, scaricaPdf } = await import('./corsi-doc.js');
-    let firmaByte = null;
-    if (conf.responsabile_formativo_firma_id) {
-      try { firmaByte = await leggiByte(conf.responsabile_formativo_firma_id); } catch { /* senza firma */ }
-    }
-    let logoRegioneByte = null;
-    if (c.riconosciuto_regione) {
-      try { logoRegioneByte = new Uint8Array(await (await fetch('img/logo-regione.png')).arrayBuffer()); } catch { /* senza logo */ }
-    }
-    let anagrafica = null;
-    if (i.persona_id) {
-      const { data: p } = await sb.from('persone')
-        .select('comune_nascita, data_nascita').eq('persona_id', i.persona_id).maybeSingle();
-      if (p) anagrafica = { nato_luogo: p.comune_nascita, nato_il: p.data_nascita };
-    }
-    /* serie nuova senza codice: il codice si crea adesso e si salva,
-       altrimenti il QR non verificherebbe niente. È l'unico caso in cui la
-       ristampa scrive sulla riga (17/09/2026). */
-    let verifica = null;
-    if (serieVerificabile(i.attestato_numero)) {
-      let codice = i.verifica_codice;
-      if (!codice) {
-        codice = generaCodice();
-        const { error } = await sb.from('s_corsi_iscritti').update({ verifica_codice: codice }).eq('id', i.id);
-        if (error) throw new Error('Codice di verifica non salvato: ' + error.message);
-        i.verifica_codice = codice;
-      }
-      verifica = { codice, url: urlVerifica(i.attestato_numero, codice, conf.attestati_verifica_url || URL_VERIFICA_PREDEFINITA) };
-    }
-    const byte = await pdfAttestato(c, i, anagrafica, giornate, interventi, {
-      numero: i.attestato_numero,
-      firmaByte, firmaNome: c.responsabile_formativo || conf.responsabile_formativo_nome,
-      logoRegioneByte, loghiExtra: [],
-      dataRilascio: i.attestato_data || c.data_fine || c.data_inizio,
-      verifica,
-    });
-    if (verifica) await aggiornaVerificaPubblica(true);
-    const numeroFile = String(i.attestato_numero).replace('/', '-');
-    scaricaPdf(byte, `${(c.data_fine || c.data_inizio || oggiIso())}_Attestato_${i.nominativo}${i.cf ? `_${i.cf}` : ''}_Prot_${numeroFile}.pdf`);
+    const { scaricaPdf } = await import('./corsi-doc.js');
+    const { byte, nome } = await pdfByteAttestatoEsistente(c, i, giornate, interventi);
+    scaricaPdf(byte, nome);
     toast(`Attestato ${i.attestato_numero} ristampato (modello standard).`, 'ok');
   } catch (e) { toast(e.message, 'err'); }
+}
+
+/* ── INVIO ATTESTATI PER MAIL (25/09/2026) ──
+   Chiesto dall'utente: dal singolo nominativo, una mail con l'attestato
+   allegato; oppure tutti insieme, un allegato a testa nella stessa mail,
+   al referente scelto. Stesso raggruppamento di «chiedi i dati mancanti»
+   (impresa o persona): non sempre i corsisti sono della stessa impresa. */
+async function inviaAttestatoSingolo(c, i, giornate, interventi, anagDi, impDi) {
+  const email = i.email_iscrizione || anagDi[i.persona_id]?.email || anagDi[i.persona_id]?.email2 || impDi[i.impresa_id]?.email || '';
+  const a = prompt(`Mail con l'attestato di ${i.nominativo} (${i.attestato_numero}) in allegato. Indirizzo destinatario:`, email);
+  if (a == null) return;
+  if (!a.trim()) return toast('Serve un indirizzo per mandare la mail.', 'err');
+  try {
+    const { byte, nome } = await pdfByteAttestatoEsistente(c, i, giornate, interventi);
+    const corpo = testoInvioAttestati({ corso: c, righe: [{ nominativo: i.nominativo }], modo: 'persona', mittente: FIRMA_SEGRETERIA });
+    scaricaEml({
+      to: a.trim(),
+      oggetto: `Attestato ${TIPI_ATT[c.tipo_attestato] || ''} — ${c.titolo || `corso n° ${c.id}`}`,
+      corpo,
+      allegati: [{ nome, byte }],
+      nomeFile: `attestato-corso-${c.id}-${i.id}.eml`,
+    });
+    toast('Bozza scaricata, con l\'attestato allegato.', 'ok');
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+async function inviaAttestati(c, giornate, interventi, iscritti, anagDi, impDi) {
+  const candidati = (iscritti || []).filter((i) => i.attestato_numero && !i.attestato_revocato_il);
+  if (!candidati.length) return toast('Nessun attestato da inviare: generali prima.', 'err');
+  const righe = candidati.map((i) => ({
+    id: i.id, nominativo: i.nominativo, impresa_txt: i.impresa_txt || '', impresa_id: i.impresa_id || '',
+    email_iscrizione: i.email_iscrizione, email_persona: anagDi[i.persona_id]?.email || anagDi[i.persona_id]?.email2,
+    email_impresa: impDi[i.impresa_id]?.email,
+  }));
+  let modo = righe.some((r) => r.impresa_txt || r.impresa_id) ? 'impresa' : 'persona';
+
+  const disegna = () => {
+    const lista = raggruppaRichieste(righe, modo).map((g, n) => ({ ...g, n, dest: destinatariPossibili(g.righe, modo) }));
+    $('#drawer-body').innerHTML = `
+      <p class="hint" style="margin:0 0 8px">Un PDF a testa, allegato alla mail del gruppo. Le bozze si scaricano: le mandi tu da Outlook.</p>
+      <div class="dt-barra">
+        <div class="seg" id="ia-modo">
+          ${[['impresa', 'Una mail per impresa'], ['persona', 'Una mail per persona']].map(([v, l]) =>
+            `<button class="seg-btn ${modo === v ? 'is-active' : ''}" data-val="${v}">${l}</button>`).join('')}
+        </div>
+        <span class="hint">${modo === 'impresa'
+          ? 'Un solo allegato multiplo a chi ha iscritto il gruppo (il referente).'
+          : 'Una bozza a testa, col proprio attestato in allegato.'}</span>
+      </div>
+      ${lista.map((g) => `
+        <div class="dt-doc-riga" style="margin-bottom:10px">
+          <label style="display:flex;gap:8px;align-items:flex-start">
+            <input type="checkbox" data-grp="${g.n}" checked style="margin-top:4px">
+            <span style="flex:1">
+              <strong>${esc(g.etichetta)}</strong> — ${g.righe.length} ${g.righe.length === 1 ? 'attestato' : 'attestati'}
+              <span class="hint" style="display:block;white-space:normal">${g.righe.map((r) => esc(r.nominativo)).join(', ')}</span>
+              <span style="display:block;margin-top:6px">
+                <input class="inp inp-sm" data-a="${g.n}" style="width:100%" placeholder="A: indirizzo del destinatario"
+                  value="${esc(g.dest.map((d) => d.email).join(', '))}">
+                ${g.dest.length ? '' : '<span class="hint">Nessun indirizzo conosciuto: scrivilo qui.</span>'}
+              </span>
+            </span>
+          </label>
+        </div>`).join('')}
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+        <button class="btn btn-primary" id="ia-eml">✉️ Prepara le bozze</button>
+      </div>
+      <p class="hint" style="margin-top:8px">Un gruppo senza indirizzo non produce bozza: l'app non inventa un destinatario.</p>`;
+
+    $('#ia-modo').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-val]');
+      if (!b || b.dataset.val === modo) return;
+      modo = b.dataset.val;
+      disegna();
+    });
+
+    $('#ia-eml').addEventListener('click', async (ev) => {
+      attendi(ev.currentTarget, true, 'Preparo…');
+      let fatte = 0; const senza = []; const errori = [];
+      for (const g of lista) {
+        if (!$(`[data-grp="${g.n}"]`)?.checked) continue;
+        const a = String($(`[data-a="${g.n}"]`)?.value || '').trim();
+        if (!a) { senza.push(g.etichetta); continue; }
+        try {
+          const allegati = [];
+          for (const r of g.righe) {
+            const i = candidati.find((x) => x.id === r.id);
+            const { byte, nome } = await pdfByteAttestatoEsistente(c, i, giornate, interventi);
+            allegati.push({ nome, byte });
+          }
+          const corpo = testoInvioAttestati({ corso: c, righe: g.righe, modo, mittente: FIRMA_SEGRETERIA });
+          scaricaEml({
+            to: a,
+            oggetto: `Attestat${g.righe.length > 1 ? 'i' : 'o'} ${TIPI_ATT[c.tipo_attestato] || ''} — ${c.titolo || `corso n° ${c.id}`}`,
+            corpo,
+            allegati,
+            nomeFile: `attestati-corso-${c.id}-${g.n + 1}.eml`,
+          });
+          fatte += 1;
+        } catch (e) { errori.push(`${g.etichetta}: ${e.message}`); }
+      }
+      attendi(ev.currentTarget, false);
+      if (!fatte && !errori.length) return toast('Nessuna bozza: spunta almeno un gruppo e scrivi un destinatario.', 'err');
+      toast(`${fatte} ${fatte === 1 ? 'bozza scaricata' : 'bozze scaricate'}`
+        + (senza.length ? `; senza destinatario: ${senza.join(', ')}` : '')
+        + (errori.length ? `; errori: ${errori.join('; ')}` : ''),
+        (senza.length || errori.length) ? 'err' : 'ok');
+      if (fatte) chiudiDrawer();
+    });
+  };
+
+  apriDrawer(`Invia attestati — corso n° ${c.id}`, 'OUT', '<p class="empty">Un istante…</p>');
+  disegna();
 }
 
 /* ── VERIFICA PUBBLICA (17/09/2026) ──
@@ -1450,6 +1593,27 @@ function formIscritto(c, i) {
     if (error) return toast(error.message, 'err');
     apriCorso(c.id);
   });
+}
+
+/* ── segna presenti TUTTI gli iscritti in TUTTE le giornate, con gli
+   orari previsti di ciascuna giornata (25/09/2026, chiesto dall'utente:
+   con un elenco lungo conviene confermare tutti insieme e poi togliere
+   la presenza ai due o tre che non c'erano, dalla loro scheda). Un solo
+   upsert per tutte le righe: sovrascrive quanto già salvato. */
+async function segnaTuttiPresenti(giornate, iscritti) {
+  const righe = [];
+  for (const i of iscritti) {
+    for (const g of giornate) {
+      righe.push({
+        iscritto_id: i.id, giornata_id: g.id, presente: true,
+        ingresso1: g.dalle || null, uscita1: g.alle || null,
+        ingresso2: g.dalle2 || null, uscita2: g.alle2 || null,
+        ore: oreGiornata(g),
+      });
+    }
+  }
+  const { error } = await sb.from('s_corsi_presenze').upsert(righe, { onConflict: 'iscritto_id,giornata_id' });
+  if (error) toast('Presenze non salvate: ' + error.message, 'err');
 }
 
 /* ── presenze per giornata di un iscritto ── */
