@@ -523,3 +523,12 @@ tr.riga-ceiv{border-left:4px solid var(--ceiv);background:var(--ceiv-bg)}
 .fmt-anteprima img{max-width:100%;max-height:220px;object-fit:cover;border-radius:8px;margin-bottom:6px;display:block}
 .fmt-anteprima a{color:var(--arancio)}
 .fmt-anteprima p{margin:0 0 8px}
+
+/* ── la barretta di formattazione sopra i campi di testo delle mail (25/09/2026, js/testo-formato.js) ── */
+.barra-formato{display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin:0 0 4px}
+.barra-formato button{font-size:12px;line-height:1;padding:4px 8px;border:1px solid var(--bordo,#cfd4da);background:#fff;color:var(--testo,#222);border-radius:4px;cursor:pointer}
+.barra-formato button:hover{border-color:var(--arancio,#e7500f)}
+.barra-formato button.attivo{background:var(--arancio,#e7500f);color:#fff;border-color:var(--arancio,#e7500f)}
+.barra-formato .hint{margin-left:6px}
+.anteprima-mail{border:1px dashed var(--bordo,#cfd4da);border-radius:6px;padding:12px 14px;margin-top:6px;background:#fff;max-height:340px;overflow:auto}
+.anteprima-mail p:last-child,.anteprima-mail ul:last-child,.anteprima-mail ol:last-child{margin-bottom:0!important}

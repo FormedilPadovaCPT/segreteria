@@ -175,17 +175,74 @@ ${esc(d.privacy)}
 </table>`;
 }
 
-/* ── il testo di una mail scritto dai moduli (righe, paragrafi separati
-      da una riga vuota) reso in HTML: paragrafi, a-capo, link cliccabili
-      su indirizzi web e di posta. Non interpreta markup: il testo
-      resta testo ── */
-export function testoInHtml(testo) {
+/* ── il testo di una mail scritto dai moduli, reso in HTML che Outlook
+      rende come lo si è scritto ──
+   Riga vuota = nuovo paragrafo; a capo semplice = a capo nel paragrafo;
+   indirizzi web e di posta cliccabili. Dal 25/09/2026 (chiesto
+   dall'utente: «elenchi, spaziature e a capo» erano da risistemare a
+   mano in Outlook) capisce anche una FORMATTAZIONE LEGGERA, con i segni
+   che si usano ovunque:
+     - riga · • riga           → elenco puntato
+     1. riga  1) riga          → elenco numerato
+     **testo**                 → grassetto
+     _testo_  *testo*          → corsivo
+   Tutto il resto resta testo: `<` e `>` scritti nel messaggio si vedono
+   come tali. La versione in righe della mail (text/plain) porta i segni
+   così come sono, e si legge lo stesso.
+   ⚠️ Perché paragrafi e <br> e non `white-space:pre-line`: Outlook per
+   Windows disegna le mail col motore di Word, che IGNORA white-space —
+   tutti gli a capo finivano su una riga sola. Elenchi e paragrafi veri
+   li rende ovunque.
+   `stile` (facoltativo): { font, colore, interlinea } per le lettere che
+   hanno un carattere proprio (la mail protocollata). */
+export function testoInHtml(testo, stile = {}) {
+  const font = stile.font || FONT;
+  const colore = stile.colore || '#1F2933';
+  const interlinea = stile.interlinea || '21px';
   const linkifica = (s) => s
     .replace(/(https?:\/\/[^\s<]+[^\s<.,;:)])/g, `<a href="$1" style="color:${ARANCIO};">$1</a>`)
     .replace(/(^|[\s(])([\w.+-]+@[\w-]+(?:\.[\w-]+)+)/g, `$1<a href="mailto:$2" style="color:${ARANCIO};">$2</a>`);
-  return String(testo ?? '').replace(/\r\n/g, '\n').trim().split(/\n{2,}/).map((par) =>
-    `<p style="margin:0 0 12px;${`font-family:${FONT};`}font-size:14px;line-height:21px;color:#1F2933;">${
-      linkifica(esc(par)).replace(/\n/g, '<br>\n')}</p>`).join('\n');
+  /* grassetto e corsivo: il segno di apertura sta a inizio parola (dopo
+     spazio, parentesi o inizio riga) e quello di chiusura a fine parola,
+     così «mario_rossi@…» e «2 * 3 * 4» restano come sono */
+  const enfasi = (s) => s
+    .replace(/\*\*(\S(?:[^*\n]*?\S)?)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[\s(>])_(\S(?:[^_\n]*?\S)?)_(?=$|[\s.,;:!?)<])/g, '$1<em>$2</em>')
+    .replace(/(^|[\s(>])\*(\S(?:[^*\n]*?\S)?)\*(?=$|[\s.,;:!?)<])/g, '$1<em>$2</em>');
+  const inline = (righe) => righe.map((r) => enfasi(linkifica(esc(r)))).join('<br>\n');
+  const P = `style="margin:0 0 12px;font-family:${font};font-size:14px;line-height:${interlinea};color:${colore};"`;
+  const LI = `style="margin:0 0 4px;font-family:${font};font-size:14px;line-height:${interlinea};color:${colore};"`;
+
+  const out = [];
+  let par = [];            // le righe del paragrafo in corso
+  let lista = null;        // { tag: 'ul'|'ol', voci: [[riga, riga…]] }
+  const chiudiPar = () => { if (par.length) out.push(`<p ${P}>${inline(par)}</p>`); par = []; };
+  const chiudiLista = () => {
+    if (!lista) return;
+    out.push(`<${lista.tag} style="margin:0 0 12px;padding-left:24px;">\n${
+      lista.voci.map((v) => `<li ${LI}>${inline(v)}</li>`).join('\n')}\n</${lista.tag}>`);
+    lista = null;
+  };
+  for (const grezza of String(testo ?? '').replace(/\r\n/g, '\n').split('\n')) {
+    const r = grezza.replace(/\s+$/, '');
+    const punto = /^\s*[-•·]\s+(.*)$/.exec(r) || /^\s*\*\s+(.*)$/.exec(r);
+    const numero = /^\s*\d{1,3}[.)]\s+(.*)$/.exec(r);
+    if (punto || numero) {
+      chiudiPar();
+      const tag = punto ? 'ul' : 'ol';
+      if (lista && lista.tag !== tag) chiudiLista();
+      if (!lista) lista = { tag, voci: [] };
+      lista.voci.push([(punto || numero)[1].trim()]);
+      continue;
+    }
+    if (!r.trim()) { chiudiPar(); chiudiLista(); continue; }
+    /* una riga rientrata sotto una voce di elenco continua quella voce */
+    if (lista && /^\s{2,}/.test(grezza)) { lista.voci[lista.voci.length - 1].push(r.trim()); continue; }
+    chiudiLista();
+    par.push(r.trim());
+  }
+  chiudiPar(); chiudiLista();
+  return out.join('\n');
 }
 
 /* ══════════════════════════════════════════════════════════════════

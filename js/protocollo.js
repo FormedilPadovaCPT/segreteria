@@ -14,6 +14,7 @@ import { PAGE_SIZE } from './config.js';
 import { agganci, caricaFile, cestina, dove, idDaLink, risolviCartella, sfoglia, LIMITE_MB } from './drive.js';
 import { UFFICI, MEZZI, normalizzaMezzo, vuoleTimbro, PERCHE_NIENTE_TIMBRO } from './lookups.js';
 import { CARTELLE_VAULT } from './cartelle-vault.js';
+import { collegaBarraFormato } from './testo-formato.js';
 
 /* ── stato del modulo ─────────────────────────────────────── */
 const f = { direzione: '', testo: '', anno: '', tipo: '', ufficio: '', invio: '' };
@@ -1069,6 +1070,9 @@ export async function apriForm(direzione, record = null, duplica = false, dopoSa
      completo. La spunta si toglie da sola, ma resta cliccabile. */
   aggiornaTimbro();
   $('#c-tipo').addEventListener('change', aggiornaTimbro);
+  /* in uscita le note diventano il testo della mail protocollata: elenchi e grassetto si
+     scrivono qui una volta sola (25/09/2026) */
+  if (!inn) collegaBarraFormato($('#c-note'), { stile: { colore: '#000', interlinea: '1.6' } });
 
   /* aggancio anagrafica imprese */
   autocompleta($('#c-impresa'), cercaImprese, (scelta) => {

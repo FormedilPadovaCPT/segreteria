@@ -48,6 +48,7 @@ import {
   paroleNominativo, chiaveNominativo, vociIndirizzi, raccogliDestinatari, dividiIndirizzi, nomeDiPersona, E_NOTA, EMAIL_VALIDA,
   vociDaGruppo,
 } from './mail-indirizzi.js';
+import { collegaBarraFormato } from './testo-formato.js';
 
 const CAMPI_PERSONA = 'persona_id, nome, cognome, titolo, email, email2, email3';
 
@@ -343,6 +344,8 @@ export async function apriDialogoMail(p, modo = 'avviso') {
   /* si chiude solo con «Annulla»: un clic sullo sfondo buttava via
      destinatari e testo gia' scritti (18/09/2026) */
   $('#m-annulla', bg).addEventListener('click', chiudi);
+  /* elenchi, grassetto, anteprima sul testo (25/09/2026): lo stesso traduttore della mail */
+  collegaBarraFormato($('#m-msg', bg), { stile: protocollato ? { colore: '#000', interlinea: '1.6' } : {} });
 
   /* ── le righe degli indirizzi: A e Cc si escludono a vicenda ── */
   const disegnaIndirizzi = () => {

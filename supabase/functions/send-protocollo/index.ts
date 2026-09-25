@@ -56,7 +56,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
 // Il perche' e' scritto in quel file: la stringa base64 del logo si e'
 // gia' troncata una volta nel passaggio di distribuzione.
 // @ts-ignore modulo JS condiviso con la webapp, senza tipi
-import { componiEml, firmaHtml, oggettoUfficio } from './firma.js'
+import { componiEml, firmaHtml, oggettoUfficio, testoInHtml } from './firma.js'
 // @ts-ignore modulo JS condiviso con la webapp, senza tipi
 import { caricaLogo } from './firma-logo.js'
 // il timbro di protocollo in HTML da posta: stesso disegno del cartaceo
@@ -157,6 +157,14 @@ function adessoRoma(): string {
       Access, senza logo) ── */
 const PIEDE = `<div style="height:10px;line-height:10px;font-size:0;">&nbsp;</div>\n${firmaHtml()}`
 
+/* Il testo scritto dalla segreteria, in HTML che Outlook rende com'è stato
+   scritto: paragrafi, a capo, elenchi («- », «1. »), **grassetto**.
+   Fino al 25/09/2026 stava in un <p> con white-space:pre-line, che il
+   motore di Word (Outlook per Windows) ignora: gli a capo sparivano e
+   l'utente risistemava il testo a mano prima di inviare. */
+const LETTERA = { font: FONT_MAIL, colore: '#000', interlinea: '1.6' }
+const testoLettera = (t: string) => testoInHtml(t, LETTERA)
+
 /* ── avviso al mittente: la lettera della vecchia maschera ── */
 function htmlAvviso(p: Record<string, unknown>, messaggio: string): string {
   const chi = (p.persona as string) || (p.impresa_nome as string) || ''
@@ -170,8 +178,8 @@ function htmlAvviso(p: Record<string, unknown>, messaggio: string): string {
   «${esc(p.oggetto)}» è stata protocollata con
   <b>n° Prot. ${esc(codiceDi(p))} del ${dataIt(p.data_prot as string)}</b>.
 </p>
-${messaggio ? `<p style="font-family:${FONT_MAIL};font-size:14px;color:#000;line-height:1.6;margin:12px 0 0;white-space:pre-line">${esc(messaggio)}</p>` : ''}
-<p style="font-family:${FONT_MAIL};font-size:14px;color:#000;margin:16px 0 0">Distinti saluti.</p>
+${messaggio ? `<div style="margin:12px 0 0">${testoLettera(messaggio)}</div>` : ''}
+<p style="font-family:${FONT_MAIL};font-size:14px;color:#000;margin:4px 0 0">Distinti saluti.</p>
 ${PIEDE}
 </body></html>`
 }
@@ -195,7 +203,7 @@ function htmlInoltra(p: Record<string, unknown>, messaggio: string, allegatoNomi
     <p style="font-size:24px;font-weight:bold;color:#e7500f;margin:14px 0 2px">${esc(codiceDi(p))}</p>
     <p style="margin:0 0 16px;color:#6b7280;font-size:13px">del ${dataIt(p.data_prot as string)}</p>
 
-    ${messaggio ? `<p style="line-height:1.7;margin:0 0 16px;white-space:pre-line;background:#fff8f4;border-left:3px solid #e7500f;padding:10px 14px">${esc(messaggio)}</p>` : ''}
+    ${messaggio ? `<div style="margin:0 0 16px;background:#fff8f4;border-left:3px solid #e7500f;padding:10px 14px 0">${testoLettera(messaggio)}</div>` : ''}
 
     <table cellpadding="0" cellspacing="0" style="font-size:13px;margin:0 0 16px;width:100%">
       ${riga('Oggetto', p.oggetto)}
@@ -209,7 +217,7 @@ function htmlInoltra(p: Record<string, unknown>, messaggio: string, allegatoNomi
     </table>
 
     ${p.note ? `<p style="font-size:12.5px;color:#6b7280;margin:0 0 4px">Testo della comunicazione ${p.direzione === 'IN' ? 'ricevuta' : 'spedita'}:</p>
-      <p style="font-size:12.5px;line-height:1.6;background:#f7f8fa;padding:10px 14px;margin:0 0 16px;white-space:pre-line">${esc(p.note)}</p>` : ''}
+      <div style="background:#f7f8fa;padding:10px 14px 0;margin:0 0 16px">${testoInHtml(String(p.note), { font: FONT_MAIL, colore: '#333', interlinea: '1.6' })}</div>` : ''}
     ${allegatoNomi.length ? `<p style="font-size:13px;color:#6b7280;margin:0 0 8px">In allegato: <b>${allegatoNomi.map(esc).join('</b>, <b>')}</b></p>` : ''}
     ${p.drive_url ? `<p style="font-size:13px;margin:0 0 8px"><a href="${esc(p.drive_url)}" style="color:#e7500f">Apri il documento nell'archivio</a></p>` : ''}
     ${PIEDE}
@@ -243,8 +251,8 @@ function htmlProtocollato(p: Record<string, unknown>, messaggio: string, saluto?
 <p style="font-family:${FONT_MAIL};font-size:14px;color:#000;line-height:1.6;margin:0">
   ${esc(aperturaDi(p, saluto)).replace(/\n/g, '<br>')}
 </p>
-${messaggio ? `<p style="font-family:${FONT_MAIL};font-size:14px;color:#000;line-height:1.6;margin:12px 0 0;white-space:pre-line">${esc(messaggio)}</p>` : ''}
-${chiusuraScritta(messaggio) ? '' : `<p style="font-family:${FONT_MAIL};font-size:14px;color:#000;margin:16px 0 0">Cordialmente.</p>`}
+${messaggio ? `<div style="margin:12px 0 0">${testoLettera(messaggio)}</div>` : ''}
+${chiusuraScritta(messaggio) ? '' : `<p style="font-family:${FONT_MAIL};font-size:14px;color:#000;margin:4px 0 0">Cordialmente.</p>`}
 ${PIEDE}
 </body></html>`
 }
