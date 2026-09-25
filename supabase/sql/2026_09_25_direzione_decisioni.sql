@@ -297,3 +297,9 @@ create or replace function public.voe_tg() returns trigger language plpgsql as $
 begin new.updated_by := lower(coalesce(auth.jwt() ->> 'email', '')); new.updated_at := now(); return new; end $$;
 drop trigger if exists trg_voe on public.visite_obiettivo_esercizio;
 create trigger trg_voe before insert or update on public.visite_obiettivo_esercizio for each row execute function public.voe_tg();
+
+-- ── 6. Segnalare un cantiere attivo anche dalla sola lettura ─────
+-- (stesso giorno, chiesto dall'utente): la policy restrittiva bloccava l'insert
+-- di Direzione e Consiglio; restano le permissive (personale inserisce, chi ha
+-- segnalato o la segreteria modifica, la segreteria cancella).
+drop policy if exists ro_no_insert on public.segnalazioni_cantiere;
