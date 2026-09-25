@@ -303,3 +303,23 @@ create trigger trg_voe before insert or update on public.visite_obiettivo_eserci
 -- di Direzione e Consiglio; restano le permissive (personale inserisce, chi ha
 -- segnalato o la segreteria modifica, la segreteria cancella).
 drop policy if exists ro_no_insert on public.segnalazioni_cantiere;
+
+-- ── 7. Le PROPOSTE: le task del vault che aspettano il Direttore ──────
+-- (stesso giorno, chiesto dall'utente): entrano nel registro con stato
+-- 'proposta', che vede SOLO la segreteria; lei spunta quelle da rendere
+-- visibili a Direttore e coordinatore (stato 'aperta'), le altre restano
+-- sue o si scartano. La reimportazione fa upsert su origine_rif e non tocca
+-- le righe già spuntate. Migrazione applicata: decisioni_proposte_dal_vault.
+alter table public.s_decisioni drop constraint if exists s_decisioni_stato_check;
+alter table public.s_decisioni add constraint s_decisioni_stato_check
+  check (stato in ('proposta', 'aperta', 'rinviata', 'decisa', 'chiusa', 'ritirata'));
+alter table public.s_decisioni add column if not exists origine text not null default 'app';
+alter table public.s_decisioni add column if not exists origine_rif text;
+alter table public.s_decisioni add column if not exists pubblicata_da text;
+alter table public.s_decisioni add column if not exists pubblicata_il timestamptz;
+create unique index if not exists s_decisioni_origine_rif_ux on public.s_decisioni (origine_rif) where origine_rif is not null;
+-- trigger s_decisioni_tg: all'insert lo stato resta 'proposta' se dichiarato; la spunta
+-- proposta -> aperta scrive pubblicata_da/pubblicata_il; sulla proposta aperta_il si può correggere.
+-- trigger s_decisioni_eventi_tg: eventi 'proposta' e 'pubblicazione'.
+-- policy s_decisioni_sel: le proposte le vede solo la segreteria; s_decisioni_upd: il coordinatore
+-- non tocca le proposte. (Testo integrale nella migrazione applicata sul progetto.)
