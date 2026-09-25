@@ -120,6 +120,7 @@ serve(async (req) => {
     const esito: Record<string, unknown> = { dryRun, caselle, calendari, oreMail, giorniEventi, mail: {}, eventi: {}, errori: [] as string[] }
     const righeMail: Record<string, unknown>[] = []
     const righeEventi: Record<string, unknown>[] = []
+    const daTogliere: { casella: string; ids: string[] }[] = []
     const adesso = new Date().toISOString()
 
     /* ── posta ─────────────────────────────────────────────────── */
@@ -180,7 +181,32 @@ serve(async (req) => {
             punteggio, motivi, importante, visto_il: adesso,
           })
         }
-        ;(esito.mail as Record<string, unknown>)[casella] = { lette: ids.length, importanti }
+        /* Le mail ELIMINATE in Gmail (25/09/2026, segnalato dall'utente: «non elimina
+           le mail anche se le ho eliminate da gmail e ho aggiornato»). L'upsert qui sopra
+           aggiorna solo le mail che la ricerca restituisce: una mail finita nel Cestino
+           sparisce dalla ricerca e la sua riga restava nel cruscotto fino alla pulizia
+           dei 10 giorni. Ora, per ogni riga della casella che la ricerca non ha
+           restituito, si chiede a Gmail che fine ha fatto: nel Cestino, nello spam o
+           cancellata del tutto (404) → la riga si toglie. Una mail solo più vecchia della
+           finestra di lettura esiste ancora e resta. Si arriva qui solo se la lettura della
+           casella è riuscita: un errore di lettura non fa sparire niente. */
+        const visti = new Set(ids)
+        const { data: gia, error: eGia } = await admin.from('s_bacheca_mail').select('gmail_id').eq('casella', casella)
+        if (eGia) (esito.errori as string[]).push(`${casella}: righe esistenti non lette, nessuna tolta (${eGia.message})`)
+        else {
+          const via: string[] = []
+          for (const g of gia || []) {
+            if (visti.has(g.gmail_id)) continue
+            const r = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${g.gmail_id}?format=minimal`, { headers: { Authorization: `Bearer ${token}` } })
+            if (r.status === 404) { via.push(g.gmail_id); continue }
+            const d = await r.json().catch(() => ({}))
+            if (!r.ok || d.error) { (esito.errori as string[]).push(`${casella} ${g.gmail_id}: stato non letto, resta (${d.error?.message || r.status})`); continue }
+            const lab: string[] = d.labelIds || []
+            if (lab.includes('TRASH') || lab.includes('SPAM')) via.push(g.gmail_id)
+          }
+          if (via.length) daTogliere.push({ casella, ids: via })
+        }
+        ;(esito.mail as Record<string, unknown>)[casella] = { lette: ids.length, importanti, tolte: daTogliere.find((x) => x.casella === casella)?.ids.length || 0 }
       } catch (e) {
         (esito.errori as string[]).push(`posta ${casella}: ${String((e as Error)?.message || e)}`)
       }
@@ -237,13 +263,19 @@ serve(async (req) => {
       const { error } = await admin.from('s_bacheca_eventi').upsert(righeEventi, { onConflict: 'calendario_id,evento_id' })
       if (error) (esito.errori as string[]).push('scrittura eventi: ' + error.message)
     }
+    let tolteMail = 0
+    for (const t of daTogliere) {
+      const { error } = await admin.from('s_bacheca_mail').delete().eq('casella', t.casella).in('gmail_id', t.ids)
+      if (error) (esito.errori as string[]).push(`togliere le eliminate di ${t.casella}: ${error.message}`)
+      else tolteMail += t.ids.length
+    }
     await admin.from('s_bacheca_mail').delete().lt('data', new Date(Date.now() - 10 * 864e5).toISOString())
     await admin.from('s_bacheca_eventi').delete().lt('fine', new Date(Date.now() - 2 * 864e5).toISOString())
     await admin.from('s_config').upsert([
       { chiave: 'bacheca_al', valore: adesso, descrizione: 'Ultimo giro di bacheca-giornata (posta e agenda nel cruscotto)' },
       { chiave: 'bacheca_esito', valore: JSON.stringify({ mail: esito.mail, eventi: esito.eventi, errori: esito.errori }).slice(0, 4000), descrizione: 'Esito dell\'ultimo giro di bacheca-giornata' },
     ], { onConflict: 'chiave' })
-    return json({ ok: true, ...esito, scritte_mail: righeMail.length, scritti_eventi: righeEventi.length })
+    return json({ ok: true, ...esito, scritte_mail: righeMail.length, scritti_eventi: righeEventi.length, tolte_mail: tolteMail })
   } catch (e) {
     console.error('bacheca-giornata:', e)
     return json({ error: String((e as Error)?.message || e) }, 500)

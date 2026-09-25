@@ -682,7 +682,8 @@ export async function render() {
     const { data, error } = await sb.functions.invoke('bacheca-giornata', { body: {} });
     if (error) { b.disabled = false; b.textContent = '🔄 Aggiorna adesso'; return toast('Aggiornamento non riuscito: ' + error.message, 'err'); }
     const err = data?.errori?.length ? ` (${data.errori.length} avvisi)` : '';
-    toast(`Aggiornata: ${data?.scritte_mail ?? 0} mail, ${data?.scritti_eventi ?? 0} eventi${err}.`, 'ok');
+    const tolte = data?.tolte_mail ? `, ${data.tolte_mail} tolte perché eliminate in Gmail` : '';
+    toast(`Aggiornata: ${data?.scritte_mail ?? 0} mail${tolte}, ${data?.scritti_eventi ?? 0} eventi${err}.`, 'ok');
     render();
   }));
 
