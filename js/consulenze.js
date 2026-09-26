@@ -404,7 +404,7 @@ export async function apriPratica(id) {
         <select id="cn-tecnico"><option value="">—</option>${tecnici.map((t) =>
           `<option value="${t.email}" ${p.tecnico_assegnato === t.email ? 'selected' : ''}>${esc(nomeTecnico(t.email))}</option>`).join('')}</select></div>
       <div class="field"><label>Data intervento</label>
-        <input type="date" id="cn-dataint" value="${p.data_intervento || ''}"></div>
+        <input type="date" id="cn-dataint" value="${esc(p.data_intervento || '')}"></div>
       <div class="field"><label>Spesa</label>
         <select id="cn-spesa">
           <option value="ordinaria" ${p.spesa_ordinaria === false ? '' : 'selected'}>Ordinaria — nessun costo in più</option>

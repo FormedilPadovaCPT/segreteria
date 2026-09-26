@@ -315,7 +315,7 @@ export async function apriPratica(id) {
         <select id="cf-tecnico"><option value="">—</option>${tecnici.map((t) =>
           `<option value="${t.email}" ${(p.tecnico_assegnato || p.tecnico_proposto) === t.email ? 'selected' : ''}>${esc(nomeTecnico(t.email))}</option>`).join('')}</select></div>
       <div class="field"><label>Data conferenza</label>
-        <input type="date" id="cf-data" value="${p.data_conferenza || ''}"></div>
+        <input type="date" id="cf-data" value="${esc(p.data_conferenza || '')}"></div>
       <div class="field"><label>N° partecipanti</label>
         <input type="number" id="cf-npart" value="${p.n_partecipanti ?? ''}"></div>
       <div class="field"><label>Esito CEIV${esitoProposto !== p.esito_ceiv ? ' <span class="hint">(dall’anagrafica: Salva per confermare)</span>' : ''}</label>

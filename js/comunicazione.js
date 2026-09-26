@@ -443,12 +443,12 @@ export async function apriPratica(id) {
 
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:10px">
       <div class="field"><label>Pilastro</label><select id="pd-pilastro">${Object.entries(PILASTRI).map(([k, [i, n]]) => `<option value="${k}" ${k === p.pilastro ? 'selected' : ''}>${i} ${n}</option>`).join('')}</select></div>
-      <div class="field"><label>Da pubblicare il</label><input type="date" id="pd-data" value="${p.data_programmata || ''}"></div>
+      <div class="field"><label>Da pubblicare il</label><input type="date" id="pd-data" value="${esc(p.data_programmata || '')}"></div>
       <div class="field"><label>Titolo di lavoro</label><input type="text" id="pd-titolo" value="${esc(p.titolo)}"></div>
     </div>
     <div class="field" style="margin-top:10px">
       <label>In evidenza nell'app fino al <span class="hint">— vuoto: notizia normale</span></label>
-      <input type="date" id="pd-evidenza" value="${p.evidenza_fino_al || ''}">
+      <input type="date" id="pd-evidenza" value="${esc(p.evidenza_fino_al || '')}">
       <span class="hint">Il riquadro in cima alla home dell'app servizi, per una cosa che ha una data: un corso da
         riempire, un convegno con le iscrizioni aperte. <b>Passata la data sparisce da sé</b> — non c'è niente da
         ricordarsi di togliere. Vale dal momento in cui la notizia viene pubblicata nell'app.</span>

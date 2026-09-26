@@ -434,7 +434,7 @@ export async function apriPratica(id) {
         <select id="sg-tecnico"><option value="">—</option>${tecnici.map((t) =>
           `<option value="${t.email}" ${(p.tecnico_assegnato || p.tecnico_proposto) === t.email ? 'selected' : ''}>${esc(nomeTecnico(t.email))}</option>`).join('')}</select></div>
       <div class="field"><label>Data verbale visita</label>
-        <input type="date" id="sg-dataverb" value="${p.data_verbale || ''}"></div>
+        <input type="date" id="sg-dataverb" value="${esc(p.data_verbale || '')}"></div>
     </div>
     <div class="field" style="margin-top:8px"><label>Esito della visita (sintesi)</label>
       <textarea id="sg-esitovisita" rows="2">${esc(p.esito_visita || '')}</textarea></div>

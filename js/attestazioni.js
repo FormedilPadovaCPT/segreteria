@@ -305,13 +305,13 @@ export async function apriPratica(id) {
       <div class="field"><label>Cantieri concordati</label>
         <input id="at-concordati" value="${esc(p.cantieri_concordati || '')}" placeholder="quali si visitano (concordati con l'impresa)"></div>
       <div class="field"><label>Prima visita: data</label>
-        <input type="date" id="at-visita1" value="${p.data_prima_visita || ''}"></div>
+        <input type="date" id="at-visita1" value="${esc(p.data_prima_visita || '')}"></div>
       <div class="field"><label>Prima visita: esito</label>
         <select id="at-esito1"><option value="">—</option>
           <option value="senza_rilievi" ${p.esito_prima_visita === 'senza_rilievi' ? 'selected' : ''}>Senza rilievi</option>
           <option value="con_rilievi" ${p.esito_prima_visita === 'con_rilievi' ? 'selected' : ''}>Con rilievi (verifica entro 2 settimane)</option></select></div>
       <div class="field"><label>Verifica: data</label>
-        <input type="date" id="at-visita2" value="${p.data_verifica || ''}"></div>
+        <input type="date" id="at-visita2" value="${esc(p.data_verifica || '')}"></div>
       <div class="field"><label>Verifica: esito</label>
         <select id="at-esito2"><option value="">—</option>
           <option value="risolti" ${p.esito_verifica === 'risolti' ? 'selected' : ''}>Rilievi risolti</option>
