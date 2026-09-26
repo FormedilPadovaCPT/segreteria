@@ -29,21 +29,32 @@ export async function render() {
   host.innerHTML = '<p class="empty">Un istante…</p>';
 
   const oggi = oggiIso();
-  const fra60 = new Date(Date.now() + 60 * 86400000).toISOString().slice(0, 10);
 
-  const [servizi, { data: rlst }, { data: docTecTutti }, { data: corsi }, { data: prot }, { data: tecAttivi }] = await Promise.all([
+  const [servizi, { data: rlst, error: eRlst }, { data: docTecTutti, error: eDoc }, { data: corsi, error: eCorsi }, { data: prot }, { data: tecAttivi, error: eTec }, { data: docReq, error: eReq }] = await Promise.all([
     Promise.all(SERVIZI.map(async (s) => {
       /* le chiuse restano sul server (26/09/2026: sul telefono il cruscotto era lento); una riga senza stato passa, come prima */
       const { data } = await sb.from(s.tab).select('*').or(`stato.is.null,stato.not.in.(${CHIUSE.map((c) => `"${c}"`).join(',')})`).order('id', { ascending: false }).limit(400);
       return { ...s, righe: (data || []).filter((p) => !CHIUSE.includes(p.stato)) };
     })),
     sb.from('s_rlst_pratiche').select('id, progressivo, ragione_sociale, stato, timestamp_modulo').neq('stato', 'chiusa'),
-    sb.from('s_doc_tecnico').select('id, tecnico_id, persona_txt, descrizione, data_fine, senza_scadenza, disdetto_il')
-      .eq('senza_scadenza', false).not('data_fine', 'is', null).lte('data_fine', fra60),
+    /* documenti dei tecnici (26/09/2026): tutti, per calcolare lo stato
+       con la stessa regola della loro pagina — prima si contava ogni riga
+       con data passata, e i contratti superati da quelli nuovi tenevano il
+       numero a 40 per sempre */
+    sb.from('s_doc_tecnico').select('*'),
     sb.from('s_corsi').select('id, titolo, tipo, stato, data_inizio').not('stato', 'in', '("chiuso","annullato")'),
     sb.from('s_protocollo').select('*').order('id', { ascending: false }).limit(6),
-    sb.from('tecnici').select('tecnico_id').eq('attivo', true),
+    sb.from('tecnici').select('tecnico_id, tecnico_cognome, tecnico_nome, email, attivo, asseveratore, dipendente').eq('attivo', true),
+    sb.from('s_doc_requisito').select('*').eq('attivo', true).order('ordine'),
   ]);
+  /* le letture non riuscite (26/09/2026): una tessera che non ha letto non
+     è «a posto» — finisce fra le pastiglie in rosso, «non letto» */
+  const nonLetti = new Set();
+  if (eRlst) nonLetti.add('rlst');
+  if (eCorsi) nonLetti.add('corsi');
+  if (eDoc || eTec || eReq) nonLetti.add('doc');
+  const aPosto = [];
+  const aiutoDi = (k) => (k && (window.AIUTO_TESTI || {})['hm-' + k]) || '';
 
   /* ── posta e agenda (08/09/2026): quello che bacheca-giornata ha letto
      alle 8 dalle caselle e dai calendari dell'ufficio. Solo intestazioni
@@ -137,38 +148,41 @@ export async function render() {
      verbali. Un registro solo, gestito da segreteria e coordinatore */
   let critici = [];
   let ccMod = null;
-  const pCritici = (async () => { try { ccMod = await import('./cantieri-critici.js'); critici = await ccMod.aperti(); } catch { /* senza accesso la card resta vuota */ } })();
+  const pCritici = (async () => { try { ccMod = await import('./cantieri-critici.js'); critici = await ccMod.aperti(); } catch { nonLetti.add('critici'); } })();
   /* questionari sul sopralluogo (18/09/2026): da quando l'invito parte dalla
      mail del verbale le risposte arrivano davvero, e vanno guardate — un
      giudizio basso invecchia male, e chi ha chiesto di essere richiamato
      aspetta */
   let questionari = [];
   let qsMod = null;
-  const pQuest = (async () => { try { qsMod = await import('./questionari.js'); questionari = await qsMod.daLavorare(); } catch { /* senza accesso la card resta vuota */ } })();
+  const pQuest = (async () => { try { qsMod = await import('./questionari.js'); questionari = await qsMod.daLavorare(); } catch { nonLetti.add('questionari'); } })();
   /* iscrizioni arrivate dal portale (18/09/2026): sono richieste, non
      iscritti, e finche' restano in coda OCCUPANO IL POSTO nel conteggio dei
      liberi — un evento puo' sembrare pieno solo perche' nessuno le ha
      guardate. Per questo stanno qui e non solo dentro la scheda del corso. */
   let iscrizioni = [];
   const pIscr = (async () => { try {
-    const { data } = await sb.from('s_iscrizioni')
+    const { data, error } = await sb.from('s_iscrizioni')
       .select('id, corso_id, stato, per_conto, ragione_sociale, persone, email, creato_il, timestamp_modulo, esito_ceiv')
       .in('stato', ['nuova', 'in_attesa']).order('id', { ascending: false }).limit(30);
+    if (error) nonLetti.add('iscrizioni');
     iscrizioni = data || [];
-  } catch { /* senza accesso la card resta vuota */ } })();
+  } catch { nonLetti.add('iscrizioni'); } })();
   const praticaDi = {};
   const pEseguiti = (async () => { try {
-    const { data } = await sb.from('incarichi')
+    const { data, error: eEs } = await sb.from('incarichi')
       .select('id, tipo_richiesta, impresa, comune, tecnico_nome, visita_id, eseguito_il, data_richiesta')
       .eq('stato', 'eseguito').order('eseguito_il', { ascending: false }).limit(30);
+    if (eEs) nonLetti.add('incarichi');
     eseguiti = data || [];
     /* il tecnico che non puo' prendere una visita lo dichiara motivando
        (04/09/2026): il rifiuto vive nel gestionale, ma a doverci fare
        qualcosa e' la segreteria, quindi si vede qui */
-    const { data: rif } = await sb.from('incarichi')
+    const { data: rif, error: eRif } = await sb.from('incarichi')
       .select('id, tipo_richiesta, impresa, comune, indirizzo, tecnico_nome, rifiutato_il, rifiuto_motivo')
       .not('rifiutato_il', 'is', null).eq('stato', 'aperto')
       .order('rifiutato_il', { ascending: false });
+    if (eRif) nonLetti.add('incarichi');
     rifiutati = rif || [];
     const ids = [...eseguiti.map((r) => r.id), ...rifiutati.map((r) => r.id)];
     if (ids.length) {
@@ -178,7 +192,7 @@ export async function render() {
         for (const r of pr || []) praticaDi[r.incarico_id] = { vista, id: r.id };
       }));
     }
-  } catch { /* senza accesso agli incarichi la card resta vuota */ } })();
+  } catch { nonLetti.add('incarichi'); } })();
   /* incarichi mensili e fatture dei tecnici: i mesi passati ancora aperti,
      le fatture da verificare/approvare, quelle approvate senza mandato */
   let ftMesiAperti = [], ftDaLavorare = [], ftDaMandato = 0, ftStandby = 0;
@@ -191,10 +205,11 @@ export async function render() {
   let avvisiApprNonPartiti = [];
   const pFatture = (async () => { try {
     const meseCorr = oggi.slice(0, 7);
-    const [{ data: im }, { data: ft }] = await Promise.all([
+    const [{ data: im, error: eIm }, { data: ft, error: eFt }] = await Promise.all([
       sb.from('s_incarichi_mensili').select('id, tecnico_nome, anno, mese, stato').eq('stato', 'aperto').order('anno').order('mese').limit(200),
       sb.from('s_fatture_tecnici').select('id, tecnico_nome, numero, importo, stato, data_ricevimento, avviso_appr_il, avviso_appr_esito').in('stato', ['ricevuta', 'verificata', 'approvata', 'standby']).order('id', { ascending: false }).limit(100),
     ]);
+    if (eIm || eFt) nonLetti.add('fatture');
     ftMesiAperti = (im || []).filter((i) => `${i.anno}-${String(i.mese).padStart(2, '0')}` < meseCorr);
     ftDaLavorare = (ft || []).filter((f) => ['ricevuta', 'verificata'].includes(f.stato));
     ftDaMandato = (ft || []).filter((f) => f.stato === 'approvata').length;
@@ -207,15 +222,34 @@ export async function render() {
     ]);
     mandDaVedere = nv || 0;
     avvisiNonPartiti = av || [];
-  } catch { /* senza accesso il riquadro resta vuoto */ } })();
+  } catch { nonLetti.add('fatture'); } })();
 
   /* 26/09/2026: le nove letture qui sopra sono indipendenti e partono insieme —
      prima erano una dopo l'altra, e sul telefono ogni giro di rete si sommava */
   await Promise.all([pBacheca, pFlussi, pForm, pCanale, pCritici, pQuest, pIscr, pEseguiti, pFatture]);
 
-  /* contano solo i documenti dei tecnici ATTIVI: gli altri sono storia */
-  const attivi = new Set((tecAttivi || []).map((t) => t.tecnico_id));
-  const docTec = (docTecTutti || []).filter((d) => attivi.has(d.tecnico_id));
+  /* documenti dei tecnici: lo stato si calcola come nella loro pagina —
+     per ogni tecnico in griglia e ogni requisito conta il documento PIÙ
+     RECENTE, col rinnovo tacito. I contratti superati non contano più. */
+  const docProblemi = [];
+  let docMancanti = 0, docMancantiTec = new Set();
+  if (!nonLetti.has('doc')) {
+    try {
+      const { statoRequisito, fuoriGriglia } = await import('./documenti-tecnici.js');
+      const visti = new Set();
+      for (const t of (tecAttivi || []).filter((x) => !fuoriGriglia(x))) {
+        const nome = `${t.tecnico_cognome || ''} ${t.tecnico_nome || ''}`.trim();
+        if (visti.has(nome.toLowerCase())) continue;
+        visti.add(nome.toLowerCase());
+        for (const req of docReq || []) {
+          const st = statoRequisito(t, req, docTecTutti || []);
+          if (['scaduto', 'scade', 'senzadata'].includes(st.classe)) docProblemi.push({ nome, req: req.breve || req.descrizione, ...st });
+          else if (st.classe === 'mancante') { docMancanti++; docMancantiTec.add(t.tecnico_cognome || nome); }
+        }
+      }
+      docProblemi.sort((a, b) => String(a.scadenza || '').localeCompare(String(b.scadenza || '')));
+    } catch (e) { console.warn('stato documenti tecnici non calcolato:', e.message); nonLetti.add('doc'); }
+  }
 
   /* ── i tre mucchi che contano ── */
   const daAutorizzare = [];
@@ -246,24 +280,35 @@ export async function render() {
     for (const i of data || []) incDi[i.id] = i;
     for (const r of daEseguire) if (r.incarico_id && !incDi[r.incarico_id]) incDi[r.incarico_id] = error ? 'errore' : null;
   }
+  /* il passo del tecnico è una pastiglia colorata, non una nota grigia
+     (26/09/2026): è il fatto che conta della riga */
+  const pastiglia = (tipo, html) => `<span class="hm-passo hm-passo-${tipo}">${html}</span>`;
   const passoTecnico = (r) => {
-    if (!r.incarico_id) return '📨 incarico al tecnico da preparare';
+    if (!r.incarico_id) return pastiglia('fare', '📨 incarico al tecnico da preparare');
     const i = incDi[r.incarico_id];
-    if (i === 'errore') return `incarico n° ${r.incarico_id} — non sono riuscito a leggerne lo stato`;
-    if (!i) return `incarico n° ${r.incarico_id} non trovato nel gestionale`;
+    if (i === 'errore') return pastiglia('err', `incarico n° ${r.incarico_id} — non sono riuscito a leggerne lo stato`);
+    if (!i) return pastiglia('err', `incarico n° ${r.incarico_id} non trovato nel gestionale`);
     const chi = esc(i.tecnico_nome || 'il tecnico');
-    if (i.eseguito_il || i.stato === 'eseguito') return `🔧 eseguito da ${chi}`;
-    if (i.rifiutato_il) return `<strong style="color:#a01f00">❌ rifiutato da ${chi}</strong>${i.rifiuto_motivo ? ' — ' + esc(i.rifiuto_motivo) : ''}`;
-    if (i.accettato_il) return `✅ accettato da ${chi} il ${dataIt(String(i.accettato_il).slice(0, 10))}`;
-    if (i.presa_visione_il) return `👁 visto da ${chi}, non ancora accettato`;
-    return `⏳ ${chi} non l'ha ancora aperto`;
+    if (i.eseguito_il || i.stato === 'eseguito') return pastiglia('ok', `🔧 eseguito da ${chi}`);
+    if (i.rifiutato_il) return pastiglia('err', `<strong>❌ rifiutato da ${chi}</strong>${i.rifiuto_motivo ? ' — ' + esc(i.rifiuto_motivo) : ''}`);
+    if (i.accettato_il) return pastiglia('ok', `✅ accettato da ${chi} il ${dataIt(String(i.accettato_il).slice(0, 10))}`);
+    if (i.presa_visione_il) return pastiglia('attesa', `👁 visto da ${chi}, non ancora accettato`);
+    return pastiglia('fermo', `⏳ ${chi} non l'ha ancora aperto`);
+  };
+  /* i giorni di attesa (26/09/2026): da quando la richiesta è arrivata.
+     Oltre SOGLIA_GG la cifra è rossa; nessun altro giudizio di urgenza */
+  const SOGLIA_GG = 60;
+  const attesa = (q) => {
+    if (!q) return '';
+    const g = Math.floor((new Date(oggi) - new Date(q)) / 864e5);
+    return g >= 0 ? ` <span class="hm-gg${g > SOGLIA_GG ? ' hm-gg-fermo' : ''}" data-aiuto="${esc(aiutoDi('giorni'))}">${g} gg</span>` : '';
   };
   const rigaEseguire = (r) => `
     <div class="hm-riga" data-vista="${r.vista}" data-id="${r.id}">
       <span>${r.icona}</span>
       <span><strong>${esc(r.nome)} n° ${esc(String(r.n))}</strong> — ${esc(r.chi)}
-        <br><span class="hint">${passoTecnico(r)}</span></span>
-      <span class="hint">${r.quando ? dataIt(r.quando) : ''}</span>
+        <br>${passoTecnico(r)}</span>
+      <span class="hint">${r.quando ? dataIt(r.quando) + attesa(r.quando) : ''}</span>
     </div>`;
 
   /* segnalazioni aperte: hanno anche il loro riquadro, oltre ai mucchi
@@ -279,21 +324,48 @@ export async function render() {
   const consInAttesa = consImm.filter((p) => p.girata_il && !p.risposta);
   const consDaTrasmettere = consImm.filter((p) => p.risposta && !p.trasmessa_il);
 
-  const docScaduti = (docTec || []).filter((d) => !d.disdetto_il && d.data_fine < oggi);
-  const docInScadenza = (docTec || []).filter((d) => !d.disdetto_il && d.data_fine >= oggi);
 
   const rigaPratica = (r) => `
     <div class="hm-riga" data-vista="${r.vista}" data-id="${r.id}">
       <span>${r.icona}</span>
       <span><strong>${esc(r.nome)} n° ${esc(String(r.n))}</strong> — ${esc(r.chi)}</span>
-      <span class="hint">${r.quando ? dataIt(r.quando) : ''}</span>
+      <span class="hint">${r.quando ? dataIt(r.quando) + attesa(r.quando) : ''}</span>
     </div>`;
 
-  const card = (titolo, conteggio, corpo, azione = '') => `
-    <div class="hm-card ${conteggio ? '' : 'hm-vuota'}">
-      <div class="hm-testa"><h3>${titolo}</h3><span class="hm-n ${conteggio ? 'hm-n-attivo' : ''}">${conteggio}</span></div>
+  /* Le tessere a zero non occupano posto (26/09/2026, veste «Solo ciò che
+     c'è» scelta dall'utente): diventano pastiglie nella riga «A posto» in
+     testa, e un clic apre la loro pagina. Una tessera che NON è riuscita a
+     leggere non è a posto: la sua pastiglia è rossa e dice «non letto».
+     Opzioni: k = chiave della nuvoletta (hm-<k> in aiuto.js), goto = vista
+     da aprire dalla pastiglia, id = id della pastiglia, segno = cosa
+     scrivere al posto dello 0, aiuto = nuvoletta della pastiglia al posto di
+     quella di k, sempre = tessera anche a zero (quando dentro c'è un
+     messaggio da leggere), nonLetto = lettura fallita. */
+  const card = (titolo, conteggio, corpo, azione = '', o = {}) => {
+    if (o.nonLetto || (conteggio === 0 && !o.sempre)) {
+      aPosto.push({ titolo, nonLetto: !!o.nonLetto, goto: o.goto, id: o.id, segno: o.segno,
+        aiuto: o.nonLetto ? aiutoDi('non-letto') : (o.aiuto || aiutoDi(o.k)) });
+      return '';
+    }
+    const aiuto = aiutoDi(o.k);
+    return `
+    <div class="hm-card">
+      <div class="hm-testa"><h3${aiuto ? ` data-aiuto="${esc(aiuto)}"` : ''}>${titolo}</h3><span class="hm-n ${conteggio ? 'hm-n-attivo' : ''}">${conteggio}</span></div>
       ${corpo}${azione}
     </div>`;
+  };
+  const striscia = () => {
+    if (!aPosto.length) return '';
+    const pill = (z) => {
+      const tag = z.goto || z.id ? 'button' : 'span';
+      return `<${tag}${tag === 'button' ? ' type="button"' : ''} class="hm-zero${z.nonLetto ? ' hm-zero-err' : ''}"${z.goto ? ` data-goto="${z.goto}"` : ''}${z.id ? ` id="${z.id}"` : ''}${z.aiuto ? ` data-aiuto="${esc(z.aiuto)}"` : ''}>${z.titolo}<i>${z.nonLetto ? 'non letto' : esc(z.segno || '0')}</i></${tag}>`;
+    };
+    const ko = aPosto.filter((z) => z.nonLetto), ok = aPosto.filter((z) => !z.nonLetto);
+    return `<div class="hm-aposto">
+      ${ko.length ? `<em class="hm-aposto-err" data-aiuto="${esc(aiutoDi('non-letto'))}">⚠ Non letti</em>${ko.map(pill).join('')}` : ''}
+      ${ok.length ? `<em data-aiuto="${esc(aiutoDi('aposto'))}">✓ A posto</em>${ok.map(pill).join('')}` : ''}
+    </div>`;
+  };
 
   const vai = (vista, etichetta) => `<button class="btn btn-ghost btn-sm hm-vai" data-goto="${vista}">${etichetta} →</button>`;
 
@@ -398,11 +470,10 @@ export async function render() {
         <button class="btn btn-ghost btn-sm hm-bacheca-aggiorna" title="Rilegge adesso posta e calendari">🔄 Aggiorna adesso</button>
       </div>`;
     const agenda = card('📅 Agenda della settimana', bacheca.eventi.length,
-      (eventiHtml || '<p class="hint">Nessun evento nei prossimi giorni.</p>') + piede);
+      (eventiHtml || '<p class="hint">Nessun evento nei prossimi giorni.</p>') + piede, '', { k: 'agenda' });
     const posta = card('✉️ Posta da guardare', nImp,
       (mailHtml || '<p class="hint">Nessuna mail segnata come importante nell\'ultimo giro.</p>')
-      + '<p class="hint" style="margin-top:6px">Le mail si aprono in Gmail; l\'app non risponde e non archivia. Il numero a destra è il punteggio delle regole.</p>'
-      + errori + piede);
+      + errori + piede, '', { k: 'posta', sempre: !!errori });
     return { agenda, posta };
   })();
 
@@ -419,8 +490,7 @@ export async function render() {
           ${r.stato === 'avvisato' ? '<span class="hm-mini">tecnico avvisato</span>' : r.tecnico_email ? '<span class="hm-mini" style="color:#a01f00">da avvisare</span>' : '<span class="hm-mini">da guardare</span>'}</span>
       </div>`).join('')}
     ${respinte.length > 8 ? `<p class="hint">…e altri ${respinte.length - 8}.</p>` : ''}
-    <p class="hint" style="margin-top:6px">Il rapporto di mancata consegna torna alla casella dell'ufficio. Quelli <strong>definitivi</strong> (5.x.x) fanno partire da soli l'avviso al tecnico, perché è probabile che l'indirizzo sia sbagliato; i <strong>rinvii</strong> (🕒 4.x.x) si registrano e basta. L'indirizzo lo corregge il tecnico.</p>
-    <div class="hint" style="margin-top:6px"><button class="btn btn-ghost btn-sm" id="hm-respinte-cerca" title="Rilegge adesso i rapporti di mancata consegna">🔄 Cerca adesso</button></div>`);
+    <div class="hint" style="margin-top:6px"><button class="btn btn-ghost btn-sm" id="hm-respinte-cerca" title="Rilegge adesso i rapporti di mancata consegna">🔄 Cerca adesso</button></div>`, '', { k: 'respinte' });
 
   /* l'avviso sulla programmazione corsi: compare solo quando serve */
   const bannerFormazione = (() => {
@@ -448,17 +518,15 @@ export async function render() {
             <option value="inviata" ${r.stato === 'inviata' ? 'selected' : ''}>inviata</option><option value="contattata" ${r.stato === 'contattata' ? 'selected' : ''}>contattata</option>
             <option value="iscritta">iscritta</option><option value="non_interessata">non interessata</option><option value="chiusa">chiusa</option></select></span>
       </div>`).join('') + (formSegn.length > 8 ? `<p class="hint">…e altre ${formSegn.length - 8}.</p>` : '')
-      + '<p class="hint" style="margin-top:6px">Partono da sole quando il tecnico manda un verbale con «contattare l\'ufficio corsi». L\'ufficio corsi (corsi@formedilpadova.it) chiama l\'impresa: l\'esito lo registri tu dalla tendina, così fra tre mesi si sa che cosa ne è uscito.</p>'
-      : '<p class="hint">Nessuna segnalazione in attesa di esito.</p>'));
+      : '<p class="hint">Nessuna segnalazione in attesa di esito.</p>'), '', { k: 'formazione', sempre: !!formErr });
 
-  host.innerHTML = `
-    ${bannerCanale}${bannerFormazione}
-    <div class="hm-griglia">
+  const canaleOk = !!canale && !canale.mutoDiretto && !canale.senzaRiscontro && !canale.mutoCassetta && !canale.ferme;
+  const griglia = `
 
       ${card('⏳ In attesa del Direttore', daAutorizzare.length,
         daAutorizzare.length
           ? daAutorizzare.slice(0, 8).map(rigaPratica).join('') + (daAutorizzare.length > 8 ? `<p class="hint">…e altre ${daAutorizzare.length - 8}.</p>` : '')
-          : '<p class="hint">Nessuna pratica da autorizzare.</p>')}
+          : '<p class="hint">Nessuna pratica da autorizzare.</p>', '', { k: 'direttore' })}
 
       ${card('✋ Incarichi rifiutati dal tecnico', rifiutati.length,
         rifiutati.length
@@ -472,8 +540,8 @@ export async function render() {
                   ${r.rifiuto_motivo ? `<br><span class="hint">«${esc(r.rifiuto_motivo)}»</span>` : ''}</span>
                 <button class="btn btn-ghost btn-sm" data-riassegna="${r.id}">Riassegna</button>
               </div>`;
-            }).join('') + '<p class="hint" style="margin-top:6px">Il tecnico ha dichiarato di non essere disponibile: riassegnando, l\'incarico torna «da vedere» per il nuovo.</p>'
-          : '<p class="hint">Nessun incarico rifiutato.</p>')}
+            }).join('')
+          : '<p class="hint">Nessun incarico rifiutato.</p>', '', { k: 'rifiutati', nonLetto: nonLetti.has('incarichi') })}
 
       ${card('📨 Cantieri proposti per la chiusura', propChius.length,
         propChiusErr
@@ -488,8 +556,7 @@ export async function render() {
                   <button class="btn btn-sm" data-pc-chiudi="${p.id}">🔒 Chiudi cantiere</button>
                   <button class="btn btn-ghost btn-sm" data-pc-respingi="${p.id}">✖ Respingi proposta</button></span>
               </div>`).join('') + (propChius.length > 8 ? `<p class="hint">…e altre ${propChius.length - 8}.</p>` : '')
-              + '<p class="hint" style="margin-top:6px">Il tecnico dice che il cantiere è finito. Chiudendolo si chiudono anche le sue visite ed esce dalle scadenze; respingendo, il motivo resta scritto per chi l\'ha proposto.</p>'
-            : '<p class="hint">Nessuna proposta da decidere.</p>')}
+            : '<p class="hint">Nessuna proposta da decidere.</p>', '', { k: 'proposte', sempre: !!propChiusErr })}
 
       ${cardFormazione}
 
@@ -506,7 +573,7 @@ export async function render() {
                 : esc((ccMod.STATI[d.stato] || [])[1] || d.stato) + (d.stato === 'attesa_impresa' && d.termine_il ? ` fino al ${dataIt(d.termine_il)}` : '')}</span>
             </div>`).join('') + (critici.length > 8 ? `<p class="hint">…e altri ${critici.length - 8}.</p>` : '')
           : '<p class="hint">Nessun caso aperto.</p>')
-        + '<p class="hint" style="margin-top:6px">🚫 accesso negato · ⚠️ proposta di segnalazione a SPISAL / ITL dal verbale — <a href="#" id="hm-critici-tutti">tutti i casi, anche chiusi, e nuovo caso</a></p>')}
+        + '<p class="hint" style="margin-top:6px">🚫 accesso negato · ⚠️ proposta di segnalazione a SPISAL / ITL dal verbale — <a href="#" id="hm-critici-tutti">tutti i casi, anche chiusi, e nuovo caso</a></p>', '', { k: 'critici', id: 'hm-critici-tutti', nonLetto: nonLetti.has('critici') })}
 
       ${(() => {
         if (!qsMod) return '';
@@ -528,7 +595,7 @@ export async function render() {
             </div>`;
             }).join('') + (questionari.length > 6 ? `<p class="hint">…e altri ${questionari.length - 6}.</p>` : '')
             : '<p class="hint">Nessun questionario da guardare.</p>')
-          + `<p class="hint" style="margin-top:6px">${bassi.length ? `🔻 ${bassi.length} con voto basso · ` : ''}${contatti.length ? `📞 ${contatti.length} da richiamare · ` : ''}<a href="#" data-goto="questionari">tutti i questionari</a></p>`);
+          + `<p class="hint" style="margin-top:6px">${bassi.length ? `🔻 ${bassi.length} con voto basso · ` : ''}${contatti.length ? `📞 ${contatti.length} da richiamare · ` : ''}<a href="#" data-goto="questionari">tutti i questionari</a></p>`, '', { k: 'questionari', goto: 'questionari', nonLetto: nonLetti.has('questionari') });
       })()}
 
       ${(() => {
@@ -550,19 +617,19 @@ export async function render() {
             }).join('') + (iscrizioni.length > 6 ? `<p class="hint">…e altre ${iscrizioni.length - 6}.</p>` : '')
             : '<p class="hint">Nessuna iscrizione in attesa.</p>')
           + (iscrizioni.length ? `<p class="hint" style="margin-top:6px">${quante} persone in tutto. Finché non sono confermate
-              <strong>occupano il posto</strong>: il portale mostra meno posti liberi di quanti ce ne siano davvero.</p>` : ''));
+              <strong>occupano il posto</strong>: il portale mostra meno posti liberi di quanti ce ne siano davvero.</p>` : ''), '', { k: 'iscrizioni', goto: 'corsi', nonLetto: nonLetti.has('iscrizioni') });
       })()}
 
       ${card('✅ Autorizzate — da eseguire', daEseguire.length,
         daEseguire.length
           ? daEseguire.slice(0, 8).map(rigaEseguire).join('') + (daEseguire.length > 8 ? `<p class="hint">…e altre ${daEseguire.length - 8}.</p>` : '')
-          : '<p class="hint">Niente in coda: le autorizzate sono state svolte.</p>')}
+          : '<p class="hint">Niente in coda: le autorizzate sono state svolte.</p>', '', { k: 'eseguire' })}
 
       ${card('💬 Consulenze — corsia immediata', consDaGirare.length + consInAttesa.length + consDaTrasmettere.length, `
         <div class="hm-riga" data-goto="consulenze"><span>📨</span><span>Da girare al coordinatore</span><span class="hm-mini">${consDaGirare.length}</span></div>
         <div class="hm-riga" data-goto="consulenze"><span>⏱</span><span>In attesa della risposta del coordinatore</span><span class="hm-mini">${consInAttesa.length}</span></div>
         <div class="hm-riga" data-goto="consulenze"><span>📤</span><span>Risposta pronta, da trasmettere all'impresa</span><span class="hm-mini">${consDaTrasmettere.length}</span></div>`,
-        vai('consulenze', 'Apri le consulenze'))}
+        vai('consulenze', 'Apri le consulenze'), { k: 'consulenze', goto: 'consulenze' })}
 
       ${card('🚨 Segnalazioni cantiere', segnalazioni.length,
         segnalazioni.length
@@ -571,7 +638,7 @@ export async function render() {
               <span><strong>n° ${esc(String(p.progressivo ?? `m${p.id}`))}</strong> — ${esc(p.notificante || '?')}${p.comune_cantiere ? ` · ${esc(p.comune_cantiere)}` : ''}</span>
               <span class="hint">${esc(p.stato)}${['da_richiedere', 'richiesta'].includes(p.aut_stato) ? ' · dal Direttore' : ''}</span></div>`).join('')
           : '<p class="hint">Nessuna segnalazione aperta.</p>',
-        vai('segnalazioni', 'Apri le segnalazioni'))}
+        vai('segnalazioni', 'Apri le segnalazioni'), { k: 'segnalazioni', goto: 'segnalazioni' })}
 
       ${card('🔧 Visite eseguite dai tecnici', eseguiti.length,
         eseguiti.length
@@ -580,10 +647,10 @@ export async function render() {
               return `<div class="hm-riga" ${pr ? `data-vista="${pr.vista}" data-id="${pr.id}"` : 'data-goto="visite"'}><span>🔧</span>
                 <span><strong>inc. ${r.id}</strong> — ${esc(r.impresa || r.comune || '?')}${r.visita_id ? ` · verbale ${esc(String(r.visita_id))}` : ''} <span class="hint">(${esc(r.tecnico_nome || '')})</span></span>
                 <span class="hint">${r.eseguito_il ? dataIt(String(r.eseguito_il).slice(0, 10)) : ''}</span></div>`;
-            }).join('') + '<p class="hint" style="margin-top:6px">Eseguite nel gestionale, in attesa della chiusura della segreteria — da qui si decide se e a chi comunicare l\'esito.</p>'
-          : '<p class="hint">Nessuna visita eseguita in attesa di chiusura.</p>')}
+            }).join('')
+          : '<p class="hint">Nessuna visita eseguita in attesa di chiusura.</p>', '', { k: 'eseguite', nonLetto: nonLetti.has('incarichi') })}
 
-      ${card('📡 Canale portale servizi', canale && !canale.mutoDiretto && !canale.senzaRiscontro && !canale.mutoCassetta && !canale.ferme ? '✓' : '!',
+      ${card('📡 Canale portale servizi', canaleOk ? 0 : '!',
         !canale
           ? '<p class="hint">Stato non disponibile.</p>'
           : `<div class="hm-riga"><span>${canale.mutoDiretto ? '🔴' : '🟢'}</span>
@@ -594,9 +661,8 @@ export async function render() {
                <span class="hint">${canale.giro ? 'ultimo giro ' + Math.round(canale.minGiro) + ' min fa' : 'mai'} · in attesa ${canale.inAttesa}${canale.ferme ? ' · <strong>ferme da oltre 15 min: ' + canale.ferme + '</strong>' : ''}</span></div>
              <div class="hm-riga"><span>${canale.senzaRiscontro ? '🔴' : '🟢'}</span>
                <span>Richieste partite ma non registrate</span>
-               <span class="hm-mini">${canale.senzaRiscontro}</span></div>
-             <p class="hint" style="margin-top:6px">Il battito lo scrive ogni notte un controllo automatico e lo rilegge
-             l'import delle 6:30: serve a distinguere «nessuno ha inviato» da «il canale è rotto».</p>`)}
+               <span class="hm-mini">${canale.senzaRiscontro}</span></div>`,
+        '', { k: 'canale', segno: '✓', aiuto: canaleOk ? `${aiutoDi('canale')} Ultimo battito ${Math.round(canale.oreDiretto)} ore fa; ultimo giro della cassetta ${Math.round(canale.minGiro)} minuti fa.` : '' })}
 
       ${card('🦺 Pratiche RLST aperte', (rlst || []).length,
         (rlst || []).length
@@ -605,20 +671,18 @@ export async function render() {
               <span><strong>n° ${esc(String(p.progressivo ?? p.id))}</strong> — ${esc(p.ragione_sociale || '?')}</span>
               <span class="hint">${esc(p.stato)}</span></div>`).join('')
           : '<p class="hint">Nessuna pratica aperta.</p>',
-        vai('rlst', 'Apri le pratiche RLST'))}
+        vai('rlst', 'Apri le pratiche RLST'), { k: 'rlst', goto: 'rlst', nonLetto: nonLetti.has('rlst') })}
 
-      ${card('🗂️ Documenti dei tecnici', docScaduti.length + docInScadenza.length, `
-        <p class="hint" style="margin:0 0 6px">Con data di fine passata o entro 60 giorni — <strong>fa fede la pagina</strong>
-        (lì si vede anche il rinnovo tacito):</p>
-        ${docScaduti.slice(0, 4).map((d) => `
-          <div class="hm-riga" data-goto="doc-tecnici"><span>⛔</span>
-            <span>${esc(d.persona_txt || '?')} — ${esc(d.descrizione || '')}</span>
-            <span class="hint">${dataIt(d.data_fine)}</span></div>`).join('')}
-        ${docInScadenza.slice(0, 4).map((d) => `
-          <div class="hm-riga" data-goto="doc-tecnici"><span>⚠️</span>
-            <span>${esc(d.persona_txt || '?')} — ${esc(d.descrizione || '')}</span>
-            <span class="hint">${dataIt(d.data_fine)}</span></div>`).join('')}`,
-        vai('doc-tecnici', 'Apri i documenti tecnici'))}
+      ${card('🗂️ Documenti dei tecnici', docProblemi.length, `
+        ${docProblemi.slice(0, 6).map((d) => `
+          <div class="hm-riga" data-goto="doc-tecnici"><span>${d.classe === 'scaduto' ? '⛔' : '⚠️'}</span>
+            <span><strong>${esc(d.nome)}</strong> — ${esc(d.req)}</span>
+            <span class="hint">${d.classe === 'senzadata' ? 'senza data' : (d.classe === 'scaduto' ? 'scaduto il ' : 'scade il ') + dataIt(d.scadenza)}</span></div>`).join('')}
+        ${docProblemi.length > 6 ? `<p class="hint">…e altri ${docProblemi.length - 6}.</p>` : ''}
+        ${docMancanti ? `<div class="hm-riga" data-goto="doc-tecnici"><span>▫️</span>
+            <span>Mai registrati nella pagina: ${docMancanti} document${docMancanti === 1 ? 'o' : 'i'} di ${docMancantiTec.size} tecnic${docMancantiTec.size === 1 ? 'o' : 'i'}</span>
+            <span class="hm-mini">${docMancanti}</span></div>` : ''}`,
+        vai('doc-tecnici', 'Apri i documenti tecnici'), { k: 'documenti', goto: 'doc-tecnici', sempre: docMancanti > 0, nonLetto: nonLetti.has('doc') })}
 
       ${card('📖 Formazione in corso', (corsi || []).length,
         (corsi || []).length
@@ -627,7 +691,7 @@ export async function render() {
               <span><strong>n° ${c.id}</strong> — ${esc((c.titolo || '').slice(0, 55))}</span>
               <span class="hint">${esc(c.stato)}${c.data_inizio ? ` · ${dataIt(c.data_inizio)}` : ''}</span></div>`).join('')
           : '<p class="hint">Nessun corso aperto.</p>',
-        vai('corsi', 'Apri i corsi'))}
+        vai('corsi', 'Apri i corsi'), { k: 'corsi', goto: 'corsi', nonLetto: nonLetti.has('corsi') })}
 
       ${card('💶 Incarichi e fatture tecnici', ftMesiAperti.length + ftDaLavorare.length + ftDaMandato + ftStandby + mandDaVedere + avvisiNonPartiti.length + avvisiApprNonPartiti.length, `
         ${ftMesiAperti.slice(0, 4).map((i) => `
@@ -650,22 +714,20 @@ export async function render() {
           <div class="hm-riga" data-vista="amministrazione" data-id="${f.mandato_id}" style="color:#a01f00"><span>📧</span>
             <span>Pagata, <strong>avviso al tecnico non partito</strong>: ${esc(f.tecnico_nome || '?')} — fattura n° ${esc(f.numero || '?')}</span>
             <span class="hint" title="${esc(f.avviso_pagamento_esito || '')}">${esc((f.avviso_pagamento_esito || 'in corso').slice(0, 40))}</span></div>`).join('')}`,
-        vai('fatture-tecnici', 'Apri incarichi e fatture'))}
+        vai('fatture-tecnici', 'Apri incarichi e fatture'), { k: 'fatture', goto: 'fatture-tecnici', nonLetto: nonLetti.has('fatture') })}
 
       ${flussi ? (() => {
         const mai = flussi.filter((x) => !x.casi);
         const usati = flussi.filter((x) => x.casi).sort((a, b) => String(b.ultimo).localeCompare(String(a.ultimo)));
         const perArea = mai.reduce((m, x) => ((m[x.area] = m[x.area] || []).push(x), m), {});
         return card('🧪 Flussi mai usati', mai.length, `
-          <p class="hint" style="margin:0 0 6px">Mai usati su un caso vero: vanno provati prima che servano,
-            con un caso di prova da annullare subito dopo. Lo storico importato e gli annullati non contano.</p>
           ${Object.entries(perArea).map(([area, righe]) => `
             <div class="hm-riga"><span>⚪</span><span><strong>${esc(area)}</strong> — ${righe.map((x) => esc(x.flusso)).join(' · ')}</span><span class="hm-mini">${righe.length}</span></div>`).join('')}
           ${usati.length ? `<details style="margin-top:6px"><summary class="hint" style="cursor:pointer">Già usati (${usati.length})</summary>
             ${usati.map((x) => `
               <div class="hm-riga"><span>🟢</span><span>${esc(x.flusso)} <span class="hint">(${esc(x.area)})</span></span>
                 <span class="hint">${x.casi} ${x.casi === 1 ? 'caso' : 'casi'} · ultimo ${dataIt(x.ultimo)}</span></div>`).join('')}
-          </details>` : ''}`);
+          </details>` : ''}`, '', { k: 'flussi' });
       })() : ''}
 
       ${card('📚 Ultimi protocolli', '', `
@@ -675,10 +737,10 @@ export async function render() {
             <span class="hint">${dataIt(r.data_prot)}</span></div>`).join('')}`,
         vai('registro', 'Apri il registro'))}
       ${cardBacheca ? cardBacheca.agenda + cardBacheca.posta : ''}
-      ${cardRespinte}
-    </div>
-    <p class="hint" style="margin-top:12px">Il cruscotto conta le righe delle tabelle, non tiene una lista sua:
-      un click porta sempre sulla pratica vera. Le pratiche chiuse e scartate non compaiono.</p>`;
+      ${cardRespinte}`;
+  host.innerHTML = `
+    ${bannerCanale}${bannerFormazione}${striscia()}
+    <div class="hm-griglia">${griglia}</div>`;
 
   /* «Aggiorna adesso» della card Posta e agenda: rilancia bacheca-giornata e ridisegna.
      La funzione non onora input e scrive solo le sue tabelle: un clic in più non fa danni. */

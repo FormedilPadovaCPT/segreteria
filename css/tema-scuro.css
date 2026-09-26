@@ -130,6 +130,19 @@
 :root[data-veste="scrivania"][data-tema="scuro"] .hm-riga:hover{background:var(--superficie-2)}
 :root[data-veste="scrivania"][data-tema="scuro"] .hm-allarme{background:rgba(255,138,128,.1);border-color:rgba(255,138,128,.35);border-left-color:var(--out);color:var(--testo)}
 :root[data-veste="scrivania"][data-tema="scuro"] .hm-allarme strong{color:var(--out)}
+/* cruscotto, 26/09/2026: riga «A posto», giorni di attesa, passo del tecnico */
+:root[data-veste="scrivania"][data-tema="scuro"] .hm-aposto{background:var(--superficie);border-color:var(--filetto)}
+:root[data-veste="scrivania"][data-tema="scuro"] .hm-aposto em{color:#6cc27a}
+:root[data-veste="scrivania"][data-tema="scuro"] .hm-aposto em.hm-aposto-err{color:var(--out)}
+:root[data-veste="scrivania"][data-tema="scuro"] .hm-zero{background:var(--superficie-2);color:#a3a9b2}
+:root[data-veste="scrivania"][data-tema="scuro"] .hm-zero.hm-zero-err{background:rgba(255,138,128,.14);color:var(--out)}
+:root[data-veste="scrivania"][data-tema="scuro"] .hm-gg{background:var(--superficie-2);color:#a3a9b2}
+:root[data-veste="scrivania"][data-tema="scuro"] .hm-gg.hm-gg-fermo{background:rgba(255,138,128,.14);color:var(--out)}
+:root[data-veste="scrivania"][data-tema="scuro"] .hm-passo-fermo{background:rgba(255,183,77,.14);color:#ffc16b}
+:root[data-veste="scrivania"][data-tema="scuro"] .hm-passo-attesa{background:var(--superficie-2);color:#c9ccd1}
+:root[data-veste="scrivania"][data-tema="scuro"] .hm-passo-ok{background:rgba(108,194,122,.14);color:#8fd49b}
+:root[data-veste="scrivania"][data-tema="scuro"] .hm-passo-err{background:rgba(255,138,128,.14);color:var(--out)}
+:root[data-veste="scrivania"][data-tema="scuro"] .hm-passo-fare{background:rgba(231,80,15,.16);color:#ff9d70}
 
 /* scheda laterale */
 :root[data-veste="scrivania"][data-tema="scuro"] .drawer-bg{background:rgba(0,0,0,.55)}

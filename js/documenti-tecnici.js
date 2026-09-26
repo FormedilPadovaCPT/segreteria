@@ -34,12 +34,14 @@ function giorniA(iso) {
 
 /* ── stato di un tecnico su un requisito ──────────────────────
    Ritorna { classe, testo, doc, scadenza } dove classe e' una di:
-   ok | scade | scaduto | senzadata | mancante | na               */
-function statoCella(tec, req) {
+   ok | scade | scaduto | senzadata | mancante | na
+   Esportata (26/09/2026) perché il cruscotto conti con la stessa
+   regola di questa pagina, invece di una sua.                    */
+export function statoRequisito(tec, req, docs) {
   if (req.per_chi === 'asseveratori' && !tec.asseveratore) {
     return { classe: 'na', testo: '—' };
   }
-  const suoi = documenti.filter((d) => d.requisito_id === req.id &&
+  const suoi = docs.filter((d) => d.requisito_id === req.id &&
     (tec.tecnico_id ? d.tecnico_id === tec.tecnico_id : d.cf === tec.cf));
   if (!suoi.length) return { classe: 'mancante', testo: 'mancante' };
 
@@ -73,6 +75,11 @@ function statoCella(tec, req) {
   }
   return { classe: 'ok', testo: dataIt(fine) + (tacito ? ' ⟳' : ''), doc, scadenza: fine };
 }
+const statoCella = (tec, req) => statoRequisito(tec, req, documenti);
+
+/* fuori dalla griglia: account di prova/servizio e i dipendenti interni
+   (i requisiti vengono dal contratto di collaborazione, che loro non hanno) */
+export const fuoriGriglia = (t) => t.dipendente || t.tecnico_id === 'TEC-PROVA-2026' || (t.email || '').includes('@did.scuolaedilepadova');
 
 /* ── caricamento ──────────────────────────────────────────── */
 async function carica() {
@@ -90,9 +97,7 @@ async function carica() {
    gli storici — tecnici disattivati e persone rimaste solo come
    testo nell'import Access. */
 function righeGriglia() {
-  /* fuori dalla griglia: account di prova/servizio e i dipendenti interni
-     (i requisiti vengono dal contratto di collaborazione, che loro non hanno) */
-  const esclusi = (t) => t.dipendente || t.tecnico_id === 'TEC-PROVA-2026' || (t.email || '').includes('@did.scuolaedilepadova');
+  const esclusi = fuoriGriglia;
   const visti = new Set();
   const righe = [];
   for (const t of tecnici.filter((t) => t.attivo && !esclusi(t))) {

@@ -171,7 +171,11 @@
 :root[data-veste="scrivania"] .numero-box .n{font-family:var(--mono);font-weight:600}
 
 /* cruscotto a blocchi */
-:root[data-veste="scrivania"] .hm-griglia{gap:12px}
+:root[data-veste="scrivania"] .hm-griglia{column-gap:12px}
+:root[data-veste="scrivania"] .hm-griglia>.hm-card{margin-bottom:12px}
+:root[data-veste="scrivania"] .hm-aposto{border-radius:0}
+:root[data-veste="scrivania"] .hm-gg{font-family:var(--mono);font-weight:600}
+:root[data-veste="scrivania"] .hm-zero i{font-family:var(--mono);font-weight:600}
 :root[data-veste="scrivania"] .hm-card{border:1px solid #dfe2e7;box-shadow:none;padding:0 0 6px}
 :root[data-veste="scrivania"] .hm-testa{background:#f4f5f7;border-bottom:1px solid #dfe2e7;padding:6px 10px;margin-bottom:2px}
 :root[data-veste="scrivania"] .hm-testa h3{font:700 11px/1.2 Barlow,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:#565c66}
