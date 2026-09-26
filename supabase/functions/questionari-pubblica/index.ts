@@ -179,7 +179,7 @@ serve(async (req) => {
       const testo = await r.text()
       esito = r.ok ? 'ok' : `HTTP ${r.status}: ${testo.slice(0, 300)}`
     } catch (e) {
-      esito = 'rete: ' + (e instanceof Error ? e.message : String(e))
+      esito = 'rete: ' + (e instanceof Error ? e.message : 'errore interno')
     }
 
     /* l'esito resta scritto sull'evento: se la copia non riesce, il
@@ -201,6 +201,6 @@ serve(async (req) => {
     return json({ status: esito === 'ok' ? 'ok' : 'error', pubblicati: esito === 'ok' ? righe.length : 0, saltati, esito, chi },
       esito === 'ok' ? 200 : 502)
   } catch (e) {
-    return json({ error: e instanceof Error ? e.message : String(e) }, 500)
+    return json({ error: e instanceof Error ? e.message : 'errore interno' }, 500)
   }
 })

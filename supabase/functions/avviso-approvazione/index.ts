@@ -196,7 +196,7 @@ serve(async (req) => {
          immagine invece che con un riquadro vuoto */
       let html = paginaHtml(corpoInHtml(testo))
       if (!logo.ok) {
-        html = html.replace(new RegExp(`<img[^>]*cid:${LOGO_FIRMA_CID.replace(/[.@]/g, '\\$&')}[^>]*>`), '')
+        html = html.replace(new RegExp(`<img[^>]*cid:${LOGO_FIRMA_CID.replace(/[.*+?^$()|[\]\\{}]/g, '\\$&')}[^>]*>`), '')
       }
       const mime = componiEml({
         from: `${NOME_MITTENTE} <${SOGGETTO_ENTE}>`, replyTo: MITTENTE_UFFICIALE,

@@ -59,7 +59,7 @@ test('«**grassetto**» a inizio riga non è una voce di elenco', () => {
 
 test('il testo resta testo: niente HTML iniettabile', () => {
   const h = testoInHtml('<script>x</script> e a < b');
-  assert.ok(!/<script>/.test(h));
+  assert.ok(!/<script\b/i.test(h));
   assert.match(h, /&lt;script&gt;/);
 });
 

@@ -101,7 +101,7 @@ const json = (o: unknown, status = 200) =>
 /* rifiuto = insistere non serve; intoppo = riprovando puo' passare */
 const rifiuto = (message: string) => json({ status: 'error', riprovabile: false, message }, 400)
 const intoppo = (message: string, status = 503) => json({ status: 'error', riprovabile: true, message }, status)
-const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e))
+const errMsg = (e: unknown) => (e instanceof Error ? e.message : 'errore interno')
 
 async function impostazioni(sb: SB): Promise<Record<string, string>> {
   const { data, error } = await sb.from('cassetta_impostazioni').select('chiave, valore')

@@ -180,7 +180,7 @@ serve(async (req) => {
         /* se il logo non è arrivato, la firma esce senza immagine: meglio
            che un'immagine vuota (stessa scelta di send-protocollo) */
         const html = logo.ok ? '' : paginaHtml(testoInHtml(testo))
-          .replace(new RegExp(`<img[^>]*cid:${LOGO_FIRMA_CID.replace(/[.@]/g, '\\$&')}[^>]*>`), '')
+          .replace(new RegExp(`<img[^>]*cid:${LOGO_FIRMA_CID.replace(/[.*+?^$()|[\]\\{}]/g, '\\$&')}[^>]*>`), '')
         const mime = componiEml({
           from: `${NOME_MITTENTE} <${SOGGETTO_ENTE}>`, replyTo: MITTENTE_UFFICIALE,
           to: email, cc, oggetto, corpo: testo, html, unsent: false,

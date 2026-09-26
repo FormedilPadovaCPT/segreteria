@@ -151,7 +151,7 @@ serve(async (req) => {
         const testo = await r.text()
         esito = r.ok ? 'ok' : `HTTP ${r.status}: ${testo.slice(0, 200)}`
       } catch (e) {
-        esito = 'rete: ' + (e instanceof Error ? e.message : String(e))
+        esito = 'rete: ' + (e instanceof Error ? e.message : 'errore interno')
       }
       const adesso = new Date().toISOString()
       for (const x of lotto) {
@@ -166,6 +166,6 @@ serve(async (req) => {
     return json({ status: errori.length ? 'parziale' : 'ok', da_pubblicare: daFare.length, pubblicate, errori, chi },
       errori.length ? 502 : 200)
   } catch (e) {
-    return json({ error: e instanceof Error ? e.message : String(e) }, 500)
+    return json({ error: e instanceof Error ? e.message : 'errore interno' }, 500)
   }
 })

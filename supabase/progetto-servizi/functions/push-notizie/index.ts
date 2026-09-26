@@ -159,12 +159,13 @@ async function cancella(sb: SB, d: Record<string, any>) {
 /* ── invio ── */
 
 function estratto(html: string | null, max = 160): string {
-  const t = String(html || '')
-    .replace(/<(br|\/p|\/li|\/h\d|\/div)\b[^>]*>/gi, ' ')
-    .replace(/<[^>]*>/g, '')
-    .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+  let s = String(html || '').replace(/<(br|\/p|\/li|\/h\d|\/div)\b[^>]*>/gi, ' ')
+  for (let prima = ''; prima !== s;) { prima = s; s = s.replace(/<[^>]*>/g, '') }   // anche i tag annidati tipo <scr<b>ipt>
+  const t = s
+    .replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'")
     .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
+    .replace(/&amp;/g, '&')   // per ultimo: «&amp;lt;» deve restare «&lt;», non diventare «<»
     .replace(/\s+/g, ' ').trim()
   if (t.length <= max) return t
   const taglio = t.slice(0, max)

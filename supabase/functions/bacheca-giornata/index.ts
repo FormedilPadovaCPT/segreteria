@@ -208,7 +208,7 @@ serve(async (req) => {
         }
         ;(esito.mail as Record<string, unknown>)[casella] = { lette: ids.length, importanti, tolte: daTogliere.find((x) => x.casella === casella)?.ids.length || 0 }
       } catch (e) {
-        (esito.errori as string[]).push(`posta ${casella}: ${String((e as Error)?.message || e)}`)
+        (esito.errori as string[]).push(`posta ${casella}: ${((e instanceof Error && e.message) || 'errore interno')}`)
       }
     }
 
@@ -238,11 +238,11 @@ serve(async (req) => {
       if (calId === 'primary') {
         for (const casella of caselle) {
           try { const token = await getToken(sa, SCOPE_CALENDAR, casella); (esito.eventi as Record<string, unknown>)[`primary:${casella}`] = await leggiCalendario(token, 'primary', casella) }
-          catch (e) { (esito.errori as string[]).push(`agenda ${casella}: ${String((e as Error)?.message || e)}`) }
+          catch (e) { (esito.errori as string[]).push(`agenda ${casella}: ${((e instanceof Error && e.message) || 'errore interno')}`) }
         }
       } else {
         try { const token = await getToken(sa, SCOPE_CALENDAR); (esito.eventi as Record<string, unknown>)[calId] = await leggiCalendario(token, calId, null) }
-        catch (e) { (esito.errori as string[]).push(`calendario ${calId}: ${String((e as Error)?.message || e)}`) }
+        catch (e) { (esito.errori as string[]).push(`calendario ${calId}: ${((e instanceof Error && e.message) || 'errore interno')}`) }
       }
     }
 
@@ -278,6 +278,6 @@ serve(async (req) => {
     return json({ ok: true, ...esito, scritte_mail: righeMail.length, scritti_eventi: righeEventi.length, tolte_mail: tolteMail })
   } catch (e) {
     console.error('bacheca-giornata:', e)
-    return json({ error: String((e as Error)?.message || e) }, 500)
+    return json({ error: ((e instanceof Error && e.message) || 'errore interno') }, 500)
   }
 })

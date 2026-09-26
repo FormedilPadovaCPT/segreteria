@@ -282,7 +282,7 @@ function formPresenza(p, dataIso) {
     <input type="time" id="pz-${id}" value="${v ? hm(v) : ''}"></div>`;
   apriDrawer(p ? `Giornata del ${dataIt(p.data)}` : 'Registra giornata', '', `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-      <div class="field"><label>Data *</label><input type="date" id="pz-data" value="${p ? p.data : dataIso}"></div>
+      <div class="field"><label>Data *</label><input type="date" id="pz-data" value="${esc(p ? p.data : dataIso)}"></div>
       <div class="field"><label>Datore</label><input id="pz-datore" value="${esc(p ? p.datore : 'CPT')}"></div>
       ${ora('e1', 'Entrata mattina', p?.entra1)}${ora('u1', 'Uscita mattina', p?.esce1)}
       ${ora('e2', 'Entrata pomeriggio', p?.entra2)}${ora('u2', 'Uscita pomeriggio', p?.esce2)}

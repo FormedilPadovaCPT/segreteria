@@ -33,7 +33,7 @@ const BUCKET = 'cassetta-allegati'
 const json = (o: unknown, status = 200) =>
   new Response(JSON.stringify(o), { status, headers: { 'Content-Type': 'application/json' } })
 const errore = (message: string, status = 400) => json({ status: 'error', message }, status)
-const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e))
+const errMsg = (e: unknown) => (e instanceof Error ? e.message : 'errore interno')
 const ID_VALIDO = /^[A-Za-z0-9-]{8,64}$/
 
 /* confronto a tempo costante: la durata non deve dire quanti caratteri erano giusti */

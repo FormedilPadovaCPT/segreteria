@@ -128,7 +128,7 @@ function uint8ToBase64(bytes: Uint8Array): string {
 const utf8ToBase64 = (s: string) => uint8ToBase64(new TextEncoder().encode(s))
 const toB64Url = (b: string) => b.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
 const esc = (s: unknown) => String(s ?? '')
-  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 const dataIt = (iso?: string | null) => {
   if (!iso) return ''
   const [a, m, g] = String(iso).slice(0, 10).split('-')

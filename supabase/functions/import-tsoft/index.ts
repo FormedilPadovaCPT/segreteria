@@ -72,7 +72,7 @@ serve(async (req) => {
       headers: { ...CORS, 'Content-Type': 'application/json' },
     })
   } catch (e) {
-    return new Response(JSON.stringify({ ok: false, errore: String(e.message || e) }), {
+    return new Response(JSON.stringify({ ok: false, errore: ((e instanceof Error && e.message) || 'errore interno') }), {
       status: 400, headers: { ...CORS, 'Content-Type': 'application/json' },
     })
   }

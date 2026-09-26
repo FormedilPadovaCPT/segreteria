@@ -64,7 +64,7 @@ async function eventiCalendario(admin: ReturnType<typeof createClient>, giorni =
   if (!saRaw) return { eventi: [], nota: 'secret GOOGLE_SERVICE_ACCOUNT_JSON assente' }
   let token: string
   try { token = await getToken(JSON.parse(saRaw), SCOPE_CALENDAR) }
-  catch (e) { return { eventi: [], nota: 'token calendario non ottenuto: ' + String(e?.message || e) } }
+  catch (e) { return { eventi: [], nota: 'token calendario non ottenuto: ' + ((e instanceof Error && e.message) || 'errore interno') } }
   const tMin = new Date().toISOString()
   const tMax = new Date(Date.now() + giorni * 864e5).toISOString()
   const eventi: Record<string, unknown>[] = []
@@ -408,6 +408,6 @@ serve(async (req) => {
     return json({ error: 'op sconosciuta: ' + op }, 400)
   } catch (e) {
     console.error('redazione-social:', e)
-    return json({ error: String(e?.message || e) }, 500)
+    return json({ error: ((e instanceof Error && e.message) || 'errore interno') }, 500)
   }
 })

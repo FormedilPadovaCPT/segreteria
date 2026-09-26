@@ -36,6 +36,6 @@ Deno.serve(async (req) => {
     }
     return json({ ok: true, tabella, inserite })
   } catch (e) {
-    return json({ error: String(e) }, 500)
+    return json({ error: ((e instanceof Error && e.message) || 'errore interno') }, 500)
   }
 })

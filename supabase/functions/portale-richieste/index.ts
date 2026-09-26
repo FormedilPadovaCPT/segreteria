@@ -126,7 +126,7 @@ const json = (o: unknown, status = 200) =>
 const rifiuto = (message: string) => json({ status: 'error', riprovabile: false, message }, 400)
 const intoppo = (message: string, status = 503) => json({ status: 'error', riprovabile: true, message }, status)
 
-const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e))
+const errMsg = (e: unknown) => (e instanceof Error ? e.message : 'errore interno')
 const testo = (v: unknown, max = MAX_TESTO): string | null => {
   const t = String(v ?? '').trim()
   return t ? t.slice(0, max) : null
