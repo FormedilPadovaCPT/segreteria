@@ -226,7 +226,7 @@ export async function riassegnaTecnico({ incaricoId, tabella = null, pratica = n
 
   /* 1. l'incarico nel gestionale */
   const { error } = await sb.from('incarichi').update({
-    tecnico_email: nuovoEmail, tecnico_nome: cognomeNome(tNuovo) || nomeNuovo,
+    tecnico_email: nuovoEmail, tecnico_nome: nomeDi(tNuovo) || nomeNuovo, // «Cognome Titolo Nome», come gli altri incarichi (26/09/2026)
     rifiutato_il: null, rifiutato_da: null, rifiuto_motivo: null,
     accettato_il: null, accettato_da: null,
     presa_visione_il: null, presa_visione_da: null,
