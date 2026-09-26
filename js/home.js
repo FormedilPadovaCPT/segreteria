@@ -100,6 +100,20 @@ export async function render() {
     if (!e2) formStato = st;
   } catch (e) { formErr = e?.message || String(e); } })();
 
+  /* ── l'ultima prova di ripristino del backup (27/09/2026): un backup che non
+     si è mai riaperto è una speranza. Il workflow restore-test.yml del
+     gestionale lo ricarica ogni mese in un Postgres vuoto e scrive il verdetto
+     in s_backup_prove (una riga anche quando si ferma prima del verdetto).
+     Nessuna riga da troppo tempo vale come un fallimento: il silenzio non è
+     un esito. ── */
+  let backup = null, backupErr = null;
+  const pBackup = (async () => { try {
+    const { data, error } = await sb.from('s_backup_prove')
+      .select('id, eseguita_il, backup_nome, esito, tabelle_ok, tabelle_ko, errori_restore, durata_s')
+      .order('id', { ascending: false }).limit(1);
+    if (error) backupErr = error.message; else backup = (data || [])[0] || null;
+  } catch (e) { backupErr = e?.message || String(e); } })();
+
   /* ── stato del canale del portale servizi (04/09/2026, rifatto il 13/09/2026) ──
      Un canale senza richieste nuove e' ambiguo: puo' voler dire che non ha
      scritto nessuno, o che il tubo e' rotto (incidente di agosto: Apps Script
@@ -234,7 +248,7 @@ export async function render() {
 
   /* 26/09/2026: le nove letture qui sopra sono indipendenti e partono insieme —
      prima erano una dopo l'altra, e sul telefono ogni giro di rete si sommava */
-  await Promise.all([pBacheca, pFlussi, pForm, pCanale, pCritici, pQuest, pIscr, pEseguiti, pFatture]);
+  await Promise.all([pBacheca, pFlussi, pForm, pBackup, pCanale, pCritici, pQuest, pIscr, pEseguiti, pFatture]);
 
   /* documenti dei tecnici: lo stato si calcola come nella loro pagina —
      per ogni tecnico in griglia e ogni requisito conta il documento PIÙ
@@ -676,6 +690,28 @@ export async function render() {
                <span>Richieste partite ma non registrate</span>
                <span class="hm-mini">${canale.senzaRiscontro}</span></div>`,
         '', { k: 'canale', segno: '✓', aiuto: canaleOk ? `${aiutoDi('canale')} Ultimo battito ${Math.round(canale.oreDiretto)} ore fa; ultimo giro della cassetta ${Math.round(canale.minGiro)} minuti fa.` : '' })}
+
+      ${(() => {
+        const LIMITE_GIORNI = 35;
+        const quando = backup?.eseguita_il ? new Date(backup.eseguita_il) : null;
+        const giorni = quando && !isNaN(quando) ? Math.floor((Date.now() - quando.getTime()) / 864e5) : null;
+        const riuscita = !!backup && backup.esito === 'riuscita';
+        const vecchia = giorni === null || giorni > LIMITE_GIORNI;
+        const ok = !backupErr && riuscita && !vecchia;
+        const corpo = backupErr
+          ? `<p class="hint" style="color:#a01f00">⚠ Non sono riuscito a leggere le prove di ripristino: ${esc(backupErr)}. Non si può dire che il backup sia a posto.</p>`
+          : !backup
+          ? '<p class="hint" style="color:#a01f00">🔴 Nessuna prova di ripristino registrata: il backup notturno non è mai stato riaperto. Su GitHub, repo gestionale-visite, tab Actions, «Prova di ripristino del backup», Run workflow.</p>'
+          : `<div class="hm-riga"><span>${riuscita ? '🟢' : '🔴'}</span>
+               <span>Ultima prova: <strong>${esc(backup.esito)}</strong>${riuscita ? ` · ${backup.tabelle_ok} tabelle identiche al dump, ${backup.durata_s} s` : backup.tabelle_ko ? ` · ${backup.tabelle_ko} tabelle non tornate` : ''}
+                 <span class="hint" style="display:block;white-space:normal">${esc(backup.backup_nome || '')}${backup.errori_restore ? ` · ${backup.errori_restore} errori psql` : ''}</span></span>
+               <span class="hint">${dataIt(String(backup.eseguita_il).slice(0, 10))} · ${giorni} giorni fa</span></div>
+             ${vecchia ? `<div class="hm-riga"><span>🔴</span><span>Prova più vecchia di ${LIMITE_GIORNI} giorni: il workflow mensile non è partito o non ha scritto. Su GitHub, repo gestionale-visite, tab Actions, «Prova di ripristino del backup».</span><span></span></div>` : ''}
+             ${!riuscita && backup ? '<div class="hm-riga"><span>⚠</span><span>Il dettaglio (tabelle mancanti, errori) sta nel riepilogo del run su GitHub e nella colonna «dettaglio» della tabella s_backup_prove. Finché non torna verde, in un\'emergenza il backup potrebbe non bastare.</span><span></span></div>' : ''}`;
+        return card('💾 Prova di ripristino del backup', ok ? 0 : '!', corpo, '',
+          { k: 'backup', segno: '✓', nonLetto: !!backupErr,
+            aiuto: ok ? `${aiutoDi('backup')} Ultima prova riuscita il ${dataIt(String(backup.eseguita_il).slice(0, 10))}: ${backup.tabelle_ok} tabelle, ${backup.durata_s} s.` : '' });
+      })()}
 
       ${card('🦺 Pratiche RLST aperte', (rlst || []).length,
         (rlst || []).length
