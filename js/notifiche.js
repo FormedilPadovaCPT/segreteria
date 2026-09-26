@@ -367,8 +367,10 @@ async function depositaRiepilogo(p, nuovo) {
     const nomeFile = `${dataCom.replace(/-/g, '_')}_NOTIF_${slug(chi)}_${slug(dove)}.pdf`;
     const su = await caricaByte(nuovo, nomeFile, byte, 'application/pdf', cart.id);
 
-    const { count } = await sb.from('s_prot_allegati').select('id', { count: 'exact', head: true }).eq('protocollo_id', nuovo.id);
-    const principale = !count;
+    const { count, error: errConta } = await sb.from('s_prot_allegati').select('id', { count: 'exact', head: true }).eq('protocollo_id', nuovo.id);
+    /* se non si riesce a contare gli allegati non si sa se c'è già un
+       originale: il riepilogo entra come secondario, mai sopra un principale */
+    const principale = !errConta && !count;
     const { error } = await sb.from('s_prot_allegati').insert({
       protocollo_id: nuovo.id, nome: su.file_name || nomeFile, mime: 'application/pdf',
       dimensione: byte.length, principale, created_by: state.email,
@@ -378,7 +380,9 @@ async function depositaRiepilogo(p, nuovo) {
     if (principale) {
       await sb.from('s_protocollo').update({ drive_file_id: su.drive_file_id, drive_url: su.drive_url }).eq('id', nuovo.id);
     }
-    toast(`Riepilogo della notifica depositato nel vault: ${su.file_name || nomeFile}`, 'ok');
+    toast(`Riepilogo della notifica depositato nel vault: ${su.file_name || nomeFile}`
+      + (errConta ? ' — non sono riuscito a leggere gli altri allegati: è stato messo come secondario, controlla quale è il principale.' : ''),
+      errConta ? 'err' : 'ok');
   } catch (e) {
     toast('Protocollo collegato, ma il riepilogo PDF non è stato depositato: ' + e.message, 'err');
   }

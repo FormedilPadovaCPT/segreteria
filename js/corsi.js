@@ -878,9 +878,11 @@ async function generaAttestati(c, giornate, interventi, iscritti, btn, esitoDati
       catch { toast('img/logo-regione.png non trovato: attestati senza logo Regione.', 'err'); }
     }
 
-    /* progressivo dell'anno sulla serie nuova */
-    const { data: numeri } = await sb.from('s_corsi_iscritti')
+    /* progressivo dell'anno sulla serie nuova. Se la lettura fallisce ci si
+       ferma: ripartire da 1 darebbe numeri già usati (26/09/2026) */
+    const { data: numeri, error: errNum } = await sb.from('s_corsi_iscritti')
       .select('attestato_numero').like('attestato_numero', `%/${anno}`);
+    if (errNum) throw new Error(`Non sono riuscito a leggere i numeri già dati agli attestati del ${anno}: nessun attestato generato. Riprova.`);
     let prossimo = Math.max(0, ...(numeri || [])
       .map((r) => Number((r.attestato_numero || '').split('/')[0]))
       .filter((n) => Number.isFinite(n))) + 1;
@@ -889,8 +891,10 @@ async function generaAttestati(c, giornate, interventi, iscritti, btn, esitoDati
     const ids = [...new Set(candidati.map((i) => i.persona_id).filter(Boolean))];
     const anag = {};
     if (ids.length) {
-      const { data } = await sb.from('persone')
+      const { data, error: errAn } = await sb.from('persone')
         .select('persona_id, comune_nascita, data_nascita').in('persona_id', ids);
+      /* senza anagrafiche gli attestati uscirebbero senza luogo e data di nascita */
+      if (errAn) throw new Error('Non sono riuscito a leggere luogo e data di nascita degli iscritti: nessun attestato generato. Riprova.');
       for (const p of data || []) anag[p.persona_id] = { nato_luogo: p.comune_nascita, nato_il: p.data_nascita };
     }
 

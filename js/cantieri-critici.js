@@ -795,12 +795,15 @@ async function chiediConfermaDirettore(d, eventi, dopo) {
   });
 }
 
-/* i casi su cui è stata chiesta la conferma e il Direttore non ha ancora risposto */
+/* i casi su cui è stata chiesta la conferma e il Direttore non ha ancora risposto.
+   Una lettura fallita si lancia, come in aperti(): non è «nessun caso» (26/09/2026) */
 export async function inAttesaDelDirettore() {
-  const { data: casi } = await sb.from('s_cantieri_critici').select('id, data_evento, impresa_nome, cantiere_desc, stato').not('stato', 'in', '(chiuso,annullato)');
+  const { data: casi, error: eCasi } = await sb.from('s_cantieri_critici').select('id, data_evento, impresa_nome, cantiere_desc, stato').not('stato', 'in', '(chiuso,annullato)');
+  if (eCasi) throw eCasi;
   if (!casi?.length) return [];
-  const { data: ev } = await sb.from('s_cantieri_critici_eventi').select('critico_id, tipo, created_at, dati')
+  const { data: ev, error: eEv } = await sb.from('s_cantieri_critici_eventi').select('critico_id, tipo, created_at, dati')
     .in('critico_id', casi.map((c) => c.id)).in('tipo', ['demandata', 'autorizzazione_direttore']).order('created_at');
+  if (eEv) throw eEv;
   return casi.filter((c) => {
     const miei = (ev || []).filter((e) => e.critico_id === c.id);
     const chiesta = miei.filter((e) => e.tipo === 'demandata' && e.dati?.chi === 'direttore').at(-1);
@@ -815,7 +818,11 @@ export async function apriDaLink(id) {
 
 /* l'ingresso del Direttore: i casi che aspettano lui */
 export async function elencoDirettore() {
-  const casi = await inAttesaDelDirettore();
+  let casi;
+  try { casi = await inAttesaDelDirettore(); } catch {
+    toast('Non sono riuscito a leggere i cantieri critici che aspettano la tua conferma. Ricarica la pagina.', 'err');
+    return false;
+  }
   if (!casi.length) return false;
   apriLargo('Cantieri critici — conferme richieste', '', `
     <p class="hint">Segnalazioni agli organi di vigilanza su cui è stata chiesta la tua conferma.</p>

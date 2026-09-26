@@ -14,25 +14,10 @@
    protocollo (edge function send-protocollo): una firma sola.
    ============================================================ */
 
-import { componiEml, FIRMA_SEGRETERIA, oggettoUfficio } from './firma.js';
+import { componiEml, FIRMA_SEGRETERIA } from './firma.js';
 import { toast } from './core.js';
 
 export { FIRMA_SEGRETERIA };
-
-/* Per le mail SENZA allegato: mailto: apre direttamente la finestra
-   di composizione dell'app di posta predefinita (Outlook), senza
-   passare da un file. Il protocollo mailto non puo' portare allegati
-   né HTML (quindi nemmeno il logo): quando serve una delle due cose
-   resta la strada del .eml. */
-export function apriMailto({ to = '', cc = [], oggetto = '', corpo = '' }) {
-  const p = new URLSearchParams();
-  if (cc.length) p.set('cc', cc.join(','));
-  p.set('subject', oggettoUfficio(oggetto));
-  p.set('body', corpo);
-  /* URLSearchParams codifica gli spazi come «+», che i client di posta
-     leggono alla lettera: si riportano alla forma %20 */
-  window.location.href = `mailto:${encodeURIComponent(to)}?${p.toString().replace(/\+/g, '%20')}`;
-}
 
 /* Compone la bozza e la scarica. `allegati` = [{nome, byte, mime?}].
    Il corpo si scrive in righe; se un modulo ci ha già accodato

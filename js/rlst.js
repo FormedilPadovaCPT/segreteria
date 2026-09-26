@@ -442,8 +442,11 @@ async function preparaRisposta(p, imp, btn) {
   attendi(btn, true, 'Preparo…');
   try {
     /* configurazione: contatti RLST e nota */
-    const { data: cfg } = await sb.from('s_config').select('chiave, valore')
+    const { data: cfg, error: errCfg } = await sb.from('s_config').select('chiave, valore')
       .in('chiave', ['rlst_contatti', 'rlst_nota_url']);
+    /* senza configurazione la lettera uscirebbe senza RLST competente e senza
+       nota: ci si ferma prima di prendere il numero di protocollo (26/09/2026) */
+    if (errCfg) throw new Error('Non sono riuscito a leggere i contatti RLST: lettera non preparata, nessun protocollo preso. Riprova.');
     const conf = Object.fromEntries((cfg || []).map((r) => [r.chiave, r.valore]));
     const contatti = JSON.parse(conf.rlst_contatti || '[]');
     const notaUrl = (conf.rlst_nota_url || '').trim();
@@ -514,8 +517,11 @@ async function preparaRisposta(p, imp, btn) {
 async function bozzaMail(p, btn) {
   attendi(btn, true, 'Rileggo la lettera…');
   try {
-    const { data: prot } = await sb.from('s_protocollo').select('*').eq('id', p.protocollo_out_id).single();
-    const { data: cfg } = await sb.from('s_config').select('chiave, valore').eq('chiave', 'rlst_contatti');
+    const { data: prot, error: errProt } = await sb.from('s_protocollo').select('*').eq('id', p.protocollo_out_id).single();
+    if (errProt) throw new Error('Non sono riuscito a leggere il protocollo della lettera. Riprova.');
+    const { data: cfg, error: errCfg } = await sb.from('s_config').select('chiave, valore').eq('chiave', 'rlst_contatti');
+    /* senza contatti la bozza perderebbe l'RLST in copia (26/09/2026) */
+    if (errCfg) throw new Error('Non sono riuscito a leggere i contatti RLST: bozza non preparata. Riprova.');
     const contatti = JSON.parse(cfg?.[0]?.valore || '[]');
     const byte = await leggiByte(p.lettera_drive_id);
     const nome = `${siglaProtocollo(prot)}_lettera.pdf`;

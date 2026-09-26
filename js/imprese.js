@@ -87,7 +87,12 @@ function nuovaImpresa() {
     const id = $('#ni-id').value.trim().toUpperCase().replace(/\s/g, '');
     if (!nome || !id) return toast('Servono ragione sociale e codice fiscale/P.IVA.', 'err');
     attendi(ev.currentTarget, true);
-    const { data: gia } = await sb.from('imprese').select('impresa_id').eq('impresa_id', id).maybeSingle();
+    const { data: gia, error: errGia } = await sb.from('imprese').select('impresa_id').eq('impresa_id', id).maybeSingle();
+    /* controllo doppioni non riuscito: ci si ferma (26/09/2026) */
+    if (errGia) {
+      attendi(ev.currentTarget, false);
+      return toast("Non sono riuscito a controllare se l'impresa esiste già: non creata. Riprova.", 'err');
+    }
     if (gia) {
       attendi(ev.currentTarget, false);
       toast('Esiste già un\'impresa con questo codice: la apro.', 'err');

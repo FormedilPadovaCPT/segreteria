@@ -106,9 +106,6 @@ export function misuraTimbro(p, stile = 'blocco') {
   return { ...(MISURE[stile] || MISURE.blocco) };
 }
 
-/* qualche chiamante cerca ancora il nome vecchio */
-export const misuraBlocco = (p) => misuraTimbro(p, 'blocco');
-
 /* Manda a capo entro una larghezza, al massimo `maxRighe` righe;
    quel che avanza si chiude con i puntini, invece di far credere
    che il testo finisse li'. */

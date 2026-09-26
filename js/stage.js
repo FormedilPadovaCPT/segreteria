@@ -22,7 +22,7 @@
    aggiornata si aggiungono solo gli allievi nuovi.
    ============================================================ */
 
-import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer } from './core.js';
+import { sb, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer } from './core.js';
 import { risolviCartella, creaCartella, LIMITE_MB } from './drive.js';
 import { caricaModulo } from './cdn.js';
 import { riassegnaTecnico } from './incarico-tecnico.js';
@@ -704,6 +704,3 @@ async function apriElenco(id) {
     await apriElenco(id);
   });
 }
-
-/* per il cruscotto o altre viste che vogliano sapere chi carica cosa */
-export const _stato = () => ({ utente: state.email, elenchi: elenchi.length });

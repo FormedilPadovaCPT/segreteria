@@ -263,7 +263,6 @@ button.hm-zero:hover,button.hm-zero:focus-visible{border-color:var(--arancio);co
 .hm-passo-ok{background:#e6f4e8;color:#2f6b36}
 .hm-passo-err{background:#fdecea;color:#a01f00}
 .hm-passo-fare{background:#fdeee6;color:#b33f0b}
-.hm-card.hm-vuota{opacity:.75}
 .hm-testa{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
 .hm-testa h3{margin:0;font-size:15px}
 .hm-n{min-width:26px;text-align:center;border-radius:12px;padding:2px 8px;font-weight:700;background:var(--grigio-chiaro);color:var(--testo-soft)}

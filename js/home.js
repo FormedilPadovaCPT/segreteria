@@ -30,11 +30,11 @@ export async function render() {
 
   const oggi = oggiIso();
 
-  const [servizi, { data: rlst, error: eRlst }, { data: docTecTutti, error: eDoc }, { data: corsi, error: eCorsi }, { data: prot }, { data: tecAttivi, error: eTec }, { data: docReq, error: eReq }] = await Promise.all([
+  const [servizi, { data: rlst, error: eRlst }, { data: docTecTutti, error: eDoc }, { data: corsi, error: eCorsi }, { data: prot, error: eProt }, { data: tecAttivi, error: eTec }, { data: docReq, error: eReq }] = await Promise.all([
     Promise.all(SERVIZI.map(async (s) => {
       /* le chiuse restano sul server (26/09/2026: sul telefono il cruscotto era lento); una riga senza stato passa, come prima */
-      const { data } = await sb.from(s.tab).select('*').or(`stato.is.null,stato.not.in.(${CHIUSE.map((c) => `"${c}"`).join(',')})`).order('id', { ascending: false }).limit(400);
-      return { ...s, righe: (data || []).filter((p) => !CHIUSE.includes(p.stato)) };
+      const { data, error } = await sb.from(s.tab).select('*').or(`stato.is.null,stato.not.in.(${CHIUSE.map((c) => `"${c}"`).join(',')})`).order('id', { ascending: false }).limit(400);
+      return { ...s, errore: !!error, righe: (data || []).filter((p) => !CHIUSE.includes(p.stato)) };
     })),
     sb.from('s_rlst_pratiche').select('id, progressivo, ragione_sociale, stato, timestamp_modulo').neq('stato', 'chiusa'),
     /* documenti dei tecnici (26/09/2026): tutti, per calcolare lo stato
@@ -53,6 +53,9 @@ export async function render() {
   if (eRlst) nonLetti.add('rlst');
   if (eCorsi) nonLetti.add('corsi');
   if (eDoc || eTec || eReq) nonLetti.add('doc');
+  /* un servizio non letto: i mucchi comuni (Direttore, da eseguire) sono
+     incompleti, e la tessera del singolo servizio pure (26/09/2026) */
+  for (const s of servizi) if (s.errore) { nonLetti.add('servizi'); nonLetti.add('serv-' + s.vista); }
   const aPosto = [];
   const aiutoDi = (k) => (k && (window.AIUTO_TESTI || {})['hm-' + k]) || '';
 
@@ -105,7 +108,7 @@ export async function render() {
      portale-richieste e il giro della cassetta delle lettere sul progetto Servizi. */
   let canale = null;
   const pCanale = (async () => { try {
-    const [{ data: cfg }, { count: senzaRiscontro }] = await Promise.all([
+    const [{ data: cfg, error: eCfg }, { count: senzaRiscontro, error: eRisc }] = await Promise.all([
       sb.from('s_config').select('chiave, valore').in('chiave', ['portale_battito_ore', 'portale_diretto_battito_al', 'cassetta_giro_al', 'cassetta_in_attesa']),
       /* «senza riscontro» = richiesta scritta nella scatola nera e non ancora
          lavorata dopo un quarto d'ora: e' arrivata, ma la pratica non c'e'. */
@@ -128,6 +131,8 @@ export async function render() {
     try { cassetta = c.cassetta_in_attesa ? JSON.parse(c.cassetta_in_attesa) : null; } catch { cassetta = null; }
     canale = {
       limite, diretto, oreDiretto, giro, minGiro,
+      /* lettura fallita: il canale non si dichiara sano (26/09/2026) */
+      nonLetto: !!(eCfg || eRisc),
       senzaRiscontro: senzaRiscontro || 0,
       mutoDiretto: oreDiretto === null || oreDiretto > limite,
       mutoCassetta: minGiro === null || minGiro > 15,
@@ -215,11 +220,12 @@ export async function render() {
     ftDaMandato = (ft || []).filter((f) => f.stato === 'approvata').length;
     ftStandby = (ft || []).filter((f) => f.stato === 'standby').length;
     avvisiApprNonPartiti = (ft || []).filter((f) => ['ricevuta', 'verificata'].includes(f.stato) && !f.avviso_appr_il && f.avviso_appr_esito);
-    const [{ count: nv }, { data: av }] = await Promise.all([
+    const [{ count: nv, error: eNv }, { data: av, error: eAv }] = await Promise.all([
       sb.from('s_mandati_pagamento').select('id', { count: 'exact', head: true }).is('visto_il', null),
       sb.from('s_fatture_tecnici').select('id, tecnico_nome, numero, mandato_id, avviso_pagamento_esito')
         .eq('stato', 'pagata').not('pagata_il', 'is', null).not('mandato_id', 'is', null).is('avviso_pagamento_il', null).limit(50),
     ]);
+    if (eNv || eAv) nonLetti.add('fatture');
     mandDaVedere = nv || 0;
     avvisiNonPartiti = av || [];
   } catch { nonLetti.add('fatture'); } })();
@@ -404,13 +410,15 @@ export async function render() {
   /* ── i verbali tornati indietro (21/09/2026) ──
      Il rapporto di mancata consegna arriva alla casella dell'ufficio e lo
      vedrebbe una persona sola: qui si vede da solo, insieme alla posta. */
-  let respinte = [];
+  let respinte = [], respinteErr = false;
   try {
-    const { data } = await sb.from('s_mail_respinte')
+    const { data, error } = await sb.from('s_mail_respinte')
       .select('id, ricevuta_il, destinatario, codice, permanente, motivo, nr_verbale, tecnico_email, ruolo, impresa_nome, stato, avviso_il, avviso_esito')
       .in('stato', ['nuova', 'avvisato']).order('ricevuta_il', { ascending: false }).limit(40);
+    /* lettura fallita ≠ «nessun verbale respinto»: pastiglia «non letto» */
+    if (error) respinteErr = true;
     respinte = data || [];
-  } catch { /* senza accesso il riquadro resta vuoto */ }
+  } catch { respinteErr = true; }
 
   /* ── proposte di chiusura dei cantieri (23/09/2026) ──
      Il tecnico le fa dal gestionale; decide la segreteria. Un errore di
@@ -480,7 +488,8 @@ export async function render() {
   /* ⚠️ Un rimbalzo NON dice quale sia l'indirizzo giusto: dice che quello
      non ha accettato la mail. Lo corregge il tecnico, che sa chi ha
      incontrato in cantiere — qui si vede e si chiude, non si sistema. */
-  const cardRespinte = !respinte.length ? '' : card('📭 Verbali non consegnati', respinte.length, `
+  const cardRespinte = respinteErr ? card('📭 Verbali non consegnati', 0, '', '', { k: 'respinte', nonLetto: true })
+    : !respinte.length ? '' : card('📭 Verbali non consegnati', respinte.length, `
     ${respinte.slice(0, 8).map((r) => `
       <div class="hm-riga" data-respinta="${r.id}" title="${esc(r.motivo || '')}">
         <span>${r.permanente === false ? '🕒' : '📭'}</span>
@@ -520,13 +529,13 @@ export async function render() {
       </div>`).join('') + (formSegn.length > 8 ? `<p class="hint">…e altre ${formSegn.length - 8}.</p>` : '')
       : '<p class="hint">Nessuna segnalazione in attesa di esito.</p>'), '', { k: 'formazione', sempre: !!formErr });
 
-  const canaleOk = !!canale && !canale.mutoDiretto && !canale.senzaRiscontro && !canale.mutoCassetta && !canale.ferme;
+  const canaleOk = !!canale && !canale.nonLetto && !canale.mutoDiretto && !canale.senzaRiscontro && !canale.mutoCassetta && !canale.ferme;
   const griglia = `
 
       ${card('⏳ In attesa del Direttore', daAutorizzare.length,
         daAutorizzare.length
           ? daAutorizzare.slice(0, 8).map(rigaPratica).join('') + (daAutorizzare.length > 8 ? `<p class="hint">…e altre ${daAutorizzare.length - 8}.</p>` : '')
-          : '<p class="hint">Nessuna pratica da autorizzare.</p>', '', { k: 'direttore' })}
+          : '<p class="hint">Nessuna pratica da autorizzare.</p>', '', { k: 'direttore', nonLetto: nonLetti.has('servizi') })}
 
       ${card('✋ Incarichi rifiutati dal tecnico', rifiutati.length,
         rifiutati.length
@@ -623,13 +632,13 @@ export async function render() {
       ${card('✅ Autorizzate — da eseguire', daEseguire.length,
         daEseguire.length
           ? daEseguire.slice(0, 8).map(rigaEseguire).join('') + (daEseguire.length > 8 ? `<p class="hint">…e altre ${daEseguire.length - 8}.</p>` : '')
-          : '<p class="hint">Niente in coda: le autorizzate sono state svolte.</p>', '', { k: 'eseguire' })}
+          : '<p class="hint">Niente in coda: le autorizzate sono state svolte.</p>', '', { k: 'eseguire', nonLetto: nonLetti.has('servizi') })}
 
       ${card('💬 Consulenze — corsia immediata', consDaGirare.length + consInAttesa.length + consDaTrasmettere.length, `
         <div class="hm-riga" data-goto="consulenze"><span>📨</span><span>Da girare al coordinatore</span><span class="hm-mini">${consDaGirare.length}</span></div>
         <div class="hm-riga" data-goto="consulenze"><span>⏱</span><span>In attesa della risposta del coordinatore</span><span class="hm-mini">${consInAttesa.length}</span></div>
         <div class="hm-riga" data-goto="consulenze"><span>📤</span><span>Risposta pronta, da trasmettere all'impresa</span><span class="hm-mini">${consDaTrasmettere.length}</span></div>`,
-        vai('consulenze', 'Apri le consulenze'), { k: 'consulenze', goto: 'consulenze' })}
+        vai('consulenze', 'Apri le consulenze'), { k: 'consulenze', goto: 'consulenze', nonLetto: nonLetti.has('serv-consulenze') })}
 
       ${card('🚨 Segnalazioni cantiere', segnalazioni.length,
         segnalazioni.length
@@ -638,7 +647,7 @@ export async function render() {
               <span><strong>n° ${esc(String(p.progressivo ?? `m${p.id}`))}</strong> — ${esc(p.notificante || '?')}${p.comune_cantiere ? ` · ${esc(p.comune_cantiere)}` : ''}</span>
               <span class="hint">${esc(p.stato)}${['da_richiedere', 'richiesta'].includes(p.aut_stato) ? ' · dal Direttore' : ''}</span></div>`).join('')
           : '<p class="hint">Nessuna segnalazione aperta.</p>',
-        vai('segnalazioni', 'Apri le segnalazioni'), { k: 'segnalazioni', goto: 'segnalazioni' })}
+        vai('segnalazioni', 'Apri le segnalazioni'), { k: 'segnalazioni', goto: 'segnalazioni', nonLetto: nonLetti.has('serv-segnalazioni') })}
 
       ${card('🔧 Visite eseguite dai tecnici', eseguiti.length,
         eseguiti.length
@@ -653,6 +662,8 @@ export async function render() {
       ${card('📡 Canale portale servizi', canaleOk ? 0 : '!',
         !canale
           ? '<p class="hint">Stato non disponibile.</p>'
+          : canale.nonLetto
+          ? '<p class="hint" style="color:#a01f00">⚠ Non sono riuscito a leggere lo stato del canale: non si può dire che sia a posto.</p>'
           : `<div class="hm-riga"><span>${canale.mutoDiretto ? '🔴' : '🟢'}</span>
                <span>Ultimo battito del portale (database, Drive, posta, cassetta)</span>
                <span class="hint">${canale.diretto ? dataIt(canale.diretto.toISOString().slice(0, 10)) + ' · ' + Math.round(canale.oreDiretto) + ' ore fa' : 'mai'}</span></div>
@@ -734,7 +745,8 @@ export async function render() {
         ${(prot || []).map((r) => `
           <div class="hm-riga" data-goto="registro"><span>${r.direzione === 'IN' ? '📥' : '📤'}</span>
             <span><strong>${esc(codiceProtocollo(r))}</strong> — ${esc((r.oggetto || '').slice(0, 60))}</span>
-            <span class="hint">${dataIt(r.data_prot)}</span></div>`).join('')}`,
+            <span class="hint">${dataIt(r.data_prot)}</span></div>`).join('')}
+        ${eProt ? '<p class="hint" style="color:#a01f00">⚠ Non sono riuscito a leggere gli ultimi protocolli.</p>' : ''}`,
         vai('registro', 'Apri il registro'))}
       ${cardBacheca ? cardBacheca.agenda + cardBacheca.posta : ''}
       ${cardRespinte}`;
@@ -863,9 +875,11 @@ export async function render() {
    anche la pratica collegata, se si sa qual è, e prepara le due
    bozze mail — avviso al precedente, assegnazione al nuovo. */
 export async function riassegnaIncarico(id, praticaRif = null) {
-  const { data: tec } = await sb.from('tecnici')
+  const { data: tec, error: errTec } = await sb.from('tecnici')
     .select('tecnico_nome, tecnico_cognome, email').eq('attivo', true)
     .not('email', 'is', null).order('tecnico_cognome');
+  /* lettura fallita ≠ «nessun tecnico attivo» (26/09/2026) */
+  if (errTec) { alert("Non sono riuscito a leggere l'elenco dei tecnici. Riprova."); return false; }
   const lista = (tec || []).filter((x) => x.email);
   if (!lista.length) { alert('Nessun tecnico attivo con email in anagrafica.'); return false; }
   const scelta = prompt(`A chi riassegno l'incarico n° ${id}?\n\n`
@@ -881,7 +895,9 @@ export async function riassegnaIncarico(id, praticaRif = null) {
   let tabella = null, pratica = null;
   if (praticaRif && TABELLA[praticaRif.vista]) {
     tabella = TABELLA[praticaRif.vista];
-    const { data } = await sb.from(tabella).select('*').eq('id', praticaRif.id).maybeSingle();
+    const { data, error } = await sb.from(tabella).select('*').eq('id', praticaRif.id).maybeSingle();
+    /* senza la pratica si riassegnerebbe l'incarico lasciandola indietro */
+    if (error) { alert('Non sono riuscito a leggere la pratica collegata: incarico non riassegnato. Riprova.'); return false; }
     pratica = data || null;
     if (!pratica) tabella = null;
   }

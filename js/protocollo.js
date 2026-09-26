@@ -209,14 +209,15 @@ function cellaInvio(p) {
 }
 
 async function aggiornaContatori() {
+  /* conteggio non letto → «non letto», mai 0 (26/09/2026) */
   const conta = async (dir) => {
-    const { count } = await sb.from('s_protocollo')
+    const { count, error } = await sb.from('s_protocollo')
       .select('id', { count: 'exact', head: true }).eq('direzione', dir);
-    return count || 0;
+    return error ? 'non letto' : (count || 0).toLocaleString('it-IT');
   };
   const [nIn, nOut] = await Promise.all([conta('IN'), conta('OUT')]);
   $('#nav-counts').innerHTML =
-    `Registro:<br>${nIn.toLocaleString('it-IT')} in entrata<br>${nOut.toLocaleString('it-IT')} in uscita`;
+    `Registro:<br>${nIn} in entrata<br>${nOut} in uscita`;
 }
 
 /* ══════════════ DETTAGLIO ══════════════ */
@@ -228,13 +229,14 @@ export async function apriDettaglio(id) {
   if (error) { apriDrawer('Errore', '', `<p class="empty">${esc(error.message)}</p>`); return; }
   recordCorrente = p;
 
-  const { data: allegati } = await sb.from('s_prot_allegati')
+  /* errore di lettura ≠ «nessun documento» / «nessuna mail» (26/09/2026) */
+  const { data: allegati, error: errAll } = await sb.from('s_prot_allegati')
     .select('*').eq('protocollo_id', id).order('id');
 
   /* Le mail preparate su questo protocollo: chi, cosa e SOPRATTUTTO il
      testo scritto. Prima il testo viveva solo nel campo della maschera e
      spariva alla chiusura del dialogo. */
-  const { data: invii } = await sb.from('s_prot_invii')
+  const { data: invii, error: errInv } = await sb.from('s_prot_invii')
     .select('*').eq('protocollo_id', id).order('preparata_at', { ascending: false });
 
   const inn = p.direzione === 'IN';
@@ -292,7 +294,9 @@ export async function apriDettaglio(id) {
           <button class="btn btn-ghost btn-sm" data-az="scarica" data-url="${esc(a.drive_url || '')}" data-nome="${esc(a.nome)}">Apri su Drive ↗</button>
           ${/\.pdf$/i.test(a.nome) ? `<button class="btn btn-ghost btn-sm" data-az="timbra" data-att="${a.id}">${a.timbrato ? 'Timbra di nuovo' : 'Timbra'}</button>` : ''}
           <button class="icon-btn" data-az="elimina-all" data-att="${a.id}" data-drive="${esc(a.drive_file_id || '')}" title="Metti nel cestino di Drive">🗑</button>
-        </li>`).join('') || '<li class="empty" style="padding:12px">Nessun documento allegato.</li>'}
+        </li>`).join('') || (errAll
+        ? '<li class="empty" style="padding:12px">⚠ Non sono riuscito a leggere i documenti allegati. Riapri il protocollo.</li>'
+        : '<li class="empty" style="padding:12px">Nessun documento allegato.</li>')}
     </ul>
     <input type="file" id="att-file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.eml,.msg" style="display:none">
     <button class="btn btn-ghost btn-sm" data-az="collega">🔗 Collega un documento già su Drive</button>
@@ -328,7 +332,9 @@ export async function apriDettaglio(id) {
       una persona da Outlook o da Gmail, e l&rsquo;app non sa quando è partita — «l&rsquo;ho inviata» serve a dirglielo.
       ⚠️ Se il testo è stato <strong>completato o cambiato dentro Outlook</strong>, l&rsquo;app non può saperlo:
       «Correggi il testo» serve a riportare qui quello che è davvero uscito.
-    </p>` : '<p class="empty" style="padding:12px">Nessuna mail preparata da questo protocollo.</p>'}
+    </p>` : errInv
+      ? '<p class="empty" style="padding:12px">⚠ Non sono riuscito a leggere le mail preparate da questo protocollo. Riapri il protocollo.</p>'
+      : '<p class="empty" style="padding:12px">Nessuna mail preparata da questo protocollo.</p>'}
 
     <div class="sect-title">Azioni</div>
     <div class="drawer-actions">
@@ -358,7 +364,9 @@ export async function apriDettaglio(id) {
 
   /* I documenti che portano il numero nel nome si agganciano da soli.
      Anche questo dopo il render, per la stessa ragione. */
-  agganciaDalNome(p, allegati || []);
+  /* se gli allegati non si sono letti non si aggancia: con l'elenco vuoto
+     si ricollegherebbero come nuovi documenti già collegati */
+  if (!errAll) agganciaDalNome(p, allegati || []);
 
   /* Dove sta adesso ogni documento. Si chiede a Drive dopo aver
      mostrato il pannello: e' la parte lenta, e non deve far
@@ -631,8 +639,9 @@ async function collegaDaDrive() {
    a questo protocollo, e dove sta. */
 async function registraAllegato(id, nome, cartella) {
   const p = recordCorrente;
-  const { data: gia } = await sb.from('s_prot_allegati')
+  const { data: gia, error: errGia } = await sb.from('s_prot_allegati')
     .select('id').eq('protocollo_id', p.id).eq('drive_file_id', id).maybeSingle();
+  if (errGia) return toast('Non sono riuscito a controllare se il documento è già collegato: non collegato. Riprova.', 'err');
   if (gia) return toast('Quel documento è già collegato a questo protocollo.', 'err');
 
   let d = { nome, cartella, drive_url: `https://drive.google.com/file/d/${id}/view` };
@@ -807,8 +816,10 @@ async function timbra(attId) {
    tutto l'archivio ereditato da Access — si va dritti al file. */
 async function chiediQualeDocumento() {
   const p = recordCorrente;
-  const { data: allegati } = await sb.from('s_prot_allegati')
+  const { data: allegati, error: errAll } = await sb.from('s_prot_allegati')
     .select('id, nome, timbrato').eq('protocollo_id', p.id).order('id');
+  /* lettura fallita: non si propone «non ha ancora documenti» */
+  if (errAll) return toast('Non sono riuscito a leggere i documenti del protocollo. Riprova.', 'err');
   const pdf = (allegati || []).filter((a) => /\.pdf$/i.test(a.nome));
 
   if (!pdf.length) {

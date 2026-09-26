@@ -5,3 +5,5 @@ node_modules/
 *.bak
 strumenti/_prova-*
 supabase/.temp/
+# anche il progetto Servizi annidato (26/09/2026)
+**/supabase/.temp/

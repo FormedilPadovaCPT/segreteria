@@ -355,7 +355,12 @@ async function scheda(host) {
     if (nuova) {
       /* mai duplicare: il CF è la chiave che non sbaglia */
       if (agg.cf) {
-        const { data: gia } = await sb.from('persone').select('persona_id').eq('cf', agg.cf).limit(1);
+        const { data: gia, error: errGia } = await sb.from('persone').select('persona_id').eq('cf', agg.cf).limit(1);
+        /* controllo non riuscito: non si crea alla cieca un possibile doppione (26/09/2026) */
+        if (errGia) {
+          attendi(ev.currentTarget, false);
+          return toast('Non sono riuscito a controllare se il codice fiscale esiste già: persona non creata. Riprova.', 'err');
+        }
         if (gia?.length) {
           attendi(ev.currentTarget, false);
           toast('Esiste già una persona con questo codice fiscale: la apro.', 'err');
@@ -383,7 +388,9 @@ async function scheda(host) {
    Prima si ricontrolla il CF: mai duplicare. */
 export async function creaPersona(prefill) {
   if (prefill.cf) {
-    const { data: gia } = await sb.from('persone').select('persona_id').eq('cf', prefill.cf.toUpperCase()).limit(1);
+    const { data: gia, error: errGia } = await sb.from('persone').select('persona_id').eq('cf', prefill.cf.toUpperCase()).limit(1);
+    /* controllo doppioni non riuscito: ci si ferma, i chiamanti mostrano il messaggio */
+    if (errGia) throw new Error('Non sono riuscito a controllare se il codice fiscale esiste già: persona non creata. Riprova.');
     if (gia?.length) return gia[0].persona_id;
   }
   const { data, error } = await sb.from('persone').insert({

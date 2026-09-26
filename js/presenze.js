@@ -194,17 +194,23 @@ async function datiMese() {
   const [anno, mese] = cursore.split('-').map(Number);
   const da = `${cursore}-01`;
   const a = `${cursore}-${String(new Date(anno, mese, 0).getDate()).padStart(2, '0')}`;
-  const [{ data: pres }, { data: extra }] = await Promise.all([
+  const [{ data: pres, error: e1 }, { data: extra, error: e2 }] = await Promise.all([
     sb.from('s_presenze').select('*').eq('dipendente', dipendente).gte('data', da).lte('data', a).order('data').order('id'),
     sb.from('s_presenze_extra').select('*').eq('dipendente', dipendente).gte('data', da).lte('data', a).order('data'),
   ]);
+  /* lettura fallita: si dice, non si mostra un mese vuoto (26/09/2026) —
+     un mese «senza righe» porterebbe a generare il foglio vuoto */
+  if (e1 || e2) throw new Error('Non sono riuscito a leggere le presenze del mese. Riprova.');
   return { anno, mese, presenze: pres || [], extra: extra || [] };
 }
 
 async function renderMese(hostArg) {
   const host = hostArg || $('#pz-corpo');
   host.innerHTML = '<p class="empty">Un istante…</p>';
-  const { anno, mese, presenze, extra } = await datiMese();
+  let dm;
+  try { dm = await datiMese(); }
+  catch (e) { host.innerHTML = `<p class="empty">⚠ ${esc(e.message)}</p>`; return; }
+  const { anno, mese, presenze, extra } = dm;
 
   const perGiorno = {};
   for (const p of presenze) (perGiorno[p.data] = perGiorno[p.data] || []).push(p);
@@ -356,8 +362,10 @@ async function chiudiMese(btn, conMail) {
     const perCausale = {};
     for (const e of extra) perCausale[e.causale] = (perCausale[e.causale] || 0) + (e.ore_min || 0);
     const riepilogo = Object.entries(perCausale).map(([c, m]) => `- ${c}: ${mm2hm(m)}`).join('\n');
-    const { data: aperte } = await sb.from('s_presenze_extra').select('causale, ore_min, pagato')
+    const { data: aperte, error: errAp } = await sb.from('s_presenze_extra').select('causale, ore_min, pagato')
       .eq('dipendente', dipendente).eq('chiuso', false);
+    /* senza i movimenti aperti la mail direbbe «saldo 0» all'Amministrazione */
+    if (errAp) throw new Error("Foglio depositato su Drive, ma non sono riuscito a leggere la banca ore: bozza per l'Amministrazione non preparata. Riprova.");
     const banca = calcolaBanca(aperte || []);
     const bancaTxt = [
       `- Saldo banca ore da recuperare: ${mm2hm(banca.saldo)} (${mm2hm(banca.supplementari)} supplementari - ${mm2hm(banca.recuperi)} recuperi)`,
@@ -400,11 +408,16 @@ async function renderBanca(hostArg) {
   if (filtroBanca === 'aperte') q = q.eq('chiuso', false);
   if (filtroBanca === 'anno') q = q.gte('data', `${anno}-01-01`).lte('data', `${anno}-12-31`);
   if (filtroBanca === 'tutte') q = q.limit(400);
-  const { data: righe } = await q;
+  const { data: righe, error: errMov } = await q;
   const movimenti = righe || [];
 
-  const { data: aperteTutte } = await sb.from('s_presenze_extra').select('causale, ore_min, pagato')
+  const { data: aperteTutte, error: errBanca } = await sb.from('s_presenze_extra').select('causale, ore_min, pagato')
     .eq('dipendente', dipendente).eq('chiuso', false);
+  /* saldo e movimenti su un elenco non letto sarebbero numeri falsi (26/09/2026) */
+  if (errMov || errBanca) {
+    host.innerHTML = '<p class="empty">⚠ Non sono riuscito a leggere la banca ore: nessun saldo calcolato. Riprova.</p>';
+    return;
+  }
   /* LA BANCA ORE È UN CONTO SOLO (regola dell'utente, 03/09/2026):
      le ore supplementari NON pagate sono il versamento, i recuperi il
      prelievo, il saldo è la differenza. Le supplementari segnate pagate
@@ -571,7 +584,8 @@ let richieste = [];
 async function renderFerie(hostArg) {
   const host = hostArg || $('#pz-corpo');
   host.innerHTML = '<p class="empty">Un istante…</p>';
-  const { data } = await sb.from('s_ferie_richieste').select('*').order('id', { ascending: false });
+  const { data, error: errFer } = await sb.from('s_ferie_richieste').select('*').order('id', { ascending: false });
+  if (errFer) { host.innerHTML = '<p class="empty">⚠ Non sono riuscito a leggere le richieste di ferie e permessi. Riprova.</p>'; return; }
   richieste = data || [];
   const lista = (filtroFerie === 'aperte')
     ? richieste.filter((r) => ['da_richiedere', 'richiesta'].includes(r.aut_stato))
@@ -585,11 +599,12 @@ async function renderFerie(hostArg) {
      residuo (vedi scadenze_ufficio). */
   const annoOra = new Date().getFullYear();
   const tutteSindacali = MONTI_SINDACALI.flatMap(causaliDelMonte);
-  const { data: righeSind } = await sb.from('s_presenze_extra')
+  const { data: righeSind, error: errSind } = await sb.from('s_presenze_extra')
     .select('data, causale, ore_min')
     .eq('dipendente', dipendente)
     .in('causale', tutteSindacali)
     .gte('data', `${annoOra}-01-01`).lte('data', `${annoOra}-12-31`);
+  if (errSind) toast("Non sono riuscito a leggere le ore sindacali usate nell'anno: il riepilogo non compare.", 'err');
   const perMonte = MONTI_SINDACALI.map((m) => {
     const cs = causaliDelMonte(m);
     const righe = (righeSind || []).filter((x) => cs.includes(x.causale));

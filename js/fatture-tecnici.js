@@ -1151,9 +1151,15 @@ async function protocollaFattura(f, inc, t) {
    le prestazioni ancora da pagare. */
 async function chiudiSeTuttoFatturato(incaricoId) {
   if (!incaricoId) return false;
-  const { count } = await sb.from('s_prestazioni')
+  const { count, error } = await sb.from('s_prestazioni')
     .select('id', { count: 'exact', head: true })
     .eq('incarico_mensile_id', incaricoId).is('fattura_id', null);
+  /* conteggio non letto: non si sa se resta qualcosa di aperto, quindi
+     il mese NON si segna fatturato (count sarebbe null = «niente») */
+  if (error) {
+    toast('Non sono riuscito a controllare se il mese è tutto fatturato: lasciato aperto.', 'err');
+    return false;
+  }
   if (count) return false;
   await sb.from('s_incarichi_mensili')
     .update({ stato: 'fatturato', aggiornato_da: state.email, updated_at: new Date().toISOString() })
@@ -1162,8 +1168,10 @@ async function chiudiSeTuttoFatturato(incaricoId) {
 }
 
 async function agganciaPrestazioni(f) {
-  const { data: aperte } = await sb.from('s_prestazioni').select('*').eq('tecnico_id', f.tecnico_id)
+  const { data: aperte, error: errAp } = await sb.from('s_prestazioni').select('*').eq('tecnico_id', f.tecnico_id)
     .is('fattura_id', null).is('chiusa_il', null).order('data', { ascending: false }).limit(300);
+  /* lettura fallita ≠ «nessuna prestazione aperta» (26/09/2026) */
+  if (errAp) return toast('Non sono riuscito a leggere le prestazioni aperte del tecnico. Riprova.', 'err');
   const righe = aperte || [];
   apriDrawer(`Aggancia prestazioni — fattura n° ${f.id} (${esc(f.numero || '')})`, 'IN', `
     <p class="hint" style="margin:0 0 8px">Prestazioni di ${esc(f.tecnico_nome || '')} ancora senza fattura, <strong>di qualunque mese</strong>.

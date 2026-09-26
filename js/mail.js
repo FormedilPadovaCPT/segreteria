@@ -56,22 +56,28 @@ const CAMPI_PERSONA = 'persona_id, nome, cognome, titolo, email, email2, email3'
    dell'impresa, le persone il cui cognome compare in «persona» e «alla
    c.a.» (il confronto per nome e cognome lo fa mail-indirizzi.js) e le
    persone collegate all'impresa che hanno una e-mail. */
-async function anagraficaControparte(p) {
+/* `guasti` raccoglie le letture non riuscite (26/09/2026): la bozza può
+   uscire lo stesso, ma chi la prepara deve sapere che i destinatari
+   proposti possono essere incompleti — mai un «nessun indirizzo» muto. */
+async function anagraficaControparte(p, guasti = []) {
   let impresa = null;
   let personeImpresa = [];
   if (p.impresa_id) {
-    const { data: imp } = await sb.from('imprese')
+    const { data: imp, error: eImp } = await sb.from('imprese')
       .select('impresa_nome, impresa_email_ref, impresa_email2, impresa_email3, pec')
       .eq('impresa_id', p.impresa_id).maybeSingle();
+    if (eImp) guasti.push("gli indirizzi dell'impresa");
     impresa = imp || null;
 
-    const { data: legami } = await sb.from('persone_imprese')
+    const { data: legami, error: eLeg } = await sb.from('persone_imprese')
       .select('persona_id').eq('impresa_id', p.impresa_id).limit(300);
+    if (eLeg) guasti.push("le persone collegate all'impresa");
     const ids = [...new Set((legami || []).map((l) => l.persona_id).filter(Boolean))];
     for (let i = 0; i < ids.length; i += 100) {
-      const { data } = await sb.from('persone').select(CAMPI_PERSONA)
+      const { data, error: ePers } = await sb.from('persone').select(CAMPI_PERSONA)
         .in('persona_id', ids.slice(i, i + 100))
         .or('email.not.is.null,email2.not.is.null,email3.not.is.null');
+      if (ePers && !guasti.includes("le persone collegate all'impresa")) guasti.push("le persone collegate all'impresa");
       personeImpresa.push(...(data || []));
     }
   }
@@ -82,7 +88,7 @@ async function anagraficaControparte(p) {
   if (parole.length) {
     /* anche i tecnici (14/09/2026): la lettera di incarico va a loro, e in
        `persone` spesso non ci sono o non hanno la e-mail dell'ufficio */
-    const [{ data: pers }, { data: tec }] = await Promise.all([
+    const [{ data: pers, error: ePers }, { data: tec, error: eTec }] = await Promise.all([
       sb.from('persone').select(CAMPI_PERSONA)
         .or(parole.map((w) => `cognome.ilike.${w}`).join(','))
         .limit(60),
@@ -90,6 +96,7 @@ async function anagraficaControparte(p) {
         .or(parole.map((w) => `tecnico_cognome.ilike.%${w}%`).join(','))
         .limit(20),
     ]);
+    if (ePers || eTec) guasti.push('le persone nominate nel protocollo');
     /* chi non ha e-mail non aggiunge indirizzi e farebbe solo sembrare
        ambiguo un nome; la stessa persona in `persone` e in `tecnici` con la
        stessa e-mail conta una volta */
@@ -114,18 +121,21 @@ async function anagraficaControparte(p) {
    documenti che vanno ai tecnici, come il piano 5.D.4. La segreteria lo
    legge da utente «ufficio» dell'app asseverazione. Prima i verificatori,
    poi gli osservatori. */
-async function gruppoVerificaDelProtocollo(p) {
-  const { data: legami } = await sb.from('a_pratica_protocollo').select('pratica_id').eq('protocollo_id', p.id);
+async function gruppoVerificaDelProtocollo(p, guasti = []) {
+  const { data: legami, error: eLeg } = await sb.from('a_pratica_protocollo').select('pratica_id').eq('protocollo_id', p.id);
+  if (eLeg) { guasti.push('il gruppo di verifica'); return []; }
   const pratiche = [...new Set((legami || []).map((l) => l.pratica_id).filter(Boolean))];
   if (!pratiche.length) return [];
-  const { data: gdv } = await sb.from('a_pratica_gdv')
+  const { data: gdv, error: eGdv } = await sb.from('a_pratica_gdv')
     .select('tecnico_id, ruolo, rgv, ordine').in('pratica_id', pratiche);
+  if (eGdv) { guasti.push('il gruppo di verifica'); return []; }
   const righe = (gdv || []).filter((g) => g.tecnico_id)
     .sort((a, b) => (a.ruolo === 'osservatore') - (b.ruolo === 'osservatore') || (a.ordine ?? 0) - (b.ordine ?? 0));
   if (!righe.length) return [];
-  const { data: tecnici } = await sb.from('tecnici')
+  const { data: tecnici, error: eTec } = await sb.from('tecnici')
     .select('tecnico_id, tecnico_cognome, tecnico_nome, titolo, email')
     .in('tecnico_id', [...new Set(righe.map((g) => g.tecnico_id))]);
+  if (eTec) guasti.push('le e-mail del gruppo di verifica');
   const perId = new Map((tecnici || []).map((t) => [t.tecnico_id, t]));
   return righe.map((g) => {
     const t = perId.get(g.tecnico_id) || {};
@@ -142,12 +152,14 @@ async function gruppoVerificaDelProtocollo(p) {
    asseverazione: la riga del gruppo di verifica porta il protocollo della
    sua lettera (a_pratica_gdv.incarico_protocollo_id). Le lettere di Access
    non ce l'hanno: lì il tecnico si trova dal nominativo del protocollo. */
-async function incaricatiDelProtocollo(p) {
-  const { data: righe } = await sb.from('a_pratica_gdv').select('tecnico_id').eq('incarico_protocollo_id', p.id);
+async function incaricatiDelProtocollo(p, guasti = []) {
+  const { data: righe, error: eRighe } = await sb.from('a_pratica_gdv').select('tecnico_id').eq('incarico_protocollo_id', p.id);
+  if (eRighe) { guasti.push('il tecnico incaricato'); return []; }
   const ids = [...new Set((righe || []).map((r) => r.tecnico_id).filter(Boolean))];
   if (!ids.length) return [];
-  const { data: tecnici } = await sb.from('tecnici')
+  const { data: tecnici, error: eTec } = await sb.from('tecnici')
     .select('tecnico_id, tecnico_cognome, tecnico_nome, titolo, email').in('tecnico_id', ids);
+  if (eTec) guasti.push("l'e-mail del tecnico incaricato");
   return (tecnici || []).map((t) => ({
     email: t.email || '',
     nome: [t.tecnico_cognome, t.titolo, t.tecnico_nome].filter(Boolean).join(' '),
@@ -159,7 +171,9 @@ export async function apriDialogoMail(p, modo = 'avviso') {
   const protocollato = modo === 'protocollato';
   const codice = codiceProtocollo(p);
 
-  const { data: allegati } = await sb.from('s_prot_allegati')
+  /* letture non riuscite, da dire nel dialogo (26/09/2026) */
+  const guasti = [];
+  const { data: allegati, error: eAll } = await sb.from('s_prot_allegati')
     .select('id, nome, timbrato, principale, drive_file_id')
     .eq('protocollo_id', p.id)
     .order('principale', { ascending: false })
@@ -167,13 +181,14 @@ export async function apriDialogoMail(p, modo = 'avviso') {
     .order('id');
   /* le note del vault (.md) non sono documenti da allegare */
   const conDrive = (allegati || []).filter((a) => a.drive_file_id && !E_NOTA(a.nome));
+  if (eAll) guasti.push('i documenti collegati al protocollo');
 
   /* il modello del tipo di documento: testo, saluto, a chi va e che cosa
      parte sempre con lui (lookups.js, dal 14/09/2026) */
   /* la lettera di incarico dell'asseverazione si riconosce anche dal gruppo
      di verifica che la cita: va saputo prima di scegliere il modello */
   const incaricati = protocollato && MODELLI_PROTOCOLLATO[p.tipo_doc_id]?.a === 'incaricato'
-    ? await incaricatiDelProtocollo(p) : [];
+    ? await incaricatiDelProtocollo(p, guasti) : [];
   const contesto = { incaricoAsseverazione: incaricati.length > 0 };
   const modello = protocollato ? modelloProtocollato(p, contesto) : {};
   const fissi = (modello.allegati || [])
@@ -198,9 +213,9 @@ export async function apriDialogoMail(p, modo = 'avviso') {
   let gdvMancante = false;
   if (avviso || protocollato) {
     const serveGdv = modello.a === 'gdv' || modello.cc === 'gdv';
-    const gruppoVerifica = serveGdv ? await gruppoVerificaDelProtocollo(p) : [];
+    const gruppoVerifica = serveGdv ? await gruppoVerificaDelProtocollo(p, guasti) : [];
     gdvMancante = serveGdv && !gruppoVerifica.some((g) => EMAIL_VALIDA.test(String(g.email || '').trim()));
-    voci = vociIndirizzi({ ...(await anagraficaControparte(p)), gruppoVerifica, incaricati, modello });
+    voci = vociIndirizzi({ ...(await anagraficaControparte(p, guasti)), gruppoVerifica, incaricati, modello });
   } else {
     const interno = emailAssegnatario(p.alla_ca);
     voci = vociIndirizzi({ interni: interno ? [{ email: interno, nome: p.alla_ca || '' }] : [] });
@@ -240,6 +255,7 @@ export async function apriDialogoMail(p, modo = 'avviso') {
       <div class="field" style="margin-bottom:10px">
         <label>Indirizzi <span class="hint" style="font-weight:400">— spunta <strong>A</strong> per i destinatari, <strong>Cc</strong> per la copia</span></label>
         <div id="m-indirizzi" style="display:flex;flex-direction:column;gap:2px"></div>
+        ${guasti.length ? `<span class="hint" style="color:#b42318">⚠ Non sono riuscito a leggere ${esc(guasti.join(', '))}: gli indirizzi e i documenti proposti possono essere incompleti. Controllali e aggiungi a mano quelli che mancano.</span>` : ''}
         ${gdvMancante ? `<span class="hint" style="color:#b42318">Questo documento va anche al gruppo di verifica, ma non trovo la pratica di asseverazione collegata al protocollo (o i tecnici non hanno e-mail in anagrafica): aggiungili a mano.</span>` : ''}
       </div>
 
@@ -292,7 +308,9 @@ export async function apriDialogoMail(p, modo = 'avviso') {
         </div>
         ${avviso ? '<span class="hint">Di norma non serve: il documento è suo, ce l&rsquo;ha già.</span>'
           : protocollato ? '<span class="hint">Proposti i timbrati: è la copia protocollata che deve uscire.</span>' : ''}
-      </div>` : `<p class="hint" style="margin:0 0 12px">Nessun documento su Drive collegato a questo protocollo${protocollato ? ': la mail partirebbe senza allegati' : ''}.</p>`}
+      </div>` : eAll
+        ? '<p class="hint" style="margin:0 0 12px;color:#b42318">⚠ Non sono riuscito a leggere i documenti collegati al protocollo: la mail partirebbe senza allegati. Chiudi e riprova.</p>'
+        : `<p class="hint" style="margin:0 0 12px">Nessun documento su Drive collegato a questo protocollo${protocollato ? ': la mail partirebbe senza allegati' : ''}.</p>`}
 
       ${protocollato ? `
       <div class="field" style="margin-bottom:10px">
@@ -351,6 +369,8 @@ export async function apriDialogoMail(p, modo = 'avviso') {
   const disegnaIndirizzi = () => {
     const box = $('#m-indirizzi', bg);
     if (!voci.length) {
+      /* con una lettura fallita non si può dire «nessun indirizzo in anagrafica» */
+      if (guasti.length) { box.innerHTML = '<p class="hint" style="margin:0">Nessun indirizzo proposto: vedi l&rsquo;avviso qui sotto, scrivilo a mano.</p>'; return; }
       box.innerHTML = `<p class="hint" style="margin:0">Nessun indirizzo in anagrafica per ${chi || 'questo protocollo'}: aggiungilo dall&rsquo;ufficio, dalla ricerca o scrivilo a mano qui sotto.</p>`;
       return;
     }

@@ -41,13 +41,6 @@ export function normalizzaMezzo(v) {
   return v.trim();
 }
 
-export function normalizzaUfficio(v) {
-  const s = (v || '').trim();
-  if (!s) return '';
-  if (/segr.*sicurezza/i.test(s)) return 'Segreteria Area Sicurezza e Salute';
-  return s;
-}
-
 /* ── Rubrica interna, per l'inoltro dei protocollati ───────
    Chi in ufficio riceve normalmente un documento protocollato.
    Gli indirizzi vengono da app_ruoli e dall'anagrafica del

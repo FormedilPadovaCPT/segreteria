@@ -385,7 +385,12 @@ function formNomina(n, { prefill = {}, dopo } = {}) {
         let q = sb.from('s_nomine').select('access_id').eq('persona_id', riga.persona_id)
           .eq('ruolo_txt', riga.ruolo_txt).or(`data_fine.is.null,data_fine.gte.${oggiIso()}`);
         q = riga.impresa_id ? q.eq('impresa_id', riga.impresa_id) : q.is('impresa_id', null);
-        const { data: gia } = await q.limit(1);
+        const { data: gia, error: errGia } = await q.limit(1);
+        /* controllo doppioni non riuscito: non si salva alla cieca (26/09/2026) */
+        if (errGia) {
+          attendi(btn, false);
+          return toast('Non sono riuscito a controllare se la nomina esiste già: non registrata. Riprova.', 'err');
+        }
         if (gia?.length && !confirm('Questa persona ha già una nomina in corso con lo stesso ruolo per la stessa impresa. La registro comunque?')) {
           attendi(btn, false);
           return;
@@ -394,8 +399,13 @@ function formNomina(n, { prefill = {}, dopo } = {}) {
       /* access_id: la tabella è uno specchio di Access senza serial —
          si continua la numerazione manuale sopra i 90000, la fascia
          già usata per gli import fuori-Access */
-      const { data: mx } = await sb.from('s_nomine').select('access_id').gte('access_id', 90000)
+      const { data: mx, error: errMx } = await sb.from('s_nomine').select('access_id').gte('access_id', 90000)
         .order('access_id', { ascending: false }).limit(1);
+      /* senza il massimo si ripartirebbe da 90001, un numero già usato */
+      if (errMx) {
+        attendi(btn, false);
+        return toast("Non sono riuscito a leggere l'ultimo numero di nomina: non registrata. Riprova.", 'err');
+      }
       riga.access_id = Math.max(90000, (mx?.[0]?.access_id || 90000)) + 1;
       riga.data_reg = oggiIso();
       ({ error } = await sb.from('s_nomine').insert(riga));
