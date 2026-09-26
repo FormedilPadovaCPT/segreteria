@@ -76,6 +76,13 @@ test('ogni tipo di richiesta porta la causale con cui finirà in banca ore', () 
   assert.ok(righe.length >= 6, 'attesi almeno sei tipi di richiesta');
   for (const r of righe) {
     assert.match(r, /causale: '[^']+'/, `riga senza causale: ${r.trim()}`);
+    /* le ore supplementari (24/09/2026) non attingono a nessun monte: il
+       lavoratore sceglie prima fra banca ore e busta paga (campo compenso).
+       Sono l'UNICA eccezione: ogni altro tipo deve dichiarare il suo monte */
+    if (r.includes("tipo: 'supplementari'")) {
+      assert.match(r, /monte: null/, `le ore supplementari non devono scalare un monte: ${r.trim()}`);
+      continue;
+    }
     assert.match(r, /monte: '[^']+'/, `riga senza monte: ${r.trim()}`);
   }
   // e la causale dichiarata deve essere una di quelle proposte all'ufficio
