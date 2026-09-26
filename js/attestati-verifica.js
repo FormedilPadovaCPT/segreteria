@@ -11,7 +11,7 @@
      finire dentro il QR. Dieci caratteri da un alfabeto senza 0/O/1/I
      (32 simboli, 50 bit): non si indovina, e si detta senza equivoci.
    - I dati li copia sul progetto Servizi la funzione attestati-verifica
-     (vedi aggiornaVerificaPubblica in corsi.js); il codice in chiaro non
+     (vedi aggiornaVerificaPubblica in corsi-attestati.js); il codice in chiaro non
      esce mai, va solo la sua impronta.
    - Gli attestati storici (numero senza «/») non hanno codice né pagina:
      il loro QR resta testo, e senza codice fiscale.
