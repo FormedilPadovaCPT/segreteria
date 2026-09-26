@@ -211,7 +211,10 @@ export async function render() {
   const pFatture = (async () => { try {
     const meseCorr = oggi.slice(0, 7);
     const [{ data: im, error: eIm }, { data: ft, error: eFt }] = await Promise.all([
-      sb.from('s_incarichi_mensili').select('id, tecnico_nome, anno, mese, stato').eq('stato', 'aperto').order('anno').order('mese').limit(200),
+      /* solo i tecnici attivi (26/09/2026, chiesto dall'utente): il mese
+         aperto di chi non lavora più con noi (Canova, luglio) compariva qui
+         «da chiudere» ma non nella pagina del mese, che elenca i soli attivi */
+      sb.from('s_incarichi_mensili').select('id, tecnico_nome, anno, mese, stato, tecnici!inner(attivo)').eq('stato', 'aperto').eq('tecnici.attivo', true).order('anno').order('mese').limit(200),
       sb.from('s_fatture_tecnici').select('id, tecnico_nome, numero, importo, stato, data_ricevimento, avviso_appr_il, avviso_appr_esito').in('stato', ['ricevuta', 'verificata', 'approvata', 'standby']).order('id', { ascending: false }).limit(100),
     ]);
     if (eIm || eFt) nonLetti.add('fatture');
