@@ -663,6 +663,9 @@ async function chiudiMese(t, inc) {
         <button class="btn btn-ghost" id="cm-anteprima">📄 Anteprima riepilogo (senza protocollo)</button>
         <button class="btn btn-primary" id="cm-congela">🧊 Congela le prestazioni, protocolla il riepilogo e prepara la mail</button>
       </div>
+      ${inc && inc.stato === 'aperto' ? `<div class="dt-doc-riga" style="margin-top:12px"><strong>Nel mese non c'è niente da fatturare?</strong>
+        <button class="btn btn-ghost btn-sm" id="cm-senza" style="margin-left:6px" data-aiuto="Chiude il mese dell'incarico senza riepilogo: niente protocollo, niente mail al tecnico, totale zero. Il motivo resta scritto sull'incarico; si riapre dalla scheda dell'incarico.">🗂 Chiudi il mese senza attività</button>
+        <br><span class="hint">Per un tecnico che nel mese non ha fatto nulla: il mese si chiude a zero con il motivo, senza riepilogo né mail. Le prestazioni eventualmente spuntate qui sopra non vengono toccate.</span></div>` : ''}
       <p class="hint" style="margin-top:8px">Il riepilogo va al tecnico con cc Amministrazione (${esc(conf.amministrazione_email || 'amministrazione@formedilpadova.it')}); l'invio resta a te da Outlook.
         Le prestazioni congelate restano «aperte» finché non arriva la fattura che le paga.</p>`;
 
@@ -693,6 +696,34 @@ async function chiudiMese(t, inc) {
       } catch (e) { toast(e.message, 'err'); } finally { attendi(ev.currentTarget, false); }
     });
     $('#cm-congela').addEventListener('click', async (ev) => { ricalcola(); await congelaEInvia(t, inc, anno, mese, righe.filter((r) => r.sel), fisc, $('#cm-note').value, ev.currentTarget); });
+    /* ── mese senza attività (26/09/2026) ──
+       Il congela esige almeno una prestazione: un tecnico che nel mese non ha
+       fatto nulla (Camuffo ad agosto) restava «mese da chiudere» per sempre.
+       Si chiude a zero, scrivendo perché, senza protocollo né mail: un
+       riepilogo vuoto al tecnico non serve a nessuno. */
+    $('#cm-senza')?.addEventListener('click', async (ev) => {
+      ricalcola();
+      const nSel = righe.filter((r) => r.sel).length;
+      const motivo = prompt(`Perché il mese di ${MESI[mese - 1]} ${anno} di ${nomeTec(t)} si chiude senza attività?\nResta scritto sull'incarico.`,
+        'Nessuna attività svolta nel mese: niente da fatturare.');
+      if (motivo == null) return;
+      if (!motivo.trim()) return toast('Serve il motivo.', 'err');
+      if (!confirm(`Chiudo ${MESI[mese - 1]} ${anno} di ${nomeTec(t)} a zero, senza riepilogo né mail.${nSel ? `\n\nAttenzione: ${nSel} prestazioni sono spuntate e NON verranno congelate; restano da fatturare in un mese successivo.` : ''}`)) return;
+      attendi(ev.currentTarget, true, 'Chiudo…');
+      try {
+        const nota = `${oggiIso().split('-').reverse().join('/')} chiuso senza attività da ${state.email}: ${motivo.trim()}`;
+        const { error } = await sb.from('s_incarichi_mensili').update({
+          stato: 'chiuso', chiuso_il: new Date().toISOString(), chiuso_da: state.email,
+          totale_netto: 0, totale_lordo: 0, cantieri_visitati: 0,
+          note: inc.note ? `${inc.note}\n${nota}` : nota,
+          aggiornato_da: state.email, updated_at: new Date().toISOString(),
+        }).eq('id', inc.id).eq('stato', 'aperto');
+        if (error) throw new Error(error.message);
+        toast(`${MESI[mese - 1]} ${anno} di ${nomeTec(t)} chiuso senza attività.`, 'ok');
+        chiudiDrawer();
+        await renderMese();
+      } catch (e) { toast(e.message, 'err'); attendi(ev.currentTarget, false); }
+    });
     /* ── «non si fatturano più» ──
        Le arretrate a cui si è tolta la spunta non spariscono da sole: al
        giro dopo tornerebbero tutte. Qui si dichiara che non vanno pagate,

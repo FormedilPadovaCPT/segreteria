@@ -177,6 +177,7 @@ window.AIUTO_TESTI = {
   'fi-pdf': 'Mostra la lettera di incarico del mese in PDF, senza protocollare.',
   'p:prepara integrazione': 'La lettera è già protocollata: prepara l\'integrazione con le visite aggiunte dopo.',
   'cm-chiudi-arr': 'Chiude le prestazioni arretrate senza spunta: non verranno più fatturate.',
+  'cm-senza': 'Chiude il mese a zero, per un tecnico che non ha fatto nulla: niente riepilogo, niente protocollo, niente mail; il motivo resta scritto sull’incarico.',
   'cm-congela': 'Congela le prestazioni del mese, protocolla il riepilogo e prepara la mail al tecnico: da qui il mese non si tocca più.',
   'ff-nuova': 'Registra una fattura ricevuta da un tecnico.',
   'ff-annulla': 'Annulla la fattura: resta visibile come annullata, le prestazioni tornano da fatturare.',
