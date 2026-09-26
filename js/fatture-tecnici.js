@@ -120,6 +120,23 @@ async function caricaBase() {
   ]);
   /* i tecnici veri: fuori le caselle di servizio e l'account di prova */
   tecnici = (tt || []).filter((t) => !/^(cpt|prova)/i.test(t.email || ''));
+  /* ...più chi non è più attivo ma ha ancora qualcosa in corso di pagamento
+     (26/09/2026, l'utente: «se vedo solo i tecnici attivi devo vedere le cose
+     che stanno in pagamento»). Canova, uscito il 15/07, aveva luglio aperto e
+     prestazioni non fatturate: il cruscotto lo dava da chiudere, qui spariva.
+     In pagamento = mese aperto, prestazione senza fattura e non chiusa, fattura
+     non ancora pagata né annullata. */
+  const [{ data: im }, { data: pr }, { data: fa }] = await Promise.all([
+    sb.from('s_incarichi_mensili').select('tecnico_id').eq('stato', 'aperto'),
+    sb.from('s_prestazioni').select('tecnico_id').is('fattura_id', null).is('chiusa_il', null).limit(5000),
+    sb.from('s_fatture_tecnici').select('tecnico_id').not('tecnico_id', 'is', null).not('stato', 'in', '(pagata,annullata,non_registrata)'),
+  ]);
+  const inCorso = new Set([...(im || []), ...(pr || []), ...(fa || [])].map((r) => r.tecnico_id).filter(Boolean));
+  const mancano = [...inCorso].filter((id) => !tecnici.some((t) => t.tecnico_id === id));
+  if (mancano.length) {
+    const { data: ex } = await sb.from('tecnici').select('tecnico_id, tecnico_cognome, tecnico_nome, titolo, email, attivo, tariffa_docenza').in('tecnico_id', mancano);
+    tecnici = [...tecnici, ...(ex || []).map((t) => ({ ...t, exTecnico: true }))];
+  }
   conf = Object.fromEntries((cfg || []).map((r) => [r.chiave, r.valore]));
   fiscale = ff || [];
 }
@@ -192,13 +209,14 @@ async function renderMese(hostArg) {
   const prec = new Date(anno, mese - 2, 1); const succ = new Date(anno, mese, 1);
   const isoM = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 
-  const righe = tecnici.map((t) => {
+  /* chi non è più attivo compare solo nei mesi in cui ha un incarico o visite */
+  const righe = tecnici.filter((t) => !t.exTecnico || incarichiMese.some((x) => x.tecnico_id === t.tecnico_id) || visite[t.tecnico_id]).map((t) => {
     const i = incarichiMese.find((x) => x.tecnico_id === t.tecnico_id);
     const v = visite[t.tecnico_id] || { n: 0, rlst: 0 };
     const fatt = i ? (fattDi[i.id] || []) : [];
     const pct = v.n ? Math.round((v.rlst / v.n) * 100) : 0;
     return `<tr data-tec="${t.tecnico_id}">
-      <td><strong>${esc(nomeTec(t))}</strong>${i?.area_zona ? ` <span class="hint">area ${esc(String(i.area_zona))}</span>` : ''}</td>
+      <td><strong>${esc(nomeTec(t))}</strong>${t.exTecnico ? ' <span class="hint">non più attivo</span>' : ''}${i?.area_zona ? ` <span class="hint">area ${esc(String(i.area_zona))}</span>` : ''}</td>
       <td>${i ? `n° ${i.id} · ${dataIt(i.data_lettera)}${i.lettera_protocollo_id ? ' · 📤' : ''}` : '<span class="hint">—</span>'}</td>
       <td>${i ? `${i.cantieri_assegnati ?? 0}${i.seconde_visite ? ` +${i.seconde_visite} 2ª` : ''}${i.altro ? ` +${i.altro} altro` : ''}` : '—'}</td>
       <td><strong>${v.n}</strong> <span class="hint">RLST ${pct}%</span></td>
