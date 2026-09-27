@@ -443,7 +443,13 @@ async function datiLettera(t, inc) {
      resta al tecnico solo il cantiere la cui ultima visita e' sua */
   const ultima = {};
   for (const v of vs || []) if (v.cantiere_id && !ultima[v.cantiere_id]) ultima[v.cantiere_id] = v;
-  const suoi = Object.values(ultima).filter((v) => v.tecnico_id === t.tecnico_id);
+  /* pratiche passate a un altro tecnico (27/09/2026, scheda «Tecnici e zone»):
+     il verbale resta di chi l'ha fatto, ma a tornare in cantiere è il nuovo */
+  const { data: pt, error: ept } = await sb.from('v_pendenze_titolari').select('visita_id, a_tecnico_id');
+  if (ept) throw new Error('non sono riuscito a leggere le pratiche passate ad altri tecnici: ' + ept.message);
+  const titolare = {};
+  for (const r of pt || []) titolare[r.visita_id] = r.a_tecnico_id;
+  const suoi = Object.values(ultima).filter((v) => (titolare[v.visita_id] || v.tecnico_id) === t.tecnico_id);
   const oggi = new Date(); oggi.setHours(0, 0, 0, 0);
   const limite = new Date(oggi); limite.setDate(limite.getDate() + 60);
 

@@ -120,6 +120,7 @@ export function mostraVista(nome) {
     form: '#view-form',
     imprese: '#view-imprese',
     'doc-tecnici': '#view-doc-tecnici',
+    'zone-tecnici': '#view-zone-tecnici',
     rlst: '#view-rlst',
     rls: '#view-rls',
     segnalazioni: '#view-segnalazioni',

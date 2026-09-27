@@ -101,6 +101,13 @@ async function vaiA(vista) {
     return mod.imprese.render();
   }
 
+  if (vista === 'zone-tecnici') {
+    mostraVista('zone-tecnici');
+    $('#zone-tecnici-host').innerHTML = '<p class="empty">Un istante…</p>';
+    mod['zone-tecnici'] = mod['zone-tecnici'] || await import('./zone-tecnici.js');
+    return mod['zone-tecnici'].render();
+  }
+
   if (vista === 'doc-tecnici') {
     mostraVista('doc-tecnici');
     $('#doc-tecnici-host').innerHTML = '<p class="empty">Un istante…</p>';

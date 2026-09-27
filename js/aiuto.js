@@ -254,6 +254,15 @@ window.AIUTO_TESTI = {
   'ant-ok': 'Applica il timbro nel punto scelto e salva il PDF timbrato su Drive.',
   'ant-auto': 'Cerca da solo uno spazio bianco sulla pagina dove mettere il timbro.',
   'm-invia': 'Apre in Outlook la bozza pronta, con allegati e firma: l\'invio lo fai tu.',
+  /* ── Tecnici e zone (27/09/2026) ── */
+  "t:tecnici e zone": "Le aree dei tecnici con comuni e quartieri di Padova, chi vede solo le sue visite, e le pratiche aperte rimaste senza un tecnico in zona.",
+  "t:passa l'area a…": "Da oggi l'area intera va a un altro tecnico: le sue visite aperte passano al nuovo, gli incarichi no. Chi l'aveva resta nello storico.",
+  "t:+ comune": "Mette un comune (o un quartiere di Padova) in quest'area da oggi. Se era in un'altra area, viene spostato con le sue visite aperte.",
+  "zt-conferma": "Da oggi il comune passa all'area scelta e le visite aperte al suo tecnico. Il verbale resta di chi l'ha fatto; gli incarichi si riassegnano a parte.",
+  "zt-aggiungi-ok": "Mette il comune nell'area da oggi. Se era altrove, lo sposta e ne passano anche le visite aperte.",
+  "zt-passa-ok": "L'area passa da oggi al tecnico scelto con le visite aperte dei suoi comuni. Gli incarichi restano dove sono.",
+  "zt-assegna-tutte": "Passa ogni pratica elencata al tecnico proposto (quello che oggi ha il comune). Quelle senza proposta restano da fare a mano.",
+  "t:assegna": "Da oggi è questo tecnico a dover tornare in cantiere per questa pratica. Il verbale resta di chi l'ha fatto.",
 };
 
 (function () {
