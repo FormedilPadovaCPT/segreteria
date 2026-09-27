@@ -8,7 +8,7 @@
 import {
   sb, state, $, $$, esc, dataIt, oggiIso, toast, attendi,
   mostraVista, apriDrawer, chiudiDrawer,
-  codiceProtocollo, protocolloEsteso,
+  codiceProtocollo, protocolloEsteso, perNominativo,
 } from './core.js';
 import { PAGE_SIZE } from './config.js';
 import { agganci, caricaFile, cestina, dove, idDaLink, risolviCartella, sfoglia, LIMITE_MB } from './drive.js';
@@ -1294,10 +1294,9 @@ async function cercaImprese(testo) {
 }
 
 async function cercaPersone(testo) {
-  const { data } = await sb.from('persone')
-    .select('persona_id, titolo, nome, cognome, qualifica')
-    .or(`cognome.ilike.%${testo}%,nome.ilike.%${testo}%`)
-    .limit(12);
+  const { data } = await perNominativo(sb.from('persone')
+    .select('persona_id, titolo, nome, cognome, qualifica'), testo)
+    .order('cognome').order('nome').limit(15);
   return (data || []).map((x) => ({
     ...x,
     etichetta: [x.cognome, x.titolo, x.nome].filter(Boolean).join(' '),

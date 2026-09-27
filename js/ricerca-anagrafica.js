@@ -15,7 +15,7 @@
    la riga intera — e' quella che serve a riempire i campi.
    ============================================================ */
 
-import { sb, $, esc } from './core.js';
+import { sb, $, esc, perNominativo } from './core.js';
 
 function collega(inputSel, boxSel, cerca, disegna, onScelta, vuoto) {
   const input = $(inputSel);
@@ -67,10 +67,10 @@ export function collegaRicercaImprese(inputSel, boxSel, onScelta) {
 export function collegaRicercaPersone(inputSel, boxSel, onScelta) {
   collega(inputSel, boxSel,
     async (q) => {
-      const { data } = await sb.from('persone')
-        .select('persona_id, cognome, nome, titolo, cf, email, telefono, telefono2, qualifica')
-        .or(`cognome.ilike.%${q}%,nome.ilike.%${q}%,cf.ilike.%${q}%`)
-        .order('cognome').limit(8);
+      const { data } = await perNominativo(sb.from('persone')
+        .select('persona_id, cognome, nome, titolo, cf, email, telefono, telefono2, qualifica'),
+        q, ['cognome', 'nome', 'cf'])
+        .order('cognome').order('nome').limit(15);
       return data;
     },
     (r) => `${esc([r.cognome, r.nome].filter(Boolean).join(' '))} <span class="hint">${esc(r.cf || r.email || '')}`

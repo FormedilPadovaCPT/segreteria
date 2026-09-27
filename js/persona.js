@@ -18,7 +18,7 @@
    abilitato, non si arricchiscono senza motivo.
    ============================================================ */
 
-import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, mostraVista } from './core.js';
+import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, mostraVista, perNominativo } from './core.js';
 import { collegaDoppioClickMail } from './eml.js';
 
 let corrente = null;   // persona aperta (null = ricerca)
@@ -80,10 +80,9 @@ async function cerca(testo) {
   const t = testo.trim();
   const box = $('#pe-esiti');
   if (t.length < 3) { box.innerHTML = '<p class="hint">Almeno 3 lettere.</p>'; return; }
-  const { data, error } = await sb.from('persone')
-    .select('persona_id, titolo, cognome, nome, cf, email, telefono, comune_res')
-    .or(`cognome.ilike.%${t}%,nome.ilike.%${t}%,cf.ilike.%${t}%`)
-    .order('cognome').limit(60);
+  const { data, error } = await perNominativo(sb.from('persone')
+    .select('persona_id, titolo, cognome, nome, cf, email, telefono, comune_res'), t, ['cognome', 'nome', 'cf'])
+    .order('cognome').order('nome').limit(60);
   if (error) { box.innerHTML = `<p class="empty">${esc(error.message)}</p>`; return; }
   box.innerHTML = data.length ? `
     <div class="table-wrap"><table class="tbl">

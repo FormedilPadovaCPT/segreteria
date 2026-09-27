@@ -59,6 +59,18 @@ let toastTimer;
    del 24/09/2026). Si cercano tutte e due; a parità vince la riga non
    eliminata, poi quella la cui chiave è la P.IVA. Stessa forma di risposta
    di maybeSingle(), così i chiamanti non cambiano. */
+/* Ricerca di un nominativo in anagrafica (27/09/2026, chiesto dall'utente): ogni parola scritta
+   deve stare nel cognome, nel nome (o nel codice fiscale), in qualunque ordine. «Luca Cesari»,
+   «Cesari Luca», «ces luc» trovano la stessa persona; prima si cercava il testo intero in un
+   campo solo, e «Luca Cesari» non trovava nessuno. Stessa regola del gestionale visite. */
+export function perNominativo(qb, testo, campi = ['cognome', 'nome']) {
+  const parole = [...new Set(String(testo || '').split(/\s+/)
+    .map((p) => p.replace(/[,()*%\\.:"']/g, '').trim()).filter((p) => p.length >= 2))].slice(0, 4);
+  if (!parole.length) return qb.in(campi[0], []);   // niente di cercabile: nessun risultato
+  parole.forEach((p) => { qb = qb.or(campi.map((c) => `${c}.ilike.%${p}%`).join(',')); });
+  return qb;
+}
+
 export async function impresaPerPiva(piva, colonne = 'impresa_id') {
   const v = String(piva || '').trim();
   if (!/^[0-9A-Za-z]+$/.test(v)) return { data: null, error: null };

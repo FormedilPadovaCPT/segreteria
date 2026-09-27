@@ -39,7 +39,7 @@
    mano. L'app non spedisce mai (scelta dell'utente, 09/09/2026).
    ============================================================ */
 
-import { sb, $, esc, dataIt, toast, attendi, codiceProtocollo } from './core.js';
+import { sb, $, esc, dataIt, toast, attendi, codiceProtocollo, perNominativo } from './core.js';
 import {
   RUBRICA_INTERNA, emailAssegnatario, testoProposto, salutoProposto, modelloProtocollato,
   oggettoProposto, MODELLI_PROTOCOLLATO,
@@ -467,9 +467,9 @@ export async function apriDialogoMail(p, modo = 'avviso') {
     const esito = $('#m-cerca-esito', bg);
     if (q.length < 3) { esito.innerHTML = ''; return; }
     timerCerca = setTimeout(async () => {
-      const { data } = await sb.from('persone').select(CAMPI_PERSONA + ', cf, qualifica')
-        .or(`cognome.ilike.%${q}%,nome.ilike.%${q}%,cf.ilike.%${q}%`)
-        .order('cognome').limit(8);
+      const { data } = await perNominativo(sb.from('persone').select(CAMPI_PERSONA + ', cf, qualifica'),
+        q, ['cognome', 'nome', 'cf'])
+        .order('cognome').order('nome').limit(15);
       const righe = data || [];
       esito.innerHTML = righe.length
         ? righe.map((r, k) => {

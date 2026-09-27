@@ -19,7 +19,7 @@
    niente, senza doppioni (CF, rapporto in corso, nomina in corso).
    ============================================================ */
 
-import { sb, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer } from './core.js';
+import { sb, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, perNominativo } from './core.js';
 
 export const QUALIFICHE = {
   operaio: 'Operaio', impiegato_tecnico: 'Impiegato tecnico',
@@ -133,10 +133,9 @@ export async function aggiungiPersona(impresa, dopo) {
     aggiungiPersona._t = setTimeout(async () => {
       const t = e.target.value.trim().replace(/[,()]/g, ' ');
       if (t.length < 3) return ($('#ap-esiti').innerHTML = '');
-      const { data, error } = await sb.from('persone')
+      const { data, error } = await perNominativo(sb.from('persone')
         .select('persona_id, titolo, cognome, nome, cf, data_nascita')
-        .eq('elimina', 0)
-        .or(`cognome.ilike.%${t}%,nome.ilike.%${t}%,cf.ilike.${t}%`).order('cognome').limit(10);
+        .eq('elimina', 0), t, ['cognome', 'nome', 'cf']).order('cognome').order('nome').limit(15);
       if (error) return ($('#ap-esiti').innerHTML = `<span class="hint">Non sono riuscito a leggere l'anagrafica: ${esc(error.message)}</span>`);
       $('#ap-esiti').innerHTML = (data || []).length
         ? data.map((p, i) => `<button type="button" class="chip" data-i="${i}">${esc([p.cognome, p.nome].filter(Boolean).join(' '))}${p.cf ? ' · ' + esc(p.cf) : ''}</button>`).join(' ')

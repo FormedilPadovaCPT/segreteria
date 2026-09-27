@@ -13,7 +13,7 @@
    Sono fogli interni: non si protocollano.
    ============================================================ */
 
-import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer } from './core.js';
+import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, perNominativo } from './core.js';
 import { collegaDoppioClickMail } from './eml.js';
 
 let nomine = [];
@@ -289,9 +289,9 @@ function formNomina(n, { prefill = {}, dopo } = {}) {
     formNomina._tp = setTimeout(async () => {
       const t = e.target.value.trim();
       if (t.length < 3) return ($('#fn-persona-esiti').innerHTML = '');
-      const { data } = await sb.from('persone')
-        .select('persona_id, titolo, cognome, nome, cf')
-        .or(`cognome.ilike.%${t}%,nome.ilike.%${t}%`).order('cognome').limit(8);
+      const { data } = await perNominativo(sb.from('persone')
+        .select('persona_id, titolo, cognome, nome, cf'), t, ['cognome', 'nome', 'cf'])
+        .order('cognome').order('nome').limit(15);
       $('#fn-persona-esiti').innerHTML = (data || []).map((p) =>
         `<button type="button" class="chip" data-pid="${p.persona_id}" data-nome="${esc([p.cognome, p.titolo, p.nome].filter(Boolean).join(' '))}">${esc([p.cognome, p.nome].filter(Boolean).join(' '))}${p.cf ? ' · ' + esc(p.cf) : ''}</button>`).join(' ');
       $('#fn-persona-esiti').querySelectorAll('[data-pid]').forEach((b) => b.addEventListener('click', () => {
