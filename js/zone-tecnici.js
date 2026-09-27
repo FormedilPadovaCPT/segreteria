@@ -56,7 +56,15 @@ async function carica() {
   scoperte = rs.data || [];
 }
 
-const tecniciAttivi = () => tecnici.filter((t) => t.attivo !== false && !(t.elimina > 0));
+const tecniciAttivi = () => tecnici.filter((t) => t.attivo !== false && !(t.elimina > 0) && !/^prova\b/i.test(t.tecnico_cognome || ''));
+const conArea = (id) => titolari.some((x) => x.tecnico_id === id);
+/* elenco per le tendine: prima i tecnici che oggi hanno un'area, poi gli altri in servizio */
+function opzioniTecnici(sel) {
+  const opt = (t) => `<option value="${esc(t.tecnico_id)}" ${t.tecnico_id === sel ? 'selected' : ''}>${esc(`${t.tecnico_cognome || ''} ${t.tecnico_nome || ''}`.trim())}</option>`;
+  const tutti = tecniciAttivi();
+  const a = tutti.filter((t) => conArea(t.tecnico_id)), b = tutti.filter((t) => !conArea(t.tecnico_id));
+  return `<optgroup label="Con un'area oggi">${a.map(opt).join('')}</optgroup>` + (b.length ? `<optgroup label="Altri in servizio">${b.map(opt).join('')}</optgroup>` : '');
+}
 const titolariArea = (a) => titolari.filter((t) => t.area_id === a && t.tecnico_id);
 const areeInUso = () => aree.filter((a) => comuni.some((c) => c.area_id === a.area_id) || titolariArea(a.area_id).length);
 const nomeArea = (a) => {
@@ -98,8 +106,7 @@ export async function render() {
 
   const nonAttivi = scoperte.filter((s) => s.motivo === 'tecnico non più attivo');
   const fuori = scoperte.filter((s) => s.motivo !== 'tecnico non più attivo');
-  const opzTec = (sel) => tecniciAttivi().map((t) =>
-    `<option value="${esc(t.tecnico_id)}" ${t.tecnico_id === sel ? 'selected' : ''}>${esc(`${t.tecnico_cognome || ''} ${t.tecnico_nome || ''}`.trim())}</option>`).join('');
+  const opzTec = (sel) => opzioniTecnici(sel);
   const rigaScoperta = (s) => `<tr>
       <td>${esc(s.cantiere_label || '—')}<br><span class="muted">${esc(s.nr_verbale || '')} · visita ${dataIt(s.data_visita)}${s.quartiere ? ' · ' + esc(QNOME[s.quartiere] || '') : ''}</span></td>
       <td>${dataIt(s.data_rientro)} <span class="muted">${esc(s.categoria || '')}</span></td>
@@ -220,8 +227,7 @@ function apriPassa(area) {
   const tit = titolariArea(area).map((t) => nomeTec(t.tecnico_id)).join(' + ') || 'nessuno';
   apriDrawer(`Passa l'area ${area}`, '', `
     <p>Oggi l'area è di <strong>${esc(tit)}</strong>. Da oggi passa a:</p>
-    <div class="field"><select id="zt-nuovo-tec"><option value="">— scegli —</option>${tecniciAttivi().map((t) =>
-      `<option value="${esc(t.tecnico_id)}">${esc(`${t.tecnico_cognome || ''} ${t.tecnico_nome || ''}`.trim())}</option>`).join('')}</select></div>
+    <div class="field"><select id="zt-nuovo-tec"><option value="">— scegli —</option>${opzioniTecnici(null)}</select></div>
     <p class="hint">Le visite aperte di ${esc(tit)} nei comuni dell'area passano al nuovo tecnico. Gli incarichi no:
       si riassegnano da «Incarichi». Chi aveva l'area resta nello storico con la data di fine.</p>
     <div class="drawer-azioni"><button type="button" class="btn btn-primary" id="zt-passa-ok">Passa l'area</button></div>`);
