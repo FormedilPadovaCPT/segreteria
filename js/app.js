@@ -324,6 +324,8 @@ try {
     if ((errRuolo || !abilitato) && !soloDirettore && !soloAmministrazione) {
       await sb.auth.signOut();
       mostraLogin(`L'indirizzo ${state.email} non è abilitato all'app Segreteria. Chiedi l'abilitazione al coordinatore.`);
+    } else if (!(await (await import('./cambio-password.js')).obbligaCambioPassword())) {
+      /* cambio password obbligatorio non fatto (27/09/2026): l'app resta chiusa */
     } else {
       state.soloDirettore = soloDirettore;
       state.soloAmministrazione = soloAmministrazione;
