@@ -36,7 +36,7 @@ const VESTI = [
 const GRUPPI = [
   ['Protocollo', ['home', 'registro', 'nuovo-in', 'nuovo-out']],
   ['Servizi CPT', ['segnalazioni', 'visite', 'consulenze', 'conferenze', 'attestazioni', 'notifiche', 'rlst', 'rls']],
-  ['Tecnici', ['fatture-tecnici', 'doc-tecnici', 'stage']],
+  ['Tecnici', ['fatture-tecnici', 'doc-tecnici', 'zone-tecnici', 'stage']],
   ['Anagrafiche', ['imprese', 'persone', 'nomine']],
   ['Formazione e ufficio', ['corsi', 'presenze', 'comunicazione', 'statistiche']],
 ];
