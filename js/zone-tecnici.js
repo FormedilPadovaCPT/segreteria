@@ -21,6 +21,7 @@
    ============================================================ */
 
 import { sb, $, esc, dataIt, toast, attendi, apriDrawer, chiudiDrawer } from './core.js';
+import { indirizziEsenti, statoCasella } from './zone-visibilita.js';
 
 const QNOME = { 1: 'Q1 Centro', 2: 'Q2 Nord', 3: 'Q3 Est', 4: 'Q4 Sud-Est', 5: 'Q5 Sud-Ovest', 6: 'Q6 Ovest' };
 const etichettaComune = (c, q) => (q ? `PADOVA — ${QNOME[q] || 'Q' + q}` : c);
@@ -47,6 +48,11 @@ async function carica() {
     sb.from('tecnici').select('tecnico_id, tecnico_cognome, tecnico_nome, email, attivo, elimina, vede_solo_proprie').order('tecnico_cognome'),
     sb.rpc('pendenze_da_assegnare'),
   ]);
+  /* chi è segreteria vede sempre tutto: la casella sul suo nome non ha effetto.
+     Se i ruoli non si leggono la schermata resta quella di prima, e lo dice. */
+  const rr = await sb.from('app_ruoli').select('email, ruolo, stato');
+  esenti = rr.error ? null : indirizziEsenti(rr.data);
+  erroreRuoli = rr.error ? rr.error.message : '';
   const err = [ra, rc, rt, rtec, rs].find((r) => r.error);
   if (err) throw new Error(err.error.message);
   aree = ra.data || [];
@@ -56,6 +62,7 @@ async function carica() {
   scoperte = rs.data || [];
 }
 
+let esenti = null, erroreRuoli = '';
 const tecniciAttivi = () => tecnici.filter((t) => t.attivo !== false && !(t.elimina > 0) && !/^prova\b/i.test(t.tecnico_cognome || ''));
 const conArea = (id) => titolari.some((x) => x.tecnico_id === id);
 /* elenco per le tendine: prima i tecnici che oggi hanno un'area, poi gli altri in servizio */
@@ -98,11 +105,14 @@ export async function render() {
     </div>`;
   }).join('');
 
-  const vis = tecniciAttivi().map((t) => `<tr>
+  const vis = tecniciAttivi().map((t) => {
+    const c = statoCasella(t, esenti);
+    return `<tr>
       <td>${esc(`${t.tecnico_cognome || ''} ${t.tecnico_nome || ''}`.trim())}</td>
-      <td><label class="zt-vis"><input type="checkbox" class="zt-solo" data-tec="${esc(t.tecnico_id)}" ${t.vede_solo_proprie ? 'checked' : ''}>
-        vede solo le sue visite</label></td>
-    </tr>`).join('');
+      <td><label class="zt-vis${c.spenta ? ' zt-vis-spenta' : ''}"><input type="checkbox" class="zt-solo" data-tec="${esc(t.tecnico_id)}" ${c.spuntata ? 'checked' : ''} ${c.spenta ? 'disabled' : ''}>
+        vede solo le sue visite</label>${c.nota ? ` <span class="muted">— ${esc(c.nota)}</span>` : ''}</td>
+    </tr>`;
+  }).join('');
 
   const nonAttivi = scoperte.filter((s) => s.motivo === 'tecnico non più attivo');
   const fuori = scoperte.filter((s) => s.motivo !== 'tecnico non più attivo');
@@ -141,7 +151,8 @@ export async function render() {
     <h3>Chi vede che cosa</h3>
     <p class="hint">Con «vede solo le sue visite» il tecnico vede nel gestionale le visite in cui è principale o in affiancamento,
       più quelle dei cantieri della sua zona con una pratica aperta e dei suoi incarichi. Statistiche e mappa si calcolano su quelle.
-      Vale nel database, non solo nelle schermate.</p>
+      Vale nel database, non solo nelle schermate. <strong>Chi è segreteria vede sempre tutto</strong>: la sua casella è spenta.</p>
+    ${erroreRuoli ? `<p class="hint">Non sono riuscito a leggere i ruoli (${esc(erroreRuoli)}): non so dire chi è segreteria, le caselle sono tutte attive.</p>` : ''}
     <div class="table-wrap"><table class="tbl"><tbody>${vis}</tbody></table></div>`;
 
   host.querySelectorAll('.zt-comune').forEach((b) => b.addEventListener('click', () => apriSposta(Number(b.dataset.id))));
@@ -250,6 +261,9 @@ async function impostaVisibilita(c) {
   const { error } = await sb.rpc('tecnico_imposta_visibilita', { p_tecnico: c.dataset.tec, p_solo_proprie: c.checked });
   c.disabled = false;
   if (error) { c.checked = !c.checked; toast('Non salvato: ' + error.message, 'err'); return; }
+  const t = tecnici.find((x) => x.tecnico_id === c.dataset.tec);
+  if (t) t.vede_solo_proprie = c.checked;
+  if (t && statoCasella(t, esenti).esente) { toast(`${nomeTec(c.dataset.tec)}: spunta ${c.checked ? 'messa' : 'tolta'}. È segreteria, vede comunque tutto`, 'ok'); return render(); }
   toast(c.checked ? `${nomeTec(c.dataset.tec)} ora vede solo le sue visite` : `${nomeTec(c.dataset.tec)} vede di nuovo tutte le visite`, 'ok');
 }
 

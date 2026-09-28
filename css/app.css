@@ -576,3 +576,4 @@ tr.riga-ceiv{border-left:4px solid var(--ceiv);background:var(--ceiv-bg)}
 .zt-comune:hover{border-color:var(--arancio);background:var(--arancio-chiaro)}
 .zt-lista{margin:6px 0 10px 18px;font-size:12px}
 .zt-vis{display:inline-flex;gap:6px;align-items:center;cursor:pointer}
+.zt-vis-spenta{cursor:default;opacity:.6}
