@@ -108,7 +108,7 @@ window.AIUTO_TESTI = {
   'p:🎓 formazione mancante segnalata': 'Le segnalazioni partite da sole all\'ufficio corsi dai verbali con «contattare l\'ufficio corsi». Dalla tendina registri com\'è andata (contattata, iscritta, non interessata).',
   'cn-gira': 'Prepara la mail con il quesito per chi hai scelto nella tendina (di norma il coordinatore; un altro tecnico se lui lo chiede). La pratica passa «girata» a quella persona e la data riparte.',
   'cn-gira-a': 'A chi girare il quesito: coordinatore, tecnici in servizio, rubrica interna o un altro indirizzo.',
-  'cn-trasmetti': 'Prepara la mail con la risposta del coordinatore all\'impresa.',
+  'cn-trasmetti': 'Prende un numero di protocollo in uscita (se la risposta ne ha già uno riusa quello), deposita la mail nel vault e prepara la bozza per l\'impresa, con in copia il coordinatore e chi ha dato la risposta. Chiude la pratica. L\'invio lo fai tu da Outlook.',
   'cn-uscita': 'La consulenza richiede un sopralluogo: apre la richiesta di autorizzazione al Direttore, come per una visita.',
   'cn-protout': 'Prende il numero in uscita per la risposta e prepara la bozza mail.',
   'at-rilascia': 'Rilascia l\'attestazione: prende il numero in uscita, genera il PDF e prepara la mail all\'impresa. Dopo non si modifica.',

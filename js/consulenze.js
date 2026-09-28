@@ -23,10 +23,12 @@
    lavorazione), settore edile dall'ATECO.
    ============================================================ */
 
-import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo, impresaPerPiva, testoSpesa } from './core.js';
+import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo, siglaProtocollo, impresaPerPiva, testoSpesa } from './core.js';
 import { APP_URL } from './config.js';
-import { risolviCartella, leggiByte, idDaLink } from './drive.js';
+import { risolviCartella, caricaByte, leggiByte, idDaLink } from './drive.js';
 import { scaricaEml, FIRMA_SEGRETERIA } from './eml.js';
+import { componiEml } from './firma.js';
+import { chiHaRisposto, copiaRisposta } from './consulenze-destinatari.js';
 import { RUBRICA_INTERNA } from './lookups.js';
 
 let pratiche = [];
@@ -427,7 +429,7 @@ export async function apriPratica(id) {
     <hr style="margin:16px 0;border:0;border-top:1px solid var(--bordo)">
     ${!uscita ? `
     <h4 style="margin:0 0 6px">Il giro del quesito</h4>
-    <p class="hint" style="margin:0 0 10px">Quesito tecnico → a chi lo scegli (di norma il coordinatore; può chiedere di girarlo a un altro tecnico); la risposta la trasmette la segreteria.
+    <p class="hint" style="margin:0 0 10px">Quesito tecnico → a chi lo scegli (di norma il coordinatore; può chiedere di girarlo a un altro tecnico); la risposta la trasmette la segreteria, <strong>protocollata in uscita</strong>, con in copia il coordinatore e chi ha risposto.
       Se invece serve un sopralluogo, si passa alla corsia con autorizzazione.</p>
     ${p.stato === 'girata' && p.girata_a ? `<p class="hint" style="margin:0 0 8px">Adesso è in mano a <strong>${esc(nomeGirata(p.girata_a))}</strong>${p.girata_il ? ` dal ${dataIt(p.girata_il.slice(0, 10))}` : ''}: girandolo a un altro, la pratica passa a lui e la data riparte.</p>` : ''}
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
@@ -491,7 +493,8 @@ export async function apriPratica(id) {
       if ($('#cn-spesa')) agg.spesa_ordinaria = $('#cn-spesa').value === 'ordinaria';
       agg.esito_intervento = $('#cn-esitoint')?.value.trim() || null;
     }
-    if (agg.risposta && !p.risposta_da) agg.risposta_da = state.email;
+    /* chi salva non è chi ha risposto: se il quesito è stato girato, la risposta è di quella persona */
+    if (agg.risposta && !p.risposta_da) agg.risposta_da = chiHaRisposto(p, state.email);
     const { error } = await sb.from('s_consulenze').update(agg).eq('id', p.id);
     attendi(btn, false);
     if (error) return toast('Salvataggio non riuscito: ' + error.message, 'err');
@@ -554,21 +557,64 @@ ${FIRMA_SEGRETERIA}`,
     await render();
   });
 
-  $('#cn-trasmetti')?.addEventListener('click', async () => {
+  /* La risposta all'impresa esce PROTOCOLLATA, con in copia il coordinatore e chi
+     ha fornito la risposta (28/09/2026, regola dell'utente dopo la consulenza n. 2:
+     era partita senza numero e con in copia il solo coordinatore). Il numero si
+     chiede prima di comporre la mail; se la pratica ne ha già uno si riusa quello. */
+  $('#cn-trasmetti')?.addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
     const risposta = $('#cn-risposta').value.trim();
     if (!risposta) return toast('Scrivi (o incolla) prima la risposta.', 'err');
     if (!p.email && !confirm('La pratica non ha un indirizzo email: la bozza nascerà senza destinatario. Procedo?')) return;
-    const rl = [p.rl_titolo || 'Sig.', p.rl_nome, p.rl_cognome].filter(Boolean).join(' ');
-    scaricaEml({
-      to: p.email || '',
-      cc: coord ? [coord.email] : [],
-      oggetto: `Formedil Padova - Area Sicurezza e Salute - Riscontro alla Vostra richiesta di consulenza`,
-      corpo: `Spett.le ${(p.ragione_sociale || '').toUpperCase()},
+    const quesito = $('#cn-quesito').value.trim() || p.quesito || '';
+    const autore = chiHaRisposto(p, state.email);
+    const cc = copiaRisposta({ pratica: p, coordinatore: coord?.email, emailSegreteria: state.email });
+    const n = p.progressivo ?? `m${p.id}`;
+    if (!confirm(`${p.protocollo_out_id ? 'La risposta ha già un protocollo in uscita: lo riuso e rifaccio la bozza' : 'Protocollo in uscita la risposta e preparo la bozza'} per ${p.email || '(nessun indirizzo)'}.
+In copia: ${cc.join(', ') || 'nessuno'}.
+Risposta di: ${nomeGirata(autore) || autore}.
+Procedo?`)) return;
+
+    attendi(btn, true, 'Protocollo…');
+    try {
+      const rl = [p.rl_titolo || 'Sig.', p.rl_nome, p.rl_cognome].filter(Boolean).join(' ');
+      let prot;
+      if (p.protocollo_out_id) {
+        const r = await sb.from('s_protocollo').select('*').eq('id', p.protocollo_out_id).single();
+        if (r.error) throw new Error('Non sono riuscito a leggere il protocollo già collegato: ' + r.error.message);
+        prot = r.data;
+      } else {
+        const r = await sb.rpc('s_crea_protocollo', { p: {
+          direzione: 'OUT', data_prot: oggiIso(), data_doc: oggiIso(),
+          impresa_nome: p.ragione_sociale || null, impresa_id: p.impresa_id || null,
+          persona: [p.rl_cognome, p.rl_nome].filter(Boolean).join(' ') || null,
+          oggetto: 'Riscontro alla richiesta di consulenza',
+          note: risposta,
+          sintesi: `Risposta alla consulenza n° ${n} (risposta di ${nomeGirata(autore) || autore}). A: ${p.email || '—'}; cc: ${cc.join(', ') || '—'}.`,
+          ufficio: 'Segreteria Area Sicurezza e Salute', mezzo: 'e-mail',
+          tipo_doc_id: TIPO_DOC_CONS, cartella: PERCORSO_VAULT,
+        } });
+        if (r.error) throw new Error('Protocollazione non riuscita: ' + r.error.message);
+        prot = r.data;
+        /* il numero è preso: si lega subito alla pratica, così se quel che segue
+           fallisce il prossimo tentativo riusa questo e non ne consuma un altro */
+        const lega = await sb.from('s_consulenze').update({ protocollo_out_id: prot.id,
+          aggiornato_da: state.email, updated_at: new Date().toISOString() }).eq('id', p.id);
+        if (lega.error) throw new Error(`Protocollo ${codiceProtocollo(prot)} preso, ma non collegato alla pratica: ${lega.error.message}`);
+        p.protocollo_out_id = prot.id;
+      }
+
+      const bozza = {
+        to: p.email || '', cc,
+        oggetto: `Riscontro alla Vostra richiesta di consulenza Prot. ${siglaProtocollo(prot)}${rl ? ` - alla c.a. ${rl}` : ''}`,
+        corpo: `Protocollo N° ${siglaProtocollo(prot)} del ${dataIt(prot.data_prot)} — Segreteria Area Sicurezza e Salute
+
+Spett.le ${(p.ragione_sociale || '').toUpperCase()},
 ${rl ? `alla c.a. ${rl},` : ''}
 
 con riferimento al Vostro quesito${p.timestamp_modulo ? ` del ${dataIt(p.timestamp_modulo.slice(0, 10))}` : ''}:
 
-${$('#cn-quesito').value.trim() || p.quesito || ''}
+${quesito}
 
 Vi rispondiamo quanto segue:
 
@@ -578,15 +624,45 @@ Restiamo a disposizione per ulteriori chiarimenti.
 Distinti saluti.
 
 ${FIRMA_SEGRETERIA}`,
-      nomeFile: `risposta-consulenza-${p.progressivo ?? `m${p.id}`}.eml`,
-    });
-    await sb.from('s_consulenze').update({
-      risposta, risposta_da: p.risposta_da || (p.girata_a ? p.girata_a : state.email),
-      trasmessa_il: new Date().toISOString(), stato: 'chiusa',
-      aggiornato_da: state.email, updated_at: new Date().toISOString(),
-    }).eq('id', p.id);
-    toast('Bozza per l\'impresa scaricata: aprila da Outlook e premi Invia. Pratica chiusa.', 'ok');
-    await render();
+      };
+
+      /* la mail protocollata va anche nel vault: il protocollo è una mappa e deve
+         poter dire dov'è finito il documento. Se il deposito non riesce la bozza
+         si scarica lo stesso, e lo si dice. */
+      let depositata = '';
+      try {
+        const byte = new TextEncoder().encode(componiEml({ ...bozza, unsent: true }));
+        const cart = await risolviCartella(PERCORSO_VAULT);
+        if (!cart.id) throw new Error('cartella delle consulenze non trovata su Drive');
+        const nomeFile = `${oggiIso().replace(/-/g, '_')}_COMU_${slug(p.ragione_sociale) || 'impresa'}_riscontro-consulenza-${n}.eml`;
+        const su = await caricaByte(prot, nomeFile, byte, 'message/rfc822', cart.id);
+        const a = await sb.from('s_prot_allegati').insert({
+          protocollo_id: prot.id, nome: su.file_name || nomeFile, mime: 'message/rfc822',
+          dimensione: byte.length, principale: true, created_by: state.email,
+          drive_file_id: su.drive_file_id, drive_url: su.drive_url,
+        });
+        if (a.error) throw new Error(a.error.message);
+        const u = await sb.from('s_protocollo').update({ drive_file_id: su.drive_file_id, drive_url: su.drive_url,
+          mail_destinatari: [p.email, cc.length ? 'cc ' + cc.join(', ') : ''].filter(Boolean).join('; ') }).eq('id', prot.id);
+        if (u.error) throw new Error(u.error.message);
+      } catch (e) {
+        depositata = ` ⚠️ La mail NON è stata depositata nel vault (${e.message}): aggiungila a mano al protocollo.`;
+      }
+
+      scaricaEml({ ...bozza, nomeFile: `risposta-consulenza-${n}_${siglaProtocollo(prot)}.eml` });
+      const chiudi = await sb.from('s_consulenze').update({
+        quesito: quesito || null, risposta, risposta_da: autore,
+        trasmessa_il: new Date().toISOString(), stato: 'chiusa',
+        aggiornato_da: state.email, updated_at: new Date().toISOString(),
+      }).eq('id', p.id);
+      if (chiudi.error) throw new Error(`Bozza scaricata e protocollata (${codiceProtocollo(prot)}), ma la pratica non si è chiusa: ${chiudi.error.message}`);
+      toast(`Risposta protocollata (${codiceProtocollo(prot)}). Bozza scaricata, in copia ${cc.join(', ') || 'nessuno'}: aprila da Outlook e premi Invia. Pratica chiusa.${depositata}`, depositata ? 'err' : 'ok');
+      await render();
+    } catch (e) {
+      toast(e.message, 'err');
+    } finally {
+      attendi(btn, false);
+    }
   });
 
   $('#cn-uscita')?.addEventListener('click', async () => {
