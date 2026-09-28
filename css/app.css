@@ -61,7 +61,7 @@ h1,h2,h3{margin:0;font-weight:700}
 .login-msg.ok{color:var(--in)}
 .login-msg.err{color:var(--out)}
 .login-label-2{margin-top:14px}
-.login-card label.login-mostra{display:flex;align-items:center;gap:6px;margin:10px 0 0;font-weight:400;cursor:pointer}
+.login-card label.login-mostra{display:flex;align-items:center;gap:6px;margin:8px 0 12px;font-weight:400;cursor:pointer}
 .login-card label.login-mostra input{width:auto;margin:0;padding:0}
 .login-alt{margin:14px 0 0;font-size:12px;text-align:center;color:var(--testo-soft)}
 .btn-link{background:none;border:0;padding:0;font:inherit;font-size:12px;color:var(--arancio);

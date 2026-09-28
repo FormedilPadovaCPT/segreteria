@@ -254,6 +254,8 @@ $('#login-btn').addEventListener('click', accedi);
 $('#login-link').addEventListener('click', inviaLink);
 $('#login-email').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#login-pwd').focus(); });
 $('#login-pwd').addEventListener('keydown', (e) => { if (e.key === 'Enter') accedi(); });
+/* «Mostra la password» anche all'accesso (28/09/2026) */
+$('#login-mostra').addEventListener('change', (e) => { $('#login-pwd').type = e.target.checked ? 'text' : 'password'; });
 $('#logout-btn').addEventListener('click', async () => { await sb.auth.signOut(); location.reload(); });
 $('#menu-toggle').addEventListener('click', () => $('#sidebar').classList.toggle('is-open'));
 $('#drawer-close').addEventListener('click', chiudiDrawer);
