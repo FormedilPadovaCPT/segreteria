@@ -36,6 +36,7 @@ export async function obbligaCambioPassword() {
       <input id="cp-nuova" type="password" autocomplete="new-password">
       <label for="cp-ripeti" class="login-label-2">Ripeti la nuova password</label>
       <input id="cp-ripeti" type="password" autocomplete="new-password">
+      <label for="cp-mostra" class="login-mostra"><input id="cp-mostra" type="checkbox"> Mostra le password che sto scrivendo</label>
       <p class="login-alt">Almeno 10 caratteri, con lettere e numeri, diversa da quella di prima. Non mandarla per mail a nessuno.</p>
       <button id="cp-salva" class="btn btn-primary btn-block">Salva la nuova password</button>
       <p class="login-alt"><button id="cp-esci" type="button" class="btn-link">Esci</button></p>
@@ -50,7 +51,11 @@ export async function obbligaCambioPassword() {
     const btn = $id('cp-salva');
 
     $id('cp-esci').onclick = async () => { await sb.auth.signOut(); location.reload(); };
-    $id('cp-ripeti').onkeydown = (e) => { if (e.key === 'Enter') btn.click(); };
+    /* «Mostra le password» (28/09/2026): scopre tutti e due i campi */
+    $id('cp-mostra').onchange = (e) => {
+      for (const id of ['cp-nuova', 'cp-ripeti']) $id(id).type = e.target.checked ? 'text' : 'password';
+    };
+    $id('cp-ripeti').onkeydown =(e) => { if (e.key === 'Enter') btn.click(); };
 
     btn.onclick = async () => {
       const p1 = $id('cp-nuova').value || '';
