@@ -29,6 +29,9 @@
      · in qualità di / ruolo ← iscritto.ruolo / mansione
    ============================================================ */
 
+/* anche lui puro: i materiali da condividere con chi ha partecipato */
+import { testoMateriali } from './corsi-promemoria-testo.js';
+
 /* ── che cosa serve, e quanto ──
    `grave: true` = senza quel dato l'attestato esce sbagliato o
    incompleto, e va chiesto. `grave: false` = si può emettere lo
@@ -180,6 +183,8 @@ export function testoRichiestaDati({ corso, righe, modo = 'impresa', mittente = 
 export function testoInvioAttestati({ corso, righe, modo = 'impresa', mittente = 'La Segreteria' } = {}) {
   const r = righe || [];
   const una = r.length === 1;
+  /* i materiali del corso, con la data entro cui scaricarli (28/09/2026) */
+  const mat = testoMateriali(corso?.materiali, corso?.materiali_fino_al, { aPersona: modo === 'persona' });
   const titolo = corso?.titolo ? `«${corso.titolo}»` : 'il corso';
   const aPersona = modo === 'persona';
 
@@ -198,7 +203,7 @@ export function testoInvioAttestati({ corso, righe, modo = 'impresa', mittente =
       r.map((x) => `- ${x.nominativo}`).join('\n'),
     ];
 
-  return [...corpo, '', 'Grazie e cordiali saluti.', mittente]
+  return [...corpo, ...mat, '', 'Grazie e cordiali saluti.', mittente]
     .filter((x, i, a) => !(x === '' && a[i - 1] === ''))
     .join('\n');
 }

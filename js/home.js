@@ -114,6 +114,22 @@ export async function render() {
     if (error) backupErr = error.message; else backup = (data || [])[0] || null;
   } catch (e) { backupErr = e?.message || String(e); } })();
 
+  /* ── i promemoria delle lezioni (28/09/2026): partono da soli, quindi si
+     sorvegliano. Contano quelli NON partiti e gli iscritti senza indirizzo
+     delle lezioni ancora da fare, e il giro del mattino: se manca da più di
+     36 ore, o l'ultimo ha dato errore, lo si dice (il silenzio non è un esito). ── */
+  let prom = { righe: [], giro: null, corsiAccesi: 0 }, promErr = null;
+  const pProm = (async () => { try {
+    const [{ data: rr, error: e1 }, { data: gg, error: e2 }, { count: accesi, error: e3 }] = await Promise.all([
+      sb.from('s_corsi_promemoria').select('corso_id, giornata_id, iscritto_id, data_lezione, esito')
+        .gte('data_lezione', oggi).is('inviato_il', null).not('esito', 'is', null).limit(200),
+      sb.from('s_corsi_promemoria_giri').select('eseguito_il, errore').order('id', { ascending: false }).limit(1),
+      sb.from('s_corsi').select('id', { count: 'exact', head: true }).eq('stato', 'aperto').not('promemoria_giorni', 'is', null),
+    ]);
+    if (e1 || e2 || e3) promErr = (e1 || e2 || e3).message;
+    else prom = { righe: rr || [], giro: (gg || [])[0] || null, corsiAccesi: accesi || 0 };
+  } catch (e) { promErr = e?.message || String(e); } })();
+
   /* ── stato del canale del portale servizi (04/09/2026, rifatto il 13/09/2026) ──
      Un canale senza richieste nuove e' ambiguo: puo' voler dire che non ha
      scritto nessuno, o che il tubo e' rotto (incidente di agosto: Apps Script
@@ -248,7 +264,7 @@ export async function render() {
 
   /* 26/09/2026: le nove letture qui sopra sono indipendenti e partono insieme —
      prima erano una dopo l'altra, e sul telefono ogni giro di rete si sommava */
-  await Promise.all([pBacheca, pFlussi, pForm, pBackup, pCanale, pCritici, pQuest, pIscr, pEseguiti, pFatture]);
+  await Promise.all([pBacheca, pFlussi, pForm, pBackup, pProm, pCanale, pCritici, pQuest, pIscr, pEseguiti, pFatture]);
 
   /* documenti dei tecnici: lo stato si calcola come nella loro pagina —
      per ogni tecnico in griglia e ogni requisito conta il documento PIÙ
@@ -732,6 +748,32 @@ export async function render() {
             <span>Mai registrati nella pagina: ${docMancanti} document${docMancanti === 1 ? 'o' : 'i'} di ${docMancantiTec.size} tecnic${docMancantiTec.size === 1 ? 'o' : 'i'}</span>
             <span class="hm-mini">${docMancanti}</span></div>` : ''}`,
         vai('doc-tecnici', 'Apri i documenti tecnici'), { k: 'documenti', goto: 'doc-tecnici', sempre: docMancanti > 0, nonLetto: nonLetti.has('doc') })}
+
+      ${(() => {
+        if (promErr) return card('🔔 Promemoria delle lezioni', 0, '', '', { k: 'promemoria', nonLetto: true });
+        const ore = prom.giro ? (Date.now() - new Date(prom.giro.eseguito_il).getTime()) / 3_600_000 : null;
+        /* il giro fermo conta solo se c'è un corso che aspetta un promemoria */
+        const muto = prom.corsiAccesi > 0 && (ore === null || ore > 36);
+        const rotto = !!prom.giro?.errore;
+        const titoli = Object.fromEntries((corsi || []).map((c) => [c.id, c.titolo]));
+        const falliti = prom.righe.filter((r) => r.esito !== 'senza indirizzo');
+        const senza = prom.righe.filter((r) => r.esito === 'senza indirizzo');
+        const perCorso = (rr) => Object.entries(rr.reduce((m, r) => { (m[r.corso_id] = m[r.corso_id] || []).push(r); return m; }, {}));
+        const n = prom.righe.length;
+        const corpo = `
+          ${muto ? `<div class="hm-riga" style="color:#a01f00"><span>⚠</span><span><strong>Il giro del mattino non risulta</strong>${prom.giro ? ` dal ${dataIt(String(prom.giro.eseguito_il).slice(0, 10))}` : ''}: i promemoria potrebbero non essere partiti. Avvisa chi segue l'app.</span><span></span></div>` : ''}
+          ${rotto ? `<div class="hm-riga" style="color:#a01f00"><span>⚠</span><span><strong>L'ultimo giro ha dato errore</strong>: <span title="${esc(prom.giro.errore)}">${esc(String(prom.giro.errore).slice(0, 90))}</span></span><span></span></div>` : ''}
+          ${perCorso(falliti).map(([id, rr]) => `
+            <div class="hm-riga" data-vista-corso="${id}" style="color:#a01f00"><span>✉️</span>
+              <span><strong>${rr.length} ${rr.length === 1 ? 'promemoria NON partito' : 'promemoria NON partiti'}</strong> — corso n° ${id} ${esc((titoli[id] || '').slice(0, 45))}</span>
+              <span class="hint" title="${esc(rr[0].esito || '')}">${esc(String(rr[0].esito || '').slice(0, 40))}</span></div>`).join('')}
+          ${perCorso(senza).map(([id, rr]) => `
+            <div class="hm-riga" data-vista-corso="${id}"><span>📵</span>
+              <span><strong>${new Set(rr.map((r) => r.iscritto_id)).size} senza indirizzo</strong>, da avvisare a mano — corso n° ${id} ${esc((titoli[id] || '').slice(0, 45))}</span>
+              <span class="hint">lezione del ${dataIt(String(rr[0].data_lezione))}</span></div>`).join('')}`;
+        return card('🔔 Promemoria delle lezioni', (muto || rotto) && !n ? '!' : n, corpo,
+          vai('corsi', 'Apri i corsi'), { k: 'promemoria', goto: 'corsi', segno: prom.corsiAccesi ? `${prom.corsiAccesi} ${prom.corsiAccesi === 1 ? 'corso' : 'corsi'}` : '0' });
+      })()}
 
       ${card('📖 Formazione in corso', (corsi || []).length,
         (corsi || []).length

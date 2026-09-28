@@ -35,6 +35,8 @@ import { orarioGiornata } from './corsi-orari.js';
 import { datiMancantiAttestato, riassuntoMancanti } from './corsi-anagrafica.js';
 /* gli attestati (generazione, ristampa, invio, revoca, verifica pubblica)
    stanno a parte: corsi-attestati.js (26/09/2026) */
+/* promemoria delle lezioni e materiali da condividere (28/09/2026) */
+import { datiProm, sezioneProm, sezioneMateriali, collegaProm, GIORNI_PREDEFINITI } from './corsi-promemoria.js';
 import { chiediDatiAttestato, generaAttestati, ristampaAttestato, inviaAttestatoSingolo, inviaAttestati, revocaAttestato } from './corsi-attestati.js';
 
 let corsi = [];
@@ -67,7 +69,7 @@ async function carica() {
     sb.from('s_corsi').select('*').order('id', { ascending: false }),
     sb.from('s_progetti_formativi').select('*').order('id', { ascending: false }),
     sb.from('s_config').select('chiave, valore').in('chiave',
-      ['responsabile_formativo_nome', 'responsabile_formativo_firma_id', 'presidente_nome', 'presidente_firma_id', 'docenza_tariffa_default', 'attestati_verifica_url']),
+      ['responsabile_formativo_nome', 'responsabile_formativo_firma_id', 'presidente_nome', 'presidente_firma_id', 'docenza_tariffa_default', 'attestati_verifica_url', 'promemoria_corsi_giorni']),
     sb.from('s_corsi_iscritti').select('corso_id, attestato_numero'),
   ]);
   corsi = c || [];
@@ -244,6 +246,9 @@ function formCorso(c, prefill = {}) {
         impresa_txt: prefill.impresa_txt || null,
         conferenza_id: prefill.conferenza_id || null,
         stato: 'aperto',
+        /* un corso nuovo nasce col promemoria acceso (28/09/2026): si
+           cambia o si spegne dalla scheda, sezione «Promemoria» */
+        promemoria_giorni: Number(conf.promemoria_corsi_giorni) || GIORNI_PREDEFINITI,
       });
       const { data: nuovo, error } = await sb.from('s_corsi').insert(dati).select('id').single();
       if (error) { attendi(ev.currentTarget, false); return toast(error.message, 'err'); }
@@ -394,6 +399,7 @@ export async function apriCorso(id) {
   const quest = await datiQuest(c);
   const test = await datiTest(c);
   const iscr = await datiIscr(c);
+  const prom = await datiProm(c);
 
   const oreTot = c.durata_ore || (giornate || []).reduce((s, g) => s + oreGiornata(g), 0);
   const conAttestato = (iscritti || []).filter((i) => i.attestato_numero).length;
@@ -484,6 +490,8 @@ export async function apriCorso(id) {
     </table></div>
     <button class="btn btn-ghost btn-sm" id="co-addg" style="margin-top:6px">+ Giornata</button>
 
+    ${sezioneProm(c, giornate || [], iscritti || [], prom)}
+
     <hr style="margin:12px 0;border:0;border-top:1px solid var(--bordo)">
     <h4 style="margin:0 0 6px">🎙 Programma e docenti</h4>
     <div class="table-wrap"><table class="tbl">
@@ -535,6 +543,8 @@ export async function apriCorso(id) {
 
     ${sezioneTest(c, test, iscritti)}
 
+    ${sezioneMateriali(c)}
+
     <hr style="margin:12px 0;border:0;border-top:1px solid var(--bordo)">
     <h4 style="margin:0 0 6px">📄 Documenti del corso</h4>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -555,6 +565,7 @@ export async function apriCorso(id) {
   collegaIscr(c, iscr, () => apriCorso(c.id));
   collegaQuest(c, quest, iscritti, () => apriCorso(c.id));
   collegaTest(c, test, iscritti, () => apriCorso(c.id));
+  collegaProm(c, giornate || [], () => apriCorso(c.id));
   $('#co-dati').addEventListener('click', () => formCorso(c));
   $('#co-stato').addEventListener('change', async (e) => {
     const stato = e.target.value;
