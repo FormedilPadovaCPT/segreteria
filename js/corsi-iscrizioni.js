@@ -132,13 +132,14 @@ export function collegaIscr(c, iz, ricarica) {
   const b = (id, fn) => { const n = $(id); if (n) n.addEventListener('click', fn); };
 
   b('#iz-apri', async (ev) => {
+    const btn = ev.currentTarget;
     const posti = Number($('#iz-posti').value) || null;
     const vetrina = $('#iz-vetrina').checked;
-    attendi(ev.currentTarget, true);
+    attendi(btn, true);
     const { error } = await sb.rpc('iscr_apri', {
       p_corso_id: c.id, p_pubblico: vetrina, p_posti: posti, p_chiuso_il: null,
     });
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast(error.message, 'err');
     await pubblica(c, false);
     ricarica();
@@ -153,9 +154,10 @@ export function collegaIscr(c, iz, ricarica) {
   });
 
   b('#iz-vetrina-cambia', async (ev) => {
-    attendi(ev.currentTarget, true);
+    const btn = ev.currentTarget;
+    attendi(btn, true);
     const { error } = await sb.from('s_corsi').update({ iscr_pubblico: !iz.link?.pubblico }).eq('id', c.id);
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast(error.message, 'err');
     /* ⚠️ Cambiare la vetrina senza ripubblicare non si vedrebbe: il portale
        legge la copia, non il database del gestionale. */
@@ -163,13 +165,14 @@ export function collegaIscr(c, iz, ricarica) {
     ricarica();
   });
 
-  b('#iz-ripubblica', async (ev) => { attendi(ev.currentTarget, true); await pubblica(c, false); attendi(ev.currentTarget, false); ricarica(); });
+  b('#iz-ripubblica', async (ev) => { const btn = ev.currentTarget; attendi(btn, true); await pubblica(c, false); attendi(btn, false); ricarica(); });
 
   b('#iz-chiudi', async (ev) => {
+    const btn = ev.currentTarget;
     if (!confirm('Chiudo le iscrizioni? Il link smette di accettare richieste e l\'evento sparisce dalla vetrina.')) return;
-    attendi(ev.currentTarget, true);
+    attendi(btn, true);
     const { error } = await sb.rpc('iscr_chiudi', { p_corso_id: c.id });
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast(error.message, 'err');
     await pubblica(c, true);
     ricarica();
@@ -339,6 +342,7 @@ async function formIstruttoria(c, r, ricarica) {
     </div>`);
 
   $('#iz-conferma').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
     const scelte = (ist.persone || []).map((p) => {
       const az = $(`[data-iz-az="${p.i}"]`).value;
       const pid = $(`[data-iz-pid="${p.i}"]`).value;
@@ -355,12 +359,12 @@ async function formIstruttoria(c, r, ricarica) {
     if (!scelte.some((s) => s.azione === 'iscrivi')) {
       return toast('Non hai scelto nessuno da iscrivere: se non va iscritto nessuno, respingi la richiesta.', 'err');
     }
-    attendi(ev.currentTarget, true);
+    attendi(btn, true);
     const { data, error } = await sb.rpc('iscr_conferma', {
       p_id: r.id, p_scelte: scelte, p_impresa_id: null,
       p_note: $('#iz-nota').value.trim() || null,
     });
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast(error.message, 'err');
     toast(`Iscritti ${data.iscritti}${data.anagrafiche_nuove ? `, ${data.anagrafiche_nuove} anagrafiche nuove` : ''}${
       data.rapporti_registrati ? `, ${data.rapporti_registrati} rapporti registrati` : ''}.`, 'ok');
@@ -369,11 +373,12 @@ async function formIstruttoria(c, r, ricarica) {
   });
 
   $('#iz-respingi').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
     const motivo = prompt('Perché la respingi? Resta scritto sulla richiesta.');
     if (!motivo || !motivo.trim()) return;
-    attendi(ev.currentTarget, true);
+    attendi(btn, true);
     const { error } = await sb.rpc('iscr_respingi', { p_id: r.id, p_motivo: motivo.trim() });
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast(error.message, 'err');
     await pubblica(c, true);
     ricarica();
@@ -406,6 +411,7 @@ function formAMano(c, ricarica) {
   });
 
   $('#im-salva').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
     const perConto = $('#im-conto').value;
     const persone = $('#im-persone').value.split('\n').map((r) => r.trim()).filter(Boolean).map((r) => {
       const [nom = '', cf = '', mans = ''] = r.split(';').map((x) => x.trim());
@@ -418,7 +424,7 @@ function formAMano(c, ricarica) {
       };
     }).filter((p) => p.cognome);
     if (!persone.length) return toast('Non hai scritto nessuna persona.', 'err');
-    attendi(ev.currentTarget, true);
+    attendi(btn, true);
     const { error } = await sb.from('s_iscrizioni').insert({
       corso_id: c.id, fonte: 'manuale', per_conto: perConto,
       ragione_sociale: perConto === 'impresa' ? ($('#im-rs').value.trim() || null) : null,
@@ -427,7 +433,7 @@ function formAMano(c, ricarica) {
       persone, note: $('#im-nota').value.trim() || null,
       note_ufficio: `Registrata a mano da ${state.email}`,
     });
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast(error.message, 'err');
     toast('Iscrizione messa in coda.', 'ok');
     ricarica();

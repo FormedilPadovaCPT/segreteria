@@ -323,9 +323,10 @@ function apriLinee() {
     <div class="field"><label>Indicazioni</label><textarea id="ln-testo" rows="10">${esc(linee)}</textarea></div>
     <button class="btn btn-primary" id="ln-salva" style="margin-top:10px">Salva</button>`);
   $('#ln-salva').addEventListener('click', async (ev) => {
-    attendi(ev.currentTarget, true);
+    const btn = ev.currentTarget;
+    attendi(btn, true);
     const { error } = await sb.from('s_config').update({ valore: $('#ln-testo').value.trim() || 'Nessuna indicazione particolare.', updated_at: new Date().toISOString(), updated_by: state.email }).eq('chiave', 'redazione_linee');
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast('Salvataggio non riuscito: ' + error.message, 'err');
     toast('Indicazioni salvate: la routine le leggerà lunedì.', 'ok');
     chiudiDrawer(); render();
@@ -372,16 +373,17 @@ function nuovoPost() {
     <button class="btn btn-primary" id="np-crea" style="margin-top:10px">Crea la bozza</button>`);
   collegaFormato($('#drawer-body'));
   $('#np-crea').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
     const titolo = $('#np-titolo').value.trim();
     const testo = $('#np-testo').value.trim();
     if (!titolo || !testo) return toast('Servono titolo e testo.', 'err');
-    attendi(ev.currentTarget, true);
+    attendi(btn, true);
     const { data, error } = await sb.from('s_post').insert({
       pilastro: $('#np-pilastro').value, titolo, fonte: $('#np-fonte').value.trim() || null,
       testo_telegram: testo, testo_app: testo, data_programmata: $('#np-data').value || null,
       stato: 'bozza', creato_da: state.email, aggiornato_da: state.email,
     }).select('id').single();
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast('Creazione non riuscita: ' + error.message, 'err');
     toast('Bozza creata.', 'ok');
     filtro = 'bozza';
@@ -529,7 +531,7 @@ export async function apriPratica(id) {
       toast(canale === 'telegram' ? 'Copiato. Incollato in Telegram, grassetto, corsivo e barrato escono all\'invio; il sottolineato no.' : 'Copiato.', 'ok');
     } catch { toast('Copia non riuscita: seleziona il testo e copia a mano.', 'err'); }
   }));
-  $('#pd-salva').addEventListener('click', async (ev) => { attendi(ev.currentTarget, true); await salva(); attendi(ev.currentTarget, false); });
+  $('#pd-salva').addEventListener('click', async (ev) => { const btn = ev.currentTarget; attendi(btn, true); await salva(); attendi(btn, false); });
   $('#pd-approva')?.addEventListener('click', async (ev) => {
     attendi(ev.currentTarget, true);
     if (await salva({ stato: 'approvato', scarto_motivo: null }, 'Approvato: ora si può pubblicare.')) apriPratica(id);
@@ -570,10 +572,11 @@ export async function apriPratica(id) {
     }
   });
   document.querySelectorAll('.pd-img-togli').forEach((b) => b.addEventListener('click', async (ev) => {
-    const i = Number(ev.currentTarget.dataset.i);
-    attendi(ev.currentTarget, true);
+    const btn = ev.currentTarget;
+    const i = Number(btn.dataset.i);
+    attendi(btn, true);
     const { data, error } = await sb.functions.invoke('redazione-social', { body: { op: 'immagine_rimuovi', id, indice: i } });
-    if (error || data?.error) { attendi(ev.currentTarget, false); return toast('Immagine: ' + await messaggioErrore(error, data), 'err'); }
+    if (error || data?.error) { attendi(btn, false); return toast('Immagine: ' + await messaggioErrore(error, data), 'err'); }
     toast('Immagine tolta.', 'ok');
     await render(); apriPratica(id);
   }));

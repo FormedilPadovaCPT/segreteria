@@ -83,18 +83,19 @@ function nuovaImpresa() {
   collegaAutocompletamento({ nome: '#ni-nome', comune: '#ni-comune', prov: '#ni-prov', cap: '#ni-cap', forma: '#ni-forma' });
   agganciaComuni('#ni-comune', '#ni-dl-comune');
   $('#ni-crea').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
     const nome = $('#ni-nome').value.trim();
     const id = $('#ni-id').value.trim().toUpperCase().replace(/\s/g, '');
     if (!nome || !id) return toast('Servono ragione sociale e codice fiscale/P.IVA.', 'err');
-    attendi(ev.currentTarget, true);
+    attendi(btn, true);
     const { data: gia, error: errGia } = await sb.from('imprese').select('impresa_id').eq('impresa_id', id).maybeSingle();
     /* controllo doppioni non riuscito: ci si ferma (26/09/2026) */
     if (errGia) {
-      attendi(ev.currentTarget, false);
+      attendi(btn, false);
       return toast("Non sono riuscito a controllare se l'impresa esiste già: non creata. Riprova.", 'err');
     }
     if (gia) {
-      attendi(ev.currentTarget, false);
+      attendi(btn, false);
       toast('Esiste già un\'impresa con questo codice: la apro.', 'err');
       return apriScheda(id);
     }
@@ -111,7 +112,7 @@ function nuovaImpresa() {
       impresa_email_ref: $('#ni-email').value.trim() || null,
       note_access: `Creata a mano dalla maschera Imprese (${state.email}, ${new Date().toISOString().slice(0, 10)})`,
     });
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast('Creazione non riuscita: ' + error.message, 'err');
     toast('Impresa creata.', 'ok');
     apriScheda(id);
@@ -761,6 +762,7 @@ function tabAnagrafica() {
    righe ha spostato. Solo la segreteria. */
 function agganciaCambioChiave() {
   $('#ia-cambia-chiave')?.addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
     const attuale = scheda.impresa.impresa_id;
     const nuovo = (window.prompt(
       `Nuovo codice fiscale (chiave) per «${scheda.impresa.impresa_nome}».\n\n` +
@@ -784,9 +786,9 @@ function agganciaCambioChiave() {
       'Verranno spostate sul codice nuovo tutte le righe collegate (visite, presenze in cantiere, cantieri e pratiche di asseverazione, ' +
       'protocolli, richieste dei servizi, corsi, persone, ATECO). Il codice vecchio resta come partita IVA se lo era. ' +
       'Se qualcosa non torna, non viene cambiato nulla.')) return;
-    attendi(e.currentTarget, true, 'Cambio in corso…');
+    attendi(btn, true, 'Cambio in corso…');
     const { data, error } = await sb.rpc('s_cambia_id_impresa', { p_vecchio: attuale, p_nuovo: nuovo, p_motivo: motivo || null });
-    attendi(e.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast('Cambio non riuscito: ' + error.message, 'err');
     const dettaglio = Object.entries(data?.toccate || {}).map(([k, v]) => `${k}: ${v}`).join(', ');
     toast(`Chiave cambiata: ${data.vecchio} → ${data.nuovo}. Righe spostate: ${data.righe_spostate}${dettaglio ? ' (' + dettaglio + ')' : ''}.`, 'ok');
@@ -854,16 +856,17 @@ function agganciaCertificazioni() {
     return d;
   };
   host.querySelectorAll('[data-cert-salva]').forEach((b) => b.addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
     const tr = b.closest('tr'); const d = leggi(tr);
     if (!d.certificazione) return toast('Scegli il tipo di certificazione.', 'err');
     if ([d.data_certificato, d.data_fine, d.data_rinnovo].includes(false)) return toast('Una data non è riconosciuta: scrivila come gg/mm/aaaa.', 'err');
     if (d.data_certificato && d.data_fine && d.data_fine < d.data_certificato) return toast('La fine validità è prima della data del certificato.', 'err');
-    attendi(e.currentTarget, true);
+    attendi(btn, true);
     const id = b.dataset.certSalva;
     const { error } = id === 'nuova'
       ? await sb.from('imprese_certificazioni').insert({ impresa_id: scheda.impresa.impresa_id, ...d, updated_by: state.email })
       : await sb.from('imprese_certificazioni').update(d).eq('id', Number(id));
-    attendi(e.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast('Non salvato: ' + error.message, 'err');
     toast(id === 'nuova' ? 'Certificazione aggiunta.' : 'Certificazione salvata.', 'ok');
     apriScheda(scheda.impresa.impresa_id, 'anagrafica');
@@ -888,6 +891,7 @@ function agganciaAnagrafica() {
   agganciaCertificazioni();
 
   $('#ia-salva')?.addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
     const dati = {};
     $$('[data-campo]').forEach((el) => {
       if (el.readOnly) return;
@@ -902,22 +906,22 @@ function agganciaAnagrafica() {
 
     if (!Object.keys(dati).length && !riservatiCambiati) return toast('Nessuna modifica da salvare.');
 
-    attendi(e.currentTarget, true, 'Salvataggio…');
+    attendi(btn, true, 'Salvataggio…');
     if (Object.keys(dati).length) {
       const { data, error } = await sb.rpc('s_aggiorna_impresa', {
         p_id: scheda.impresa.impresa_id, p_dati: dati,
       });
-      if (error) { attendi(e.currentTarget, false); return toast('Salvataggio non riuscito: ' + error.message, 'err'); }
+      if (error) { attendi(btn, false); return toast('Salvataggio non riuscito: ' + error.message, 'err'); }
       toast(`Salvato: ${data.modificati} ${data.modificati === 1 ? 'campo modificato' : 'campi modificati'}.`, 'ok');
     }
     if (riservatiCambiati) {
       const { error } = await sb.rpc('s_imposta_contatti_riservati_impresa', {
         p_id: scheda.impresa.impresa_id, p_campi: riservatiNuovo,
       });
-      if (error) { attendi(e.currentTarget, false); return toast('Contatti riservati non salvati: ' + error.message, 'err'); }
+      if (error) { attendi(btn, false); return toast('Contatti riservati non salvati: ' + error.message, 'err'); }
       if (!Object.keys(dati).length) toast('Contatti riservati aggiornati.', 'ok');
     }
-    attendi(e.currentTarget, false);
+    attendi(btn, false);
     apriScheda(scheda.impresa.impresa_id, 'anagrafica');
   });
 }
@@ -948,15 +952,16 @@ function agganciaAteco() {
   });
 
   $('#ia-ateco-add')?.addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
     const codice = inp.value.trim();
     if (!/^[0-9]{2}(\.[0-9]{1,2}){0,2}$/.test(codice)) return toast('Scrivi un codice ATECO nella forma 43, 43.31 o 43.31.00.', 'err');
     const data_ateco = leggiData($('#ia-ateco-data').value);
     if (data_ateco === false) return toast('Data non riconosciuta: scrivila come gg/mm/aaaa.', 'err');
-    attendi(e.currentTarget, true);
+    attendi(btn, true);
     const { error } = await sb.from('imprese_ateco').insert({
       impresa_id: scheda.impresa.impresa_id, codice, data_ateco, fonte: `segreteria (${state.email})`,
     });
-    attendi(e.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast(/duplicate|unique/i.test(error.message) ? 'Questo codice, con questa data, c\'è già.' : 'Non salvato: ' + error.message, 'err');
     toast('Codice ATECO aggiunto.', 'ok');
     apriScheda(scheda.impresa.impresa_id, 'anagrafica');

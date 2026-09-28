@@ -247,10 +247,11 @@ function nuovaConsulenza() {
     <button class="btn btn-primary" id="nc-crea" style="margin-top:10px">Crea la pratica</button>`);
 
   $('#nc-crea').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
     const ragione = $('#nc-ragione').value.trim();
     const quesito = $('#nc-quesito').value.trim();
     if (!ragione || !quesito) return toast('Servono impresa e quesito.', 'err');
-    attendi(ev.currentTarget, true);
+    attendi(btn, true);
     const m = $('#nc-piva').value.match(/\d{10,11}/);
     const piva = m ? m[0].padStart(11, '0') : null;
     let impresaId = null;
@@ -287,7 +288,7 @@ function nuovaConsulenza() {
       ceiv_verificato_il: new Date().toISOString(),
       aggiornato_da: state.email,
     }).select('id').single();
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast('Creazione non riuscita: ' + error.message, 'err');
     toast(risposta && !uscita ? 'Consulenza registrata e chiusa.' : 'Pratica creata.', 'ok');
     await render();
@@ -469,7 +470,8 @@ export async function apriPratica(id) {
   `);
 
   $('#cn-salva').addEventListener('click', async (ev) => {
-    attendi(ev.currentTarget, true);
+    const btn = ev.currentTarget;
+    attendi(btn, true);
     const agg = {
       quesito: $('#cn-quesito').value.trim() || null,
       risposta: $('#cn-risposta').value.trim() || null,
@@ -491,7 +493,7 @@ export async function apriPratica(id) {
     }
     if (agg.risposta && !p.risposta_da) agg.risposta_da = state.email;
     const { error } = await sb.from('s_consulenze').update(agg).eq('id', p.id);
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast('Salvataggio non riuscito: ' + error.message, 'err');
     toast('Pratica aggiornata.', 'ok');
     /* tecnico cambiato con l'incarico già creato: riassegna e avvisa entrambi (08/09/2026) */
@@ -606,13 +608,14 @@ ${FIRMA_SEGRETERIA}`,
   $('#cn-cartacea')?.addEventListener('click', () => registraCartacea(p));
   $('#cn-conferma')?.addEventListener('click', () => mailConferma(p));
   $('#cn-lettera')?.addEventListener('click', async (ev) => {
-    attendi(ev.currentTarget, true);
+    const btn = ev.currentTarget;
+    attendi(btn, true);
     const { letteraIncaricoTecnico } = await import('./incarico-tecnico.js');
     const id = await letteraIncaricoTecnico({ tabella: 's_consulenze', pratica: p,
       campi: { ...campiIncarico(p, $('#cn-tecnico')?.value || p.tecnico_assegnato || p.tecnico_proposto), ...(await sedeImpresa(p)) },
       oggettoPratica: `consulenza n° ${p.progressivo ?? p.id} ${LUOGHI[p.luogo] ? '(' + LUOGHI[p.luogo].toLowerCase() + ') ' : ''}presso ${p.ragione_sociale || '?'}`,
       spesaTxt: testoSpesa(daMaschera(p)) });
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (id) { await render(); apriPratica(p.id); }
   });
 
@@ -776,8 +779,9 @@ function registraCartacea(p) {
     <div class="field"><label>Link Drive della scansione (facoltativo)</label><input id="cc-link"></div>
     <button class="btn btn-primary" id="cc-salva" style="margin-top:10px">Registra</button>`);
   $('#cc-salva').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
     const esito = $('#cc-esito').value;
-    attendi(ev.currentTarget, true);
+    attendi(btn, true);
     const fid = idDaLink($('#cc-link').value);
     const { error } = await sb.from('s_consulenze').update({
       aut_stato: esito, aut_modalita: 'cartacea',
@@ -787,7 +791,7 @@ function registraCartacea(p) {
       stato: esito === 'approvata' ? 'autorizzata' : 'scartata',
       aggiornato_da: state.email, updated_at: new Date().toISOString(),
     }).eq('id', p.id);
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast('Registrazione non riuscita: ' + error.message, 'err');
     if (esito === 'approvata') {
       const { creaIncaricoDaPratica } = await import('./incarico-tecnico.js');

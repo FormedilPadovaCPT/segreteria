@@ -316,26 +316,28 @@ function formIncarico(t, i) {
     aggiornato_da: state.email, updated_at: new Date().toISOString(),
   });
   $('#fi-salva').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
     const d = leggi();
     if (!d.data_lettera) return toast('Serve la data della lettera.', 'err');
-    attendi(ev.currentTarget, true);
+    attendi(btn, true);
     const q = i ? sb.from('s_incarichi_mensili').update(d).eq('id', i.id).select('*').single()
       : sb.from('s_incarichi_mensili').insert({ ...d, creato_da: state.email }).select('*').single();
     const { data: salvato, error } = await q;
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast('Salvataggio non riuscito: ' + error.message, 'err');
     toast(`Incarico n° ${salvato.id} salvato.`, 'ok');
     await renderMese();
     formIncarico(t, salvato);
   });
   $('#fi-pdf')?.addEventListener('click', async (ev) => {
-    attendi(ev.currentTarget, true);
+    const btn = ev.currentTarget;
+    attendi(btn, true);
     try {
       const d = await datiLettera(t, { ...i, ...leggi() });
       const { pdfLetteraIncarico } = await import('./fatture-tecnici-doc.js');
       const byte = await pdfLetteraIncarico({ ...i, ...leggi() }, { anteprima: true, data_prot: oggiIso() }, d);
       scaricaPdf(byte, `anteprima-incarico-${fileTec(t)}-${cursore}.pdf`);
-    } catch (e) { toast(e.message, 'err'); } finally { attendi(ev.currentTarget, false); }
+    } catch (e) { toast(e.message, 'err'); } finally { attendi(btn, false); }
   });
   $('#fi-invia')?.addEventListener('click', (ev) => inviaLettera(t, { ...i, ...leggi() }, ev.currentTarget));
 }
@@ -710,14 +712,15 @@ async function chiudiMese(t, inc) {
     $('#drawer-body').addEventListener('input', ricalcola);
     $('#drawer-body').addEventListener('change', ricalcola);
     $('#cm-anteprima').addEventListener('click', async (ev) => {
-      attendi(ev.currentTarget, true);
+      const btn = ev.currentTarget;
+      attendi(btn, true);
       try {
         ricalcola();
         const incX = inc || { anno, mese, cantieri_assegnati: 0, altro: 0 };
         const { pdfRiepilogo } = await import('./fatture-tecnici-doc.js');
         const byte = await pdfRiepilogo(incX, { anteprima: true, data_prot: oggiIso() }, datiRiepilogo(t, righe.filter((r) => r.sel), fisc, $('#cm-note').value));
         scaricaPdf(byte, `anteprima-riepilogo-${fileTec(t)}-${anno}-${String(mese).padStart(2, '0')}.pdf`);
-      } catch (e) { toast(e.message, 'err'); } finally { attendi(ev.currentTarget, false); }
+      } catch (e) { toast(e.message, 'err'); } finally { attendi(btn, false); }
     });
     $('#cm-congela').addEventListener('click', async (ev) => { ricalcola(); await congelaEInvia(t, inc, anno, mese, righe.filter((r) => r.sel), fisc, $('#cm-note').value, ev.currentTarget); });
     /* ── mese senza attività (26/09/2026) ──
@@ -726,6 +729,7 @@ async function chiudiMese(t, inc) {
        Si chiude a zero, scrivendo perché, senza protocollo né mail: un
        riepilogo vuoto al tecnico non serve a nessuno. */
     $('#cm-senza')?.addEventListener('click', async (ev) => {
+      const btn = ev.currentTarget;
       ricalcola();
       const nSel = righe.filter((r) => r.sel).length;
       const motivo = prompt(`Perché il mese di ${MESI[mese - 1]} ${anno} di ${nomeTec(t)} si chiude senza attività?\nResta scritto sull'incarico.`,
@@ -733,7 +737,7 @@ async function chiudiMese(t, inc) {
       if (motivo == null) return;
       if (!motivo.trim()) return toast('Serve il motivo.', 'err');
       if (!confirm(`Chiudo ${MESI[mese - 1]} ${anno} di ${nomeTec(t)} a zero, senza riepilogo né mail.${nSel ? `\n\nAttenzione: ${nSel} prestazioni sono spuntate e NON verranno congelate; restano da fatturare in un mese successivo.` : ''}`)) return;
-      attendi(ev.currentTarget, true, 'Chiudo…');
+      attendi(btn, true, 'Chiudo…');
       try {
         const nota = `${oggiIso().split('-').reverse().join('/')} chiuso senza attività da ${state.email}: ${motivo.trim()}`;
         const { error } = await sb.from('s_incarichi_mensili').update({
@@ -746,7 +750,7 @@ async function chiudiMese(t, inc) {
         toast(`${MESI[mese - 1]} ${anno} di ${nomeTec(t)} chiuso senza attività.`, 'ok');
         chiudiDrawer();
         await renderMese();
-      } catch (e) { toast(e.message, 'err'); attendi(ev.currentTarget, false); }
+      } catch (e) { toast(e.message, 'err'); attendi(btn, false); }
     });
     /* ── «non si fatturano più» ──
        Le arretrate a cui si è tolta la spunta non spariscono da sole: al
@@ -755,6 +759,7 @@ async function chiudiMese(t, inc) {
        riapre quando serve. Chiesto dall'utente il 21/09/2026, guardando
        le 42 arretrate del vecchio Access di Camuffo. */
     $('#cm-chiudi-arr')?.addEventListener('click', async (ev) => {
+      const btn = ev.currentTarget;
       ricalcola();
       const daChiudere = righe.filter((r) => r.arretrata && !r.sel && r.prestazione_id && !r.chiusa_il);
       if (!daChiudere.length) return toast('Togli la spunta alle arretrate che non si devono fatturare, poi riprova.', 'err');
@@ -764,13 +769,13 @@ async function chiudiMese(t, inc) {
       if (motivo == null) return;
       if (!motivo.trim()) return toast('Serve il motivo.', 'err');
       if (!confirm(`Chiudo ${daChiudere.length} attività di ${nomeTec(t)} per ${euro(tot)}: non entreranno più nei riepiloghi.\nSi riaprono dalla scheda «Prestazioni e storico».`)) return;
-      attendi(ev.currentTarget, true, 'Chiudo…');
+      attendi(btn, true, 'Chiudo…');
       try {
         const { data, error } = await sb.rpc('s_prestazioni_chiudi', { p_ids: daChiudere.map((r) => r.prestazione_id), p_motivo: motivo.trim() });
         if (error) throw new Error(error.message);
         toast(`${data} attività chiuse: non si fatturano più.`, 'ok');
         chiudiMese(t, inc);
-      } catch (e) { toast(e.message, 'err'); attendi(ev.currentTarget, false); }
+      } catch (e) { toast(e.message, 'err'); attendi(btn, false); }
     });
   };
   disegna();

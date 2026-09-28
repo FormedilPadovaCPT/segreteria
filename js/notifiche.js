@@ -167,10 +167,11 @@ function nuovaNotifica() {
     <button class="btn btn-primary" id="nn-crea" style="margin-top:10px">Crea la notifica</button>`);
 
   $('#nn-crea').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
     const chi = $('#nn-chi').value.trim();
     const comune = $('#nn-comcant').value.trim();
     if (!chi || !comune) return toast('Servono chi comunica e il comune del cantiere.', 'err');
-    attendi(ev.currentTarget, true);
+    attendi(btn, true);
     const m = $('#nn-commpiva').value.match(/\d{10,11}/);
     const piva = m ? m[0].padStart(11, '0') : null;
     let impresaId = null;
@@ -196,7 +197,7 @@ function nuovaNotifica() {
       tecnico_proposto: tecnicoDiZona(comune),
       aggiornato_da: state.email,
     }).select('id').single();
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast('Creazione non riuscita: ' + error.message, 'err');
     toast('Notifica registrata.', 'ok');
     await render();
@@ -289,7 +290,8 @@ export async function apriPratica(id) {
     }));
 
   $('#nt-salva').addEventListener('click', async (ev) => {
-    attendi(ev.currentTarget, true);
+    const btn = ev.currentTarget;
+    attendi(btn, true);
     const { error } = await sb.from('s_notifiche_cantiere').update({
       stato: $('#nt-stato').value,
       tecnico_assegnato: $('#nt-tecnico').value || null,
@@ -297,7 +299,7 @@ export async function apriPratica(id) {
       aggiornato_da: state.email,
       updated_at: new Date().toISOString(),
     }).eq('id', p.id);
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast('Salvataggio non riuscito: ' + error.message, 'err');
     toast('Pratica aggiornata.', 'ok');
     await render();

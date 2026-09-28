@@ -214,8 +214,9 @@ export async function dettaglioMandato(id) {
   $('#mp-pdf-visto')?.addEventListener('click', (ev) => apriPdf(m.visto_drive_file_id, ev.currentTarget));
 
   $('#mp-visto')?.addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
     if (!confirm(`Confermate la presa visione del mandato n° ${m.id} (${euro(m.totale)})?\nIl visto con la vostra firma resta registrato e torna alla segreteria.`)) return;
-    attendi(ev.currentTarget, true, 'Registro il visto…');
+    attendi(btn, true, 'Registro il visto…');
     try {
       const { data: v, error } = await sb.rpc('s_mandato_presa_visione', { p_id: m.id });
       if (error) throw new Error(error.message);
@@ -224,7 +225,7 @@ export async function dettaglioMandato(id) {
     } catch (e) {
       toast('Presa visione: ' + e.message, 'err');
     } finally {
-      attendi(ev.currentTarget, false);
+      attendi(btn, false);
       dettaglioMandato(m.id);
       if (state.vistaCorrente === 'amministrazione') render();
     }
@@ -236,6 +237,7 @@ export async function dettaglioMandato(id) {
      carta (s_mandato_visto_cartaceo). Stessa doppia strada delle
      autorizzazioni del Direttore. */
   $('#mp-carta')?.addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
     const nome = prompt('Chi ha firmato il mandato su carta?', m.visto_nome || 'Bertin Patrizia');
     if (nome == null) return;
     if (!nome.trim()) return toast('Serve il nome di chi ha firmato.', 'err');
@@ -244,25 +246,26 @@ export async function dettaglioMandato(id) {
     const q = risposta.trim().match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/);
     const data = q ? `${q[3]}-${q[2].padStart(2, '0')}-${q[1].padStart(2, '0')}` : '';
     if (!data || data > oggi()) return toast('Data non valida (e non può essere nel futuro).', 'err');
-    attendi(ev.currentTarget, true, 'Registro…');
+    attendi(btn, true, 'Registro…');
     try {
       const { error } = await sb.rpc('s_mandato_visto_cartaceo', { p_id: m.id, p_nome: nome.trim(), p_data: data });
       if (error) throw new Error(error.message);
       toast('Visto su carta registrato.', 'ok');
     } catch (e) { toast(e.message, 'err'); } finally {
-      attendi(ev.currentTarget, false);
+      attendi(btn, false);
       dettaglioMandato(m.id);
       if (state.vistaCorrente === 'amministrazione') render();
     }
   });
 
   $('#mp-rigenera')?.addEventListener('click', async (ev) => {
-    attendi(ev.currentTarget, true, 'Genero il PDF…');
+    const btn = ev.currentTarget;
+    attendi(btn, true, 'Genero il PDF…');
     try {
       await documentoVisto(m, fatture.map((f) => f.id));
       toast('PDF col visto depositato.', 'ok');
       dettaglioMandato(m.id);
-    } catch (e) { toast(e.message, 'err'); } finally { attendi(ev.currentTarget, false); }
+    } catch (e) { toast(e.message, 'err'); } finally { attendi(btn, false); }
   });
 
   const paga = async (btn, soloSpuntate) => {
@@ -291,8 +294,9 @@ export async function dettaglioMandato(id) {
   $('#mp-paga-sel')?.addEventListener('click', (ev) => paga(ev.currentTarget, true));
 
   $('#mp-riavvisa')?.addEventListener('click', async (ev) => {
-    attendi(ev.currentTarget, true, 'Invio…');
-    try { await inviaAvvisoPagamento(senzaAvviso.map((f) => f.id)); } finally { attendi(ev.currentTarget, false); dettaglioMandato(m.id); }
+    const btn = ev.currentTarget;
+    attendi(btn, true, 'Invio…');
+    try { await inviaAvvisoPagamento(senzaAvviso.map((f) => f.id)); } finally { attendi(btn, false); dettaglioMandato(m.id); }
   });
 }
 

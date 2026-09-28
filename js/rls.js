@@ -149,12 +149,13 @@ function nuovaComunicazione() {
     <button class="btn btn-primary" id="nc-crea" style="margin-top:10px">Registra la comunicazione</button>`);
 
   $('#nc-crea').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
     const ragione = $('#nc-ragione').value.trim();
     const cognome = $('#nc-rlscognome').value.trim();
     if (!ragione || !cognome) return toast('Servono ragione sociale e cognome dell\'RLS.', 'err');
     const m = $('#nc-piva').value.match(/\d{10,11}/);
     const piva = m ? m[0].padStart(11, '0') : null;
-    attendi(ev.currentTarget, true);
+    attendi(btn, true);
     let impresaId = null;
     if (piva) {
       const { data: imp } = await impresaPerPiva(piva);
@@ -193,7 +194,7 @@ function nuovaComunicazione() {
       persona_id: personaId,
       aggiornato_da: state.email,
     }).select('id').single();
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast('Registrazione non riuscita: ' + error.message, 'err');
     toast('Comunicazione registrata.', 'ok');
     await render();
@@ -322,7 +323,8 @@ async function apriComunicazione(id) {
   });
 
   $('#rc-crea-persona')?.addEventListener('click', async (ev) => {
-    attendi(ev.currentTarget, true);
+    const btn = ev.currentTarget;
+    attendi(btn, true);
     try {
       const { creaPersona, apriPersona } = await import('./persona.js');
       const pid = await creaPersona({
@@ -338,7 +340,7 @@ async function apriComunicazione(id) {
     } catch (e) {
       toast(e.message, 'err');
     } finally {
-      attendi(ev.currentTarget, false);
+      attendi(btn, false);
     }
   });
 
@@ -379,7 +381,8 @@ async function apriComunicazione(id) {
   $('#rc-eml')?.addEventListener('click', (ev) => riscaricaBozza(r, ev.currentTarget));
 
   $('#rc-salva').addEventListener('click', async (ev) => {
-    attendi(ev.currentTarget, true);
+    const btn = ev.currentTarget;
+    attendi(btn, true);
     const { error } = await sb.from('s_rls_anagrafe').update({
       stato: $('#rc-stato').value,
       fine_nomina: $('#rc-fine').value || null,
@@ -387,7 +390,7 @@ async function apriComunicazione(id) {
       aggiornato_da: state.email,
       updated_at: new Date().toISOString(),
     }).eq('id', r.id);
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast('Salvataggio non riuscito: ' + error.message, 'err');
     toast('Comunicazione aggiornata.', 'ok');
     render();

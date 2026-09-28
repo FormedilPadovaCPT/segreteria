@@ -361,7 +361,8 @@ async function inviaAttestati(c, giornate, interventi, iscritti, anagDi, impDi) 
     });
 
     $('#ia-eml').addEventListener('click', async (ev) => {
-      attendi(ev.currentTarget, true, 'Preparo…');
+      const btn = ev.currentTarget;
+      attendi(btn, true, 'Preparo…');
       let fatte = 0; const senza = []; const errori = [];
       for (const g of lista) {
         if (!$(`[data-grp="${g.n}"]`)?.checked) continue;
@@ -385,7 +386,7 @@ async function inviaAttestati(c, giornate, interventi, iscritti, anagDi, impDi) 
           fatte += 1;
         } catch (e) { errori.push(`${g.etichetta}: ${e.message}`); }
       }
-      attendi(ev.currentTarget, false);
+      attendi(btn, false);
       if (!fatte && !errori.length) return toast('Nessuna bozza: spunta almeno un gruppo e scrivi un destinatario.', 'err');
       toast(`${fatte} ${fatte === 1 ? 'bozza scaricata' : 'bozze scaricate'}`
         + (senza.length ? `; senza destinatario: ${senza.join(', ')}` : '')

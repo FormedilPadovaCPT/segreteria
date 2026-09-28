@@ -580,14 +580,15 @@ export function collegaTest(c, t, iscritti, ricarica) {
   }));
 
   body.querySelector('#tz-apri')?.addEventListener('click', async (ev) => {
-    attendi(ev.currentTarget, true);
+    const btn = ev.currentTarget;
+    attendi(btn, true);
     const { data, error } = await sb.rpc('test_apri', {
       p_corso_id: c.id,
       p_soglia: Number($('#tz-soglia').value) || 70,
       p_minuti: Number($('#tz-minuti').value) || 15,
       p_ore: 48,
     });
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast(error.message, 'err');
     const r = Array.isArray(data) ? data[0] : data;
     toast(`Test aperto: ${r?.codice}, ${r?.codici_personali} codici personali.`, 'ok');
@@ -596,19 +597,21 @@ export function collegaTest(c, t, iscritti, ricarica) {
   });
 
   body.querySelector('#tz-pubblica')?.addEventListener('click', async (ev) => {
-    attendi(ev.currentTarget, true);
+    const btn = ev.currentTarget;
+    attendi(btn, true);
     await pubblica(c, false);
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     ricarica();
   });
 
   body.querySelector('#tz-foglio')?.addEventListener('click', async (ev) => {
-    attendi(ev.currentTarget, true);
+    const btn = ev.currentTarget;
+    attendi(btn, true);
     try {
       const byte = await pdfFoglioTest(c, { codice: c.test_codice, link: t.link, domande: t.domande });
       scaricaPdf(byte, `${oggiIso().replace(/-/g, '_')}_MOD_Formedil-Padova_test-QR_corso-${c.id}.pdf`);
     } catch (e) { toast(e.message, 'err'); }
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
   });
 
   body.querySelector('#tz-codici')?.addEventListener('click', () => {
@@ -708,6 +711,7 @@ function formDomanda(c, t, d, ricarica) {
   aggiornaTipo();
 
   $('#td-salva').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
     const testo = $('#td-testo').value.trim();
     const tipo = $('#td-tipo').value;
     const punti = Number($('#td-punti').value) || 1;
@@ -717,7 +721,7 @@ function formDomanda(c, t, d, ricarica) {
     if (!testo) return toast('Serve il testo della domanda.', 'err');
     if (tipo !== 'testo' && (opzioni.length < 2 || opzioni.length > 8)) return toast('Da 2 a 8 risposte proposte.', 'err');
     if (tipo !== 'testo' && !corrette.length) return toast('Spunta quale risposta è giusta: senza, non si corregge.', 'err');
-    attendi(ev.currentTarget, true);
+    attendi(btn, true);
     const dati = { testo, tipo, punti, opzioni, corrette };
     const nellaParte = t.domande.filter((x) => String(x.parte_id ?? '') === String(parteId ?? ''));
     const { error } = esistente
@@ -727,7 +731,7 @@ function formDomanda(c, t, d, ricarica) {
         /* l'ordine conta dentro la sua verifica, non su tutto il corso */
         ordine: (nellaParte.length || 0) + 1,
       });
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast(error.message, 'err');
     /* si ripubblica quello che è cambiato: il modulo, o il test del corso */
     const pid = esistente?.parte_id ?? parteId;
@@ -789,14 +793,15 @@ function formConvalida(c, t, p, ricarica) {
     <button class="btn btn-primary" id="tc-salva" style="margin-top:6px">✔ Convalida</button>`);
 
   $('#tc-salva').addEventListener('click', async (ev) => {
-    attendi(ev.currentTarget, true);
+    const btn = ev.currentTarget;
+    attendi(btn, true);
     const { error } = await sb.rpc('test_convalida', {
       p_prova_id: p.id,
       p_esito: $('#tc-esito').value || null,
       p_punteggio: Number($('#tc-punti').value),
       p_note: $('#tc-note').value.trim() || null,
     });
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast(error.message, 'err');
     toast('Esito convalidato.', 'ok');
     ricarica();

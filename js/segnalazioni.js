@@ -330,10 +330,11 @@ function nuovaSegnalazione() {
     <button class="btn btn-primary" id="ns-crea" style="margin-top:10px">Crea la pratica</button>`);
 
   $('#ns-crea').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
     const notificante = $('#ns-notificante').value.trim();
     const motivo = $('#ns-motivo').value.trim();
     if (!notificante || !motivo) return toast('Servono segnalante e motivo.', 'err');
-    attendi(ev.currentTarget, true);
+    attendi(btn, true);
     const comune = $('#ns-comune').value.trim() || null;
     const { data: nuova, error } = await sb.from('s_segnalazioni').insert({
       fonte: $('#ns-fonte').value,
@@ -351,7 +352,7 @@ function nuovaSegnalazione() {
       tecnico_proposto: tecnicoDiZona(comune),
       aggiornato_da: state.email,
     }).select('id').single();
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast('Creazione non riuscita: ' + error.message, 'err');
     toast('Pratica creata.', 'ok');
     await render();
@@ -556,12 +557,13 @@ export async function apriPratica(id) {
   $('#sg-cartacea')?.addEventListener('click', () => registraCartacea(p));
   $('#sg-protin')?.addEventListener('click', () => protocollaIn(p));
   $('#sg-lettera')?.addEventListener('click', async (ev) => {
-    attendi(ev.currentTarget, true);
+    const btn = ev.currentTarget;
+    attendi(btn, true);
     const { letteraIncaricoTecnico } = await import('./incarico-tecnico.js');
     const id = await letteraIncaricoTecnico({ tabella: 's_segnalazioni', pratica: p,
       campi: campiIncarico(p, $('#sg-tecnico')?.value || p.tecnico_assegnato || p.tecnico_proposto),
       oggettoPratica: `visita su segnalazione n° ${p.progressivo ?? p.id}${p.comune_cantiere ? ' a ' + p.comune_cantiere : ''}` });
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (id) { await render(); apriPratica(p.id); }
   });
   $('#sg-riscontro')?.addEventListener('click', (ev) => preparaRiscontro(p, ev.currentTarget));
@@ -696,8 +698,9 @@ function registraCartacea(p) {
     <button class="btn btn-primary" id="ca-salva" style="margin-top:10px">Registra</button>`);
 
   $('#ca-salva').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
     const esito = $('#ca-esito').value;
-    attendi(ev.currentTarget, true);
+    attendi(btn, true);
     const fid = idDaLink($('#ca-link').value);
     const { error } = await sb.from('s_segnalazioni').update({
       aut_stato: esito,
@@ -711,7 +714,7 @@ function registraCartacea(p) {
       aggiornato_da: state.email,
       updated_at: new Date().toISOString(),
     }).eq('id', p.id);
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast('Registrazione non riuscita: ' + error.message, 'err');
     if (esito === 'approvata') {
       const { creaIncaricoDaPratica } = await import('./incarico-tecnico.js');

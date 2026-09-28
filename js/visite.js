@@ -336,9 +336,10 @@ function nuovaRichiesta() {
   });
 
   $('#nv-crea').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
     const ragione = $('#nv-ragione').value.trim();
     if (!ragione) return toast('Serve l\'impresa.', 'err');
-    attendi(ev.currentTarget, true);
+    attendi(btn, true);
     const m = $('#nv-piva').value.match(/\d{10,11}/);
     const piva = m ? m[0].padStart(11, '0') : null;
     /* se l'impresa e' stata scelta dall'anagrafica l'aggancio c'e' gia';
@@ -390,7 +391,7 @@ function nuovaRichiesta() {
       tecnico_proposto: tecnicoDiZona(comune),
       aggiornato_da: state.email,
     }).select('id').single();
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast('Creazione non riuscita: ' + error.message, 'err');
     toast('Pratica creata.', 'ok');
     await render();
@@ -545,7 +546,8 @@ export async function apriPratica(id) {
     }));
 
   $('#vs-salva').addEventListener('click', async (ev) => {
-    attendi(ev.currentTarget, true);
+    const btn = ev.currentTarget;
+    attendi(btn, true);
     const { error } = await sb.from('s_visite_richieste').update({
       stato: $('#vs-stato').value,
       tecnico_assegnato: $('#vs-tecnico').value || null,
@@ -558,7 +560,7 @@ export async function apriPratica(id) {
       aggiornato_da: state.email,
       updated_at: new Date().toISOString(),
     }).eq('id', p.id);
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast('Salvataggio non riuscito: ' + error.message, 'err');
     toast('Pratica aggiornata.', 'ok');
     /* tecnico cambiato con l'incarico già creato: riassegna e avvisa entrambi (08/09/2026) */
@@ -580,22 +582,24 @@ export async function apriPratica(id) {
   $('#vs-cartacea')?.addEventListener('click', () => registraCartacea(p));
   $('#vs-conferma')?.addEventListener('click', () => mailConferma(p));
   $('#vs-lettera')?.addEventListener('click', async (ev) => {
-    attendi(ev.currentTarget, true);
+    const btn = ev.currentTarget;
+    attendi(btn, true);
     const { letteraIncaricoTecnico } = await import('./incarico-tecnico.js');
     const id = await letteraIncaricoTecnico({ tabella: 's_visite_richieste', pratica: p,
       campi: campiIncarico(p, $('#vs-tecnico')?.value || p.tecnico_assegnato || p.tecnico_proposto),
       oggettoPratica: `${p.tipo_richiesta === 'serie' ? 'serie di visite' : 'visita'} n° ${p.progressivo ?? p.id} richiesta da ${p.ragione_sociale || '?'}`,
       spesaTxt: testoSpesa(daMaschera(p)) });
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (id) { await render(); apriPratica(p.id); }
   });
   $('#vs-incarico')?.addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
     /* per le autorizzazioni registrate a posteriori, che non passano dal gancio automatico */
     const email = $('#vs-tecnico')?.value || p.tecnico_assegnato || p.tecnico_proposto;
-    attendi(ev.currentTarget, true);
+    attendi(btn, true);
     const { creaIncaricoDaPratica } = await import('./incarico-tecnico.js');
     await creaIncaricoDaPratica({ tabella: 's_visite_richieste', pratica: p, ...campiIncarico(p, email) });
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     await render();
     apriPratica(p.id);
   });
@@ -771,8 +775,9 @@ function registraCartacea(p) {
     <div class="field"><label>Link Drive della scansione (facoltativo)</label><input id="vc-link"></div>
     <button class="btn btn-primary" id="vc-salva" style="margin-top:10px">Registra</button>`);
   $('#vc-salva').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
     const esito = $('#vc-esito').value;
-    attendi(ev.currentTarget, true);
+    attendi(btn, true);
     const fid = idDaLink($('#vc-link').value);
     const { error } = await sb.from('s_visite_richieste').update({
       aut_stato: esito, aut_modalita: 'cartacea',
@@ -782,7 +787,7 @@ function registraCartacea(p) {
       stato: esito === 'approvata' ? 'autorizzata' : 'scartata',
       aggiornato_da: state.email, updated_at: new Date().toISOString(),
     }).eq('id', p.id);
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast('Registrazione non riuscita: ' + error.message, 'err');
     if (esito === 'approvata') {
       const { creaIncaricoDaPratica } = await import('./incarico-tecnico.js');

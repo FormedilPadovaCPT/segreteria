@@ -247,6 +247,7 @@ function disegnaForm(t, req, doc) {
     <button class="btn btn-primary" id="dtf-salva" style="margin-top:12px">${doc ? 'Salva le modifiche' : 'Registra'}</button>`;
 
   $('#dtf-salva').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
     const riga = {
       descrizione: $('#dtf-desc').value.trim() || null,
       data_inizio: $('#dtf-inizio').value || null,
@@ -259,7 +260,7 @@ function disegnaForm(t, req, doc) {
       aggiornato_da: state.email,
       updated_at: new Date().toISOString(),
     };
-    attendi(ev.currentTarget, true);
+    attendi(btn, true);
     let error;
     if (doc) {
       ({ error } = await sb.from('s_doc_tecnico').update(riga).eq('id', doc.id));
@@ -273,7 +274,7 @@ function disegnaForm(t, req, doc) {
       });
       ({ error } = await sb.from('s_doc_tecnico').insert(riga));
     }
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast('Non riesco a salvare: ' + error.message, 'err');
     toast(doc ? 'Documento aggiornato.' : 'Documento registrato.', 'ok');
     await render();

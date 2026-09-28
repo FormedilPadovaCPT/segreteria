@@ -298,6 +298,7 @@ function formPresenza(p, dataIso) {
       si registrano anche in Banca ore come «Ore supplementari», come si faceva in Access.</p>`);
 
   $('#pz-salva').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
     const dati = {
       dipendente,
       data: $('#pz-data').value,
@@ -309,11 +310,11 @@ function formPresenza(p, dataIso) {
     };
     if (!dati.data) return toast('Serve la data.', 'err');
     dati.tot_min = totDaOrari(dati.entra1, dati.esce1, dati.entra2, dati.esce2);
-    attendi(ev.currentTarget, true);
+    attendi(btn, true);
     const { error } = p
       ? await sb.from('s_presenze').update(dati).eq('id', p.id)
       : await sb.from('s_presenze').insert(dati);
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast('Salvataggio non riuscito: ' + error.message, 'err');
     toast('Giornata registrata.', 'ok');
     chiudiDrawer();
@@ -540,6 +541,7 @@ async function formMovimento(e) {
     aggiornaCompensa();
   });
   $('#mv-salva').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
     const oreMin = hm2min($('#mv-ore').value.trim());
     const sel = $('#mv-causale-sel').value;
     const causale = (sel === '__altra__' ? $('#mv-causale-libera').value : sel).trim();
@@ -550,7 +552,7 @@ async function formMovimento(e) {
     const recuperatoIl = recuperato ? ($('#mv-recdata').value || null) : (suppl ? null : e?.recuperato_il || null);
     /* «recuperata» è un fatto: senza la data del recupero non si registra */
     if (suppl && recuperato && !recuperatoIl) return toast('Per segnarla «già recuperata» serve la data del recupero. Se è ancora da recuperare, togli la spunta.', 'err');
-    attendi(ev.currentTarget, true);
+    attendi(btn, true);
     const dati = {
       dipendente, data: $('#mv-data').value, causale, ore_min: oreMin,
       note: $('#mv-note').value.trim() || null,
@@ -561,7 +563,7 @@ async function formMovimento(e) {
     const { error } = e
       ? await sb.from('s_presenze_extra').update(dati).eq('id', e.id)
       : await sb.from('s_presenze_extra').insert(dati);
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast('Salvataggio non riuscito: ' + error.message, 'err');
     toast('Movimento registrato.', 'ok');
     chiudiDrawer();
@@ -710,12 +712,13 @@ function formRichiesta() {
   $('#fr-alle').addEventListener('change', calcolaOre);
   $('#fr-ore').addEventListener('input', () => { $('#fr-ore').dataset.mano = '1'; });
   $('#fr-crea').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
     if (!$('#fr-da').value) return toast('Serve la data di inizio.', 'err');
     const suppl = $('#fr-tipo').value === 'supplementari';
     const compenso = document.querySelector('input[name="fr-compenso"]:checked')?.value || null;
     if (suppl && !compenso) return toast('Scegli se le ore saranno da recuperare o da pagare: è la scelta che va al Direttore.', 'err');
     if (suppl && !$('#fr-ore').value) return toast('Scrivi quante ore (o dalle/alle).', 'err');
-    attendi(ev.currentTarget, true);
+    attendi(btn, true);
     const { data: nuova, error } = await sb.from('s_ferie_richieste').insert({
       dipendente: $('#fr-dip').value,
       tipo: $('#fr-tipo').value,
@@ -729,7 +732,7 @@ function formRichiesta() {
       motivo: $('#fr-motivo').value.trim() || null,
       aggiornato_da: state.email,
     }).select('*').single();
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast('Creazione non riuscita: ' + error.message, 'err');
     toast('Richiesta creata.', 'ok');
     await renderFerie();
@@ -788,7 +791,8 @@ export async function apriRichiesta(id) {
     ${!decisa && !state.soloDirettore ? `<div style="margin-top:12px"><button class="btn btn-ghost btn-sm" id="fe-elimina">🗑 Elimina la richiesta</button></div>` : ''}`);
 
   $('#fe-pdf')?.addEventListener('click', async (ev) => {
-    attendi(ev.currentTarget, true);
+    const btn = ev.currentTarget;
+    attendi(btn, true);
     try {
       const { pdfRichiestaFerie } = await import('./presenze-doc.js');
       const byte = await pdfRichiestaFerie(r, null, null);
@@ -796,7 +800,7 @@ export async function apriRichiesta(id) {
       const a = document.createElement('a');
       a.href = url; a.download = nomeRichiesta(r, false); a.click();
       setTimeout(() => URL.revokeObjectURL(url), 4000);
-    } catch (e) { toast(e.message, 'err'); } finally { attendi(ev.currentTarget, false); }
+    } catch (e) { toast(e.message, 'err'); } finally { attendi(btn, false); }
   });
   $('#fe-manda')?.addEventListener('click', (ev) => mandaAlDirettore(r, ev.currentTarget));
   $('#fe-cartacea')?.addEventListener('click', () => esitoCartaceo(r));
@@ -900,14 +904,15 @@ function esitoCartaceo(r) {
     <div class="field"><label>Firmata da</label><input id="ec-chi" value="${esc(conf.direttore_nome || '')}"></div>
     <button class="btn btn-primary" id="ec-salva" style="margin-top:10px">Registra</button>`);
   $('#ec-salva').addEventListener('click', async (ev) => {
-    attendi(ev.currentTarget, true);
+    const btn = ev.currentTarget;
+    attendi(btn, true);
     const { error } = await sb.from('s_ferie_richieste').update({
       aut_stato: $('#ec-esito').value, aut_modalita: 'cartacea',
       autorizzata_da: $('#ec-chi').value.trim() || conf.direttore_nome || 'Il Direttore',
       data_autorizzazione: $('#ec-data').value || oggiIso(),
       aggiornato_da: state.email, updated_at: new Date().toISOString(),
     }).eq('id', r.id);
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast(error.message, 'err');
     toast('Esito registrato.', 'ok');
     await renderFerie();

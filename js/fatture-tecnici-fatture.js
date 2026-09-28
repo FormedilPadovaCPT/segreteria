@@ -145,6 +145,7 @@ async function formFattura(f, prefill = {}) {
     });
   }
   $('#ff-salva').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
     const t = esterno ? null : tecnici.find((x) => x.tecnico_id === $('#ff-t').value);
     const d = {
       tecnico_id: t ? t.tecnico_id : null,
@@ -160,7 +161,7 @@ async function formFattura(f, prefill = {}) {
     };
     if (!d.tecnico_nome) return toast('Serve il nominativo di chi emette la fattura.', 'err');
     if (!d.numero || !d.data_ricevimento || !d.importo) return toast('Servono numero, data di ricevimento e importo.', 'err');
-    attendi(ev.currentTarget, true);
+    attendi(btn, true);
     try {
       let riga = f;
       if (f) {
@@ -180,7 +181,7 @@ async function formFattura(f, prefill = {}) {
       }
       await renderFatture();
       dettaglioFattura(riga.id);
-    } catch (e) { toast('Salvataggio non riuscito: ' + e.message, 'err'); } finally { attendi(ev.currentTarget, false); }
+    } catch (e) { toast('Salvataggio non riuscito: ' + e.message, 'err'); } finally { attendi(btn, false); }
   });
   $('#ff-annulla')?.addEventListener('click', async () => {
     if (!confirm('Annullo la fattura? Le prestazioni collegate tornano aperte.')) return;
@@ -252,7 +253,8 @@ export async function dettaglioFattura(id) {
      scarto che si vede mentre si spunta e' quello vero della fattura */
   $('#df-aggancia')?.addEventListener('click', () => agganciaPrestazioni({ ...f, __nettoGia: netto }));
   $('#df-verif')?.addEventListener('click', async (ev) => {
-    attendi(ev.currentTarget, true, 'Verifico…');
+    const btn = ev.currentTarget;
+    attendi(btn, true, 'Verifico…');
     try {
       await sb.from('s_fatture_tecnici').update({ stato: 'verificata', verificata_da: state.email, verificata_il: oggiIso(), aggiornato_da: state.email, updated_at: new Date().toISOString() }).eq('id', f.id);
       /* e il coordinatore lo viene a sapere subito: la mail parte da sola
@@ -263,16 +265,17 @@ export async function dettaglioFattura(id) {
       toast(esito.inviata ? `Fattura verificata: avviso al coordinatore inviato a ${esito.a}.`
         : `Fattura verificata. ⚠️ Avviso al coordinatore NON partito: ${esito.errore || 'motivo non riportato'}`,
       esito.inviata ? 'ok' : 'err');
-    } catch (e) { toast(e.message, 'err'); } finally { attendi(ev.currentTarget, false); }
+    } catch (e) { toast(e.message, 'err'); } finally { attendi(btn, false); }
     await renderFatture(); dettaglioFattura(f.id);
   });
   $('#df-avvisa')?.addEventListener('click', async (ev) => {
-    attendi(ev.currentTarget, true, 'Avviso…');
+    const btn = ev.currentTarget;
+    attendi(btn, true, 'Avviso…');
     try {
       const esito = await avvisaCoordinatore([f.id], { rimanda: true });
       toast(esito.inviata ? `Avviso inviato a ${esito.a}.` : `Non inviato: ${esito.errore || 'nessuna fattura da avvisare'}`,
         esito.inviata ? 'ok' : 'err');
-    } catch (e) { toast(e.message, 'err'); } finally { attendi(ev.currentTarget, false); }
+    } catch (e) { toast(e.message, 'err'); } finally { attendi(btn, false); }
     dettaglioFattura(f.id);
   });
   $('#df-appr')?.addEventListener('click', async () => {
@@ -403,9 +406,10 @@ async function agganciaPrestazioni(f) {
   conta();
 
   $('#ap-ok').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
     const ids = [...$('#drawer-body').querySelectorAll('input[data-p]:checked')].map((i) => Number(i.dataset.p));
     if (!ids.length) return toast('Niente selezionato.', 'err');
-    attendi(ev.currentTarget, true);
+    attendi(btn, true);
     const { error } = await sb.from('s_prestazioni').update({ fattura_id: f.id }).in('id', ids);
     if (!error) {
       /* i mesi toccati si chiudono solo se non resta niente di aperto */
@@ -413,7 +417,7 @@ async function agganciaPrestazioni(f) {
         .map((p) => p.incarico_mensile_id).filter(Boolean))];
       for (const m of mesi) await chiudiSeTuttoFatturato(m);
     }
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast(error.message, 'err');
     toast(`${ids.length} prestazioni agganciate alla fattura n° ${f.id}.`, 'ok');
     dettaglioFattura(f.id);

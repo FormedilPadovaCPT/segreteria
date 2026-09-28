@@ -193,9 +193,10 @@ function nuovaRichiesta() {
     <button class="btn btn-primary" id="na-crea" style="margin-top:10px">Crea la pratica</button>`);
 
   $('#na-crea').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
     const ragione = $('#na-ragione').value.trim();
     if (!ragione) return toast('Serve l\'impresa.', 'err');
-    attendi(ev.currentTarget, true);
+    attendi(btn, true);
     const m = $('#na-piva').value.match(/\d{10,11}/);
     const piva = m ? m[0].padStart(11, '0') : null;
     let impresaId = null;
@@ -224,7 +225,7 @@ function nuovaRichiesta() {
       ceiv_verificato_il: new Date().toISOString(),
       aggiornato_da: state.email,
     }).select('id').single();
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast('Creazione non riuscita: ' + error.message, 'err');
     toast('Pratica creata.', 'ok');
     await render();
@@ -369,7 +370,8 @@ export async function apriPratica(id) {
   `);
 
   $('#at-salva').addEventListener('click', async (ev) => {
-    attendi(ev.currentTarget, true);
+    const btn = ev.currentTarget;
+    attendi(btn, true);
     const esito1 = $('#at-esito1').value || null;
     const visita1 = $('#at-visita1').value || null;
     /* la scadenza delle 2 settimane la calcola l'app, come da procedura */
@@ -395,7 +397,7 @@ export async function apriPratica(id) {
       aggiornato_da: state.email,
       updated_at: new Date().toISOString(),
     }).eq('id', p.id);
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast('Salvataggio non riuscito: ' + error.message, 'err');
     toast('Pratica aggiornata.', 'ok');
     await render();
@@ -534,8 +536,9 @@ function registraCartacea(p) {
     <div class="field"><label>Link Drive della scansione (facoltativo)</label><input id="ac-link"></div>
     <button class="btn btn-primary" id="ac-salva" style="margin-top:10px">Registra</button>`);
   $('#ac-salva').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
     const esito = $('#ac-esito').value;
-    attendi(ev.currentTarget, true);
+    attendi(btn, true);
     const fid = idDaLink($('#ac-link').value);
     const { error } = await sb.from('s_attestazioni_dm132').update({
       aut_stato: esito, aut_modalita: 'cartacea',
@@ -545,7 +548,7 @@ function registraCartacea(p) {
       stato: esito === 'approvata' ? 'autorizzata' : 'scartata',
       aggiornato_da: state.email, updated_at: new Date().toISOString(),
     }).eq('id', p.id);
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast('Registrazione non riuscita: ' + error.message, 'err');
     toast('Esito registrato.', 'ok');
     await render();

@@ -101,6 +101,7 @@ async function formPrestazione(p) {
   $('#pp-q').addEventListener('input', () => { const q = Number($('#pp-q').value || 0); const t = Number($('#pp-tar').value || 0); if (t) $('#pp-imp').value = (q * t).toFixed(2); });
   $('#pp-tar').addEventListener('input', () => { const q = Number($('#pp-q').value || 0); const t = Number($('#pp-tar').value || 0); if (t) $('#pp-imp').value = (q * t).toFixed(2); });
   $('#pp-salva').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
     const t = tecnici.find((x) => x.tecnico_id === $('#pp-t').value);
     const data = $('#pp-data').value;
     const d = {
@@ -112,27 +113,29 @@ async function formPrestazione(p) {
       fattura_id: $('#pp-f').value ? Number($('#pp-f').value) : null, note: $('#pp-note').value.trim() || null,
     };
     if (!d.data || !d.descrizione) return toast('Servono data e descrizione.', 'err');
-    attendi(ev.currentTarget, true);
+    attendi(btn, true);
     const { error } = p ? await sb.from('s_prestazioni').update(d).eq('id', p.id)
       : await sb.from('s_prestazioni').insert({ ...d, origine: 'manuale', creato_da: state.email });
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast('Salvataggio non riuscito: ' + error.message, 'err');
     toast('Prestazione salvata.', 'ok'); chiudiDrawer(); renderPrestazioni();
   });
   $('#pp-riapri')?.addEventListener('click', async (ev) => {
-    attendi(ev.currentTarget, true);
+    const btn = ev.currentTarget;
+    attendi(btn, true);
     const { error } = await sb.rpc('s_prestazione_riapri', { p_id: p.id });
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast(error.message, 'err');
     toast('Riaperta: torna fra quelle da fatturare.', 'ok'); chiudiDrawer(); renderPrestazioni();
   });
   $('#pp-chiudi')?.addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
     const motivo = prompt('Perché questa attività non si fattura più?\nÈ la riga che rileggerà chi la ritroverà fra due anni.');
     if (motivo == null) return;
     if (!motivo.trim()) return toast('Serve il motivo.', 'err');
-    attendi(ev.currentTarget, true);
+    attendi(btn, true);
     const { error } = await sb.rpc('s_prestazioni_chiudi', { p_ids: [p.id], p_motivo: motivo.trim() });
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast(error.message, 'err');
     toast('Chiusa: resta in archivio, ma non si fattura più.', 'ok'); chiudiDrawer(); renderPrestazioni();
   });

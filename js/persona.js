@@ -343,13 +343,14 @@ async function scheda(host) {
     }));
 
   $('#pe-salva').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
     const agg = {};
     for (const k of TUTTI) agg[k] = $(`#pe-${k}`).value.trim() || null;
     agg.note = $('#pe-note').value.trim() || null;
     agg.contatti_riservati = CAMPI_RISERVABILI.filter(([k]) => $(`#pe-ris-${k}`)?.checked).map(([k]) => k);
     if (agg.cf) agg.cf = agg.cf.toUpperCase();
     if (!agg.cognome && !agg.nome) return toast('Serve almeno il cognome o il nome.', 'err');
-    attendi(ev.currentTarget, true);
+    attendi(btn, true);
     let error;
     if (nuova) {
       /* mai duplicare: il CF è la chiave che non sbaglia */
@@ -357,11 +358,11 @@ async function scheda(host) {
         const { data: gia, error: errGia } = await sb.from('persone').select('persona_id').eq('cf', agg.cf).limit(1);
         /* controllo non riuscito: non si crea alla cieca un possibile doppione (26/09/2026) */
         if (errGia) {
-          attendi(ev.currentTarget, false);
+          attendi(btn, false);
           return toast('Non sono riuscito a controllare se il codice fiscale esiste già: persona non creata. Riprova.', 'err');
         }
         if (gia?.length) {
-          attendi(ev.currentTarget, false);
+          attendi(btn, false);
           toast('Esiste già una persona con questo codice fiscale: la apro.', 'err');
           return apriPersona(gia[0].persona_id);
         }
@@ -369,13 +370,13 @@ async function scheda(host) {
       const { data, error: e2 } = await sb.from('persone')
         .insert({ ...agg, updated_by: state.email }).select('persona_id').single();
       error = e2;
-      if (!error) { corrente = null; attendi(ev.currentTarget, false); toast('Persona creata.', 'ok'); return apriPersona(data.persona_id); }
+      if (!error) { corrente = null; attendi(btn, false); toast('Persona creata.', 'ok'); return apriPersona(data.persona_id); }
     } else {
       ({ error } = await sb.from('persone')
         .update({ ...agg, updated_by: state.email, updated_at: new Date().toISOString() })
         .eq('persona_id', p.persona_id));
     }
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast('Salvataggio non riuscito: ' + error.message, 'err');
     toast('Modifiche salvate.', 'ok');
     Object.assign(corrente, agg);

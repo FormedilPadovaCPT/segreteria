@@ -239,12 +239,13 @@ export async function dettaglio(id, dopo = null) {
   $('#cc-d-dir')?.addEventListener('click', () => chiediConfermaDirettore(d, eventi || [], dopo));
   $('#cc-d-segnala')?.addEventListener('click', () => segnalaOrgani(d, eventi || [], dopo));
   $('#cc-ev-add').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
     const testo = $('#cc-ev-testo').value.trim();
     if (!testo) return toast('Scrivi che cosa è successo.', 'err');
-    attendi(ev.currentTarget, true, '…');
+    attendi(btn, true, '…');
     const { error: e } = await sb.from('s_cantieri_critici_eventi')
       .insert({ critico_id: d.id, tipo: $('#cc-ev-tipo').value, testo, visibile_tecnico: $('#cc-ev-vis').checked });
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (e) return toast('Non aggiunto: ' + e.message, 'err');
     riapri();
   });
@@ -305,9 +306,10 @@ export async function nuovo(dopo = null) {
   $('#cn-origine').addEventListener('change', () => { $('#cn-motivo-box').style.display = $('#cn-origine').value === 'accesso_negato' ? '' : 'none'; });
   $('#cn-annulla').addEventListener('click', () => elenco(dopo));
   $('#cn-salva').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
     const v = (id) => $(id).value.trim();
     if (!v('#cn-data') || !v('#cn-tecnico') || !v('#cn-impresa') || !v('#cn-cantiere') || !v('#cn-note')) return toast('Servono data, tecnico, impresa, cantiere e note.', 'err');
-    attendi(ev.currentTarget, true, 'Apro…');
+    attendi(btn, true, 'Apro…');
     const accesso = v('#cn-origine') === 'accesso_negato';
     const { data: r, error } = await sb.from('s_cantieri_critici').insert({
       origine: v('#cn-origine'), data_evento: v('#cn-data'), tecnico_id: v('#cn-tecnico'),
@@ -315,7 +317,7 @@ export async function nuovo(dopo = null) {
       motivo: accesso ? (v('#cn-motivo') || null) : null,
       presente_cognome: v('#cn-pp') || null, presente_qualifica: v('#cn-pp-qual') || null, presente_tel: v('#cn-pp-tel') || null,
     }).select('id').single();
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast('Caso non aperto: ' + error.message, 'err');
     toast(`Caso n° ${r.id} aperto.`, 'ok');
     if (dopo) dopo();
@@ -401,12 +403,13 @@ async function preparaComunicazione(d, prec, dopo) {
 
   $('#cm-indietro').addEventListener('click', () => dettaglio(d.id, dopo));
   $('#cm-anteprima').addEventListener('click', async (ev) => {
-    attendi(ev.currentTarget, true, 'Genero…');
+    const btn = ev.currentTarget;
+    attendi(btn, true, 'Genero…');
     try {
       const { generaLetteraPdf } = await import('./rlst-lettera.js');
       const byte = await generaLetteraPdf(destinatarioPdf(), { codice: 'BOZZA-SENZA-PROTOCOLLO', data_prot: oggiIso() }, paragrafi(), oggettoLettera(caso()));
       (await import('./corsi-doc.js')).scaricaPdf(byte, `anteprima-accesso-negato-n${d.id}.pdf`);
-    } catch (e) { toast(e.message, 'err'); } finally { attendi(ev.currentTarget, false); }
+    } catch (e) { toast(e.message, 'err'); } finally { attendi(btn, false); }
   });
 
   $('#cm-vai').addEventListener('click', async (ev) => {

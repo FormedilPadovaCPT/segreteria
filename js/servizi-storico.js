@@ -64,12 +64,13 @@ export function apriDettaglioStorico(r) {
       L'ID ${r.id} è il numero della vecchia serie «richieste visite».</p>`);
 
   $('#ss-stampa').addEventListener('click', async (ev) => {
-    ev.currentTarget.disabled = true;
+    const btn = ev.currentTarget;
+    btn.disabled = true;
     try {
       const byte = await pdfSchedaStorico(r);
       const { scaricaPdf } = await import('./corsi-doc.js');
       scaricaPdf(byte, `Storico_${r.id}_${String(r.tipologia || 'pratica').replace(/^Richiesta /, '').replace(/[^\w]+/g, '-').slice(0, 40)}.pdf`);
-    } finally { ev.currentTarget.disabled = false; }
+    } finally { btn.disabled = false; }
   });
 }
 

@@ -205,10 +205,11 @@ function formCorso(c, prefill = {}) {
   collegaDoppioClickMail($('#drawer-body'));
 
   $('#fc-salva').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
     const titolo = $('#fc-titolo').value.trim();
     if (!titolo) return toast('Serve il titolo.', 'err');
     if (!c && !$('#fc-inizio').value) return toast('Serve la data di inizio: un corso ha sempre almeno una giornata.', 'err');
-    attendi(ev.currentTarget, true);
+    attendi(btn, true);
     const dati = {
       titolo,
       tipo: $('#fc-tipo').value,
@@ -237,7 +238,7 @@ function formCorso(c, prefill = {}) {
     let id = c?.id;
     if (c) {
       const { error } = await sb.from('s_corsi').update(dati).eq('id', c.id);
-      if (error) { attendi(ev.currentTarget, false); return toast(error.message, 'err'); }
+      if (error) { attendi(btn, false); return toast(error.message, 'err'); }
     } else {
       Object.assign(dati, {
         responsabile_formativo: conf.responsabile_formativo_nome || null,
@@ -251,7 +252,7 @@ function formCorso(c, prefill = {}) {
         promemoria_giorni: Number(conf.promemoria_corsi_giorni) || GIORNI_PREDEFINITI,
       });
       const { data: nuovo, error } = await sb.from('s_corsi').insert(dati).select('id').single();
-      if (error) { attendi(ev.currentTarget, false); return toast(error.message, 'err'); }
+      if (error) { attendi(btn, false); return toast(error.message, 'err'); }
       id = nuovo.id;
       // prima giornata dal calendario, se le date ci sono
       if (dati.data_inizio) {
@@ -264,7 +265,7 @@ function formCorso(c, prefill = {}) {
          impresa, il link va al suo referente, non al pubblico. */
       if (dati.conferenza_id) await apriIscrizioniPerConferenza(id);
     }
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     toast(c ? 'Corso aggiornato.' : 'Corso creato.', 'ok');
     await render();
     apriCorso(id);
@@ -604,9 +605,10 @@ export async function apriCorso(id) {
   }));
 
   $('#co-geninc').addEventListener('click', async (ev) => {
-    attendi(ev.currentTarget, true);
+    const btn = ev.currentTarget;
+    attendi(btn, true);
     await proponiIncarichi(c, interventi || [], incarichi || []);
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     apriCorso(c.id);
   });
   $('#co-addinc').addEventListener('click', () => formIncarico(c, null, interventi || []));
@@ -653,7 +655,8 @@ Registro lo stesso una fattura qui?`)) return;
      chiede a nessuno: si copia. Chiedere all'impresa un codice fiscale
      che abbiamo gia' e' la figura peggiore che si possa fare. */
   $('#co-copia-dati')?.addEventListener('click', async (ev) => {
-    attendi(ev.currentTarget, true, 'Copio…');
+    const btn = ev.currentTarget;
+    attendi(btn, true, 'Copio…');
     try {
       let n = 0;
       for (const i of daCopiare) {
@@ -667,7 +670,7 @@ Registro lo stesso una fattura qui?`)) return;
       }
       toast(`${n} ${n === 1 ? 'riga completata' : 'righe completate'} dall'anagrafica.`, 'ok');
       apriCorso(c.id);
-    } catch (e) { toast(e.message, 'err'); attendi(ev.currentTarget, false); }
+    } catch (e) { toast(e.message, 'err'); attendi(btn, false); }
   });
 
   $('#co-chiedi-dati')?.addEventListener('click', () => chiediDatiAttestato(c, incompleti, esitoDati, anagDi, impDi));
@@ -704,27 +707,30 @@ Registro lo stesso una fattura qui?`)) return;
   }));
 
   $('#co-tuttipresenti').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
     if (!(giornate || []).length) return toast('Un corso ha sempre almeno una giornata: aggiungila prima.', 'err');
     if (!(iscritti || []).length) return toast('Nessun iscritto.', 'err');
     if (!confirm(`Segno presenti tutti i ${iscritti.length} iscritti in tutte le ${giornate.length} giornate, con gli orari previsti di ciascuna (sovrascrive le presenze già salvate). Poi togli la presenza a chi non c'era, dalla sua scheda «presenze». Procedo?`)) return;
-    attendi(ev.currentTarget, true, 'Salvo…');
+    attendi(btn, true, 'Salvo…');
     await segnaTuttiPresenti(giornate || [], iscritti || []);
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     toast('Tutti segnati presenti: togli chi non c\'era, poi ricalcola le frequenze.', 'ok');
     apriCorso(c.id);
   });
 
   $('#co-calcola').addEventListener('click', async (ev) => {
-    attendi(ev.currentTarget, true, 'Calcolo…');
+    const btn = ev.currentTarget;
+    attendi(btn, true, 'Calcolo…');
     await calcolaFrequenze(c, giornate || [], iscritti || [], pres);
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     toast('Frequenze ricalcolate.', 'ok');
     apriCorso(c.id);
   });
 
   $('#co-registro').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
     if (!(giornate || []).length) return toast('Un corso ha sempre almeno una giornata: aggiungila prima del registro.', 'err');
-    attendi(ev.currentTarget, true, 'Genero…');
+    attendi(btn, true, 'Genero…');
     try {
       const { pdfRegistro, scaricaPdf } = await import('./corsi-doc.js');
       /* col questionario aperto, in coda al registro esce il foglio col QR:
@@ -737,7 +743,7 @@ Registro lo stesso una fattura qui?`)) return;
         ? 'Registro scaricato, col foglio del questionario in coda.'
         : 'Registro scaricato: stamparlo per le firme in aula/cantiere.', 'ok');
     } catch (e) { toast(e.message, 'err'); }
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
   });
   $('#co-attestati')?.addEventListener('click', (ev) =>
     generaAttestati(c, giornate || [], interventi || [], iscritti || [], ev.currentTarget, esitoDati));
@@ -850,8 +856,9 @@ function formGiornata(c, g) {
     <div class="field"><label>Sede (se diversa dal corso)</label><input id="fg-sede" value="${esc(g?.sede || c.sede || '')}"></div>
     <button class="btn btn-primary" id="fg-salva" style="margin-top:10px">${g ? 'Salva' : 'Aggiungi'}</button>`);
   $('#fg-salva').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
     if (!$('#fg-data').value) return toast('Serve la data.', 'err');
-    attendi(ev.currentTarget, true);
+    attendi(btn, true);
     const dati = {
       data: $('#fg-data').value,
       dalle: $('#fg-dalle').value || null, alle: $('#fg-alle').value || null,
@@ -861,7 +868,7 @@ function formGiornata(c, g) {
     const { error } = g
       ? await sb.from('s_corsi_giornate').update(dati).eq('id', g.id)
       : await sb.from('s_corsi_giornate').insert({ ...dati, corso_id: c.id });
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast(error.message, 'err');
     apriCorso(c.id);
   });
@@ -896,9 +903,10 @@ function formIntervento(c, giornate, i) {
   });
 
   $('#fi-salva').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
     const nome = $('#fi-nome').value.trim();
     if (!nome) return toast('Serve il nominativo.', 'err');
-    attendi(ev.currentTarget, true);
+    attendi(btn, true);
     const dati = {
       qualita: $('#fi-qualita').value,
       persona_id: personaId,
@@ -912,7 +920,7 @@ function formIntervento(c, giornate, i) {
     const { error } = i
       ? await sb.from('s_corsi_interventi').update(dati).eq('id', i.id)
       : await sb.from('s_corsi_interventi').insert({ ...dati, corso_id: c.id });
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast(error.message, 'err');
     apriCorso(c.id);
   });
@@ -1051,6 +1059,7 @@ function formIncarico(c, k, interventi) {
   proponi();   /* anche in modifica: chi corregge vede la tariffa di riferimento */
 
   $('#fk-salva').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
     const nome = $('#fk-nome').value.trim();
     if (!nome) return toast('Serve il nominativo.', 'err');
     const num = (sel) => ($(sel).value === '' ? null : Number($(sel).value));
@@ -1073,11 +1082,11 @@ function formIncarico(c, k, interventi) {
         dati.note = [dati.note, riga].filter(Boolean).join('\n');
       }
     }
-    attendi(ev.currentTarget, true);
+    attendi(btn, true);
     const { error } = nuovo
       ? await sb.from('s_corsi_incarichi').insert({ ...dati, corso_id: c.id })
       : await sb.from('s_corsi_incarichi').update(dati).eq('id', k.id);
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast(error.message, 'err');
     toast(nuovo ? 'Incarico aggiunto.' : 'Incarico aggiornato.', 'ok');
     apriCorso(c.id);
@@ -1186,7 +1195,8 @@ function formIscritto(c, i) {
   }
 
   $('#fp-salva').addEventListener('click', async (ev) => {
-    attendi(ev.currentTarget, true);
+    const btn = ev.currentTarget;
+    attendi(btn, true);
     const dati = {
       nominativo: $('#fp-nome').value.trim(),
       cf: $('#fp-cf').value.trim() || null,
@@ -1202,7 +1212,7 @@ function formIscritto(c, i) {
     const { error } = i
       ? await sb.from('s_corsi_iscritti').update(dati).eq('id', i.id)
       : await sb.from('s_corsi_iscritti').insert({ ...dati, corso_id: c.id, persona_id: personaId, data_iscrizione: oggiIso() });
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast(error.message, 'err');
     apriCorso(c.id);
   });
@@ -1252,7 +1262,8 @@ function formPresenze(c, iscritto, giornate, righe) {
     <button class="btn btn-primary" id="pr-salva">Salva le presenze</button>`);
 
   $('#pr-salva').addEventListener('click', async (ev) => {
-    attendi(ev.currentTarget, true);
+    const btn = ev.currentTarget;
+    attendi(btn, true);
     for (const blocco of $('#drawer-body').querySelectorAll('[data-g]')) {
       const gid = Number(blocco.dataset.g);
       const dati = {
@@ -1266,7 +1277,7 @@ function formPresenze(c, iscritto, giornate, righe) {
       dati.ore = dati.presente ? oreDa(dati.ingresso1, dati.uscita1) + oreDa(dati.ingresso2, dati.uscita2) : 0;
       await sb.from('s_corsi_presenze').upsert(dati, { onConflict: 'iscritto_id,giornata_id' });
     }
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     toast('Presenze salvate.', 'ok');
     apriCorso(c.id);
   });
@@ -1399,13 +1410,14 @@ async function rendicontazione(p) {
       costo complessivo lordo (cassa e IVA secondo il regime di ciascun tecnico alla data).</p>`);
 
   $('#rd-pdf').addEventListener('click', async (ev) => {
-    attendi(ev.currentTarget, true);
+    const btn = ev.currentTarget;
+    attendi(btn, true);
     try {
       const { pdfRendicontazione } = await import('./rendicontazione-doc.js');
       const { scaricaPdf } = await import('./corsi-doc.js');
       const byte = await pdfRendicontazione(p, prestazioni, corsiDelProgetto, incarichi, fisc || [], tec || []);
       scaricaPdf(byte, `rendicontazione-progetto-${p.id}.pdf`);
-    } catch (e) { toast(e.message, 'err'); } finally { attendi(ev.currentTarget, false); }
+    } catch (e) { toast(e.message, 'err'); } finally { attendi(btn, false); }
   });
 }
 
@@ -1435,9 +1447,10 @@ function formProgetto(p) {
     <div class="field"><label>Note</label><textarea id="pg-note" rows="2">${esc(p?.note || '')}</textarea></div>
     <button class="btn btn-primary" id="pg-salva" style="margin-top:8px">${p ? 'Salva' : 'Crea'}</button>`);
   $('#pg-salva').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
     const titolo = $('#pg-titolo').value.trim();
     if (!titolo) return toast('Serve il titolo.', 'err');
-    attendi(ev.currentTarget, true);
+    attendi(btn, true);
     const num = (id) => $(id).value ? Number($(id).value) : null;
     const dati = {
       titolo, desc_breve: $('#pg-breve').value.trim() || null,
@@ -1457,7 +1470,7 @@ function formProgetto(p) {
     const { error } = p
       ? await sb.from('s_progetti_formativi').update(dati).eq('id', p.id)
       : await sb.from('s_progetti_formativi').insert(dati);
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast(error.message, 'err');
     toast(p ? 'Progetto aggiornato.' : 'Progetto creato.', 'ok');
     await carica();

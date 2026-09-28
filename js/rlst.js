@@ -118,11 +118,12 @@ function nuovaRichiesta() {
     <button class="btn btn-primary" id="nr-crea" style="margin-top:10px">Crea la pratica</button>`);
 
   $('#nr-crea').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
     const ragione = $('#nr-ragione').value.trim();
     if (!ragione) return toast('Serve la ragione sociale.', 'err');
     const m = $('#nr-piva').value.match(/\d{10,11}/);
     const piva = m ? m[0].padStart(11, '0') : null;
-    attendi(ev.currentTarget, true);
+    attendi(btn, true);
     let impresaId = null;
     let esito = 'da_verificare';
     if (piva) {
@@ -162,7 +163,7 @@ function nuovaRichiesta() {
       ceiv_verificato_il: new Date().toISOString(),
       aggiornato_da: state.email,
     }).select('id').single();
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast('Creazione non riuscita: ' + error.message, 'err');
     toast('Pratica creata.', 'ok');
     await render();
@@ -320,7 +321,8 @@ async function apriPratica(id) {
   }));
 
   $('#rl-crea-imp')?.addEventListener('click', async (ev) => {
-    attendi(ev.currentTarget, true);
+    const btn = ev.currentTarget;
+    attendi(btn, true);
     const { error } = await sb.from('imprese').insert({
       impresa_id: p.partita_iva,
       impresa_nome: p.ragione_sociale,
@@ -331,7 +333,7 @@ async function apriPratica(id) {
       cod_ceiv: p.codice_ceiv_dich,
       note_access: `Creata dalla richiesta RLST n° ${p.progressivo} (${state.email})`,
     });
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast('Creazione non riuscita: ' + error.message, 'err');
     await sb.from('s_rlst_pratiche').update({ impresa_id: p.partita_iva, aggiornato_da: state.email, updated_at: new Date().toISOString() }).eq('id', p.id);
     toast('Impresa creata in anagrafica (codice CEIV come dichiarato nel modulo: verificalo).', 'ok');
@@ -380,7 +382,8 @@ async function apriPratica(id) {
   $('#rl-eml')?.addEventListener('click', (ev) => bozzaMail(p, ev.currentTarget));
 
   $('#rl-salva').addEventListener('click', async (ev) => {
-    attendi(ev.currentTarget, true);
+    const btn = ev.currentTarget;
+    attendi(btn, true);
     const { error } = await sb.from('s_rlst_pratiche').update({
       stato: $('#rl-stato').value,
       esito_ceiv: $('#rl-esito').value,
@@ -388,7 +391,7 @@ async function apriPratica(id) {
       aggiornato_da: state.email,
       updated_at: new Date().toISOString(),
     }).eq('id', p.id);
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast('Salvataggio non riuscito: ' + error.message, 'err');
     toast('Pratica aggiornata.', 'ok');
     render();

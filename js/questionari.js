@@ -233,14 +233,15 @@ export async function apriPratica(id) {
   `);
 
   $('#qs-salva').addEventListener('click', async (ev) => {
-    attendi(ev.currentTarget, true);
+    const btn = ev.currentTarget;
+    attendi(btn, true);
     const { error } = await sb.from('s_questionari_sopralluogo').update({
       stato: $('#qs-stato').value,
       note_ufficio: $('#qs-note').value.trim() || null,
       aggiornato_da: state.email,
       updated_at: new Date().toISOString(),
     }).eq('id', q.id);
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast('Salvataggio non riuscito: ' + error.message, 'err');
     toast('Questionario aggiornato.', 'ok');
     await render();

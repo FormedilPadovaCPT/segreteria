@@ -324,11 +324,12 @@ function formNomina(n, { prefill = {}, dopo } = {}) {
   });
 
   $('#fn-chiudi')?.addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
     if (!confirm('Chiudo la nomina con data di fine oggi?')) return;
-    attendi(ev.currentTarget, true);
+    attendi(btn, true);
     const { error } = await sb.from('s_nomine').update({ data_fine: oggiIso(), updated_at: new Date().toISOString() })
       .eq('access_id', d.access_id);
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast('Chiusura non riuscita: ' + error.message, 'err');
     toast('Nomina chiusa a oggi.', 'ok');
     chiudiDrawer();

@@ -154,11 +154,12 @@ export function collegaQuest(c, q, iscritti, ricarica) {
   const apri = body.querySelector('#qz-apri');
   if (apri) {
     apri.addEventListener('click', async (ev) => {
-      attendi(ev.currentTarget, true);
+      const btn = ev.currentTarget;
+      attendi(btn, true);
       const { data, error } = await sb.rpc('quest_apri', {
         p_corso_id: c.id, p_modello: $('#qz-modello').value, p_ore: 48, p_tetto: null,
       });
-      attendi(ev.currentTarget, false);
+      attendi(btn, false);
       if (error) return toast(error.message, 'err');
       const r = Array.isArray(data) ? data[0] : data;
       toast(`Questionario aperto: codice ${r?.codice}.`, 'ok');
@@ -169,39 +170,43 @@ export function collegaQuest(c, q, iscritti, ricarica) {
   }
 
   body.querySelector('#qz-pubblica')?.addEventListener('click', async (ev) => {
-    attendi(ev.currentTarget, true);
+    const btn = ev.currentTarget;
+    attendi(btn, true);
     await pubblica(c, false);
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     ricarica();
   });
 
   body.querySelector('#qz-foglio')?.addEventListener('click', async (ev) => {
-    attendi(ev.currentTarget, true);
+    const btn = ev.currentTarget;
+    attendi(btn, true);
     try {
       const byte = await pdfFoglioQuestionario(c, { ...q.link, domande: q.domande });
       scaricaPdf(byte, `${oggiIso().replace(/-/g, '_')}_MOD_Formedil-Padova_questionario-QR_corso-${c.id}.pdf`);
     } catch (e) { toast(e.message, 'err'); }
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
   });
 
   body.querySelector('#qz-cartaceo')?.addEventListener('click', async (ev) => {
-    attendi(ev.currentTarget, true);
+    const btn = ev.currentTarget;
+    attendi(btn, true);
     try {
       const tronco = await domandeTronco(c);
       const byte = await pdfQuestionarioCartaceo(c, { ...q.link, domande: [...tronco, ...q.domande] });
       scaricaPdf(byte, `${oggiIso().replace(/-/g, '_')}_MOD_Formedil-Padova_questionario-cartaceo_corso-${c.id}.pdf`);
     } catch (e) { toast(e.message, 'err'); }
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
   });
 
   body.querySelector('#qz-carta')?.addEventListener('click', async () => formCartaceo(c, q, ricarica));
 
   body.querySelector('#qz-spunta-tutti')?.addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
     if (!confirm('Spunto tutti gli iscritti ammessi come «questionario compilato»?\n\n'
       + 'È una tua dichiarazione: resta scritto che l\'hai messa tu, oggi. Poi puoi togliere chi manca.')) return;
-    attendi(ev.currentTarget, true);
+    attendi(btn, true);
     const { data, error } = await sb.rpc('quest_spunta', { p_corso_id: c.id, p_iscritti: null, p_valore: true, p_fonte: null });
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast(error.message, 'err');
     toast(`Spuntati ${data}.`, 'ok');
     ricarica();
@@ -271,6 +276,7 @@ function formDomanda(c, q, ricarica) {
   $('#qd-tipo').addEventListener('change', (e) => { box.style.display = e.target.value === 'testo' ? 'none' : ''; });
 
   $('#qd-salva').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
     const testo = $('#qd-testo').value.trim();
     const tipo = $('#qd-tipo').value;
     const opzioni = tipo === 'testo' ? []
@@ -279,11 +285,11 @@ function formDomanda(c, q, ricarica) {
     if (tipo !== 'testo' && (opzioni.length < 2 || opzioni.length > 8)) {
       return toast('Una domanda a scelta vuole da 2 a 8 risposte proposte.', 'err');
     }
-    attendi(ev.currentTarget, true);
+    attendi(btn, true);
     const { error } = await sb.from('s_quest_domande').insert({
       corso_id: c.id, ordine: (q.domande.length || 0) + 1, testo, tipo, opzioni,
     });
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast(error.message, 'err');
     await pubblica(c, true);
     ricarica();
@@ -317,6 +323,7 @@ async function formCartaceo(c, q, ricarica) {
     <button class="btn btn-primary" id="qc-salva" style="margin-top:10px">Registra</button>`);
 
   $('#qc-salva').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
     const risposte = {};
     let utilita = null;
     $('#drawer-body').querySelectorAll('[data-qc]').forEach((el) => {
@@ -329,12 +336,12 @@ async function formCartaceo(c, q, ricarica) {
       else risposte[el.dataset.qc] = v;
     });
     if (!Object.keys(risposte).length) return toast('Non hai trascritto nessuna risposta.', 'err');
-    attendi(ev.currentTarget, true);
+    attendi(btn, true);
     const { error } = await sb.from('s_quest_risposte').insert({
       corso_id: c.id, fonte: 'carta', utilita, risposte, inserita_da: state.email,
       riferimento_esito: 'trascritto da carta',
     });
-    attendi(ev.currentTarget, false);
+    attendi(btn, false);
     if (error) return toast(error.message, 'err');
     toast('Questionario cartaceo registrato.', 'ok');
     ricarica();
