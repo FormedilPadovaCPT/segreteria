@@ -604,10 +604,12 @@ Procedo?`)) return;
         p.protocollo_out_id = prot.id;
       }
 
+      /* nell'oggetto come nelle mail del protocollo: «Prot. 2600», e dal 1° ottobre «Prot_26-27_0001» */
+      const numero = prot.esercizio ? codiceProtocollo(prot) : `Prot. ${prot.numero}`;
       const bozza = {
         to: p.email || '', cc,
-        oggetto: `Riscontro alla Vostra richiesta di consulenza Prot. ${siglaProtocollo(prot)}${rl ? ` - alla c.a. ${rl}` : ''}`,
-        corpo: `Protocollo N° ${siglaProtocollo(prot)} del ${dataIt(prot.data_prot)} — Segreteria Area Sicurezza e Salute
+        oggetto: `Riscontro alla Vostra richiesta di consulenza ${numero}${rl ? ` - alla c.a. ${rl}` : ''}`,
+        corpo: `Protocollo ${prot.esercizio ? codiceProtocollo(prot) : `N° ${prot.numero} in uscita`} del ${dataIt(prot.data_prot)} — Segreteria Area Sicurezza e Salute
 
 Spett.le ${(p.ragione_sociale || '').toUpperCase()},
 ${rl ? `alla c.a. ${rl},` : ''}
