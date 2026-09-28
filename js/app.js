@@ -343,6 +343,8 @@ try {
       $('#user-email').textContent = state.email;
       /* manuali d'uso: pulsante in fondo al menu, anche per il Direttore */
       import('./manuali.js').then((m) => m.collegaManuali()).catch((e) => console.warn('[manuali]', e));
+      /* chi non legge la casella d'ufficio: l'elenco dei secondi indirizzi, per le bozze (28/09/2026) */
+      import('./secondi-indirizzi.js').then((m) => m.carica(sb)).catch((e) => console.warn('[secondi indirizzi]', e));
 
       const { data: tipi } = await sb.from('s_tipo_doc').select('*').order('descrizione');
       state.tipiDoc = tipi || [];

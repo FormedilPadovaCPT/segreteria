@@ -26,7 +26,7 @@
 import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo, siglaProtocollo, impresaPerPiva, testoSpesa } from './core.js';
 import { APP_URL } from './config.js';
 import { risolviCartella, caricaByte, leggiByte, idDaLink } from './drive.js';
-import { scaricaEml, FIRMA_SEGRETERIA } from './eml.js';
+import { scaricaEml, allargaDestinatari, FIRMA_SEGRETERIA } from './eml.js';
 import { componiEml } from './firma.js';
 import { chiHaRisposto, copiaRisposta } from './consulenze-destinatari.js';
 import { RUBRICA_INTERNA } from './lookups.js';
@@ -568,7 +568,10 @@ ${FIRMA_SEGRETERIA}`,
     if (!p.email && !confirm('La pratica non ha un indirizzo email: la bozza nascerà senza destinatario. Procedo?')) return;
     const quesito = $('#cn-quesito').value.trim() || p.quesito || '';
     const autore = chiHaRisposto(p, state.email);
-    const cc = copiaRisposta({ pratica: p, coordinatore: coord?.email, emailSegreteria: state.email });
+    /* allargati ai secondi indirizzi di chi non legge la casella d'ufficio: così la conferma,
+       il protocollo e la mail depositata dicono gli stessi destinatari della bozza */
+    const dest = allargaDestinatari({ to: p.email || '', cc: copiaRisposta({ pratica: p, coordinatore: coord?.email, emailSegreteria: state.email }) });
+    const cc = dest.cc;
     const n = p.progressivo ?? `m${p.id}`;
     if (!confirm(`${p.protocollo_out_id ? 'La risposta ha già un protocollo in uscita: lo riuso e rifaccio la bozza' : 'Protocollo in uscita la risposta e preparo la bozza'} per ${p.email || '(nessun indirizzo)'}.
 In copia: ${cc.join(', ') || 'nessuno'}.
@@ -607,7 +610,7 @@ Procedo?`)) return;
       /* nell'oggetto come nelle mail del protocollo: «Prot. 2600», e dal 1° ottobre «Prot_26-27_0001» */
       const numero = prot.esercizio ? codiceProtocollo(prot) : `Prot. ${prot.numero}`;
       const bozza = {
-        to: p.email || '', cc,
+        to: dest.to, cc,
         oggetto: `Riscontro alla Vostra richiesta di consulenza ${numero}${rl ? ` - alla c.a. ${rl}` : ''}`,
         corpo: `Protocollo ${prot.esercizio ? codiceProtocollo(prot) : `N° ${prot.numero} in uscita`} del ${dataIt(prot.data_prot)} — Segreteria Area Sicurezza e Salute
 

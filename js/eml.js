@@ -16,6 +16,7 @@
 
 import { componiEml, FIRMA_SEGRETERIA } from './firma.js';
 import { toast } from './core.js';
+import { allarga, inLista, secondiIndirizzi } from './secondi-indirizzi.js';
 
 export { FIRMA_SEGRETERIA };
 
@@ -24,8 +25,26 @@ export { FIRMA_SEGRETERIA };
    FIRMA_SEGRETERIA non fa danno, viene riconosciuta e sostituita
    dalla firma completa. `firma: false` per una mail senza firma. */
 export function scaricaEml({ to = '', cc = [], oggetto, corpo, html = '', allegati = [], nomeFile = 'bozza.eml', firma = true }) {
-  const eml = componiEml({ to, cc, oggetto, corpo, html, allegati, firma, unsent: true });
+  const dest = allargaDestinatari({ to, cc });
+  const eml = componiEml({ to: dest.to, cc: dest.cc, oggetto, corpo, html, allegati, firma, unsent: true });
   scaricaTesto(eml, nomeFile);
+}
+
+/* Chi non legge la casella d'ufficio riceve ogni bozza anche al secondo
+   indirizzo (28/09/2026, js/secondi-indirizzi.js). Sta qui perché di qui
+   passano tutte le bozze: i moduli non devono ricordarsi niente. Chi
+   compone la mail da sé, per depositarla, passa da questa funzione. Se
+   l'elenco non si è letto la bozza nasce come prima, e lo si dice. */
+let avvisato = false;
+export function allargaDestinatari({ to = '', cc = [] }) {
+  const { mappa, stato, errore } = secondiIndirizzi();
+  if (stato !== 'letti' && !avvisato) {
+    avvisato = true;
+    toast(`Non sono riuscito a leggere i secondi indirizzi (${errore || 'elenco non ancora caricato'}): controlla a mano i destinatari di chi non legge la casella d'ufficio.`, 'err');
+  }
+  const a = allarga(inLista(to), mappa);
+  const copia = allarga(Array.isArray(cc) ? cc : inLista(cc), mappa, a);
+  return { to: a.join(', '), cc: copia };
 }
 
 /* La mail «da doppio clic»: oggetto con data e ora, cc alla Direzione,
