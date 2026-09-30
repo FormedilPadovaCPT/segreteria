@@ -271,8 +271,13 @@ button.hm-zero:hover,button.hm-zero:focus-visible{border-color:var(--arancio);co
 .hm-n-attivo{background:var(--arancio);color:#fff}
 .hm-riga{display:flex;gap:8px;align-items:baseline;padding:5px 6px;border-radius:6px;cursor:pointer;font-size:13.5px}
 .hm-riga:hover{background:var(--grigio-chiaro)}
-.hm-riga>span:nth-child(2){flex:1;min-width:0}
+.hm-riga>span:nth-child(2){flex:1;min-width:0;overflow-wrap:anywhere}
 .hm-riga .hint{white-space:nowrap}
+/* le note fra «» dentro la descrizione vanno a capo: su una riga sola uscivano dal riquadro
+   e finivano sopra la colonna accanto (30/09/2026). Resta su una riga solo l'ultima colonna (data, stato). */
+.hm-riga>span:nth-child(2) .hint{white-space:normal}
+/* …e se l'ultima colonna è lunga («termine scaduto il …») va a capo lei, invece di schiacciare la descrizione */
+.hm-riga>.hint:last-child{max-width:42%;white-space:normal;text-align:right}
 .hm-mini{font-weight:700}
 .hm-vai{margin-top:8px}
 
