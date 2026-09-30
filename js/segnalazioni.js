@@ -40,9 +40,11 @@ import { APP_URL } from './config.js';
 import { risolviCartella, caricaByte, leggiByte, idDaLink } from './drive.js';
 import { scaricaEml, FIRMA_SEGRETERIA } from './eml.js';
 import { RUBRICA_INTERNA } from './lookups.js';
+import { caricaPassi, passoHtml } from './passo-tecnico.js';
 import { dividiIndirizzi, EMAIL_VALIDA } from './mail-indirizzi.js';
 
 let pratiche = [];
+let passi = null;              // il passo del tecnico sugli incarichi delle pratiche aperte (30/09/2026)
 let tecnici = [];
 let zone = [];
 let conf = {};
@@ -82,6 +84,7 @@ async function carica() {
     sb.from('s_config').select('chiave, valore').in('chiave', ['direttore_email', 'direttore_nome', 'direttore_firma_id', 'organi_vigilanza_contatti']),
   ]);
   pratiche = p || [];
+  passi = await caricaPassi(sb, pratiche);
   tecnici = t || [];
   zone = z || [];
   conf = Object.fromEntries((c || []).map((r) => [r.chiave, r.valore]));
@@ -178,7 +181,7 @@ export async function render() {
       <td><span class="dt-cella ${cls}" style="padding:2px 8px">${esc(lbl)}</span></td>
       <td>${esc(nomeTecnico(p.tecnico_assegnato || p.tecnico_proposto) || '—')}${!p.tecnico_assegnato && p.tecnico_proposto ? ' <span class="hint">(proposto)</span>' : ''}</td>
       <td class="hint" style="white-space:nowrap">${codici(p)}</td>
-      <td>${esc(STATI[p.stato] || p.stato)}</td>
+      <td>${esc(STATI[p.stato] || p.stato)}${passoHtml(p, passi)}</td>
     </tr>`;
   }).join('');
 

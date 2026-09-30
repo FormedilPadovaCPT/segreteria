@@ -30,8 +30,10 @@ import { scaricaEml, allargaDestinatari, FIRMA_SEGRETERIA } from './eml.js';
 import { componiEml } from './firma.js';
 import { chiHaRisposto, copiaRisposta } from './consulenze-destinatari.js';
 import { RUBRICA_INTERNA } from './lookups.js';
+import { caricaPassi, passoHtml } from './passo-tecnico.js';
 
 let pratiche = [];
+let passi = null;              // il passo del tecnico sugli incarichi delle pratiche aperte (30/09/2026)
 let tecnici = [];
 let conf = {};
 let protDi = {};
@@ -89,6 +91,7 @@ async function carica() {
     sb.from('s_config').select('chiave, valore').in('chiave', ['direttore_email', 'direttore_nome', 'direttore_firma_id']),
   ]);
   pratiche = p || [];
+  passi = await caricaPassi(sb, pratiche);
   tecnici = t || [];
   conf = Object.fromEntries((c || []).map((r) => [r.chiave, r.valore]));
   const ids = [...new Set(pratiche.flatMap((x) => [x.protocollo_in_id, x.protocollo_out_id]).filter(Boolean))];
@@ -174,7 +177,7 @@ export async function render() {
       <td><span class="dt-cella ${cCeiv}" style="padding:2px 8px">${esc(lCeiv)}</span></td>
       <td>${corsia}</td>
       <td class="hint" style="white-space:nowrap">${prot}</td>
-      <td>${p.stato === 'girata' && p.girata_a ? `Girata a ${esc(nomeGirata(p.girata_a).split(' — ')[0])}` : esc(STATI[p.stato] || p.stato)}</td>
+      <td>${p.stato === 'girata' && p.girata_a ? `Girata a ${esc(nomeGirata(p.girata_a).split(' — ')[0])}` : esc(STATI[p.stato] || p.stato)}${passoHtml(p, passi)}</td>
     </tr>`;
   }).join('');
 

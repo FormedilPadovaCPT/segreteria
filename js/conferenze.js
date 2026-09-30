@@ -19,8 +19,10 @@ import { APP_URL } from './config.js';
 import { risolviCartella, leggiByte, idDaLink } from './drive.js';
 import { scaricaEml, FIRMA_SEGRETERIA } from './eml.js';
 import { RUBRICA_INTERNA } from './lookups.js';
+import { caricaPassi, passoHtml } from './passo-tecnico.js';
 
 let pratiche = [];
+let passi = null;              // il passo del tecnico sugli incarichi delle pratiche aperte (30/09/2026)
 let tecnici = [];
 let conf = {};
 let protDi = {};
@@ -58,6 +60,7 @@ async function carica() {
     sb.from('s_config').select('chiave, valore').in('chiave', ['direttore_email', 'direttore_nome', 'direttore_firma_id']),
   ]);
   pratiche = p || [];
+  passi = await caricaPassi(sb, pratiche);
   tecnici = t || [];
   conf = Object.fromEntries((c || []).map((r) => [r.chiave, r.valore]));
   const ids = [...new Set(pratiche.flatMap((x) => [x.protocollo_in_id, x.protocollo_out_id]).filter(Boolean))];
@@ -132,7 +135,7 @@ export async function render() {
       <td>${p.data_conferenza ? dataIt(p.data_conferenza) : '—'}</td>
       <td>${esc(nomeTecnico(p.tecnico_assegnato || p.tecnico_proposto) || '—')}${!p.tecnico_assegnato && p.tecnico_proposto ? ' <span class="hint">(proposto)</span>' : ''}</td>
       <td class="hint" style="white-space:nowrap">${prot}</td>
-      <td>${esc(STATI[p.stato] || p.stato)}</td>
+      <td>${esc(STATI[p.stato] || p.stato)}${passoHtml(p, passi)}</td>
     </tr>`;
   }).join('');
 
