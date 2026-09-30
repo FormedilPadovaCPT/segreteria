@@ -190,31 +190,92 @@ export async function pdfLetteraIncarico(inc, prot, d) {
 
 /* ── 2. riepilogo attività da fatturare ──
    d = { tecnico, prestazioni[], fisc, rlstPct, rlstMinimo, totNetto, totLordo,
-         cantieriVisitati, note } */
+         cantieriVisitati, note }
+
+   UNA PAGINA SOLA QUANDO CI STA (30/09/2026, chiesto dall'utente: «è brutto
+   che vada alla seconda pagina solo per la firma»). Il riepilogo si compone
+   in tre stesure, dalla più ariosa alla più fitta, e vale la prima che dà
+   meno pagine: con un mese normale sta in un foglio. Quando non ci sta
+   nemmeno la più fitta, il blocco finale — totale del mese, saluto e firma —
+   non si separa: la firma non resta mai da sola su una pagina. */
+const FONDO = 46;   /* sotto non si scrive; la carta non ha pie' di pagina */
+const STESURE_RIEPILOGO = [
+  { passo: 12.5, corpo: 7.8, aria: 1, campiInRiga: false, testataUnica: false },
+  { passo: 11.2, corpo: 7.6, aria: 0.5, campiInRiga: true, testataUnica: false },
+  /* la più fitta: i titoli delle colonne una volta sola per gruppo, non a ogni tipo di accesso */
+  { passo: 10, corpo: 7.3, aria: 0.2, campiInRiga: true, testataUnica: true },
+];
+
+/* a capo come c.scrivi, ma restituisce le righe e non salta pagina:
+   serve al blocco finale, che si misura prima di scriverlo */
+function aCapo(f, dim, testo, larghezza) {
+  const out = [];
+  for (const rigaTesto of testoPdf(testo).split(/\n/)) {
+    let riga = '';
+    for (const w of rigaTesto.split(/\s+/).filter(Boolean)) {
+      const prova = riga ? `${riga} ${w}` : w;
+      if (f.widthOfTextAtSize(prova, dim) > larghezza && riga) { out.push(riga); riga = w; } else riga = prova;
+    }
+    out.push(riga);
+  }
+  return out;
+}
+
 export async function pdfRiepilogo(inc, prot, d) {
+  let scelta = null;
+  for (const st of STESURE_RIEPILOGO) {
+    const c = await componiRiepilogo(inc, prot, d, st);
+    const pagine = c.doc.getPageCount();
+    if (!scelta || pagine < scelta.pagine) scelta = { c, pagine };
+    if (pagine === 1) break;
+  }
+  return salva(scelta.c.doc);
+}
+
+async function componiRiepilogo(inc, prot, d, st) {
   const c = await apriCarta();
+  const aria = (n) => n * st.aria;
+  /* le righe delle tabelle possono scendere fino a FONDO; titoli e campi usano
+     c.serve, che si ferma un po' prima: al più vanno a capo pagina in anticipo */
+  const serve = (h) => { if (c.stato.y - h < FONDO) c.nuovaPagina(); };
+  const mese = MESI[inc.mese - 1];
+
   testataTecnico(c, prot, d.tecnico, inc.area_zona, prot.data_prot);
   c.scrivi('Oggetto: Comunicazione riepilogo attività da fatturare.', c.bold, 10.5, c.nero);
-  c.stato.y -= 4;
-  c.campo('Mese di riferimento', `${MESI[inc.mese - 1]} ${inc.anno}`);
-  c.campo('Cantieri assegnati', `${inc.cantieri_assegnati ?? 0}${inc.altro ? `  —  Altro: ${inc.altro}` : ''}`);
-  c.campo('Cantieri visitati', String(d.cantieriVisitati ?? 0));
+  c.stato.y -= aria(4);
+  const assegnati = `${inc.cantieri_assegnati ?? 0}${inc.altro ? `  —  Altro: ${inc.altro}` : ''}`;
   /* il riepilogo elenca le attivita' ancora senza fattura, non «quelle del
      mese»: se ne arrivano da mesi precedenti va detto, altrimenti il
      tecnico trova righe con date che non tornano col titolo */
-  if (d.arretrate) c.campo('Attivita di mesi precedenti', `${d.arretrate} — non ancora coperte da una fattura`);
-  c.stato.y -= 6;
+  if (st.campiInRiga) {
+    c.scrivi(`Mese di riferimento: ${mese} ${inc.anno}   —   Cantieri assegnati: ${assegnati}   —   Cantieri visitati: ${d.cantieriVisitati ?? 0}`, c.italic, 9, c.nero);
+    if (d.arretrate) c.scrivi(`Attività di mesi precedenti: ${d.arretrate} — non ancora coperte da una fattura`, c.italic, 9, c.nero);
+    c.stato.y -= 3;   /* la riga non deve toccare la banda del titolo */
+  } else {
+    c.campo('Mese di riferimento', `${mese} ${inc.anno}`);
+    c.campo('Cantieri assegnati', assegnati);
+    c.campo('Cantieri visitati', String(d.cantieriVisitati ?? 0));
+    if (d.arretrate) c.campo('Attivita di mesi precedenti', `${d.arretrate} — non ancora coperte da una fattura`);
+  }
+  c.stato.y -= aria(6);
 
   const visite = d.prestazioni.filter((p) => String(p.tipo).startsWith('visita_'));
   const altre = d.prestazioni.filter((p) => !String(p.tipo).startsWith('visita_'));
 
+  /* le diciture da mettere in fattura: solo quelle dei tipi di visita che
+     questo riepilogo contiene davvero (prima erano sempre tutte e quattro) */
   bandaTitolo(c, 'RIEPILOGO VISITE IN CANTIERE');
-  c.scrivi('Dicitura in fattura per le visite ordinarie:', c.bold, 8.5, c.nero);
-  c.scrivi(`- "Consulenza professionale per (N°) sopralluoghi in cantiere mese di ${MESI[inc.mese - 1]} prime visite"`, c.font, 8.5, c.nero, 10);
-  c.scrivi(`- "Consulenza professionale per (N°) sopralluoghi in cantiere mese di ${MESI[inc.mese - 1]} seconde visite"`, c.font, 8.5, c.nero, 10);
-  c.scrivi('Visite di progetto: "Consulenza professionale per Progetto (titolo) - (N°) attività di audit in cantiere"', c.font, 8.5, c.nero, 10);
-  c.scrivi('Visite stage: "Consulenza professionale per (N°) visite stage in cantiere"', c.font, 8.5, c.nero, 10);
-  c.stato.y -= 6;
+  const tipi = new Set(visite.map((p) => p.tipo));
+  const ordinarie = [];
+  if (tipi.has('visita_prima')) ordinarie.push(`- "Consulenza professionale per (N°) sopralluoghi in cantiere mese di ${mese} prime visite"`);
+  if (tipi.has('visita_successiva')) ordinarie.push(`- "Consulenza professionale per (N°) sopralluoghi in cantiere mese di ${mese} seconde visite"`);
+  if (ordinarie.length) {
+    c.scrivi('Dicitura in fattura per le visite ordinarie:', c.bold, 8.5, c.nero);
+    for (const r of ordinarie) c.scrivi(r, c.font, 8.5, c.nero, 10);
+  }
+  if (tipi.has('visita_progetto')) c.scrivi('Visite di progetto: "Consulenza professionale per Progetto (titolo) - (N°) attività di audit in cantiere"', c.font, 8.5, c.nero, 10);
+  if (tipi.has('visita_stage')) c.scrivi('Visite stage: "Consulenza professionale per (N°) visite stage in cantiere"', c.font, 8.5, c.nero, 10);
+  if (visite.length) c.stato.y -= aria(6);
 
   const gruppi = {};
   for (const p of visite) (gruppi[p.tipo] = gruppi[p.tipo] || []).push(p);
@@ -228,37 +289,40 @@ export async function pdfRiepilogo(inc, prot, d) {
     c.stato.pagina.drawText(testoPdf(`${TIPI_PRESTAZIONE[tipo] || tipo}${tariffa}`.toUpperCase()), { x: SX + 10, y: yB - 10, size: 8.5, font: c.bold, color: c.nero });
     const tot = `${righe.length} — netto ${euro(netto)} — tot. oneri e IVA inc. ${euro(lordoDi(netto, d.fisc))}`;
     c.stato.pagina.drawText(tot, { x: DX - 8 - c.bold.widthOfTextAtSize(tot, 8), y: yB - 10, size: 8, font: c.bold, color: c.arancio });
-    c.stato.y = yB - 26;
+    c.stato.y = yB - 23 - aria(3);
 
     /* sottogruppi per tipo di accesso, come la stampa Access */
     const perAccesso = {};
     for (const p of righe) (perAccesso[p.tipo_accesso ?? ''] = perAccesso[p.tipo_accesso ?? ''] || []).push(p);
+    let larg = null;
     for (const [acc, rr] of Object.entries(perAccesso)) {
-      c.serve(26);
+      c.serve(26 + st.passo);   /* l'etichetta non resta in fondo alla pagina senza almeno una riga */
       c.stato.pagina.drawText(testoPdf(`${rr.length} ${TIPO_ACCESSO[acc] || (acc ? `tipo ${acc}` : 'visita')}`), { x: SX + 14, y: c.stato.y, size: 8, font: c.italic, color: c.grigio });
-      c.stato.y -= 12;
-      const larg = intestaTabella(c, [['Data', SX + 4], ['Impresa', SX + 56], ['Stage', SX + 262], ['Accesso n°', SX + 296], ['Verbale n°', SX + 350], ['RLST', SX + 404], ['Importo', DX - 42]]);
+      if (!larg || !st.testataUnica) {
+        c.stato.y -= 11 + aria(1);
+        larg = intestaTabella(c, [['Data', SX + 4], ['Impresa', SX + 56], ['Stage', SX + 262], ['Accesso n°', SX + 296], ['Verbale n°', SX + 350], ['RLST', SX + 404], ['Importo', DX - 42]]);
+      } else c.stato.y -= 10;
       for (const p of rr) {
-        c.serve(14);
+        serve(st.passo + 1.5);
         const y = c.stato.y;
-        const t = (s, x, f = c.font) => c.stato.pagina.drawText(taglia(f, 7.8, testoPdf(String(s ?? '')), larg[x]), { x, y, size: 7.8, font: f, color: c.nero });
+        const t = (s, x, f = c.font) => c.stato.pagina.drawText(taglia(f, st.corpo, testoPdf(String(s ?? '')), larg[x]), { x, y, size: st.corpo, font: f, color: c.nero });
         t(dataIt(p.data), SX + 4);
         t(p.impresa || p.descrizione || '', SX + 56);
         t(p.stage ? 'Sì' : 'No', SX + 262);
         t(p.accesso_n ?? '', SX + 296);
         t((p.nr_verbale || '').replace(/^CPT\/\d\d_\d\d\//, ''), SX + 350, c.bold);
         t(p.rlst ? 'Sì' : 'No', SX + 404);
-        c.stato.pagina.drawText(euro(p.importo), { x: DX - 4 - c.font.widthOfTextAtSize(euro(p.importo), 7.8), y, size: 7.8, font: c.font, color: c.nero });
-        c.stato.pagina.drawLine({ start: { x: SX, y: y - 4 }, end: { x: DX, y: y - 4 }, thickness: 0.4, color: c.grigioChiaro });
-        c.stato.y -= 12.5;
+        c.stato.pagina.drawText(euro(p.importo), { x: DX - 4 - c.font.widthOfTextAtSize(euro(p.importo), st.corpo), y, size: st.corpo, font: c.font, color: c.nero });
+        c.stato.pagina.drawLine({ start: { x: SX, y: y - 3.5 }, end: { x: DX, y: y - 3.5 }, thickness: 0.4, color: c.grigioChiaro });
+        c.stato.y -= st.passo;
       }
-      c.stato.y -= 4;
+      c.stato.y -= 3 + aria(1);   /* l'ultima riga non deve toccare quel che segue */
     }
   }
   if (!visite.length) c.scrivi('Nessuna visita nel mese.', c.italic, 9, c.grigio);
 
   /* totale e avviso RLST */
-  c.serve(28);
+  serve(28);
   const yT = c.stato.y + 8;
   c.stato.pagina.drawRectangle({ x: SX, y: yT - 16, width: DX - SX, height: 17, color: c.arancio });
   c.stato.pagina.drawText(`TOTALE VISITE ${visite.length}`, { x: SX + 6, y: yT - 11, size: 9, font: c.bold, color: c.bianco });
@@ -267,36 +331,44 @@ export async function pdfRiepilogo(inc, prot, d) {
     ? (rlstOk ? `Visite con RLST: ${d.rlstPct}% (minimo ${d.rlstMinimo ?? 20}%)` : `Attenzione: non è stato raggiunto il minimo del ${d.rlstMinimo ?? 20}% delle visite con RLST — ${d.rlstPct}%`)
     : '';
   if (avv) c.stato.pagina.drawText(testoPdf(avv), { x: DX - 8 - c.bold.widthOfTextAtSize(testoPdf(avv), 8), y: yT - 11, size: 8, font: c.bold, color: c.bianco });
-  c.stato.y = yT - 30;
+  c.stato.y = yT - 26 - aria(4);
 
   /* docenze, servizi, asseverazioni */
   if (altre.length) {
     bandaTitolo(c, 'RIEPILOGO DA LETTERE DI INCARICO — FORMAZIONE, SERVIZI, ASSEVERAZIONI');
     c.scrivi('In fattura indicare: "Consulenza professionale per Progetto (TITOLO) - (N° ore) attività di docenza" oppure la voce del servizio reso.', c.font, 8.5, c.nero);
-    c.stato.y -= 4;
+    c.stato.y -= aria(4);
     const larg = intestaTabella(c, [['Data', SX + 4], ['Tipo', SX + 52], ['Descrizione', SX + 126], ['Q.tà', SX + 322], ['Tariffa', SX + 364], ['Netto', SX + 410], ['Lordo', DX - 40]]);
     let totAltre = 0;
     for (const p of altre) {
-      c.serve(14);
+      serve(st.passo + 1.5);
       const y = c.stato.y;
-      const t = (s, x, f = c.font) => c.stato.pagina.drawText(taglia(f, 7.8, testoPdf(String(s ?? '')), larg[x]), { x, y, size: 7.8, font: f, color: c.nero });
+      const t = (s, x, f = c.font) => c.stato.pagina.drawText(taglia(f, st.corpo, testoPdf(String(s ?? '')), larg[x]), { x, y, size: st.corpo, font: f, color: c.nero });
       t(dataIt(p.data), SX + 4); t(TIPI_PRESTAZIONE[p.tipo] || p.tipo, SX + 52); t(p.descrizione || '', SX + 126);
       t(`${p.quantita ?? 1} ${p.unita || ''}`, SX + 322); t(p.tariffa_unitaria != null ? euro(p.tariffa_unitaria) : '—', SX + 364);
       t(euro(p.importo), SX + 410, c.bold);
-      c.stato.pagina.drawText(euro(lordoDi(p.importo, d.fisc)), { x: DX - 4 - c.font.widthOfTextAtSize(euro(lordoDi(p.importo, d.fisc)), 7.8), y, size: 7.8, font: c.font, color: c.nero });
+      c.stato.pagina.drawText(euro(lordoDi(p.importo, d.fisc)), { x: DX - 4 - c.font.widthOfTextAtSize(euro(lordoDi(p.importo, d.fisc)), st.corpo), y, size: st.corpo, font: c.font, color: c.nero });
       totAltre += Number(p.importo || 0);
-      c.stato.pagina.drawLine({ start: { x: SX, y: y - 4 }, end: { x: DX, y: y - 4 }, thickness: 0.4, color: c.grigioChiaro });
-      c.stato.y -= 12.5;
+      c.stato.pagina.drawLine({ start: { x: SX, y: y - 3.5 }, end: { x: DX, y: y - 3.5 }, thickness: 0.4, color: c.grigioChiaro });
+      c.stato.y -= st.passo;
     }
-    c.serve(16);
+    serve(16);
     const tt = `Totale altre attività: netto ${euro(totAltre)} — lordo ${euro(lordoDi(totAltre, d.fisc))}`;
     c.stato.pagina.drawText(tt, { x: DX - 4 - c.bold.widthOfTextAtSize(tt, 8.5), y: c.stato.y, size: 8.5, font: c.bold, color: c.arancio });
-    c.stato.y -= 18;
+    c.stato.y -= 12 + aria(6);
   }
 
-  /* riquadro totale del mese */
-  c.serve(60);
-  const h = 44; const y0 = c.stato.y - h + 8;
+  /* BLOCCO FINALE, tutto insieme: riquadro del totale, note, saluto, firma.
+     Si misura prima: se non ci sta intero va intero alla pagina dopo. */
+  const larghezza = DX - SX;
+  const righeNota = d.note ? aCapo(c.font, 9, d.note, larghezza) : [];
+  const saluto = aCapo(c.font, 9, "Una volta emessa la fattura si prega di inviarne copia anche all'indirizzo cpt@formedilpadova.it. Cordiali saluti.", larghezza);
+  const h = 44;
+  const hFirma = 8 + aria(6) + 26;
+  const hBlocco = (h - 8) + 14 + (righeNota.length ? righeNota.length * 13 + 4 : 0) + saluto.length * 13 + hFirma;
+  if (c.stato.y - hBlocco < FONDO) c.nuovaPagina();
+
+  const y0 = c.stato.y - h + 8;
   c.stato.pagina.drawRectangle({ x: SX, y: y0, width: DX - SX, height: h, borderColor: c.arancio, borderWidth: 1.4 });
   const regime = d.fisc?.regime === 'forfettario'
     ? `regime forfettario — cassa ${d.fisc?.cassa_pct ?? 4}%, IVA non dovuta`
@@ -305,10 +377,18 @@ export async function pdfRiepilogo(inc, prot, d) {
   c.stato.pagina.drawText(testoPdf(`Netto ${euro(d.totNetto)}  —  Totale oneri e IVA inclusi ${euro(d.totLordo)}  (${regime})`), { x: SX + 10, y: y0 + h - 32, size: 9, font: c.bold, color: c.nero });
   c.stato.y = y0 - 14;
 
-  if (d.note) { c.scrivi(d.note, c.font, 9); c.stato.y -= 4; }
-  c.scrivi("Una volta emessa la fattura si prega di inviarne copia anche all'indirizzo cpt@formedilpadova.it. Cordiali saluti.", c.font, 9);
-  firmaSegreteria(c, prot);
-  return salva(c.doc);
+  for (const r of righeNota) { c.stato.pagina.drawText(r, { x: SX, y: c.stato.y, size: 9, font: c.font, color: c.nero }); c.stato.y -= 13; }
+  if (righeNota.length) c.stato.y -= 4;
+  for (const r of saluto) { c.stato.pagina.drawText(r, { x: SX, y: c.stato.y, size: 9, font: c.font, color: c.nero }); c.stato.y -= 13; }
+
+  /* la firma, attaccata al saluto */
+  c.stato.y -= 8 + aria(6);
+  c.stato.pagina.drawText(`Padova, ${dataIt(prot?.data_prot || new Date().toISOString().slice(0, 10))}`, { x: SX, y: c.stato.y, size: 10, font: c.font, color: c.nero });
+  c.stato.pagina.drawText('FORMEDIL PADOVA', { x: 380, y: c.stato.y + 4, size: 10, font: c.bold, color: c.nero });
+  c.stato.pagina.drawText(ENTE.area.toUpperCase(), { x: 380, y: c.stato.y - 8, size: 8.5, font: c.font, color: c.grigio });
+  c.stato.pagina.drawText('La Segreteria', { x: 380, y: c.stato.y - 22, size: 10, font: c.italic, color: c.nero });
+  c.stato.y -= 26;
+  return c;
 }
 
 /* ── 3. mandato di pagamento ──
