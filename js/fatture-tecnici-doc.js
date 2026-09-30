@@ -53,7 +53,7 @@ export const TIPI_PRESTAZIONE = {
 export const TIPO_ACCESSO = {
   1: 'su segnalazione', 2: 'su richiesta', 3: 'per protocolli di intesa', 4: 'indicata da RLS / RLST',
   5: 'programmata', 6: 'cantiere qualità', 7: 'indicata dal CPT', 8: 'adesione servizio visite in serie',
-  9: 'stage / ASL', 10: 'asseverazione',
+  9: 'stage / ASL', 10: 'asseverazione', 11: 'attestazione / consulenza e monitoraggio',
 };
 
 /* euro, lordoDi e inLettere vivono in comune.js dal 05/09/2026 (cosi' Node li
