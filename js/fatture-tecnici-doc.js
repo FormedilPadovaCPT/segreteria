@@ -45,9 +45,14 @@ export const TIPI_PRESTAZIONE = {
   altro: 'Altro',
 };
 
+/* Gli stessi codici del gestionale visite (TIPO_ACC_LABELS in app-data.js e la tendina
+   «Tipologia di accesso» del verbale): visite.tipo_accesso è scritto con quelli.
+   Fino al 30/09/2026 qui 1, 2, 4 e 6 avevano i nomi di un'altra codifica («a vista»,
+   «da notifica preliminare», «su richiesta», «su segnalazione»): una visita su
+   segnalazione sarebbe uscita nel riepilogo come «a vista». */
 export const TIPO_ACCESSO = {
-  1: 'a vista', 2: 'da notifica preliminare', 4: 'su richiesta', 5: 'programmata',
-  6: 'su segnalazione', 7: 'indicata dal CPT', 8: 'adesione servizio visite in serie',
+  1: 'su segnalazione', 2: 'su richiesta', 3: 'per protocolli di intesa', 4: 'indicata da RLS / RLST',
+  5: 'programmata', 6: 'cantiere qualità', 7: 'indicata dal CPT', 8: 'adesione servizio visite in serie',
   9: 'stage / ASL', 10: 'asseverazione',
 };
 
