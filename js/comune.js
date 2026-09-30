@@ -169,6 +169,18 @@ export function lordoDi(netto, fisc) {
   return Math.round(Number(netto || 0) * (1 + cassa) * (1 + iva) * 100) / 100;
 }
 
+/* Un riepilogo gia' protocollato si puo' RIFARE SULLO STESSO NUMERO solo se non e'
+   mai uscito dall'ufficio: non annullato, non segnato inviato, nessun invio partito.
+   Una bozza di mail soltanto preparata non conta: non e' partita. (30/09/2026, deciso
+   dall'utente dopo due riepiloghi protocollati col contenuto sbagliato e mai spediti:
+   «i due protocolli possiamo tenerli sostituendoli con il nuovo pdf corretto».) */
+export function riepilogoRifacibile(prot, invii = []) {
+  if (!prot || !prot.id) return false;
+  if (prot.annullato) return false;
+  if (prot.mail_inviata_at || prot.inviato_il) return false;
+  return !(invii || []).some((i) => i && i.inviata_at);
+}
+
 /* Importo in lettere, come sulla stampa Access:
    3538,08 -> «tremilacinquecentotrentotto/08» */
 export function inLettere(n) {

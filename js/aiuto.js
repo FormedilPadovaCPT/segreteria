@@ -185,7 +185,7 @@ window.AIUTO_TESTI = {
   'p:prepara integrazione': 'La lettera è già protocollata: prepara l\'integrazione con le visite aggiunte dopo.',
   'cm-chiudi-arr': 'Chiude le prestazioni arretrate senza spunta: non verranno più fatturate.',
   'cm-senza': 'Chiude il mese a zero, per un tecnico che non ha fatto nulla: niente riepilogo, niente protocollo, niente mail; il motivo resta scritto sull’incarico.',
-  'cm-congela': 'Congela le prestazioni del mese, protocolla il riepilogo e prepara la mail al tecnico: da qui il mese non si tocca più.',
+  'cm-congela': 'Congela le prestazioni del mese, protocolla il riepilogo e prepara la mail al tecnico. Se il mese ha già un riepilogo protocollato e mai spedito, lo rifà sullo stesso numero: il PDF di prima va nel cestino di Drive e al suo posto entra quello nuovo. Se quello di prima è già partito, il nuovo prende un numero nuovo.',
   'ff-nuova': 'Registra una fattura ricevuta da un tecnico.',
   'ff-annulla': 'Annulla la fattura: resta visibile come annullata, le prestazioni tornano da fatturare.',
   'df-prot': 'Apre il protocollo in entrata già compilato con i dati della fattura.',

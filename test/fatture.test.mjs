@@ -60,3 +60,19 @@ test('la nota va a capo invece di essere troncata', () => {
   assert.equal(tagliate.length, 2, 'oltre il massimo si ferma');
   assert.ok(tagliate[1].endsWith('...'), 'e dice che continua');
 });
+
+// 30/09/2026 — un riepilogo protocollato si rifà sullo stesso numero solo se non è mai uscito dall'ufficio
+import { riepilogoRifacibile } from '../js/comune.js';
+
+test('riepilogo rifacibile sullo stesso protocollo solo se mai spedito e non annullato', () => {
+  const p = { id: 4763, annullato: false, mail_inviata_at: null, inviato_il: null };
+  assert.equal(riepilogoRifacibile(p, []), true, 'protocollato e mai spedito: si rifà sullo stesso numero');
+  assert.equal(riepilogoRifacibile(p, [{ id: 1, inviata_at: null }]), true, 'una bozza solo preparata non è un invio');
+  assert.equal(riepilogoRifacibile(p, null), true, 'nessun invio registrato');
+  assert.equal(riepilogoRifacibile(p, [{ id: 1, inviata_at: '2026-09-30T15:00:00Z' }]), false, 'un invio partito: numero nuovo');
+  assert.equal(riepilogoRifacibile({ ...p, mail_inviata_at: '2026-09-30T15:00:00Z' }, []), false, 'segnato inviato per mail');
+  assert.equal(riepilogoRifacibile({ ...p, inviato_il: '2026-09-30' }, []), false, 'segnato inviato a mano');
+  assert.equal(riepilogoRifacibile({ ...p, annullato: true }, []), false, 'annullato: non si resuscita');
+  assert.equal(riepilogoRifacibile(null, []), false, 'protocollo non trovato');
+  assert.equal(riepilogoRifacibile({}, []), false, 'riga senza id');
+});

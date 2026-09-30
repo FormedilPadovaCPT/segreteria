@@ -43,7 +43,8 @@
 
 import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer,
   codiceProtocollo, esercizioDi } from './core.js';
-import { risolviCartella, creaCartella, caricaByte } from './drive.js';
+import { risolviCartella, creaCartella, caricaByte, cestina } from './drive.js';
+import { riepilogoRifacibile } from './comune.js';
 import { scaricaEml, FIRMA_SEGRETERIA } from './eml.js';
 import { MESI, TIPI_PRESTAZIONE, euro, lordoDi } from './fatture-tecnici-doc.js';
 /* le schede Fatture, Mandati e Prestazioni stanno in file loro (26/09/2026) */
@@ -797,8 +798,26 @@ function datiRiepilogo(t, sel, fisc, note) {
 
 async function congelaEInvia(t, inc, anno, mese, sel, fisc, note, btn) {
   if (!sel.length) return toast('Nessuna prestazione selezionata.', 'err');
-  if (!confirm(`Congelo ${sel.length} prestazioni di ${nomeTec(t)} per ${MESI[mese - 1]} ${anno}, protocollo il riepilogo e preparo la mail?`)) return;
-  attendi(btn, true, 'Congelo e protocollo…');
+
+  /* Il mese ha già un riepilogo protocollato? Se non è mai uscito dall'ufficio
+     (non spedito, non annullato) si RIFÀ SULLO STESSO NUMERO: cambia il PDF, il
+     protocollo resta quello e non se ne consuma uno nuovo (30/09/2026). Se invece
+     è partito, o è stato annullato, il riepilogo nuovo prende un numero nuovo.
+     Lettura fallita ≠ «non c'è»: ci si ferma, non si protocolla due volte. */
+  let protDaRifare = null;
+  if (inc?.riepilogo_protocollo_id) {
+    const [pv, iv] = await Promise.all([
+      sb.from('s_protocollo').select('*').eq('id', inc.riepilogo_protocollo_id).maybeSingle(),
+      sb.from('s_prot_invii').select('id, inviata_at').eq('protocollo_id', inc.riepilogo_protocollo_id),
+    ]);
+    if (pv.error || iv.error) return toast('Non sono riuscito a leggere il riepilogo già protocollato per questo mese: ' + (pv.error || iv.error).message, 'err');
+    if (riepilogoRifacibile(pv.data, iv.data)) protDaRifare = pv.data;
+  }
+
+  if (!confirm(protDaRifare
+    ? `Congelo ${sel.length} prestazioni di ${nomeTec(t)} per ${MESI[mese - 1]} ${anno} e RIFACCIO il riepilogo sullo stesso protocollo ${codiceProtocollo(protDaRifare)}, che non è mai stato spedito: il PDF di prima va nel cestino di Drive e al suo posto entra quello nuovo. Poi preparo la mail. Procedo?`
+    : `Congelo ${sel.length} prestazioni di ${nomeTec(t)} per ${MESI[mese - 1]} ${anno}, protocollo il riepilogo e preparo la mail?`)) return;
+  attendi(btn, true, protDaRifare ? 'Congelo e rifaccio il riepilogo…' : 'Congelo e protocollo…');
   try {
     /* l'incarico mensile deve esistere: se manca nasce ora, senza lettera */
     let incarico = inc;
@@ -838,14 +857,31 @@ async function congelaEInvia(t, inc, anno, mese, sel, fisc, note, btn) {
     const esercizio = esercizioDi(meseRange(anno, mese).a);
     const percorso = `${CARTELLA_FATTURE}/ES_20${esercizio.replace('-', '-20')}`;
     const oggetto = `Comunicazione riepilogo attività da fatturare — ${MESI[mese - 1]} ${anno}`;
-    const { data: prot, error: errP } = await sb.rpc('s_crea_protocollo', { p: {
-      direzione: 'OUT', data_prot: oggiIso(), data_doc: oggiIso(), persona: nomeTec(t), oggetto,
-      note: `${sel.length} prestazioni: netto ${euro(tot)}, totale oneri e IVA inclusi ${euro(lordo)}.${note ? `\n${note}` : ''}`,
-      sintesi: `Riepilogo del mese per la fattura del tecnico (incarico mensile n° ${incarico.id}). ${sel.filter((r) => String(r.tipo).startsWith('visita_')).length} visite, ${sel.filter((r) => !String(r.tipo).startsWith('visita_')).length} altre attività.`,
-      ufficio: 'Segreteria Area Sicurezza e Salute', mezzo: 'e-mail',
-      tipo_doc_id: TIPO_DOC_RIEPILOGO, tipo_doc_txt: 'Riepilogo attività da fatturare', cartella: percorso,
-    } });
-    if (errP) throw new Error('Protocollazione non riuscita: ' + errP.message);
+    const notaProt = `${sel.length} prestazioni: netto ${euro(tot)}, totale oneri e IVA inclusi ${euro(lordo)}.${note ? `\n${note}` : ''}`;
+    const sintesiProt = `Riepilogo del mese per la fattura del tecnico (incarico mensile n° ${incarico.id}). ${sel.filter((r) => String(r.tipo).startsWith('visita_')).length} visite, ${sel.filter((r) => !String(r.tipo).startsWith('visita_')).length} altre attività.`;
+    let prot = null; let allegatiVecchi = [];
+    if (protDaRifare) {
+      /* stesso numero: si aggiorna la riga del registro e si tiene da parte il PDF di prima */
+      /* solo il documento principale: un allegato aggiunto a mano al protocollo non si tocca */
+      const { data: av, error: errAv } = await sb.from('s_prot_allegati').select('id, drive_file_id, nome').eq('protocollo_id', protDaRifare.id).eq('principale', true);
+      if (errAv) throw new Error('Non sono riuscito a leggere il PDF del riepilogo da sostituire: ' + errAv.message);
+      allegatiVecchi = av || [];
+      const { data: agg, error: errAgg } = await sb.from('s_protocollo').update({
+        note: `${notaProt}\nRiepilogo rifatto il ${dataIt(oggiIso())} sullo stesso numero: il precedente, del ${dataIt(protDaRifare.data_doc || protDaRifare.data_prot)}, non era stato spedito.`,
+        sintesi: sintesiProt, data_doc: oggiIso(), cartella: percorso, aggiornato_da: state.email, updated_at: new Date().toISOString(),
+      }).eq('id', protDaRifare.id).select('*').single();
+      if (errAgg) throw new Error('Protocollo non aggiornato: ' + errAgg.message);
+      prot = agg;
+    } else {
+      const { data: nuovoProt, error: errP } = await sb.rpc('s_crea_protocollo', { p: {
+        direzione: 'OUT', data_prot: oggiIso(), data_doc: oggiIso(), persona: nomeTec(t), oggetto,
+        note: notaProt, sintesi: sintesiProt,
+        ufficio: 'Segreteria Area Sicurezza e Salute', mezzo: 'e-mail',
+        tipo_doc_id: TIPO_DOC_RIEPILOGO, tipo_doc_txt: 'Riepilogo attività da fatturare', cartella: percorso,
+      } });
+      if (errP) throw new Error('Protocollazione non riuscita: ' + errP.message);
+      prot = nuovoProt;
+    }
 
     const { pdfRiepilogo } = await import('./fatture-tecnici-doc.js');
     const byte = await pdfRiepilogo(incarico, prot, datiRiepilogo(t, sel, fisc, note));
@@ -854,8 +890,18 @@ async function congelaEInvia(t, inc, anno, mese, sel, fisc, note, btn) {
     if (!base.id) throw new Error('Cartella fatture/tecnici non trovata su Drive');
     const sub = await creaCartella(base.id, `ES_20${esercizio.replace('-', '-20')}`);
     const su = await caricaByte(prot, nomeFile, byte, 'application/pdf', sub.id || base.id);
-    await sb.from('s_prot_allegati').insert({ protocollo_id: prot.id, nome: su.file_name || nomeFile, mime: 'application/pdf',
+    const { error: errAll } = await sb.from('s_prot_allegati').insert({ protocollo_id: prot.id, nome: su.file_name || nomeFile, mime: 'application/pdf',
       dimensione: byte.length, principale: true, created_by: state.email, drive_file_id: su.drive_file_id, drive_url: su.drive_url });
+    if (errAll) throw new Error('Il PDF nuovo è su Drive ma non è stato collegato al protocollo: ' + errAll.message);
+    /* il PDF di prima: via dal protocollo e nel cestino di Drive (si recupera). Solo DOPO che
+       quello nuovo è al suo posto; se qualcosa non riesce lo si dice, non si finge sostituito */
+    for (const a of allegatiVecchi) {
+      const { error: errDel } = await sb.from('s_prot_allegati').delete().eq('id', a.id);
+      if (errDel) { toast(`Il PDF di prima («${a.nome || ''}») è rimasto collegato al protocollo: toglilo a mano dal registro. ${errDel.message}`, 'err'); continue; }
+      if (a.drive_file_id && a.drive_file_id !== su.drive_file_id) {
+        try { await cestina(a.drive_file_id); } catch (e) { toast(`Il PDF di prima è rimasto su Drive accanto a quello nuovo: spostalo nel cestino a mano. ${e.message}`, 'err'); }
+      }
+    }
     await sb.from('s_protocollo').update({ drive_file_id: su.drive_file_id, drive_url: su.drive_url }).eq('id', prot.id);
     await sb.from('s_incarichi_mensili').update({
       stato: 'chiuso', chiuso_il: new Date().toISOString(), chiuso_da: state.email,
