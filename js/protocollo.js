@@ -15,6 +15,8 @@ import { agganci, caricaFile, cestina, dove, idDaLink, risolviCartella, sfoglia,
 import { UFFICI, MEZZI, normalizzaMezzo, vuoleTimbro, PERCHE_NIENTE_TIMBRO } from './lookups.js';
 import { CARTELLE_VAULT } from './cartelle-vault.js';
 import { collegaBarraFormato } from './testo-formato.js';
+import { mittenteDaFile } from './mittente-mail.js';
+import { dividiIndirizzi, EMAIL_VALIDA } from './mail-indirizzi.js';
 
 /* ── stato del modulo ─────────────────────────────────────── */
 const f = { direzione: '', testo: '', anno: '', tipo: '', ufficio: '', invio: '' };
@@ -250,6 +252,7 @@ export async function apriDettaglio(id) {
       ${voce('Data documento', dataIt(p.data_doc))}
       ${voce(inn ? 'Mittente impresa' : 'Destinatario impresa', p.impresa_nome)}
       ${voce(inn ? 'Mittente persona' : 'Destinatario persona', p.persona)}
+      ${inn ? voce('E-mail del mittente', p.mittente_email) : ''}
       ${inn ? '' : voce('Gruppo di destinatari', p.gruppo?.nome)}
       ${voce('Alla cortese attenzione', p.alla_ca)}
       ${voce('Vostro protocollo', p.vostro_protocollo)}
@@ -561,6 +564,30 @@ async function gestisciAzioneDrawer(e) {
   }
 }
 
+/* Chi ha scritto la mail allegata (.msg, .eml): null se fra i file non c'è
+   una mail o se non si legge — nel qual caso l'indirizzo si scrive a mano. */
+async function mittenteDeiFile(files) {
+  for (const file of Array.from(files || [])) {
+    if (!/\.(msg|eml)$/i.test(file.name)) continue;
+    try {
+      const trovato = mittenteDaFile(file.name, new Uint8Array(await file.arrayBuffer()));
+      if (trovato) return { ...trovato, file: file.name };
+    } catch { /* un file che non si legge non ferma il caricamento */ }
+  }
+  return null;
+}
+
+/* La mail allegata DOPO, dal dettaglio: se il protocollo in entrata non sa
+   ancora a chi rispondere, lo impara da lì. Un indirizzo già scritto resta. */
+async function imparaMittente(p, files) {
+  if (p.direzione !== 'IN' || p.mittente_email) return;
+  const m = await mittenteDeiFile(files);
+  if (!m) return;
+  const { error } = await sb.from('s_protocollo')
+    .update({ mittente_email: m.email, aggiornato_da: state.email }).eq('id', p.id);
+  if (error) toast('Non sono riuscito a scrivere l\'e-mail del mittente: ' + error.message, 'err');
+}
+
 async function caricaAllegato(file, poiTimbra = false) {
   if (!file || !recordCorrente) return;
   const p = recordCorrente;
@@ -580,6 +607,7 @@ async function caricaAllegato(file, poiTimbra = false) {
     drive_file_id: su.drive_file_id, drive_url: su.drive_url,
   }).select().single();
   toast('Documento caricato su Drive e allegato al protocollo.', 'ok');
+  await imparaMittente(p, [file]);
 
   /* Se il documento e' stato caricato apposta per timbrarlo, si va
      dritti all'anteprima invece di far ricominciare da capo. */
@@ -620,6 +648,7 @@ async function caricaAllegati(fileList) {
 
   if (fatti.length) toast(`${fatti.length} document${fatti.length === 1 ? 'o allegato' : 'i allegati'} al protocollo.`, 'ok');
   if (falliti.length) toast(`Non caricati: ${falliti.join('; ')}`, 'err');
+  await imparaMittente(p, files.filter((f) => fatti.includes(f.name)));
   apriDettaglio(p.id);
 }
 
@@ -953,6 +982,11 @@ export async function apriForm(direzione, record = null, duplica = false, dopoSa
               <label for="c-alla_ca">Assegnato a</label>
               <input type="text" id="c-alla_ca" list="dl-assegnati" value="${esc(r.alla_ca || 'Squizzato Sig. Renato')}">
               <datalist id="dl-assegnati">${assegnatiNoti.map((x) => `<option value="${esc(x)}">`).join('')}</datalist>
+            </div>
+            <div class="field full">
+              <label for="c-mittente_email">E-mail del mittente</label>
+              <input type="text" id="c-mittente_email" value="${esc(r.mittente_email || '')}" placeholder="l'indirizzo di chi ha scritto la mail" inputmode="email" autocomplete="off" spellcheck="false">
+              <span class="hint" id="hint-mittente_email">È l&rsquo;indirizzo a cui va la risposta. Se alleghi la mail (.msg o .eml) lo leggo da lì.</span>
             </div>` : `
             <div class="field">
               <label for="c-gruppo">Gruppo di destinatari</label>
@@ -1109,6 +1143,21 @@ export async function apriForm(direzione, record = null, duplica = false, dopoSa
     });
   }
 
+  /* allegata la mail (.msg, .eml), l'indirizzo di chi l'ha scritta va nel
+     campo: è a lui che si risponde. Quello scritto a mano non si tocca. */
+  const campoMittente = $('#c-mittente_email');
+  if (campoMittente && $('#c-file')) {
+    campoMittente.addEventListener('input', () => { delete campoMittente.dataset.letto; });
+    $('#c-file').addEventListener('change', async (ev) => {
+      if (campoMittente.value.trim() && !campoMittente.dataset.letto) return;
+      const m = await mittenteDeiFile(ev.target.files);
+      if (!m) return;
+      campoMittente.value = m.email;
+      campoMittente.dataset.letto = '1';
+      $('#hint-mittente_email').textContent = `Letto da «${m.file}»${m.nome ? ' — ' + m.nome : ''}. A questo indirizzo va la risposta.`;
+    });
+  }
+
   $('#btn-annulla-form').addEventListener('click', () => { mostraVista('registro'); caricaElenco(); });
   $('#btn-salva').addEventListener('click', salva);
 }
@@ -1174,6 +1223,13 @@ async function salva(ev) {
   };
   /* solo in uscita: in entrata il campo non c'è e non va azzerato */
   if ($('#c-gruppo')) dati.gruppo_destinatari = $('#c-gruppo').value || null;
+  /* solo in entrata: a chi si risponde */
+  if ($('#c-mittente_email')) {
+    const indirizzi = dividiIndirizzi($('#c-mittente_email').value);
+    const storti = indirizzi.filter((e) => !EMAIL_VALIDA.test(e));
+    if (storti.length) { toast(`«E-mail del mittente»: ${storti.join(', ')} non sembra un indirizzo.`, 'err'); $('#c-mittente_email').focus(); return; }
+    dati.mittente_email = indirizzi.join(', ') || null;
+  }
 
   /* invio del protocollo in uscita: si scrive solo se il campo c'è ed è cambiato */
   const campoInvio = $('#c-inviato_il');

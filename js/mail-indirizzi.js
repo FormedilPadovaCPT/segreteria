@@ -62,6 +62,10 @@ export function nomeDiPersona(p) {
  *   - altrimenti la e-mail principale dell'impresa in «A»;
  *   - PEC, seconde e-mail e persone dell'impresa restano da spuntare.
  *   - per l'inoltro interno, gli indirizzi dell'ufficio proposti in «A».
+ *   - il protocollo in entrata nato da una mail (30/09/2026): chi ha scritto
+ *     quella mail (`mittenti`) va in «A» e nient'altro è già spuntato — è una
+ *     risposta, e si risponde a chi ha scritto. L'anagrafica resta sotto, da
+ *     spuntare se serve.
  *
  * Il modello del tipo di documento (lookups.js, MODELLI_PROTOCOLLATO) può
  * spostare i ruoli (14/09/2026): con `modello.a = 'gdv'` il gruppo di
@@ -76,6 +80,7 @@ export function vociIndirizzi({
   personeTrovate = [],
   personeImpresa = [],
   interni = [],
+  mittenti = [],
   gruppoVerifica = [],
   incaricati = [],
   modello = {},
@@ -106,6 +111,10 @@ export function vociIndirizzi({
 
   for (const i of interni) aggiungi(i.email, i.nome || '', 'Ufficio', 'to');
 
+  /* chi ha scritto la mail protocollata: la risposta va a lui */
+  for (const m of mittenti) aggiungi(m.email, m.nome || 'mittente della mail', 'Mittente della mail ricevuta', 'to');
+  const mittenteInA = voci.some((v) => v.gruppo === 'Mittente della mail ricevuta');
+
   /* la lettera di incarico: il tecnico incaricato in testa, in «A» */
   if (incaricatoInA) {
     for (const t of incaricati) aggiungi(t.email, t.nome ? `${t.nome} — incaricato` : 'incaricato', 'Tecnico incaricato', 'to');
@@ -122,7 +131,7 @@ export function vociIndirizzi({
     corrispondenti.forEach((p) => {
       const unica = corrispondenti.length === 1;
       [p.email, p.email2, p.email3].forEach((e, n) => {
-        const pre = unica && n === 0 && !!String(e ?? '').trim();
+        const pre = unica && n === 0 && !!String(e ?? '').trim() && !mittenteInA;
         if (pre) personaPreselezionata = true;
         aggiungi(e, nomeDiPersona(p), unica ? 'Persona indicata nel protocollo' : 'Persone con lo stesso nome — scegli quella giusta', pre ? 'to' : null);
       });
@@ -132,7 +141,7 @@ export function vociIndirizzi({
   if (impresa) {
     const nome = impresa.impresa_nome || 'impresa';
     const principale = String(impresa.impresa_email_ref ?? '').trim();
-    aggiungi(principale, `${nome} — e-mail`, 'Impresa', !personaPreselezionata && principale && !interni.length ? 'to' : null);
+    aggiungi(principale, `${nome} — e-mail`, 'Impresa', !personaPreselezionata && principale && !interni.length && !mittenteInA ? 'to' : null);
     aggiungi(impresa.impresa_email2, `${nome} — seconda e-mail`, 'Impresa');
     aggiungi(impresa.impresa_email3, `${nome} — terza e-mail`, 'Impresa');
     aggiungi(impresa.pec, `${nome} — PEC`, 'Impresa');

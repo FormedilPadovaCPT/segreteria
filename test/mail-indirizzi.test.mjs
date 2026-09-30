@@ -31,6 +31,38 @@ test('i membri del gruppo passano per la stessa raccolta dei destinatari', () =>
   assert.deepEqual(raccogliDestinatari(voci).to, ['Mario.Rossi@esempio.example']);
 });
 
+test('protocollo in entrata nato da una mail: in «A» c\'è chi ha scritto, e solo lui', () => {
+  const voci = vociIndirizzi({
+    mittenti: [{ email: 'segreteria@ente.example', nome: 'Ente di Prova' }],
+    impresa: { impresa_nome: 'EDILPROVA S.R.L.', impresa_email_ref: 'info@edilprova.example', pec: 'edilprova@pec.example' },
+    nominativi: ['Bianchi Geom. Luca'],
+    personeTrovate: [{ nome: 'Luca', cognome: 'Bianchi', email: 'l.bianchi@edilprova.example' }],
+  });
+  assert.deepEqual(voci[0], { email: 'segreteria@ente.example', etichetta: 'Ente di Prova', gruppo: 'Mittente della mail ricevuta', ruolo: 'to' });
+  assert.deepEqual(raccogliDestinatari(voci).to, ['segreteria@ente.example']);
+  /* l'anagrafica resta proposta, da spuntare */
+  assert.ok(voci.some((v) => v.email === 'info@edilprova.example' && v.ruolo === null));
+  assert.ok(voci.some((v) => v.email === 'l.bianchi@edilprova.example' && v.ruolo === null));
+});
+
+test('il mittente che è anche la e-mail dell\'impresa compare una volta sola, in «A»', () => {
+  const voci = vociIndirizzi({
+    mittenti: [{ email: 'INFO@edilprova.example', nome: '' }],
+    impresa: { impresa_nome: 'EDILPROVA S.R.L.', impresa_email_ref: 'info@edilprova.example' },
+  });
+  assert.equal(voci.length, 1);
+  assert.equal(voci[0].ruolo, 'to');
+  assert.equal(voci[0].etichetta, 'mittente della mail');
+});
+
+test('senza mittente noto tutto resta com\'era: l\'impresa in «A»', () => {
+  const voci = vociIndirizzi({
+    mittenti: [{ email: 'non-e-un-indirizzo', nome: 'x' }],
+    impresa: { impresa_nome: 'EDILPROVA S.R.L.', impresa_email_ref: 'info@edilprova.example' },
+  });
+  assert.deepEqual(raccogliDestinatari(voci).to, ['info@edilprova.example']);
+});
+
 const impresa = {
   impresa_nome: 'EDILPROVA S.R.L.',
   impresa_email_ref: 'info@edilprova.example',

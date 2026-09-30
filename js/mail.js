@@ -215,7 +215,12 @@ export async function apriDialogoMail(p, modo = 'avviso') {
     const serveGdv = modello.a === 'gdv' || modello.cc === 'gdv';
     const gruppoVerifica = serveGdv ? await gruppoVerificaDelProtocollo(p, guasti) : [];
     gdvMancante = serveGdv && !gruppoVerifica.some((g) => EMAIL_VALIDA.test(String(g.email || '').trim()));
-    voci = vociIndirizzi({ ...(await anagraficaControparte(p, guasti)), gruppoVerifica, incaricati, modello });
+    /* l'avviso su un protocollo in entrata è una risposta: va a chi ha
+       scritto la mail protocollata, se il protocollo lo sa (30/09/2026) */
+    const mittenti = avviso && p.direzione === 'IN'
+      ? dividiIndirizzi(p.mittente_email).map((email) => ({ email, nome: p.persona || p.impresa_nome || '' }))
+      : [];
+    voci = vociIndirizzi({ ...(await anagraficaControparte(p, guasti)), mittenti, gruppoVerifica, incaricati, modello });
   } else {
     const interno = emailAssegnatario(p.alla_ca);
     voci = vociIndirizzi({ interni: interno ? [{ email: interno, nome: p.alla_ca || '' }] : [] });
@@ -498,7 +503,11 @@ export async function apriDialogoMail(p, modo = 'avviso') {
   $('#m-invia', bg).addEventListener('click', async (ev) => {
     const { to, cc, nonValidi } = raccogliDestinatari(voci, dividiIndirizzi($('#m-to', bg).value), dividiIndirizzi($('#m-cc', bg).value));
     if (nonValidi.length) return toast(`Questi non sembrano indirizzi e-mail: ${nonValidi.join(', ')}`, 'err');
-    if (!to.length) return toast('Serve almeno un destinatario: spunta «A» su un indirizzo o scrivilo a mano.', 'err');
+    if (!to.length) {
+      return toast(avviso && p.direzione === 'IN' && !p.mittente_email
+        ? 'Questo protocollo non sa chi ha scritto la mail: scrivi l\'indirizzo in «A» e lo terrò a mente per le prossime risposte.'
+        : 'Serve almeno un destinatario: spunta «A» su un indirizzo o scrivilo a mano.', 'err');
+    }
     const driveFileIds = [...bg.querySelectorAll('#m-att input:checked')].map((c) => c.value);
     const canale = bg.querySelector('input[name="m-canale"]:checked')?.value || 'bozza';
     const gmail = protocollato && canale === 'gmail';
@@ -553,6 +562,18 @@ export async function apriDialogoMail(p, modo = 'avviso') {
       preparata_da: (await sb.auth.getUser()).data?.user?.email || null,
     });
     if (eStorico) toast('Mail pronta, ma non sono riuscito a registrarla nel protocollo: ' + eStorico.message, 'err');
+
+    /* la risposta su un protocollo in entrata che non sapeva a chi
+       rispondere: l'indirizzo scritto a mano in «A» resta sul protocollo,
+       così la volta dopo è già lì (30/09/2026) */
+    if (avviso && p.direzione === 'IN' && !p.mittente_email) {
+      const aMano = dividiIndirizzi($('#m-to', bg).value).filter((e) => EMAIL_VALIDA.test(e));
+      if (aMano.length) {
+        const { error: eMitt } = await sb.from('s_protocollo')
+          .update({ mittente_email: aMano.join(', ') }).eq('id', p.id);
+        if (!eMitt) p.mittente_email = aMano.join(', ');
+      }
+    }
 
     if (gmail) {
       chiudi();
