@@ -16,6 +16,16 @@ export const UFFICI = [
   'Consiglio',
 ];
 
+/* I codici del cantiere nel database sono quelli NAZIONALI dell'Osservatorio FORMEDIL Italia (30/09/2026).
+   Prima la scheda impresa mostrava il codice nudo: durata «3 gg» per «da 12 a 24 mesi», importo «€ 3». */
+export const COD_CANTIERE = {
+  tipInt: { 1: 'Costruzione', 2: 'Ristrutturazione', 3: 'Demolizione', 4: 'Ampliamento', 5: 'Altro' },
+  tipOpe: { 1: 'Industriale', 2: 'Civile', 3: 'Commerciale', 4: 'Ospedaliera', 5: 'Stradale', 6: 'Rurale', 7: 'Funeraria', 8: 'Scolastica', 9: 'Ferroviaria', 10: 'Marittima', 11: 'Fluviale', 12: 'Sportiva', 13: 'Carceraria', 14: 'Campi eolici', 15: 'Fotovoltaica', 16: 'Altro' },
+  durata: { 1: 'fino a 3 mesi', 2: 'da 3 a 12 mesi', 3: 'da 12 a 24 mesi', 4: 'da 24 a 36 mesi', 5: 'da 36 a 48 mesi', 6: 'oltre 48 mesi', 7: 'non disponibile' },
+  importo: { 1: 'fino a 250.000 €', 2: 'da 250.001 a 500.000 €', 3: 'da 500.001 a 1.000.000 €', 4: 'da 1.000.001 a 1.500.000 €', 5: 'da 1.500.001 a 2.500.000 €', 6: 'da 2.500.001 a 3.500.000 €', 7: 'da 3.500.001 a 5.000.000 €', 8: 'da 5.000.001 a 10.000.000 €', 9: 'da 10.000.001 a 15.000.000 €', 10: 'oltre 15.000.000 €', 11: 'non disponibile' },
+  committente: { 1: 'pubblico', 2: 'privato', 3: 'non disponibile' },
+};
+
 export const MEZZI = [
   'e-mail',
   'PEC',

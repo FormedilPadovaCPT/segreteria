@@ -13,6 +13,7 @@
 import { sb, state, $, $$, esc, dataIt, leggiData, toast, attendi, mostraVista, apriDrawer } from './core.js';
 import { collegaDoppioClickMail } from './eml.js';
 import { cronologiaCassaHtml } from './cassa-storico.js';
+import { COD_CANTIERE } from './lookups.js';
 
 let scheda = null;          // ultimo JSON caricato
 let schedaTab = 'anagrafica';
@@ -419,11 +420,11 @@ async function dettaglioCantiere(cantiereId) {
     ${campo('Codice CNCE', c.cantiere_cnce)}
     ${campo('Descrizione', c.cantiere_descrizione)}
     ${campo('Etichetta', c.cantiere_etichetta)}
-    ${campo('Tipologia', [c.cantiere_tip_int, c.cantiere_tip_ope, c.cantiere_tip_ope_altro].filter(Boolean).join(' — '))}
-    ${campo('Importo', c.cantiere_importo != null ? '€ ' + Number(c.cantiere_importo).toLocaleString('it-IT') : null)}
-    ${campo('Durata', c.cantiere_durata ? c.cantiere_durata + ' gg' : null)}
+    ${campo('Tipologia', [COD_CANTIERE.tipInt[c.cantiere_tip_int], COD_CANTIERE.tipOpe[c.cantiere_tip_ope], c.cantiere_tip_ope_altro].filter(Boolean).join(' — '))}
+    ${campo('Importo', COD_CANTIERE.importo[c.cantiere_importo] || null)}
+    ${campo('Durata', COD_CANTIERE.durata[c.cantiere_durata] || null)}
     ${campo('Inizio lavori', c.data_inizio_lavori ? dataIt(c.data_inizio_lavori) : null)}
-    ${campo('Committente', comm ? [comm.committente_nome, comm.committente_tipo, comm.piva || comm.cf_piva, comm.telefono, comm.email].filter(Boolean).join(' · ') : null)}
+    ${campo('Committente', comm ? [comm.committente_nome, COD_CANTIERE.committente[comm.committente_tipo], comm.piva || comm.cf_piva, comm.telefono, comm.email].filter(Boolean).join(' · ') : null)}
     ${campo('Protocollo interno', c.prot_int)}
     ${campo('Stato', c.cantiere_chiuso
       ? `chiuso${c.data_chiusura ? ' il ' + dataIt(c.data_chiusura) : ''}${c.motivo_chiusura ? ' — ' + c.motivo_chiusura : ''}${c.note_chiusura ? ' (' + c.note_chiusura + ')' : ''}`
