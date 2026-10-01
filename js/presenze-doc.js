@@ -16,6 +16,10 @@
       autorizzazioni dei servizi CPT); senza visto = riquadro
       vuoto, per il giro cartaceo. Documento INTERNO: niente
       protocollo (regola del confine), vale il numero pratica.
+
+   3. PROSPETTO PRESENZE DI UN PERIODO scelto a mano (più mesi):
+      riepilogo per mese in testa, poi le sole giornate con
+      presenza. Per chi fattura a trimestre (01/10/2026).
    ============================================================ */
 
 import { apriCarta } from './segnalazioni-doc.js';
@@ -158,10 +162,17 @@ export async function pdfFoglioPresenze({ dipendente, anno, mese, presenze, extr
   c.stato.y = yT - 34;
 
   /* ── pagina 2: il riepilogo per causale, come la stampa Access ── */
+  paginaMovimenti(c, `${MESI[mese - 1].toUpperCase()} ${anno} — ${dipendente}`, extra, 'TOTALE MOVIMENTI DEL MESE');
+  return salva(c.doc);
+}
+
+/* Movimenti di banca ore raggruppati per causale, su pagina nuova.
+   Comune al foglio del mese e al prospetto del periodo. */
+function paginaMovimenti(c, sottotitolo, extra, etichettaTotale) {
   if ((extra || []).length) {
     c.nuovaPagina();
     c.scrivi('STRAORDINARI, PERMESSI E RECUPERI', c.bold, 14, c.nero);
-    c.scrivi(`${MESI[mese - 1].toUpperCase()} ${anno} — ${dipendente}`, c.bold, 11, c.arancio);
+    c.scrivi(sottotitolo, c.bold, 11, c.arancio);
     c.stato.y -= 8;
     const perCausale = {};
     for (const e of extra) (perCausale[e.causale] = perCausale[e.causale] || []).push(e);
@@ -204,11 +215,159 @@ export async function pdfFoglioPresenze({ dipendente, anno, mese, presenze, extr
     c.serve(26);
     const yT2 = c.stato.y + 10;
     c.stato.pagina.drawRectangle({ x: SX, y: yT2 - 16, width: DX - SX, height: 17, color: c.arancio });
-    c.stato.pagina.drawText('TOTALE MOVIMENTI DEL MESE', { x: SX + 6, y: yT2 - 11, size: 9, font: c.bold, color: c.bianco });
+    c.stato.pagina.drawText(etichettaTotale, { x: SX + 6, y: yT2 - 11, size: 9, font: c.bold, color: c.bianco });
     const t2 = `${extra.length} movimenti — ${mm2hm(totMov)} ore`;
     c.stato.pagina.drawText(t2, { x: DX - 8 - c.bold.widthOfTextAtSize(t2, 9), y: yT2 - 11, size: 9, font: c.bold, color: c.bianco });
     c.stato.y = yT2 - 30;
   }
+}
+
+/* ── 3. prospetto presenze di un PERIODO ──
+   Chiesto dall'utente il 01/10/2026: chi fattura a trimestre (Nicola De Marco)
+   ha bisogno delle presenze di più mesi in un foglio solo, e il periodo non è
+   sempre un trimestre di calendario — con la scuola chiusa ad agosto si manda
+   giugno-settembre. Il periodo si sceglie a mano, da una data a un'altra.
+   Si elencano SOLO i giorni con presenza (quattro mesi di griglia piena
+   sarebbero dieci pagine quasi vuote); ogni mese del periodo compare
+   comunque, anche senza righe, con «nessuna presenza registrata», perché un
+   mese che sparisce dal prospetto non si distingue da un mese dimenticato. */
+
+/* i mesi toccati dal periodo, in ordine: [{ anno, mese }] */
+export function mesiDelPeriodo(da, a) {
+  const out = [];
+  let [y, m] = String(da).slice(0, 7).split('-').map(Number);
+  const [y2, m2] = String(a).slice(0, 7).split('-').map(Number);
+  if (!y || !m || !y2 || !m2) return out;
+  while (y < y2 || (y === y2 && m <= m2)) {
+    out.push({ anno: y, mese: m });
+    m += 1;
+    if (m > 12) { m = 1; y += 1; }
+    if (out.length > 120) break;   /* periodo sbagliato a mano: non si gira all'infinito */
+  }
+  return out;
+}
+
+/* presenze del periodo divise per mese, con totale e giorni di ogni mese.
+   Il permesso sindacale resta fuori dal totale, come nel foglio del mese. */
+export function raggruppaPeriodo(presenze, da, a) {
+  const mesi = mesiDelPeriodo(da, a).map((x) => ({ ...x, righe: [], totMin: 0, giorni: 0 }));
+  const indice = Object.fromEntries(mesi.map((x, i) => [`${x.anno}-${String(x.mese).padStart(2, '0')}`, i]));
+  for (const p of presenze || []) {
+    if (!p?.data || p.data < da || p.data > a) continue;
+    const i = indice[p.data.slice(0, 7)];
+    if (i != null) mesi[i].righe.push(p);
+  }
+  for (const x of mesi) {
+    x.righe.sort((p, q) => (p.data < q.data ? -1 : p.data > q.data ? 1 : (p.id || 0) - (q.id || 0)));
+    x.totMin = totaleOre(x.righe);
+    x.giorni = new Set(x.righe.filter((p) => (p.tot_min || 0) > 0 && !eRipartizione(p)).map((p) => p.data)).size;
+  }
+  return mesi;
+}
+
+/* «giugno – settembre 2026», «dicembre 2026 – febbraio 2027», «dal 10/06/2026 al 20/09/2026» */
+export function etichettaPeriodo(da, a) {
+  const interi = da.slice(8, 10) === '01'
+    && Number(a.slice(8, 10)) === new Date(Number(a.slice(0, 4)), Number(a.slice(5, 7)), 0).getDate();
+  if (!interi) return `dal ${dataIt(da)} al ${dataIt(a)}`;
+  const [ya, ma] = [Number(da.slice(0, 4)), Number(da.slice(5, 7))];
+  const [yb, mb] = [Number(a.slice(0, 4)), Number(a.slice(5, 7))];
+  if (ya === yb && ma === mb) return `${MESI[ma - 1]} ${ya}`;
+  if (ya === yb) return `${MESI[ma - 1]} – ${MESI[mb - 1]} ${ya}`;
+  return `${MESI[ma - 1]} ${ya} – ${MESI[mb - 1]} ${yb}`;
+}
+
+export async function pdfPresenzePeriodo({ dipendente, da, a, presenze, extra }) {
+  const c = await apriCarta();
+  const mesi = raggruppaPeriodo(presenze, da, a);
+  const totPeriodo = mesi.reduce((s, x) => s + x.totMin, 0);
+  const giorniPeriodo = mesi.reduce((s, x) => s + x.giorni, 0);
+
+  c.scrivi('PROSPETTO PRESENZE DEL PERIODO', c.bold, 14, c.nero);
+  c.scrivi(etichettaPeriodo(da, a).toUpperCase(), c.bold, 11, c.arancio);
+  c.stato.y -= 4;
+  c.campo('Cognome / Nome', dipendente);
+  c.campo('Periodo', `dal ${dataIt(da)} al ${dataIt(a)}`);
+  c.campo('In servizio c/o', 'Padova, Via Basilicata, 10');
+  c.stato.y -= 8;
+
+  /* riepilogo per mese in testa: è la parte che serve a chi fattura */
+  const RH = 13.6;
+  const C = [SX, 250, 360, DX];   /* mese | giorni | ore */
+  const bandaTesta = (lab) => {
+    c.serve(26);
+    const y0 = c.stato.y - 4;
+    c.stato.pagina.drawRectangle({ x: SX, y: y0 - 2, width: DX - SX, height: 17, color: c.arancio });
+    lab.forEach(([t, x]) => c.stato.pagina.drawText(t, { x: x + 6, y: y0 + 3, size: 7.5, font: c.bold, color: c.bianco }));
+    c.stato.y = y0 - 2 - RH + 3;
+  };
+  const filo = () => c.stato.pagina.drawLine({ start: { x: SX, y: c.stato.y - 4 }, end: { x: DX, y: c.stato.y - 4 }, thickness: 0.5, color: c.grigioChiaro });
+  bandaTesta([['MESE', C[0]], ['GIORNI CON PRESENZA', C[1]], ['ORE', C[2]]]);
+  for (const x of mesi) {
+    c.serve(RH + 4);
+    c.stato.pagina.drawText(`${MESI[x.mese - 1]} ${x.anno}`, { x: C[0] + 6, y: c.stato.y, size: 9, font: c.font, color: c.nero });
+    if (x.righe.length) {
+      c.stato.pagina.drawText(String(x.giorni), { x: C[1] + 6, y: c.stato.y, size: 9, font: c.font, color: c.nero });
+      c.stato.pagina.drawText(mm2hm(x.totMin), { x: C[2] + 6, y: c.stato.y, size: 9, font: c.bold, color: c.nero });
+    } else {
+      c.stato.pagina.drawText('nessuna presenza registrata', { x: C[1] + 6, y: c.stato.y, size: 8.5, font: c.italic, color: c.grigio });
+    }
+    filo();
+    c.stato.y -= RH;
+  }
+  c.serve(24);
+  const yR = c.stato.y + RH - 3.5;
+  c.stato.pagina.drawRectangle({ x: SX, y: yR - 19, width: DX - SX, height: 19, color: c.arancio });
+  c.stato.pagina.drawText('TOTALE ORE NEL PERIODO', { x: SX + 6, y: yR - 13, size: 9, font: c.bold, color: c.bianco });
+  const totTxt = `${mm2hm(totPeriodo)}   —   giorni con presenza: ${giorniPeriodo}`;
+  c.stato.pagina.drawText(totTxt, { x: DX - 8 - c.bold.widthOfTextAtSize(totTxt, 9.5), y: yR - 13, size: 9.5, font: c.bold, color: c.bianco });
+  c.stato.y = yR - 40;
+
+  /* dettaglio: le sole giornate con presenza, mese per mese */
+  c.serve(40);
+  c.scrivi('DETTAGLIO DELLE GIORNATE', c.bold, 11, c.nero);
+  c.stato.y -= 2;
+  const B = [SX, 148, 194, 240, 286, 332, 380, DX];
+  const intesta = () => bandaTesta(['DATA', 'ENTRATA', 'USCITA', 'ENTRATA', 'USCITA', 'TOT. ORE', 'ASSENZA / NOTE'].map((t, i) => [t, B[i]]));
+  const oraTxt = (t) => (t ? String(t).slice(0, 5) : '');
+  const assenza = (n) => /^[A-ZÀÈÌÒÙ' .]+$/.test(String(n || '').trim()) && String(n).trim().length >= 4;
+  intesta();
+  for (const x of mesi) {
+    /* banda grigia del mese con filo arancio, come le causali */
+    if (c.stato.y < 110) { c.nuovaPagina(); intesta(); }
+    const yB = c.stato.y + 10;
+    c.stato.pagina.drawRectangle({ x: SX, y: yB - 15, width: DX - SX, height: 16, color: c.grigioChiaro });
+    c.stato.pagina.drawRectangle({ x: SX, y: yB - 15, width: 3.2, height: 16, color: c.arancio });
+    c.stato.pagina.drawText(`${MESI[x.mese - 1].toUpperCase()} ${x.anno}`, { x: SX + 10, y: yB - 10, size: 9, font: c.bold, color: c.nero });
+    const sub = x.righe.length ? `${mm2hm(x.totMin)} ore — ${x.giorni} giorni` : 'nessuna presenza registrata';
+    c.stato.pagina.drawText(sub, { x: DX - 8 - c.bold.widthOfTextAtSize(sub, 9), y: yB - 10, size: 9, font: c.bold, color: x.righe.length ? c.arancio : c.grigio });
+    c.stato.y = yB - 27;
+    for (const p of x.righe) {
+      if (c.stato.y < 84) { c.nuovaPagina(); intesta(); }
+      const dow = new Date(Number(p.data.slice(0, 4)), Number(p.data.slice(5, 7)) - 1, Number(p.data.slice(8, 10))).getDay();
+      c.stato.pagina.drawText(`${GIORNI[dow]} ${dataIt(p.data)}`, { x: B[0] + 6, y: c.stato.y, size: 8.5, font: c.font, color: c.nero });
+      const ore = [oraTxt(p.entra1), oraTxt(p.esce1), oraTxt(p.entra2), oraTxt(p.esce2)];
+      for (let k = 0; k < 4; k++) {
+        if (ore[k]) c.stato.pagina.drawText(ore[k], { x: B[k + 1] + 11, y: c.stato.y, size: 8.5, font: c.font, color: c.nero });
+      }
+      if (p.tot_min && eRipartizione(p)) {
+        c.stato.pagina.drawText(`di cui ${mm2hm(p.tot_min)}`, { x: B[5] + 4, y: c.stato.y, size: 7.6, font: c.italic, color: c.grigio });
+      } else if (p.tot_min) {
+        c.stato.pagina.drawText(mm2hm(p.tot_min), { x: B[5] + 11, y: c.stato.y, size: 8.5, font: c.bold, color: c.nero });
+      }
+      if (p.note) {
+        const nota = String(p.note);
+        const forte = assenza(nota);
+        c.stato.pagina.drawText(taglia(forte ? c.bold : c.italic, forte ? 8 : 7.4, nota, DX - B[6] - 10),
+          { x: B[6] + 6, y: c.stato.y, size: forte ? 8 : 7.4, font: forte ? c.bold : c.italic, color: forte ? c.arancio : c.grigio });
+      }
+      filo();
+      c.stato.y -= RH;
+    }
+    c.stato.y -= 6;
+  }
+
+  paginaMovimenti(c, `${etichettaPeriodo(da, a).toUpperCase()} — ${dipendente}`, extra, 'TOTALE MOVIMENTI DEL PERIODO');
   return salva(c.doc);
 }
 

@@ -248,6 +248,7 @@ async function renderMese(hostArg) {
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap">
         <button class="btn btn-ghost btn-sm" id="pz-pdf">📄 Foglio PDF</button>
+        <button class="btn btn-ghost btn-sm" id="pz-periodo">🗓 Prospetto di un periodo</button>
         <button class="btn btn-primary btn-sm" id="pz-chiudi">📧 Chiudi il mese: foglio + mail ad Amministrazione</button>
         <button class="btn btn-primary btn-sm" id="pz-nuovo">+ Registra giornata</button>
       </div>
@@ -271,6 +272,7 @@ async function renderMese(hostArg) {
   $('#pz-nuovo').addEventListener('click', () => formPresenza(null, oggiIso()));
   $('#pz-pdf').addEventListener('click', (ev) => chiudiMese(ev.currentTarget, false));
   $('#pz-chiudi').addEventListener('click', (ev) => chiudiMese(ev.currentTarget, true));
+  $('#pz-periodo').addEventListener('click', formPeriodo);
   host.querySelectorAll('tbody tr').forEach((tr) => tr.addEventListener('click', () => {
     const id = tr.dataset.id ? Number(tr.dataset.id) : null;
     formPresenza(id ? presenze.find((p) => p.id === id) : null, tr.dataset.data);
@@ -392,6 +394,107 @@ ${FIRMA_SEGRETERIA}`,
       nomeFile: `foglio-presenze-${anno}-${String(mese).padStart(2, '0')}.eml`,
     });
     toast('Foglio depositato su Drive e bozza per l\'Amministrazione scaricata: aprila da Outlook e premi Invia.', 'ok');
+  } catch (e) {
+    toast(e.message, 'err');
+  } finally {
+    attendi(btn, false);
+  }
+}
+
+/* ══════════ prospetto di un PERIODO ══════════
+   Chiesto dall'utente il 01/10/2026: Nicola De Marco fattura ogni tre mesi,
+   ma il periodo da mandare a Patrizia non è sempre un trimestre — con la
+   scuola chiusa ad agosto si manda giugno-settembre. Si sceglie da una data
+   a un'altra; di proposta, i tre mesi che finiscono con quello mostrato. */
+
+const isoData = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+function formPeriodo() {
+  const [anno, mese] = cursore.split('-').map(Number);
+  const daProp = isoData(new Date(anno, mese - 3, 1));
+  const aProp = isoData(new Date(anno, mese, 0));
+  apriDrawer('Prospetto presenze di un periodo', dipendente, `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="field"><label>Dal *</label><input type="date" id="pp-da" value="${daProp}"></div>
+      <div class="field"><label>Al *</label><input type="date" id="pp-a" value="${aProp}"></div>
+    </div>
+    <p class="hint" style="margin-top:6px">Un foglio solo per più mesi: in testa le ore di ogni mese e il totale,
+      poi le sole giornate con presenza. I mesi senza presenze compaiono lo stesso, con «nessuna presenza registrata».</p>
+    <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:12px">
+      <button class="btn btn-ghost" id="pp-pdf">📄 Scarica il PDF</button>
+      <button class="btn btn-primary" id="pp-mail">📧 PDF + mail ad Amministrazione</button>
+    </div>`);
+  $('#pp-pdf').addEventListener('click', (ev) => prospettoPeriodo(ev.currentTarget, false));
+  $('#pp-mail').addEventListener('click', (ev) => prospettoPeriodo(ev.currentTarget, true));
+}
+
+async function prospettoPeriodo(btn, conMail) {
+  const da = $('#pp-da').value;
+  const a = $('#pp-a').value;
+  if (!da || !a) return toast('Servono le due date del periodo.', 'err');
+  if (da > a) return toast('La data di inizio viene dopo quella di fine.', 'err');
+  attendi(btn, true, 'Preparo il prospetto…');
+  try {
+    const [{ data: pres, error: e1 }, { data: extra, error: e2 }] = await Promise.all([
+      sb.from('s_presenze').select('*').eq('dipendente', dipendente).gte('data', da).lte('data', a).order('data').order('id'),
+      sb.from('s_presenze_extra').select('*').eq('dipendente', dipendente).gte('data', da).lte('data', a).order('data'),
+    ]);
+    /* lettura fallita: si dice, non si genera un prospetto vuoto */
+    if (e1 || e2) throw new Error('Non sono riuscito a leggere le presenze del periodo. Riprova.');
+    const presenze = pres || [];
+    if (!presenze.length && !confirm('Nel periodo non ci sono righe di presenza: genero comunque il prospetto vuoto?')) return;
+    const { pdfPresenzePeriodo, raggruppaPeriodo, etichettaPeriodo } = await import('./presenze-doc.js');
+    const byte = await pdfPresenzePeriodo({ dipendente, da, a, presenze, extra: extra || [] });
+    const nomeFile = `${da.replace(/-/g, '_')}_REGP_${dipFile(dipendente)}_prospetto-presenze-dal-${da}-al-${a}.pdf`;
+
+    if (!conMail) {
+      const url = URL.createObjectURL(new Blob([byte], { type: 'application/pdf' }));
+      const link = document.createElement('a');
+      link.href = url; link.download = nomeFile; link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      toast('Prospetto scaricato.', 'ok');
+      return;
+    }
+
+    const cart = await risolviCartella(CARTELLA_FOGLI);
+    if (!cart.id) throw new Error('Cartella fogli_presenze non trovata su Drive');
+    const { data: su, error: errUp } = await sb.functions.invoke('allegati-protocollo', {
+      body: { action: 'upload', filename: nomeFile, mime_type: 'application/pdf',
+        base64: btoa(Array.from(byte, (b) => String.fromCharCode(b)).join('')), parent_id: cart.id },
+    });
+    if (errUp || su?.error) throw new Error('Deposito su Drive non riuscito: ' + (su?.error || errUp.message));
+
+    const mesi = raggruppaPeriodo(presenze, da, a);
+    const perMese = mesi.map((x) => `- ${MESI[x.mese - 1]} ${x.anno}: ${x.righe.length
+      ? `${mm2hm(x.totMin)} (${x.giorni} ${x.giorni === 1 ? 'giorno' : 'giorni'})` : 'nessuna presenza registrata'}`).join('\n');
+    const totPeriodo = mesi.reduce((s, x) => s + x.totMin, 0);
+    const perCausale = {};
+    for (const e of extra || []) perCausale[e.causale] = (perCausale[e.causale] || 0) + (e.ore_min || 0);
+    const movimenti = Object.entries(perCausale).map(([c, m]) => `- ${c}: ${mm2hm(m)}`).join('\n');
+    const periodo = etichettaPeriodo(da, a);
+    const amm = RUBRICA_INTERNA.find((x) => /amministrazione/i.test(x.nome));
+
+    scaricaEml({
+      to: amm?.email || 'amministrazione@formedilpadova.it',
+      oggetto: `Prospetto presenze ${periodo} - ${dipendente}`,
+      corpo: `Buongiorno Patrizia,
+
+in allegato il prospetto delle presenze di ${dipendente} per il periodo dal ${dataIt(da)} al ${dataIt(a)}.
+
+Ore per mese:
+${perMese}
+
+Totale del periodo: ${mm2hm(totPeriodo)}.
+${movimenti ? `\nMovimenti del periodo (straordinari, permessi, recuperi):\n${movimenti}\n` : ''}
+Il prospetto è anche depositato in archivio (personale/fogli_presenze).
+
+Cordiali saluti.
+
+${FIRMA_SEGRETERIA}`,
+      allegati: [{ nome: nomeFile, byte }],
+      nomeFile: `prospetto-presenze-${da}-${a}.eml`,
+    });
+    toast('Prospetto depositato su Drive e bozza per l\'Amministrazione scaricata: aprila da Outlook e premi Invia.', 'ok');
   } catch (e) {
     toast(e.message, 'err');
   } finally {
