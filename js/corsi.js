@@ -1355,6 +1355,27 @@ async function rendicontazione(p) {
     sb.from('tecnici').select('tecnico_id, tecnico_cognome'),
   ]);
 
+  /* ore del personale dell'ufficio sul progetto (02/10/2026): righe di
+     dettaglio attività delle presenze collegate, con la quota se la riga
+     è divisa fra più progetti. Lettura fallita = si dice, non «nessuna ora». */
+  const { data: lk, error: errOre } = await sb.from('s_presenze_extra_progetti')
+    .select('extra_id, quota, s_presenze_extra(id, dipendente, data, causale, ore_min, note)')
+    .eq('progetto_id', p.id);
+  let orePersonale = [];
+  if (!errOre) {
+    const extraIds = (lk || []).map((x) => x.extra_id);
+    const { data: altri } = extraIds.length
+      ? await sb.from('s_presenze_extra_progetti').select('extra_id, progetto_id').in('extra_id', extraIds).neq('progetto_id', p.id)
+      : { data: [] };
+    const nomeProg = Object.fromEntries(progetti.map((x) => [x.id, x.desc_breve || x.titolo]));
+    orePersonale = (lk || []).filter((x) => x.s_presenze_extra).map((x) => ({
+      ...x.s_presenze_extra, quota: Number(x.quota),
+      condivisa_con: (altri || []).filter((a) => a.extra_id === x.extra_id).map((a) => nomeProg[a.progetto_id] || `progetto ${a.progetto_id}`).join(', ') || null,
+    })).sort((a, b) => (a.data < b.data ? -1 : a.data > b.data ? 1 : 0));
+  }
+  const minOre = orePersonale.reduce((t, r) => t + (r.ore_min || 0) * r.quota, 0);
+  const hmOre = (m) => `${Math.floor(Math.round(m) / 60)}:${String(Math.round(m) % 60).padStart(2, '0')}`;
+
   const prestazioni = (prest || []).map((r) => ({
     ...r,
     fattura_numero: r.s_fatture_tecnici?.numero || null,
@@ -1398,6 +1419,8 @@ async function rendicontazione(p) {
             <td style="text-align:right"><strong>€ ${eur(nettoD)}</strong></td></tr>
         <tr><td colspan="2"><strong>Totale imponibile</strong></td>
             <td style="text-align:right"><strong>€ ${eur(nettoP + nettoD)}</strong></td></tr>
+        <tr><td>Ore del personale dell'ufficio</td><td>${errOre ? '⚠ non lette' : `${orePersonale.length} righe`}</td>
+            <td style="text-align:right">${errOre ? '' : `<strong>${hmOre(minOre)} ore</strong> <span class="hint">(non a costo)</span>`}</td></tr>
         ${p.finanziamento ? `<tr><td colspan="2">Finanziamento ammesso</td>
             <td style="text-align:right">€ ${eur(p.finanziamento)}</td></tr>` : ''}
       </tbody>
@@ -1415,7 +1438,8 @@ async function rendicontazione(p) {
     try {
       const { pdfRendicontazione } = await import('./rendicontazione-doc.js');
       const { scaricaPdf } = await import('./corsi-doc.js');
-      const byte = await pdfRendicontazione(p, prestazioni, corsiDelProgetto, incarichi, fisc || [], tec || []);
+      if (errOre) throw new Error("Non sono riuscito a leggere le ore del personale sul progetto: rendicontazione non generata. Riprova.");
+      const byte = await pdfRendicontazione(p, prestazioni, corsiDelProgetto, incarichi, fisc || [], tec || [], orePersonale);
       scaricaPdf(byte, `rendicontazione-progetto-${p.id}.pdf`);
     } catch (e) { toast(e.message, 'err'); } finally { attendi(btn, false); }
   });

@@ -94,7 +94,7 @@ function tecnicoDalNome(tecnici, nominativo) {
     && n.includes(String(t.tecnico_cognome).toLowerCase()))?.tecnico_id || null;
 }
 
-export async function pdfRendicontazione(progetto, prestazioni, corsi, incarichi, fiscali, tecnici) {
+export async function pdfRendicontazione(progetto, prestazioni, corsi, incarichi, fiscali, tecnici, orePersonale = []) {
   const c = await apriCarta();
 
   c.stato.pagina.drawText('Rendicontazione', { x: SX, y: c.stato.y, size: 15, font: c.bold, color: c.arancio });
@@ -217,6 +217,30 @@ export async function pdfRendicontazione(progetto, prestazioni, corsi, incarichi
     thickness: 0.5, color: c.grigio,
   });
   riga(c, colD, ['', '', '', 'Totale docenze', '', euro(nettoD), euro(lordoD), ''], 8, c.bold);
+
+  /* ── 3. ore del personale dell'ufficio (02/10/2026) ──
+     Le righe di «dettaglio attività» delle presenze collegate al progetto
+     (s_presenze_extra_progetti). Sono ORE, non costi: il personale
+     dipendente non ha una tariffa qui, e le ore non entrano nel costo
+     complessivo. Una riga divisa fra più progetti porta la sua quota
+     (la progettazione CAM 2021-22 è metà a ciascuno dei due corsi CAM). */
+  if (orePersonale.length) {
+    titoloSezione(c, "3. Ore del personale dell'ufficio sul progetto");
+    const colO = [{ x: SX }, { x: SX + 50 }, { x: SX + 150 }, { x: SX + 300, dx: true }, { x: SX + 312 }];
+    riga(c, colO, ['Data', 'Dipendente', 'Attivita', 'Ore', 'Note'], 7, c.bold, c.grigio);
+    let totO = 0;
+    const hm = (min) => `${Math.floor(Math.round(min) / 60)}:${String(Math.round(min) % 60).padStart(2, '0')}`;
+    for (const r of orePersonale) {
+      const ore = (r.ore_min || 0) * (r.quota ?? 1);
+      totO += ore;
+      const quota = r.quota != null && r.quota < 1
+        ? `quota ${Math.round(r.quota * 100)}% di ${hm(r.ore_min)}${r.condivisa_con ? ` (condivisa con: ${r.condivisa_con})` : ''}` : '';
+      riga(c, colO, [dataIt(r.data), tronca(c.font, r.dipendente, 7, 96), tronca(c.font, r.causale, 7, 140), hm(ore),
+        tronca(c.font, [quota, r.note].filter(Boolean).join(' — '), 7, DX - (SX + 312))], 7);
+    }
+    c.stato.pagina.drawLine({ start: { x: SX + 150, y: c.stato.y + 8 }, end: { x: DX, y: c.stato.y + 8 }, thickness: 0.5, color: c.grigio });
+    riga(c, colO, ['', '', "Totale ore dell'ufficio", hm(totO), 'ore, non valorizzate: non entrano nel costo'], 8, c.bold);
+  }
 
   /* ── totale generale ──
      serve() per TUTTO il blocco (riquadro + le due note): chiedendone

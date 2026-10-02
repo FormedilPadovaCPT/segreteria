@@ -26,7 +26,8 @@ import { APP_URL } from './config.js';
 import { risolviCartella, leggiByte } from './drive.js';
 import { scaricaEml, FIRMA_SEGRETERIA } from './eml.js';
 import { RUBRICA_INTERNA } from './lookups.js';
-import { MESI, mm2hm, eRipartizione, totaleOre, famigliaCausale, contaAttivita, TESTO_AVVISO } from './presenze-doc.js';
+import { MESI, mm2hm, eRipartizione, totaleOre, famigliaCausale, contaAttivita, contaProgetti, TESTO_AVVISO,
+  CAUSALE_SALDO, godutoPerAnno, saldoMonte, oreInMinuti } from './presenze-doc.js';
 
 const CARTELLA_FOGLI = '2_AREE/Amministrazione/personale/fogli_presenze';
 const CARTELLA_RICHIESTE = '2_AREE/Amministrazione/personale/richieste_ferie_permessi';
@@ -546,7 +547,22 @@ async function datiContatori() {
   const presenze = giorni.size ? await leggiTutte(() => filtra(sb.from('s_presenze')
     .select('id, dipendente, data, tot_min, note'))
     .gte('data', contDa).lte('data', contA).order('data').order('id')) : [];
-  return contaAttivita({ extra, presenze: presenze.filter((p) => giorni.has(p.data)) });
+  /* collegamenti ai progetti delle sole righe di dettaglio, a blocchi:
+     una lista di id troppo lunga non sta nell'indirizzo della richiesta */
+  const idsDett = extra.filter((e) => famigliaCausale(e.causale) === 'dettaglio').map((e) => e.id);
+  const collegamenti = [];
+  for (let i = 0; i < idsDett.length; i += 200) {
+    const { data, error } = await sb.from('s_presenze_extra_progetti').select('extra_id, progetto_id, quota').in('extra_id', idsDett.slice(i, i + 200));
+    if (error) throw error;
+    collegamenti.push(...(data || []));
+  }
+  let nomiProgetti = {};
+  if (collegamenti.length) {
+    const { data: pr, error } = await sb.from('s_progetti_formativi').select('id, titolo, desc_breve').in('id', [...new Set(collegamenti.map((l) => l.progetto_id))]);
+    if (error) throw error;
+    nomiProgetti = Object.fromEntries((pr || []).map((x) => [x.id, x.desc_breve || x.titolo]));
+  }
+  return contaAttivita({ extra, presenze: presenze.filter((p) => giorni.has(p.data)), collegamenti, nomiProgetti });
 }
 
 async function renderContatori(hostArg) {
@@ -560,6 +576,7 @@ async function renderContatori(hostArg) {
   }
   const tot = attivita.reduce((s, x) => s + x.totMin, 0);
   const daGuardare = attivita.reduce((s, x) => s + x.avvisi, 0);
+  const { progetti: perProgetto, senzaProgettoMin } = contaProgetti(attivita);
   const anno = Number(oggiIso().slice(0, 4));
   const scorciatoie = [
     ['anno', `Anno ${anno}`, `${anno}-01-01`, oggiIso()],
@@ -596,7 +613,7 @@ async function renderContatori(hostArg) {
               <td style="padding-left:22px">${contTutti ? `<span class="hint">${esc(r.dipendente)}</span> · ` : ''}${dataIt(r.data)}
                 <span class="hint">${esc(r.note || '')}</span></td>
               <td><strong>${mm2hm(r.ore_min)}</strong></td>
-              <td class="hint">${r.lavorateGiorno == null ? 'giornata non nel foglio' : `lavorate ${mm2hm(r.lavorateGiorno)}`}${r.supplGiorno ? ` · +${mm2hm(r.supplGiorno)} suppl.` : ''}</td>
+              <td class="hint">${r.lavorateGiorno == null ? 'giornata non nel foglio' : `lavorate ${mm2hm(r.lavorateGiorno)}`}${r.supplGiorno ? ` · +${mm2hm(r.supplGiorno)} suppl.` : ''}${r.progetti.length ? `<br>→ ${r.progetti.map((x) => esc(x.quota < 1 ? `${x.nome} (${Math.round(x.quota * 100)}%)` : x.nome)).join(' + ')}` : ''}</td>
               <td>${r.avvisi.filter((v) => v !== 'senza-presenze').map((v) => `<span class="dt-cella dt-senzadata" style="padding:1px 6px;margin:1px">${esc(TESTO_AVVISO[v])}</span>`).join('')}</td>
             </tr>`).join('') : '';
           return `<tr class="ct-att" data-i="${i}" style="cursor:pointer">
@@ -608,6 +625,16 @@ async function renderContatori(hostArg) {
         }).join('') || '<tr><td colspan="4" class="empty">Nessuna attività nel periodo.</td></tr>'}</tbody>
       </table>
     </div>
+    ${perProgetto.length ? `<h4 style="margin:14px 0 6px">Per progetto</h4>
+    <div class="table-wrap">
+      <table class="tbl">
+        <thead><tr><th>Progetto</th><th>Ore</th><th>Righe</th></tr></thead>
+        <tbody>${perProgetto.map((g) => `<tr><td>${esc(g.nome)}</td><td><strong>${mm2hm(g.totMin)}</strong></td><td>${g.righe.length}</td></tr>`).join('')}
+          <tr><td class="hint">non collegate a un progetto</td><td class="hint">${mm2hm(senzaProgettoMin)}</td><td></td></tr></tbody>
+      </table>
+    </div>
+    <p class="hint">Una riga divisa fra più progetti conta per la sua quota: la progettazione CAM 2021-22 è metà a ciascun corso CAM.
+      Le stesse ore escono nella rendicontazione del progetto (Corsi e formazione → 🎯 Progetti finanziati), nella sezione delle ore dell'ufficio.</p>` : ''}
     <p class="hint" style="margin-top:8px">Il <strong>dettaglio attività</strong> dice come sono state spese ore già comprese in quelle
       lavorate: non si somma al totale e non tocca la banca ore. Comprende tutto lo storico registrato da Access (dal 2016).
       Clic su un'attività per vedere le giornate, su una giornata per correggerla. Le righe «da guardare» sono anomalie
@@ -745,6 +772,15 @@ async function formMovimento(e, causaleProposta) {
   const causali = [...CAUSALI_BASE, ...altre];
   const corrente = e?.causale || causaleProposta || 'Ore supplementari';
   const inLista = causali.includes(corrente);
+  /* i progetti a cui collegare il dettaglio (02/10/2026): una riga può
+     servire a più progetti, e allora le ore si dividono in parti uguali
+     (la progettazione CAM 2021-22, metà a ciascun corso CAM) */
+  const [{ data: progetti }, { data: collegati }] = await Promise.all([
+    sb.from('s_progetti_formativi').select('id, titolo, desc_breve, stato, anno_sanzioni').order('id', { ascending: false }),
+    e ? sb.from('s_presenze_extra_progetti').select('progetto_id').eq('extra_id', e.id) : Promise.resolve({ data: [] }),
+  ]);
+  const scelti = new Set((collegati || []).map((x) => x.progetto_id));
+  const nomeProgetto = (x) => `${x.desc_breve || x.titolo}${x.anno_sanzioni ? ` · sanzioni ${x.anno_sanzioni}` : ''}${x.stato === 'chiuso' ? ' · chiuso' : ''}`;
 
   apriDrawer(e ? `Movimento del ${dataIt(e.data)}` : 'Registra movimento banca ore', '', `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
@@ -777,7 +813,13 @@ async function formMovimento(e, causaleProposta) {
       📊 <strong>Dettaglio attività</strong>: dice come sono state spese ore <strong>già comprese</strong> in quelle lavorate
       (riunione, formazione, progetto…). Non si somma, non tocca la banca ore e non va chiusa: serve ai contatori.
       Metti <strong>tutte</strong> le ore spese sull'attività, anche quelle oltre l'orario; quelle in più registrale
-      <strong>anche</strong> come «Ore supplementari», che dicono come vengono compensate.</div>
+      <strong>anche</strong> come «Ore supplementari», che dicono come vengono compensate.
+      <div style="margin-top:8px"><strong>Progetto</strong> (facoltativo, per la rendicontazione) — se ne scegli più d'uno le ore si dividono in parti uguali:
+        <div id="mv-prog" style="max-height:150px;overflow:auto;margin-top:4px;padding:4px 6px;background:#fff;border:1px solid #e3e3e3;border-radius:4px">
+          ${(progetti || []).map((x) => `<label style="display:flex;gap:6px;align-items:flex-start;cursor:pointer;margin:2px 0;color:#333">
+            <input type="checkbox" class="mv-prog-c" value="${x.id}" ${scelti.has(x.id) ? 'checked' : ''} style="width:auto;margin:2px 0 0">
+            <span>${esc(nomeProgetto(x))}</span></label>`).join('') || '<span class="hint">Nessun progetto in archivio.</span>'}
+        </div><span id="mv-prog-quota" class="hint"></span></div></div>
     <label id="mv-chiuso-box" style="display:flex;gap:6px;align-items:center;margin-top:6px;cursor:pointer">
       <input type="checkbox" id="mv-chiuso" ${e?.chiuso ? 'checked' : ''} style="width:auto;margin:0"> Chiusa (partita saldata)</label>
     <p class="hint" style="margin-top:6px"><strong>Da recuperare</strong> = va in banca ore finché non la recuperi;
@@ -801,6 +843,26 @@ async function formMovimento(e, causaleProposta) {
     $('#mv-recu-box').style.visibility = suppl && modoScelto() === 'recupero' ? 'visible' : 'hidden';
   };
   document.querySelectorAll('input[name="mv-modo"]').forEach((r) => r.addEventListener('change', aggiornaCompensa));
+  const progScelti = () => [...document.querySelectorAll('.mv-prog-c:checked')].map((c) => Number(c.value));
+  const aggiornaQuota = () => {
+    const n = progScelti().length;
+    $('#mv-prog-quota').textContent = n > 1 ? `Le ore si dividono in ${n} parti uguali, una per progetto.` : '';
+  };
+  document.querySelectorAll('.mv-prog-c').forEach((c) => c.addEventListener('change', aggiornaQuota));
+  aggiornaQuota();
+  /* riga nuova: si propongono i progetti dell'ultima riga con la stessa causale */
+  const proponiProgetti = async () => {
+    if (e) return;
+    const c = String(causaleScelta() || '').trim();
+    if (!c || famigliaCausale(c) !== 'dettaglio') return;
+    const { data: ultima } = await sb.from('s_presenze_extra').select('id').eq('causale', c).order('data', { ascending: false }).limit(1);
+    if (!ultima?.length) return;
+    const { data: lk } = await sb.from('s_presenze_extra_progetti').select('progetto_id').eq('extra_id', ultima[0].id);
+    const ids = new Set((lk || []).map((x) => x.progetto_id));
+    document.querySelectorAll('.mv-prog-c').forEach((cb) => { cb.checked = ids.has(Number(cb.value)); });
+    aggiornaQuota();
+  };
+  proponiProgetti();
   $('#mv-causale-libera').addEventListener('input', aggiornaCompensa);
   $('#mv-recdata').addEventListener('change', () => { if ($('#mv-recdata').value) $('#mv-recu').checked = true; });
   aggiornaCompensa();
@@ -808,6 +870,7 @@ async function formMovimento(e, causaleProposta) {
   $('#mv-causale-sel').addEventListener('change', () => {
     $('#mv-causale-libera-box').classList.toggle('hidden', $('#mv-causale-sel').value !== '__altra__');
     aggiornaCompensa();
+    proponiProgetti();
   });
   $('#mv-salva').addEventListener('click', async (ev) => {
     const btn = ev.currentTarget;
@@ -823,7 +886,9 @@ async function formMovimento(e, causaleProposta) {
     if (suppl && recuperato && !recuperatoIl) return toast('Per segnarla «già recuperata» serve la data del recupero. Se è ancora da recuperare, togli la spunta.', 'err');
     attendi(btn, true);
     const dati = {
-      dipendente, data: $('#mv-data').value, causale, ore_min: oreMin,
+      /* la riga resta della persona di cui è: dai contatori con «tutti i
+         dipendenti» si apre anche quella di un altro (02/10/2026) */
+      dipendente: e?.dipendente || dipendente, data: $('#mv-data').value, causale, ore_min: oreMin,
       note: $('#mv-note').value.trim() || null,
       /* il dettaglio non ha partite aperte: si salva sempre chiuso, così non
          compare mai fra i «conteggi aperti» della banca ore */
@@ -831,11 +896,21 @@ async function formMovimento(e, causaleProposta) {
       recuperato_il: recuperatoIl,
       aggiornato_da: state.email, updated_at: new Date().toISOString(),
     };
-    const { error } = e
-      ? await sb.from('s_presenze_extra').update(dati).eq('id', e.id)
-      : await sb.from('s_presenze_extra').insert(dati);
+    const { data: salvata, error } = e
+      ? await sb.from('s_presenze_extra').update(dati).eq('id', e.id).select('id').single()
+      : await sb.from('s_presenze_extra').insert(dati).select('id').single();
+    if (error) { attendi(btn, false); return toast('Salvataggio non riuscito: ' + error.message, 'err'); }
+    /* collegamenti ai progetti: si riscrivono interi; fuori dal dettaglio non ce ne sono */
+    const ids = famigliaCausale(causale) === 'dettaglio' ? progScelti() : [];
+    const { error: errDel } = await sb.from('s_presenze_extra_progetti').delete().eq('extra_id', salvata.id);
+    let errLink = errDel;
+    if (!errDel && ids.length) {
+      const quota = Math.floor(10000 / ids.length) / 10000;
+      ({ error: errLink } = await sb.from('s_presenze_extra_progetti')
+        .insert(ids.map((progetto_id) => ({ extra_id: salvata.id, progetto_id, quota, creato_da: state.email }))));
+    }
     attendi(btn, false);
-    if (error) return toast('Salvataggio non riuscito: ' + error.message, 'err');
+    if (errLink) return toast('Movimento salvato, ma il collegamento ai progetti non è riuscito: riaprilo e risalva. ' + errLink.message, 'err');
     toast('Movimento registrato.', 'ok');
     chiudiDrawer();
     (tab === 'contatori' ? renderContatori : renderBanca)();
@@ -886,7 +961,12 @@ async function renderFerie(hostArg) {
     return { monte: m, tot: righe.reduce((s, x) => s + (x.ore_min || 0), 0), dettaglio };
   }).filter((x) => x.tot > 0);
 
+  /* i SALDI (02/10/2026): solo per la segreteria — il Direttore qui vede le
+     richieste da autorizzare, e le tabelle delle presenze non le legge */
+  const saldi = state.soloDirettore ? '' : await riquadroSaldi(annoOra);
+
   host.innerHTML = `
+    ${saldi}
     ${perMonte.length ? `<div class="dt-quadro" style="margin-bottom:10px">
       ${perMonte.map((x) => `<div class="dt-quadro-riga">
         <span class="dt-quadro-req">${esc(etichettaMonte(x.monte))} usati nel ${annoOra}</span>
@@ -938,8 +1018,115 @@ async function renderFerie(hostArg) {
     if (b) { filtroFerie = b.dataset.val; renderFerie(); }
   });
   $('#fe-nuova')?.addEventListener('click', formRichiesta);
+  $('#fe-spettanze')?.addEventListener('click', () => formSpettanze(annoOra));
   host.querySelectorAll('tbody tr[data-id]').forEach((tr) =>
     tr.addEventListener('click', () => apriRichiesta(Number(tr.dataset.id))));
+}
+
+/* ══════════ SALDI di banca ore, ferie e permessi ══════════
+   Chiesto dall'utente il 02/10/2026: «avere un'idea del saldo banca ore,
+   quello di ferie permessi». La banca ore si calcola come nella sua scheda;
+   per ferie e permessi le ore spettanti si scrivono dalla busta paga
+   (s_presenze_spettanze), il goduto si conta dalle righe vere. */
+async function riquadroSaldi(anno) {
+  let spettanze; let righe; let aperte; let inArrivo;
+  try {
+    const [r1, r3, r4] = await Promise.all([
+      sb.from('s_presenze_spettanze').select('*').eq('dipendente', dipendente),
+      sb.from('s_presenze_extra').select('causale, ore_min, pagato').eq('dipendente', dipendente).eq('chiuso', false),
+      sb.from('s_ferie_richieste').select('tipo, monte, ore, data_inizio, righe_generate, aut_stato')
+        .eq('dipendente', dipendente).eq('aut_stato', 'approvata').gte('data_inizio', `${anno}-01-01`).lte('data_inizio', `${anno}-12-31`),
+    ]);
+    for (const r of [r1, r3, r4]) if (r.error) throw r.error;
+    spettanze = r1.data || [];
+    aperte = r3.data || [];
+    inArrivo = (r4.data || []).filter((r) => !r.righe_generate);
+    righe = await leggiTutte(() => sb.from('s_presenze_extra').select('data, causale, ore_min')
+      .eq('dipendente', dipendente).in('causale', Object.values(CAUSALE_SALDO)).order('id'));
+  } catch {
+    return '<p class="empty" style="margin-bottom:10px">⚠ Non sono riuscito a leggere i saldi: nessun numero calcolato. Riprova.</p>';
+  }
+  const banca = calcolaBanca(aperte);
+  const mesi = mesiTrascorsi(anno);
+  const cella = (monte) => {
+    const sp = spettanze.filter((x) => x.monte === monte);
+    const s = saldoMonte(anno, sp, godutoPerAnno(righe, monte));
+    const attesa = inArrivo.filter((r) => r.monte === monte).reduce((t, r) => t + Math.round(Number(r.ore || 0) * 60), 0);
+    const nome = monte === 'ferie' ? 'Ferie' : 'Permessi (contratto)';
+    if (s.spettanza == null) {
+      return `<div class="dt-quadro-riga"><span class="dt-quadro-req">${nome} ${anno}</span>
+        <span class="dt-cella dt-senzadata">godute ${mm2hm(s.goduto)} · <strong>saldo non calcolabile</strong>: manca la spettanza ${anno}</span></div>`;
+    }
+    return `<div class="dt-quadro-riga"><span class="dt-quadro-req">${nome} ${anno}</span>
+      <span class="dt-cella ${s.saldo < 0 ? 'dt-scaduto' : 'dt-ok'}"><strong>${mm2hm(s.saldo)}</strong> da godere</span></div>
+      <p class="hint" style="margin:2px 0 6px">${s.residuoIniziale == null ? 'residuo al 1° gennaio non indicato'
+        : `residuo al 1° gennaio ${mm2hm(s.residuoIniziale)}${s.residuoDa === 'anno-prima' ? ' (riportato dal saldo ' + (anno - 1) + ')' : ''}`}
+        + spettanza ${mm2hm(s.spettanza)} − godute ${mm2hm(s.goduto)}${anno === new Date().getFullYear()
+        ? ` · maturate a oggi ~${mm2hm(Math.round(s.spettanza * mesi / 12))} (a dodicesimi)` : ''}${attesa
+        ? ` · <strong>${mm2hm(attesa)}</strong> approvate e non ancora registrate` : ''}${s.fonte ? ` · fonte: ${esc(s.fonte)}` : ''}</p>`;
+  };
+  return `<div class="dt-quadro" style="margin-bottom:10px">
+    <div class="dt-quadro-riga"><span class="dt-quadro-req">Banca ore</span>
+      <span class="dt-cella ${banca.saldo > 0 ? 'dt-senzadata' : 'dt-ok'}"><strong>${mm2hm(banca.saldo)}</strong> da recuperare</span></div>
+    <p class="hint" style="margin:2px 0 6px">${mm2hm(banca.supplementari)} supplementari da recuperare − ${mm2hm(banca.recuperi)} recuperi${banca.pagate
+      ? ` · ${mm2hm(banca.pagate)} supplementari da pagare (busta paga, fuori banca ore)` : ''}</p>
+    ${cella('ferie')}${cella('permessi')}
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:4px">
+      <p class="hint" style="margin:0">Saldi di ${esc(dipendente)}. Le ore spettanti si prendono dalla <strong>busta paga</strong>:
+        l'app non le ricava dal contratto. Il goduto si conta dalle righe «Ferie» e «Permesso» registrate.</p>
+      <button class="btn btn-ghost btn-sm" id="fe-spettanze">✏ Spettanze</button>
+    </div>
+  </div>`;
+}
+
+async function formSpettanze(annoIniz) {
+  const { data: tutte, error } = await sb.from('s_presenze_spettanze').select('*').eq('dipendente', dipendente).order('anno', { ascending: false });
+  if (error) return toast('Non sono riuscito a leggere le spettanze già scritte. Riprova.', 'err');
+  const di = (anno, monte) => (tutte || []).find((x) => x.anno === anno && x.monte === monte);
+  const hmv = (m) => (m == null ? '' : mm2hm(m));
+  const campi = (anno) => ['ferie', 'permessi'].map((monte) => {
+    const r = di(anno, monte);
+    return `<fieldset style="border:1px solid #e3e3e3;border-radius:6px;padding:8px 10px;margin:8px 0">
+      <legend><strong>${monte === 'ferie' ? 'Ferie' : 'Permessi retribuiti (contratto)'}</strong></legend>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div class="field"><label>Ore spettanti nell'anno *</label><input id="sp-${monte}-sp" placeholder="es. 176 o 176:00" value="${hmv(r?.spettanza_min)}"></div>
+        <div class="field"><label>Residuo al 1° gennaio</label><input id="sp-${monte}-res" placeholder="vuoto = saldo dell'anno prima" value="${hmv(r?.residuo_iniziale_min)}"></div>
+      </div></fieldset>`;
+  }).join('');
+  apriDrawer(`Spettanze — ${dipendente}`, '', `
+    <div class="field"><label>Anno *</label><input type="number" id="sp-anno" min="2009" max="2100" value="${annoIniz}" style="max-width:120px"></div>
+    <div id="sp-campi">${campi(annoIniz)}</div>
+    <div class="field"><label>Fonte</label><input id="sp-fonte" placeholder="es. busta paga di dicembre ${annoIniz - 1}" value="${esc(di(annoIniz, 'ferie')?.fonte || di(annoIniz, 'permessi')?.fonte || '')}"></div>
+    <p class="hint">In ore: 8 ore = 1 giorno. «8.30» sono 8 ore e mezza, «176,5» sono 176 ore e mezza.
+      Il residuo lascialo vuoto se vuoi che l'app riporti il saldo calcolato dell'anno prima (serve la spettanza di quell'anno).
+      Si può lasciare vuoto anche un monte intero: si salva solo quello compilato.</p>
+    <div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="btn btn-primary" id="sp-salva">Salva</button></div>
+    ${(tutte || []).length ? `<h4 style="margin:14px 0 4px">Già scritte</h4><table class="tbl"><tbody>${(tutte || []).map((x) => `<tr>
+      <td>${x.anno}</td><td>${x.monte}</td><td>${mm2hm(x.spettanza_min)}</td>
+      <td class="hint">${x.residuo_iniziale_min == null ? 'residuo riportato' : 'residuo ' + mm2hm(x.residuo_iniziale_min)}${x.fonte ? ' · ' + esc(x.fonte) : ''}</td></tr>`).join('')}</tbody></table>` : ''}`);
+  $('#sp-anno').addEventListener('change', (e) => { const a = Number(e.target.value); if (a) $('#sp-campi').innerHTML = campi(a); });
+  $('#sp-salva').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
+    const anno = Number($('#sp-anno').value);
+    if (!anno || anno < 2009 || anno > 2100) return toast("Serve l'anno.", 'err');
+    const righe = [];
+    for (const monte of ['ferie', 'permessi']) {
+      const sp = oreInMinuti($(`#sp-${monte}-sp`).value);
+      const res = oreInMinuti($(`#sp-${monte}-res`).value);
+      if (Number.isNaN(sp) || Number.isNaN(res)) return toast('Ore non valide: scrivi per esempio 176, 176,5 o 176:30.', 'err');
+      if (sp == null) { if (res != null) return toast("Il residuo da solo non basta: serve anche la spettanza dell'anno.", 'err'); continue; }
+      righe.push({ dipendente, anno, monte, spettanza_min: sp, residuo_iniziale_min: res,
+        fonte: $('#sp-fonte').value.trim() || null, aggiornato_da: state.email, updated_at: new Date().toISOString() });
+    }
+    if (!righe.length) return toast("Non c'è niente da salvare: compila almeno le ore spettanti di un monte.", 'err');
+    attendi(btn, true);
+    const { error: errS } = await sb.from('s_presenze_spettanze').upsert(righe, { onConflict: 'dipendente,anno,monte' });
+    attendi(btn, false);
+    if (errS) return toast('Salvataggio non riuscito: ' + errS.message, 'err');
+    toast('Spettanze salvate.', 'ok');
+    chiudiDrawer();
+    renderFerie();
+  });
 }
 
 function formRichiesta() {

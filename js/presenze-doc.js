@@ -287,7 +287,9 @@ const chiaveCausale = (c) => String(c || '').trim().replace(/\s+/g, ' ').toLower
      'oltre'           il dettaglio del giorno supera le ore lavorate registrate
      'senza-presenze'  quel giorno nel foglio presenze non c'è nessuna riga
      'spunte-storico'  la riga porta «pagata»/«recuperata», che al dettaglio non servono */
-export function contaAttivita({ extra, presenze }) {
+export function contaAttivita({ extra, presenze, collegamenti = [], nomiProgetti = {} }) {
+  const perRiga = {};
+  for (const l of collegamenti) (perRiga[l.extra_id] = perRiga[l.extra_id] || []).push({ id: l.progetto_id, nome: nomiProgetti[l.progetto_id] || `progetto ${l.progetto_id}`, quota: Number(l.quota) });
   const giorno = (dip, data) => `${dip}|${data}`;
   const lav = {};
   for (const p of presenze || []) {
@@ -320,7 +322,7 @@ export function contaAttivita({ extra, presenze }) {
     if (lav[k] === undefined) avvisi.push('senza-presenze');
     else if (dettGiorno[k] > lavMin[k]) avvisi.push('oltre');
     if (e.pagato || e.recuperato) avvisi.push('spunte-storico');
-    const riga = { ...e, lavorateGiorno: lavMin[k] ?? null, supplGiorno: supplGiorno[k] || 0, dettaglioGiorno: dettGiorno[k], avvisi };
+    const riga = { ...e, lavorateGiorno: lavMin[k] ?? null, supplGiorno: supplGiorno[k] || 0, dettaglioGiorno: dettGiorno[k], avvisi, progetti: perRiga[e.id] || [] };
     const g = (gruppi[chiaveCausale(e.causale)] = gruppi[chiaveCausale(e.causale)] || { grafie: {}, righe: [] });
     g.grafie[e.causale] = (g.grafie[e.causale] || 0) + 1;
     g.righe.push(riga);
@@ -340,6 +342,28 @@ export function contaAttivita({ extra, presenze }) {
   }).sort((a, b) => b.totMin - a.totMin || a.causale.localeCompare(b.causale));
 }
 
+/* Le stesse righe viste dal lato dei PROGETTI (02/10/2026): ore con la quota
+   applicata — una riga divisa fra due progetti dà metà ore a ciascuno — e,
+   in coda, le ore di dettaglio che non sono collegate a nessun progetto. */
+export function contaProgetti(attivita) {
+  const per = {};
+  let senza = 0;
+  for (const a of attivita) {
+    for (const r of a.righe) {
+      if (!r.progetti?.length) { senza += r.ore_min || 0; continue; }
+      for (const pr of r.progetti) {
+        const g = (per[pr.id] = per[pr.id] || { id: pr.id, nome: pr.nome, totMin: 0, righe: [] });
+        g.totMin += (r.ore_min || 0) * pr.quota;
+        g.righe.push({ ...r, quota: pr.quota, attivita: a.causale });
+      }
+    }
+  }
+  return {
+    progetti: Object.values(per).map((g) => ({ ...g, totMin: Math.round(g.totMin) })).sort((a, b) => b.totMin - a.totMin),
+    senzaProgettoMin: senza,
+  };
+}
+
 export const TESTO_AVVISO = {
   doppia: 'forse scritta due volte (stesso giorno, attività e ore)',
   oltre: 'il dettaglio del giorno supera le ore lavorate',
@@ -354,12 +378,13 @@ export function csvContatori(attivita, { tutti } = {}) {
     return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const dec = (min) => (Math.round((min || 0) / 60 * 100) / 100).toFixed(2).replace('.', ',');
-  const testa = [...(tutti ? ['Dipendente'] : []), 'Attività', 'Data', 'Ore (hh:mm)', 'Ore (decimali)', 'Ore lavorate nel giorno', 'Supplementari nel giorno', 'Note', 'Avvisi'];
+  const testa = [...(tutti ? ['Dipendente'] : []), 'Attività', 'Data', 'Ore (hh:mm)', 'Ore (decimali)', 'Ore lavorate nel giorno', 'Supplementari nel giorno', 'Progetto', 'Note', 'Avvisi'];
   const righe = [testa.join(';')];
   for (const a of attivita) {
     for (const r of a.righe) {
       righe.push([...(tutti ? [r.dipendente] : []), a.causale, dataIt(r.data), mm2hm(r.ore_min), dec(r.ore_min),
         r.lavorateGiorno == null ? '' : mm2hm(r.lavorateGiorno), r.supplGiorno ? mm2hm(r.supplGiorno) : '',
+        (r.progetti || []).map((x) => (x.quota < 1 ? `${x.nome} (${Math.round(x.quota * 100)}%)` : x.nome)).join(' + '),
         r.note || '', r.avvisi.map((x) => TESTO_AVVISO[x]).join(', ')].map(q).join(';'));
     }
   }
@@ -404,6 +429,23 @@ export async function pdfContatori({ chi, da, a, attivita, tutti }) {
   const tt = `${mm2hm(tot)} ore`;
   c.stato.pagina.drawText(tt, { x: DX - 8 - c.bold.widthOfTextAtSize(tt, 9.5), y: yR - 13, size: 9.5, font: c.bold, color: c.bianco });
   c.stato.y = yR - 40;
+
+  /* per progetto: le ore con la quota, per la rendicontazione */
+  const { progetti, senzaProgettoMin } = contaProgetti(attivita);
+  if (progetti.length) {
+    banda([['PROGETTO', C[0]], ['ORE', C[1]], ['RIGHE', C[2]]]);
+    for (const g of progetti) {
+      c.serve(RH + 4);
+      c.stato.pagina.drawText(taglia(c.font, 8.5, g.nome, C[1] - C[0] - 12), { x: C[0] + 6, y: c.stato.y, size: 8.5, font: c.font, color: c.nero });
+      c.stato.pagina.drawText(mm2hm(g.totMin), { x: C[1] + 6, y: c.stato.y, size: 9, font: c.bold, color: c.nero });
+      c.stato.pagina.drawText(String(g.righe.length), { x: C[2] + 6, y: c.stato.y, size: 9, font: c.font, color: c.nero });
+      filo();
+      c.stato.y -= RH;
+    }
+    c.serve(RH + 4);
+    c.stato.pagina.drawText(`non collegate a un progetto: ${mm2hm(senzaProgettoMin)} ore`, { x: C[0] + 6, y: c.stato.y, size: 8, font: c.italic, color: c.grigio });
+    c.stato.y -= RH + 14;
+  }
 
   for (const x of attivita) {
     c.serve(60);
@@ -692,4 +734,60 @@ export async function pdfRichiestaFerie(r, visto, firmaByte) {
   }
   c.scrivi('Documento interno: non prende numero di protocollo. La pratica è identificata dal numero di richiesta.', c.font, 7.5, c.grigio);
   return salva(c.doc);
+}
+
+/* ── 5. SALDI di ferie e permessi (02/10/2026) ──
+   L'utente vuole un'idea del saldo, come per la banca ore. Le ore SPETTANTI
+   non erano agli atti: si scrivono dalla busta paga in s_presenze_spettanze
+   (una riga per dipendente, anno e monte) e non si ricavano a stima dal
+   contratto. Il GODUTO si conta dalle righe vere di s_presenze_extra con la
+   causale del monte, come i monti sindacali: una richiesta approvata ma non
+   ancora generata non ha scalato niente, e si mostra a parte.
+   saldo = residuo al 1° gennaio + spettanza dell'anno − goduto dell'anno.
+   Residuo non scritto = si riporta il saldo calcolato dell'anno prima, se
+   l'anno prima ha la sua spettanza; altrimenti si dice che manca. */
+export const CAUSALE_SALDO = { ferie: 'Ferie', permessi: 'Permesso' };
+
+export function godutoPerAnno(righe, monte) {
+  const causale = CAUSALE_SALDO[monte].toLowerCase();
+  const per = {};
+  for (const r of righe || []) {
+    if (String(r.causale || '').trim().toLowerCase() !== causale) continue;
+    const anno = Number(String(r.data).slice(0, 4));
+    per[anno] = (per[anno] || 0) + (r.ore_min || 0);
+  }
+  return per;
+}
+
+/* spettanze = righe s_presenze_spettanze di UN dipendente e UN monte */
+export function saldoMonte(anno, spettanze, godute, profondita = 0) {
+  const sp = (spettanze || []).find((s) => Number(s.anno) === Number(anno));
+  const goduto = (godute || {})[anno] || 0;
+  if (!sp) return { anno, spettanza: null, residuoIniziale: null, residuoDa: null, goduto, saldo: null };
+  let residuo = sp.residuo_iniziale_min;
+  let residuoDa = residuo != null ? 'busta-paga' : null;
+  if (residuo == null && profondita < 50) {
+    const prec = saldoMonte(anno - 1, spettanze, godute, profondita + 1);
+    if (prec.saldo != null) { residuo = prec.saldo; residuoDa = 'anno-prima'; }
+  }
+  return {
+    anno, spettanza: sp.spettanza_min, residuoIniziale: residuo, residuoDa, goduto,
+    saldo: (residuo ?? 0) + sp.spettanza_min - goduto,
+    fonte: sp.fonte || null,
+  };
+}
+
+/* «176», «176,5», «176:30», «8.30» → minuti; vuoto → null; non valido → NaN.
+   Punto con due cifre = ore e minuti, come nel resto della scheda presenze
+   («8.30» sono 8 ore e mezza); la virgola è il decimale («176,5»). */
+export function oreInMinuti(testo) {
+  const t = String(testo ?? '').trim();
+  if (!t) return null;
+  let m = t.match(/^(\d{1,4})[:.](\d{2})$/);
+  if (m) return Number(m[1]) * 60 + Number(m[2]);
+  m = t.match(/^-?\d{1,4}([.,]\d{1,2})?$/);
+  if (m) return Math.round(Number(t.replace(',', '.')) * 60);
+  m = t.match(/^-(\d{1,4}):(\d{2})$/);
+  if (m) return -(Number(m[1]) * 60 + Number(m[2]));
+  return NaN;
 }

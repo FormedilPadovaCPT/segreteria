@@ -95,5 +95,6 @@ test('il CSV si apre in Excel italiano: punto e virgola, virgola decimale, testo
   assert.ok(csv.startsWith('﻿'));
   const [testa, riga] = csv.slice(1).trim().split('\r\n');
   assert.match(testa, /^Attività;Data;Ore \(hh:mm\);Ore \(decimali\)/);
-  assert.match(riga, /^Riunione;14\/04\/2026;1:30;1,50;8:00;;"Commissione; sicurezza";$/);
+  assert.match(testa, /;Progetto;Note;Avvisi$/);
+  assert.match(riga, /^Riunione;14\/04\/2026;1:30;1,50;8:00;;;"Commissione; sicurezza";$/);
 });
