@@ -38,7 +38,7 @@ const VESTI = [
 const GRUPPI = [
   ['Cruscotto', ['home']],
   ['Protocollo', ['registro', 'nuovo-in', 'nuovo-out', 'statistiche']],
-  ['Servizi CPT', ['segnalazioni', 'visite', 'consulenze', 'conferenze', 'attestazioni', 'notifiche', 'rlst', 'rls']],
+  ['Servizi CPT', ['segnalazioni', 'visite', 'consulenze', 'conferenze', 'attestazioni', 'notifiche', 'rlst', 'rls', 'questionari']],
   ['Tecnici', ['fatture-tecnici', 'amministrazione', 'doc-tecnici', 'zone-tecnici', 'stage']],
   ['Anagrafiche', ['imprese', 'persone', 'nomine']],
   /* stesso giorno: statistiche del registro sotto Protocollo, i mandati
