@@ -1074,7 +1074,7 @@ async function riquadroSaldi(anno) {
       <p class="hint" style="margin:2px 0 6px">${s.residuoIniziale == null ? 'residuo al 1° gennaio non indicato'
         : `residuo al 1° gennaio ${ore(s.residuoIniziale)}${s.residuoDa === 'anno-prima' ? ' (riportato dal saldo ' + (anno - 1) + ')' : ''}`}
         + spettanza ${ore(s.spettanza)} − godute ${ore(s.goduto)} <span class="hint">(${causali.map((c) => `«${c}»`).join(' + ')})</span>${mesiConclusi && mesiConclusi < 12
-        ? ` · <strong>a oggi</strong>, con ${mesiConclusi} mes${mesiConclusi === 1 ? 'e' : 'i'} maturat${mesiConclusi === 1 ? 'o' : 'i'}: ${ore((s.residuoIniziale ?? 0) + Math.round(s.spettanza * mesiConclusi / 12) - s.goduto)}${gg((s.residuoIniziale ?? 0) + Math.round(s.spettanza * mesiConclusi / 12) - s.goduto)}` : ''}${attesa
+        ? ` · <strong>a oggi</strong>, con ${mesiConclusi} mes${mesiConclusi === 1 ? 'e' : 'i'} maturat${mesiConclusi === 1 ? 'o' : 'i'}: ${ore((s.residuoIniziale ?? 0) + (s.spettanza * mesiConclusi / 12) - s.goduto)}${gg((s.residuoIniziale ?? 0) + (s.spettanza * mesiConclusi / 12) - s.goduto)}` : ''}${attesa
         ? ` · <strong>${mm2hm(attesa)}</strong> approvate e non ancora registrate` : ''}${s.fonte ? ` · fonte: ${esc(s.fonte)}` : ''}</p>`;
   };
   return `<div class="dt-quadro" style="margin-bottom:10px">

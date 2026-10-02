@@ -877,7 +877,7 @@ export function totaleSaldi(saldi, mesiConclusi) {
   const con = (saldi || []).filter((x) => x.saldo?.spettanza != null);
   const senza = (saldi || []).filter((x) => x.saldo?.spettanza == null && x.saldo?.goduto).map((x) => x.nome);   /* un monte vuoto (ROL a zero) non si cita */
   if (!con.length) return null;
-  const aOggi = (x) => (x.saldo.residuoIniziale ?? 0) + Math.round(x.saldo.spettanza * mesiConclusi / 12) - x.saldo.goduto;
+  const aOggi = (x) => (x.saldo.residuoIniziale ?? 0) + (x.saldo.spettanza * mesiConclusi / 12) - x.saldo.goduto;
   return {
     nomi: con.map((x) => x.nome),
     senza,
