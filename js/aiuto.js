@@ -214,6 +214,8 @@ window.AIUTO_TESTI = {
   'pp-mail': 'Deposita il prospetto in fogli_presenze e prepara la bozza per l\'Amministrazione: l\'invio resta a te.',
   'ct-csv': 'Scarica i contatori del periodo, giornata per giornata, in un file che si apre con Excel.',
   'ct-pdf': 'Scarica i contatori del periodo in PDF: ore per attività e le giornate di ognuna.',
+  'fe-busta': 'Copia dal cedolino il goduto e il residuo di ferie ed ex festività: l’app li confronta con le sue righe del mese.',
+  'bu-salva': 'Salva le cifre della busta e mostra subito se l’app è in pari o in quale monte c’è una differenza.',
   'fe-spettanze': 'Scrivi le ore di ferie e permessi spettanti nell\'anno, dalla busta paga: servono a calcolare il saldo.',
   'sp-salva': 'Salva le spettanze dell\'anno: il saldo si ricalcola subito nella scheda Ferie e permessi.',
   'ct-nuovo': 'Registra le ore di una riunione, formazione o progetto: sono già dentro le ore lavorate e non si sommano.',

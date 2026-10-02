@@ -241,4 +241,7 @@
 :root[data-veste="scrivania"][data-tema="scuro"] .sal-avviso{color:var(--succ)}
 :root[data-veste="scrivania"][data-tema="scuro"] .sal-fine,
 :root[data-veste="scrivania"][data-tema="scuro"] .sal-tot .sal-fine{border-color:var(--filetto)}
+:root[data-veste="scrivania"][data-tema="scuro"] .pz-inc{background:rgba(240,179,90,.12);border-color:rgba(240,179,90,.35)}
+:root[data-veste="scrivania"][data-tema="scuro"] .pz-busta{background:var(--superficie);border-color:var(--filetto)}
+:root[data-veste="scrivania"][data-tema="scuro"] .sal-tot .sal-scad{color:var(--testo-soft)}
 

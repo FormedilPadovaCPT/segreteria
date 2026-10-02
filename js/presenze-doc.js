@@ -60,7 +60,7 @@ export const totaleOre = (presenze) =>
    Disegno «carta Formedil» come gli altri documenti dell'app:
    banda arancio d'intestazione, griglia con verticali, weekend
    ombreggiati, assenze in evidenza, totale in banda piena. */
-export async function pdfFoglioPresenze({ dipendente, anno, mese, presenze, extra, matricola, livello }) {
+export async function pdfFoglioPresenze({ dipendente, anno, mese, presenze, extra, matricola, livello, saldi }) {
   const c = await apriCarta();
 
   c.scrivi('FOGLIO RILEVAZIONE PRESENZE', c.bold, 14, c.nero);
@@ -161,6 +161,8 @@ export async function pdfFoglioPresenze({ dipendente, anno, mese, presenze, extr
   c.stato.pagina.drawText(totTxt, { x: DX - 8 - c.bold.widthOfTextAtSize(totTxt, 9.5), y: yT - 13, size: 9.5, font: c.bold, color: c.bianco });
   c.stato.y = yT - 34;
 
+  /* i saldi a fine mese, come il «RESIDUO TOT.» della busta (02/10/2026) */
+  sezioneSaldi(c, `SALDI A FINE ${MESI[mese - 1].toUpperCase()} ${anno}`, saldi);
   /* ── pagina 2: il riepilogo per causale, come la stampa Access ── */
   paginaMovimenti(c, `${MESI[mese - 1].toUpperCase()} ${anno} — ${dipendente}`, extra, 'TOTALE MOVIMENTI DEL MESE');
   return salva(c.doc);
@@ -634,7 +636,7 @@ export async function pdfPresenzePeriodo({ dipendente, da, a, presenze, extra })
 /* ── 2. richiesta di ferie / permessi ──
    r = riga s_ferie_richieste; visto = null (riquadro vuoto) oppure
    { esito, nome, data_ora, utente, note }; firmaByte = png/jpg o null. */
-export async function pdfRichiestaFerie(r, visto, firmaByte) {
+export async function pdfRichiestaFerie(r, visto, firmaByte, saldoTesto) {
   const c = await apriCarta();
   c.scrivi(r.tipo === 'supplementari' ? 'Richiesta di ore supplementari del personale dipendente'
     : 'Richiesta di ferie o permessi del personale dipendente', c.bold, 13, c.nero);
@@ -674,6 +676,8 @@ export async function pdfRichiestaFerie(r, visto, firmaByte) {
     if (r.ora_dalle || r.ora_alle) c.campo('Dalle / alle', `${oraTxt(r.ora_dalle)} — ${oraTxt(r.ora_alle)}`);
   }
   c.campo('Per totale ore', r.ore != null ? String(r.ore) : '—');
+  /* il saldo del monte prima e dopo la richiesta, per il nulla osta (02/10/2026) */
+  if (saldoTesto) c.campo('Saldo disponibile', saldoTesto);
   if (r.motivo) c.campo('Note', r.motivo);
   c.stato.y -= 4;
   /* il recupero attinge alla BANCA ORE e non scala i monti del contratto
@@ -877,7 +881,7 @@ export function totaleSaldi(saldi, mesiConclusi) {
   const con = (saldi || []).filter((x) => x.saldo?.spettanza != null);
   const senza = (saldi || []).filter((x) => x.saldo?.spettanza == null && x.saldo?.goduto).map((x) => x.nome);   /* un monte vuoto (ROL a zero) non si cita */
   if (!con.length) return null;
-  const aOggi = (x) => (x.saldo.residuoIniziale ?? 0) + (x.saldo.spettanza * mesiConclusi / 12) - x.saldo.goduto;
+  const aOggi = (x) => (x.saldo.residuoIniziale ?? 0) + maturatoMesi(x.saldo.spettanza, mesiConclusi) - x.saldo.goduto;
   return {
     nomi: con.map((x) => x.nome),
     senza,
@@ -905,5 +909,217 @@ export function settimaneGiorni(min, orario) {
   if (!sett) return r || '0 giorni';
   const sTxt = `${sett} ${sett === 1 ? 'settimana' : 'settimane'}`;
   return `${min < 0 ? '−' : ''}${sTxt}${r ? ` e ${r}` : ''}`;
+}
+
+/* ── 9. Calendario, inserimento unico, riscontro con la busta, scadenze (02/10/2026) ──
+   Dopo il confronto con 20 buste paga l'utente ha approvato tutte le proposte:
+   gli errori trovati nascevano (a) dalle ferie scritte nella griglia ma non in
+   banca ore, (b) da festivi registrati come ferie, (c) dai giorni generati a
+   8 ore dal lunedì al venerdì anche per chi ha un altro orario. */
+
+/* Pasqua (algoritmo anonimo gregoriano) → 'aaaa-mm-gg' */
+export function pasqua(anno) {
+  const a = anno % 19; const b = Math.floor(anno / 100); const c = anno % 100;
+  const d = Math.floor(b / 4); const e = b % 4; const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3); const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4); const k = c % 4; const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const mese = Math.floor((h + l - 7 * m + 114) / 31); const giorno = ((h + l - 7 * m + 114) % 31) + 1;
+  return `${anno}-${String(mese).padStart(2, '0')}-${String(giorno).padStart(2, '0')}`;
+}
+
+const isoDi = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+/* I festivi in cui non si lavora: nazionali, Pasqua e Pasquetta, il patrono di
+   Padova (Sant'Antonio, 13 giugno). Il 4 novembre NON c'è: in busta è una
+   «festività non goduta» pagata, ma si lavora. */
+export function festivi(anno) {
+  const p = pasqua(anno);
+  const lun = new Date(`${p}T12:00`); lun.setDate(lun.getDate() + 1);
+  return new Map([
+    [`${anno}-01-01`, 'Capodanno'], [`${anno}-01-06`, 'Epifania'],
+    [p, 'Pasqua'], [isoDi(lun), 'Lunedì dell’Angelo'],
+    [`${anno}-04-25`, 'Liberazione'], [`${anno}-05-01`, 'Festa del lavoro'],
+    [`${anno}-06-02`, 'Festa della Repubblica'], [`${anno}-06-13`, 'Sant’Antonio, patrono di Padova'],
+    [`${anno}-08-15`, 'Ferragosto'], [`${anno}-11-01`, 'Ognissanti'],
+    [`${anno}-12-08`, 'Immacolata'], [`${anno}-12-25`, 'Natale'], [`${anno}-12-26`, 'Santo Stefano'],
+  ]);
+}
+const cacheFestivi = new Map();
+export function festivoDi(iso) {
+  const anno = Number(String(iso).slice(0, 4));
+  if (!cacheFestivi.has(anno)) cacheFestivi.set(anno, festivi(anno));
+  return cacheFestivi.get(anno).get(String(iso).slice(0, 10)) || null;
+}
+
+/* minuti di lavoro previsti in quel giorno dall'orario (null se l'orario manca) */
+export function oreOrarioGiorno(orario, iso) {
+  if (!misuraOrario(orario)) return null;
+  const dow = new Date(`${String(iso).slice(0, 10)}T12:00`).getDay();   /* 0 = domenica */
+  return Number(orario[`${GIORNI_ORARIO[(dow + 6) % 7]}_min`] || 0);
+}
+
+/* I giorni da generare per una richiesta approvata, sull'orario vero: le ore di
+   ogni giorno sono quelle dell'orario; i festivi e i giorni di riposo si saltano
+   e si dice perché. Senza orario: lunedì-venerdì a 8 ore, come prima. */
+export function giorniDaGenerare(da, a, orario) {
+  const out = [];
+  const fine = a || da;
+  for (let d = new Date(`${da}T12:00`); isoDi(d) <= fine; d.setDate(d.getDate() + 1)) {
+    const iso = isoDi(d);
+    const festa = festivoDi(iso);
+    const dow = d.getDay();
+    const ore = orario && misuraOrario(orario) ? oreOrarioGiorno(orario, iso) : (dow === 0 || dow === 6 ? 0 : 480);
+    if (festa) out.push({ data: iso, ore_min: 0, salta: `festivo (${festa})` });
+    else if (!ore) out.push({ data: iso, ore_min: 0, salta: 'giorno di riposo' });
+    else out.push({ data: iso, ore_min: ore, salta: null });
+  }
+  return out;
+}
+
+/* La causale di banca ore che corrisponde alla nota scritta nella griglia.
+   I permessi sindacali e le riunioni non c'entrano: sono ripartizioni o
+   dettaglio, con i loro monti. «FERIE ex festività» sono ex festività. */
+export function causaleDaNota(nota) {
+  const n = String(nota || '').trim().toLowerCase();
+  if (!n || /sindacal|\brsu\b/.test(n)) return null;
+  if (/^ferie\b.*ex[ -]?festivit/.test(n) || /^ex[ -]?festivit/.test(n)) return 'Ex festività';
+  if (/^ferie\b/.test(n)) return 'Ferie';
+  if (/^festivit/.test(n)) return 'Festività';
+  if (/^permess/.test(n)) return 'Permesso';
+  if (/^malattia\b/.test(n)) return 'Malattia';
+  if (/^recupero\b/.test(n)) return 'Recupero';
+  if (/^rol\b/.test(n)) return 'ROL';
+  return null;
+}
+
+/* le causali che scalano un saldo (un monte o la banca ore) e quindi vanno sia
+   nella griglia sia in banca ore. Malattia e festività stanno nella sola griglia:
+   non scalano niente, e pretenderle in banca ore darebbe solo falsi allarmi. */
+export const CAUSALI_ASSENZA_GIORNO = ['Ferie', 'Ex festività', 'Permesso', 'ROL', 'Recupero'];
+export const CAUSALI_NON_SU_FESTIVO = ['Ferie', 'Ex festività', 'Permesso', 'ROL'];
+
+/* Le incongruenze di un mese fra griglia presenze e banca ore.
+   'manca-movimento'  la griglia dice un'assenza, la banca ore no (con le ore
+                      proposte dall'orario se la giornata è intera)
+   'manca-griglia'    la banca ore ha un'assenza, la griglia di quel giorno no
+   'su-festivo'       ferie/ex festività/permesso registrati su un festivo
+   'su-riposo'        … su un giorno di riposo dell'orario
+   Si segnalano e basta: decide la persona. */
+export function incongruenzeMese({ presenze, extra, orario }) {
+  const out = [];
+  const perGiorno = {};
+  for (const p of presenze || []) (perGiorno[p.data] = perGiorno[p.data] || []).push(p);
+  const extraGiorno = {};
+  for (const e of extra || []) (extraGiorno[e.data] = extraGiorno[e.data] || []).push(e);
+  for (const [data, righe] of Object.entries(perGiorno)) {
+    for (const p of righe) {
+      const causale = causaleDaNota(p.note);
+      if (!causale || !CAUSALI_ASSENZA_GIORNO.includes(causale)) continue;
+      const ha = (extraGiorno[data] || []).some((e) => String(e.causale).toLowerCase() === causale.toLowerCase());
+      if (ha) continue;
+      const intera = !(p.tot_min > 0) && !righe.some((q) => q !== p && q.tot_min > 0);
+      const ore = intera ? oreOrarioGiorno(orario, data) : null;
+      out.push({ data, tipo: 'manca-movimento', causale, ore_min: ore || null,
+        testo: `nella griglia «${p.note}», in banca ore manca «${causale}»` });
+    }
+  }
+  for (const e of extra || []) {
+    if (!CAUSALI_ASSENZA_GIORNO.includes(e.causale)) continue;
+    const righe = perGiorno[e.data] || [];
+    const coerente = righe.some((p) => (causaleDaNota(p.note) || '').toLowerCase() === String(e.causale).toLowerCase());
+    if (!righe.length) out.push({ data: e.data, tipo: 'manca-griglia', causale: e.causale, id: e.id, testo: `in banca ore «${e.causale}», nella griglia nessuna riga` });
+    else if (!coerente && !['Recupero', 'Permesso'].includes(e.causale)) {
+      out.push({ data: e.data, tipo: 'manca-griglia', causale: e.causale, id: e.id, testo: `in banca ore «${e.causale}», la griglia dice «${righe.map((p) => p.note || mm2hm(p.tot_min || 0)).join(', ')}»` });
+    }
+    if (CAUSALI_NON_SU_FESTIVO.includes(e.causale)) {
+      const festa = festivoDi(e.data);
+      if (festa) out.push({ data: e.data, tipo: 'su-festivo', causale: e.causale, id: e.id, testo: `«${e.causale}» su un festivo (${festa}): in busta è festività goduta` });
+      else if (oreOrarioGiorno(orario, e.data) === 0) out.push({ data: e.data, tipo: 'su-riposo', causale: e.causale, id: e.id, testo: `«${e.causale}» su un giorno di riposo dell'orario` });
+    }
+  }
+  return out.sort((x, y) => (x.data < y.data ? -1 : x.data > y.data ? 1 : 0));
+}
+
+/* Il maturato COME LA BUSTA: una quota al mese arrotondata al centesimo
+   (ferie 160 h → 13,33 h; ex festività 26,68 h → 2,22 h), conguaglio a
+   dicembre. Così il saldo a fine mese coincide col cedolino (agosto 2026:
+   106,64 e 17,76, non 106,67 e 17,79). */
+export function maturatoMesi(spettanzaMin, mesi) {
+  if (spettanzaMin == null) return 0;
+  const s = Number(spettanzaMin);
+  if (mesi >= 12) return s;
+  if (mesi <= 0) return 0;
+  const quotaOre = Math.round((s / 60 / 12) * 100) / 100;
+  return Math.round(quotaOre * mesi * 60 * 100) / 100;
+}
+
+/* goduto di un monte dall'inizio dell'anno alla fine del mese indicato (1-12) */
+export function godutoFinoAlMese(righe, monte, anno, mese) {
+  const causali = (MONTI_SALDO.find((m) => m.monte === monte)?.causali || []).map((c) => c.toLowerCase());
+  const fine = `${anno}-${String(mese).padStart(2, '0')}-31`;
+  return (righe || []).filter((r) => String(r.data) >= `${anno}-01-01` && String(r.data) <= fine
+    && causali.includes(String(r.causale || '').trim().toLowerCase())).reduce((t, r) => t + (r.ore_min || 0), 0);
+}
+
+/* il saldo di un monte a fine mese, come il «RESIDUO TOT.» della busta di quel mese */
+export function saldoAlMese(spettanze, righe, monte, anno, mese) {
+  const godute = godutoPerAnno(righe, monte);
+  const s = saldoMonte(anno, spettanze, godute);
+  if (s.spettanza == null) return null;
+  const goduto = godutoFinoAlMese(righe, monte, anno, mese);
+  return { residuoIniziale: s.residuoIniziale, maturato: maturatoMesi(s.spettanza, mese), goduto,
+    residuo: (s.residuoIniziale ?? 0) + maturatoMesi(s.spettanza, mese) - goduto };
+}
+
+/* RISCONTRO con la busta: per ogni mese scritto dalla busta (goduto «A.C.» e,
+   se c'è, «RESIDUO TOT.») le stesse cifre secondo l'app e la differenza.
+   busta = righe s_presenze_busta di un dipendente; spettanze e righe come sopra. */
+export function riscontroBusta(busta, spettanze, righe) {
+  return (busta || []).map((b) => {
+    const app = godutoFinoAlMese(righe, b.monte, b.anno, b.mese);
+    const sp = (spettanze || []).filter((s) => s.monte === b.monte);
+    const sal = saldoAlMese(sp, righe, b.monte, b.anno, b.mese);
+    const godBusta = Number(b.goduto_ac_min);
+    const resBusta = b.residuo_tot_min == null ? null : Number(b.residuo_tot_min);
+    const diffGoduto = Math.round((app - godBusta) * 100) / 100;
+    const diffResiduo = resBusta == null || !sal ? null : Math.round((sal.residuo - resBusta) * 100) / 100;
+    /* un centesimo d'ora è 0,6 minuti: sotto, è arrotondamento */
+    const ok = Math.abs(diffGoduto) < 0.6 && (diffResiduo == null || Math.abs(diffResiduo) < 0.6);
+    return { ...b, godutoApp: app, godutoBusta: godBusta, diffGoduto, residuoApp: sal ? sal.residuo : null, residuoBusta: resBusta, diffResiduo, ok };
+  }).sort((x, y) => (x.anno - y.anno) || (x.mese - y.mese) || String(x.monte).localeCompare(String(y.monte)));
+}
+
+/* SCADENZE delle ferie (d.lgs. 66/2003, art. 10): quelle maturate in un anno si
+   godono entro il 30 giugno del secondo anno dopo. Le ferie godute consumano
+   prima il residuo degli anni prima (come la busta, che azzera prima il
+   «RESIDUO A.P.»). Il residuo al 1° gennaio si considera tutto dell'anno prima:
+   la busta non dice da quale anno venga. */
+export function scadenzeFerie(s, anno) {
+  if (!s || s.spettanza == null) return [];
+  const residuo = Math.max(0, s.residuoIniziale ?? 0);
+  const restoVecchio = Math.max(0, residuo - s.goduto);
+  const restoNuovo = Math.max(0, s.saldo - restoVecchio);
+  const out = [];
+  if (restoVecchio > 0) out.push({ ore_min: restoVecchio, origine: anno - 1, scadenza: `${anno + 1}-06-30` });
+  if (restoNuovo > 0) out.push({ ore_min: restoNuovo, origine: anno, scadenza: `${anno + 2}-06-30` });
+  return out;
+}
+
+/* i saldi a fine mese nel foglio presenze: «saldi» = [{ nome, residuo_min, giorni }] */
+function sezioneSaldi(c, titolo, saldi) {
+  if (!(saldi || []).length) return;
+  c.serve(40 + saldi.length * 14);
+  c.scrivi(titolo, c.bold, 10, c.nero);
+  c.stato.y -= 2;
+  for (const x of saldi) {
+    c.serve(14);
+    c.stato.pagina.drawText(x.nome, { x: SX + 6, y: c.stato.y, size: 9, font: c.font, color: c.nero });
+    const v = `${oreCentesimi(x.residuo_min)} h${x.giorni ? `  (≈ ${x.giorni} giorni)` : ''}`;
+    c.stato.pagina.drawText(v.replace('≈', '~'), { x: DX - 8 - c.bold.widthOfTextAtSize(v.replace('≈', '~'), 9), y: c.stato.y, size: 9, font: c.bold, color: c.nero });
+    c.stato.pagina.drawLine({ start: { x: SX, y: c.stato.y - 4 }, end: { x: DX, y: c.stato.y - 4 }, thickness: 0.4, color: c.grigioChiaro });
+    c.stato.y -= 14;
+  }
+  c.scrivi('Da confrontare col «RESIDUO TOT.» del riquadro «Riposi» della busta dello stesso mese.', c.italic, 7.5, c.grigio);
 }
 

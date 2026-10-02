@@ -28,7 +28,9 @@ import { scaricaEml, FIRMA_SEGRETERIA } from './eml.js';
 import { RUBRICA_INTERNA } from './lookups.js';
 import { MESI, mm2hm, eRipartizione, totaleOre, famigliaCausale, contaAttivita, contaProgetti, TESTO_AVVISO,
   MONTI_SALDO, CAUSALI_SALDO, godutoPerAnno, saldoMonte, oreInMinuti, oreCentesimi,
-  GIORNI_ORARIO, orarioValido, misuraOrario, testoGiorni, totaleSaldi, giorniNumero, settimaneGiorni } from './presenze-doc.js';
+  GIORNI_ORARIO, orarioValido, misuraOrario, testoGiorni, totaleSaldi, giorniNumero, settimaneGiorni,
+  festivoDi, oreOrarioGiorno, giorniDaGenerare, causaleDaNota, incongruenzeMese, maturatoMesi, saldoAlMese,
+  riscontroBusta, scadenzeFerie, CAUSALI_ASSENZA_GIORNO, CAUSALI_NON_SU_FESTIVO } from './presenze-doc.js';
 
 const CARTELLA_FOGLI = '2_AREE/Amministrazione/personale/fogli_presenze';
 const CARTELLA_RICHIESTE = '2_AREE/Amministrazione/personale/richieste_ferie_permessi';
@@ -197,14 +199,15 @@ async function datiMese() {
   const [anno, mese] = cursore.split('-').map(Number);
   const da = `${cursore}-01`;
   const a = `${cursore}-${String(new Date(anno, mese, 0).getDate()).padStart(2, '0')}`;
-  const [{ data: pres, error: e1 }, { data: extra, error: e2 }] = await Promise.all([
+  const [{ data: pres, error: e1 }, { data: extra, error: e2 }, { data: orari, error: e3 }] = await Promise.all([
     sb.from('s_presenze').select('*').eq('dipendente', dipendente).gte('data', da).lte('data', a).order('data').order('id'),
     sb.from('s_presenze_extra').select('*').eq('dipendente', dipendente).gte('data', da).lte('data', a).order('data'),
+    sb.from('s_presenze_orari').select('*').eq('dipendente', dipendente),
   ]);
   /* lettura fallita: si dice, non si mostra un mese vuoto (26/09/2026) —
      un mese «senza righe» porterebbe a generare il foglio vuoto */
-  if (e1 || e2) throw new Error('Non sono riuscito a leggere le presenze del mese. Riprova.');
-  return { anno, mese, presenze: pres || [], extra: extra || [] };
+  if (e1 || e2 || e3) throw new Error('Non sono riuscito a leggere le presenze del mese. Riprova.');
+  return { anno, mese, presenze: pres || [], extra: extra || [], orario: orarioValido(orari || [], a) };
 }
 
 async function renderMese(hostArg) {
@@ -213,7 +216,9 @@ async function renderMese(hostArg) {
   let dm;
   try { dm = await datiMese(); }
   catch (e) { host.innerHTML = `<p class="empty">⚠ ${esc(e.message)}</p>`; return; }
-  const { anno, mese, presenze, extra } = dm;
+  const { anno, mese, presenze, extra, orario } = dm;
+  /* griglia e banca ore devono dire la stessa cosa (02/10/2026): le differenze si mostrano */
+  const incoerenze = incongruenzeMese({ presenze, extra, orario });
 
   const perGiorno = {};
   for (const p of presenze) (perGiorno[p.data] = perGiorno[p.data] || []).push(p);
@@ -260,6 +265,14 @@ async function renderMese(hostArg) {
       <span class="dt-cella dt-ok" style="padding:4px 10px">⏱ ${mm2hm(totMese)} ore nel mese</span>
       ${extra.length ? `<span class="dt-cella dt-senzadata" style="padding:4px 10px">📌 ${extra.length} movimenti banca ore nel mese</span>` : ''}
     </div>
+    ${incoerenze.length ? `<div class="pz-inc">
+      <strong>⚠ ${incoerenze.length === 1 ? 'Una cosa' : incoerenze.length + ' cose'} da guardare fra griglia e banca ore</strong>
+      <ul>${incoerenze.map((x, i) => `<li><span class="num">${dataIt(x.data)}</span> ${esc(x.testo)}
+        ${x.tipo === 'manca-movimento'
+          ? `<button class="btn btn-ghost btn-sm" data-inc="${i}">${x.ore_min ? `➕ Crea il movimento (${mm2hm(x.ore_min)})` : '➕ Registra il movimento'}</button>`
+          : x.id ? `<button class="btn btn-ghost btn-sm" data-apri="${x.id}">Apri il movimento</button>` : ''}</li>`).join('')}</ul>
+      <span class="hint">Le ferie, le ex festività, i permessi e i recuperi vanno sia nella griglia sia in banca ore: è da lì che si contano i saldi.</span>
+    </div>` : ''}
     <div class="table-wrap">
       <table class="tbl">
         <thead><tr><th>Giorno</th><th>Entrata</th><th>Uscita</th><th>Entrata</th><th>Uscita</th><th>Tot.</th><th>Note / assenza</th></tr></thead>
@@ -276,6 +289,24 @@ async function renderMese(hostArg) {
   $('#pz-pdf').addEventListener('click', (ev) => chiudiMese(ev.currentTarget, false));
   $('#pz-chiudi').addEventListener('click', (ev) => chiudiMese(ev.currentTarget, true));
   $('#pz-periodo').addEventListener('click', formPeriodo);
+  host.querySelectorAll('[data-inc]').forEach((b) => b.addEventListener('click', async (ev) => {
+    ev.stopPropagation();
+    const x = incoerenze[Number(b.dataset.inc)];
+    if (!x.ore_min) return formMovimento(null, x.causale, { data: x.data });
+    attendi(b, true);
+    const { error } = await sb.from('s_presenze_extra').insert({ dipendente, data: x.data, causale: x.causale, ore_min: x.ore_min,
+      chiuso: famigliaCausale(x.causale) !== 'banca', note: 'dalla griglia presenze', aggiornato_da: state.email });
+    attendi(b, false);
+    if (error) return toast('Movimento non creato: ' + error.message, 'err');
+    toast(`Registrato in banca ore: ${x.causale} ${mm2hm(x.ore_min)}.`, 'ok');
+    renderMese();
+  }));
+  host.querySelectorAll('[data-apri]').forEach((b) => b.addEventListener('click', async (ev) => {
+    ev.stopPropagation();
+    const { data: e, error } = await sb.from('s_presenze_extra').select('*').eq('id', Number(b.dataset.apri)).single();
+    if (error || !e) return toast('Non sono riuscito ad aprire il movimento.', 'err');
+    formMovimento(e);
+  }));
   host.querySelectorAll('tbody tr').forEach((tr) => tr.addEventListener('click', () => {
     const id = tr.dataset.id ? Number(tr.dataset.id) : null;
     formPresenza(id ? presenze.find((p) => p.id === id) : null, tr.dataset.data);
@@ -315,15 +346,41 @@ function formPresenza(p, dataIso) {
     };
     if (!dati.data) return toast('Serve la data.', 'err');
     dati.tot_min = totDaOrari(dati.entra1, dati.esce1, dati.entra2, dati.esce2);
+    /* ferie & co. su un festivo: in busta è festività goduta, non ferie (02/10/2026) */
+    const causale = causaleDaNota(dati.note);
+    const festa = festivoDi(dati.data);
+    if (causale && CAUSALI_NON_SU_FESTIVO.includes(causale) && festa
+      && !confirm(`Il ${dataIt(dati.data)} è festivo (${festa}): in busta paga è una festività goduta, non «${causale}». Registro lo stesso?`)) return;
     attendi(btn, true);
     const { error } = p
       ? await sb.from('s_presenze').update(dati).eq('id', p.id)
       : await sb.from('s_presenze').insert(dati);
+    if (error) { attendi(btn, false); return toast('Salvataggio non riuscito: ' + error.message, 'err'); }
+    /* INSERIMENTO UNICO (02/10/2026): un'assenza scritta nella griglia va anche in
+       banca ore, da dove si contano i saldi. Giornata intera → il movimento si crea
+       da solo con le ore dell'orario; parziale → si apre il movimento da completare. */
+    let seguito = null;
+    if (causale && CAUSALI_ASSENZA_GIORNO.includes(causale)) {
+      const [{ data: gia }, { data: orari }] = await Promise.all([
+        sb.from('s_presenze_extra').select('id').eq('dipendente', dipendente).eq('data', dati.data).eq('causale', causale),
+        sb.from('s_presenze_orari').select('*').eq('dipendente', dipendente),
+      ]);
+      if (!(gia || []).length) {
+        const ore = dati.tot_min > 0 ? null : oreOrarioGiorno(orarioValido(orari || [], dati.data), dati.data);
+        if (ore) {
+          const { error: errM } = await sb.from('s_presenze_extra').insert({ dipendente, data: dati.data, causale, ore_min: ore,
+            chiuso: famigliaCausale(causale) !== 'banca', note: 'dalla griglia presenze', aggiornato_da: state.email });
+          seguito = errM ? `Giornata registrata, ma il movimento in banca ore non è stato creato: ${errM.message}` : `Giornata registrata, e in banca ore: ${causale} ${mm2hm(ore)}.`;
+        } else seguito = { causale, data: dati.data };
+      }
+    }
     attendi(btn, false);
-    if (error) return toast('Salvataggio non riuscito: ' + error.message, 'err');
-    toast('Giornata registrata.', 'ok');
     chiudiDrawer();
     renderMese();
+    if (seguito && typeof seguito === 'object') {
+      toast(`Giornata registrata. Scrivi le ore di «${seguito.causale}» in banca ore.`, 'ok');
+      formMovimento(null, seguito.causale, { data: seguito.data });
+    } else toast(seguito || 'Giornata registrata.', seguito && seguito.includes('non è stato') ? 'err' : 'ok');
   });
   $('#pz-elimina')?.addEventListener('click', async () => {
     if (!confirm('Elimino questa riga di presenza?')) return;
@@ -353,10 +410,11 @@ function testiMovimenti(extra) {
 async function chiudiMese(btn, conMail) {
   attendi(btn, true, 'Preparo il foglio…');
   try {
-    const { anno, mese, presenze, extra } = await datiMese();
+    const { anno, mese, presenze, extra, orario } = await datiMese();
     if (!presenze.length && !confirm('Il mese non ha righe di presenza: genero comunque il foglio vuoto?')) return;
+    const saldi = await saldiAFineMese(anno, mese, orario);
     const { pdfFoglioPresenze } = await import('./presenze-doc.js');
-    const byte = await pdfFoglioPresenze({ dipendente, anno, mese, presenze, extra });
+    const byte = await pdfFoglioPresenze({ dipendente, anno, mese, presenze, extra, saldi });
     const nomeFile = `${anno}_${String(mese).padStart(2, '0')}_01_REGP_${dipFile(dipendente)}_foglio-presenze-${MESI[mese - 1]}.pdf`;
 
     if (!conMail) {
@@ -399,7 +457,7 @@ async function chiudiMese(btn, conMail) {
 in allegato il foglio di rilevazione presenze di ${dipendente} per il mese di ${MESI[mese - 1]} ${anno}.
 
 Ore lavorate nel mese: ${mm2hm(totMese)}.
-${riepilogo ? `\nMovimenti del mese (straordinari, permessi, recuperi):\n${riepilogo}\n` : ''}${dettaglio ? `\nDettaglio attività (ore già comprese in quelle lavorate, non si sommano):\n${dettaglio}\n` : ''}${bancaTxt ? `\nBanca ore e conteggi aperti:\n${bancaTxt}\n` : ''}
+${riepilogo ? `\nMovimenti del mese (straordinari, permessi, recuperi):\n${riepilogo}\n` : ''}${dettaglio ? `\nDettaglio attività (ore già comprese in quelle lavorate, non si sommano):\n${dettaglio}\n` : ''}${bancaTxt ? `\nBanca ore e conteggi aperti:\n${bancaTxt}\n` : ''}${saldi.length ? `\nSaldi a fine ${MESI[mese - 1]} (da confrontare col «RESIDUO TOT.» della busta):\n${saldi.map((x) => `- ${x.nome}: ${oreCentesimi(x.residuo_min)} h${x.giorni ? ` (circa ${x.giorni} giorni)` : ''}`).join('\n')}\n` : ''}
 Il foglio è anche depositato in archivio (personale/fogli_presenze).
 
 Cordiali saluti.
@@ -762,7 +820,7 @@ async function renderBanca(hostArg) {
     tr.addEventListener('click', () => formMovimento(movimenti.find((e) => e.id === Number(tr.dataset.id)))));
 }
 
-async function formMovimento(e, causaleProposta) {
+async function formMovimento(e, causaleProposta, proposta) {
   /* tendina VERA delle causali: quelle di base più tutte quelle già usate
      nello storico (i progetti SPISAL/CAM, GSuite, 104/92…), con in fondo
      «Altra causale…» per il testo libero (regola delle maschere: la
@@ -785,8 +843,8 @@ async function formMovimento(e, causaleProposta) {
 
   apriDrawer(e ? `Movimento del ${dataIt(e.data)}` : 'Registra movimento banca ore', '', `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-      <div class="field"><label>Data *</label><input type="date" id="mv-data" value="${e ? e.data : oggiIso()}"></div>
-      <div class="field"><label>Ore (hh:mm) *</label><input id="mv-ore" placeholder="01:30" value="${e ? mm2hm(e.ore_min).padStart(5, '0') : ''}"></div>
+      <div class="field"><label>Data *</label><input type="date" id="mv-data" value="${e ? e.data : (proposta?.data || oggiIso())}"></div>
+      <div class="field"><label>Ore (hh:mm) *</label><input id="mv-ore" placeholder="01:30" value="${e ? mm2hm(e.ore_min).padStart(5, '0') : (proposta?.ore_min ? mm2hm(proposta.ore_min).padStart(5, '0') : '')}"></div>
     </div>
     <div class="field"><label>Causale *</label>
       <select id="mv-causale-sel">
@@ -839,7 +897,9 @@ async function formMovimento(e, causaleProposta) {
     const suppl = /suppl|straord/i.test(causaleScelta() || '');
     const dett = !!String(causaleScelta() || '').trim() && famigliaCausale(causaleScelta()) === 'dettaglio';
     $('#mv-dett-box').style.display = dett ? 'block' : 'none';
-    $('#mv-chiuso-box').style.display = dett ? 'none' : 'flex';
+    /* «Chiusa» vale solo per la banca ore: assenze e dettaglio non hanno partite aperte */
+    const fam = String(causaleScelta() || '').trim() ? famigliaCausale(causaleScelta()) : 'banca';
+    $('#mv-chiuso-box').style.display = fam === 'banca' ? 'flex' : 'none';
     $('#mv-compensa-box').style.display = suppl ? 'grid' : 'none';
     $('#mv-recu-box').style.visibility = suppl && modoScelto() === 'recupero' ? 'visible' : 'hidden';
   };
@@ -885,6 +945,8 @@ async function formMovimento(e, causaleProposta) {
     const recuperatoIl = recuperato ? ($('#mv-recdata').value || null) : (suppl ? null : e?.recuperato_il || null);
     /* «recuperata» è un fatto: senza la data del recupero non si registra */
     if (suppl && recuperato && !recuperatoIl) return toast('Per segnarla «già recuperata» serve la data del recupero. Se è ancora da recuperare, togli la spunta.', 'err');
+    const festaMv = CAUSALI_NON_SU_FESTIVO.includes(causale) ? festivoDi($('#mv-data').value) : null;
+    if (festaMv && !confirm(`Il ${dataIt($('#mv-data').value)} è festivo (${festaMv}): in busta paga è una festività goduta, non «${causale}». Registro lo stesso?`)) return;
     attendi(btn, true);
     const dati = {
       /* la riga resta della persona di cui è: dai contatori con «tutti i
@@ -893,7 +955,7 @@ async function formMovimento(e, causaleProposta) {
       note: $('#mv-note').value.trim() || null,
       /* il dettaglio non ha partite aperte: si salva sempre chiuso, così non
          compare mai fra i «conteggi aperti» della banca ore */
-      pagato, recuperato, chiuso: famigliaCausale(causale) === 'dettaglio' ? true : $('#mv-chiuso').checked,
+      pagato, recuperato, chiuso: famigliaCausale(causale) !== 'banca' ? true : $('#mv-chiuso').checked,
       recuperato_il: recuperatoIl,
       aggiornato_da: state.email, updated_at: new Date().toISOString(),
     };
@@ -914,7 +976,7 @@ async function formMovimento(e, causaleProposta) {
     if (errLink) return toast('Movimento salvato, ma il collegamento ai progetti non è riuscito: riaprilo e risalva. ' + errLink.message, 'err');
     toast('Movimento registrato.', 'ok');
     chiudiDrawer();
-    (tab === 'contatori' ? renderContatori : renderBanca)();
+    (tab === 'contatori' ? renderContatori : tab === 'mese' ? renderMese : renderBanca)();
   });
   $('#mv-elimina')?.addEventListener('click', async () => {
     if (!confirm('Elimino questo movimento?')) return;
@@ -922,7 +984,7 @@ async function formMovimento(e, causaleProposta) {
     if (error) return toast(error.message, 'err');
     toast('Movimento eliminato.', 'ok');
     chiudiDrawer();
-    (tab === 'contatori' ? renderContatori : renderBanca)();
+    (tab === 'contatori' ? renderContatori : tab === 'mese' ? renderMese : renderBanca)();
   });
 }
 
@@ -1020,6 +1082,7 @@ async function renderFerie(hostArg) {
   });
   $('#fe-nuova')?.addEventListener('click', formRichiesta);
   $('#fe-spettanze')?.addEventListener('click', () => formSpettanze(annoOra));
+  $('#fe-busta')?.addEventListener('click', formBusta);
   host.querySelectorAll('tbody tr[data-id]').forEach((tr) =>
     tr.addEventListener('click', () => apriRichiesta(Number(tr.dataset.id))));
 }
@@ -1030,16 +1093,18 @@ async function renderFerie(hostArg) {
    per ferie e permessi le ore spettanti si scrivono dalla busta paga
    (s_presenze_spettanze), il goduto si conta dalle righe vere. */
 async function riquadroSaldi(anno) {
-  let spettanze; let righe; let aperte; let inArrivo; let orari;
+  let spettanze; let righe; let aperte; let inArrivo; let orari; let busta;
   try {
-    const [r1, r3, r4, r5] = await Promise.all([
+    const [r1, r3, r4, r5, r6] = await Promise.all([
       sb.from('s_presenze_spettanze').select('*').eq('dipendente', dipendente),
       sb.from('s_presenze_extra').select('causale, ore_min, pagato').eq('dipendente', dipendente).eq('chiuso', false),
       sb.from('s_ferie_richieste').select('tipo, monte, ore, data_inizio, righe_generate, aut_stato')
         .eq('dipendente', dipendente).eq('aut_stato', 'approvata').gte('data_inizio', `${anno}-01-01`).lte('data_inizio', `${anno}-12-31`),
       sb.from('s_presenze_orari').select('*').eq('dipendente', dipendente),
+      sb.from('s_presenze_busta').select('*').eq('dipendente', dipendente),
     ]);
-    for (const r of [r1, r3, r4, r5]) if (r.error) throw r.error;
+    for (const r of [r1, r3, r4, r5, r6]) if (r.error) throw r.error;
+    busta = r6.data || [];
     spettanze = r1.data || [];
     aperte = r3.data || [];
     inArrivo = (r4.data || []).filter((r) => !r.righe_generate);
@@ -1075,7 +1140,7 @@ async function riquadroSaldi(anno) {
   const monti = MONTI_SALDO.map((x) => {
     const sp = spettanze.filter((y) => y.monte === x.monte);
     const s = saldoMonte(anno, sp, godutoPerAnno(righe, x.monte));
-    const maturate = s.spettanza == null ? 0 : s.spettanza * mesiConclusi / 12;
+    const maturate = s.spettanza == null ? 0 : maturatoMesi(s.spettanza, mesiConclusi);   /* come la busta: 13,33 h al mese */
     const aOggi = s.spettanza == null ? null : (s.residuoIniziale ?? 0) + maturate - s.goduto;
     const attesa = inArrivo.filter((r) => monteRichiesta[r.monte] === x.monte).reduce((t, r) => t + Math.round(Number(r.ore || 0) * 60), 0);
     return { ...x, s, maturate, aOggi, attesa };
@@ -1102,7 +1167,13 @@ async function riquadroSaldi(anno) {
         <span>godute <span class="sal-cau">${x.causali.map((c) => `«${esc(c)}»`).join(' + ')}</span></span><span class="num">−${cent(s.goduto)}</span>
         ${x.attesa ? `<span>approvate, da registrare</span><span class="num">−${cent(x.attesa)}</span>` : ''}
       </div>
-      <div class="sal-fine">a fine anno <b>${brevi(s.saldo)}</b></div></div>`;
+      <div class="sal-fine">a fine anno <b>${brevi(s.saldo)}</b></div>
+      ${x.monte === 'ferie' ? (() => {
+        /* scadenze (d.lgs. 66/2003): se resta solo l'anno in corso basta la data */
+        const sc = scadenzeFerie(s, anno);
+        if (sc.length === 1 && sc[0].origine === anno) return `<div class="sal-scad">da godere entro il ${dataIt(sc[0].scadenza)}</div>`;
+        return sc.map((z) => `<div class="sal-scad">${brevi(z.ore_min)} del ${z.origine}: entro il ${dataIt(z.scadenza)}</div>`).join('');
+      })() : ''}</div>`;
   };
 
   const conSaldo = monti.filter((x) => x.s.spettanza != null);
@@ -1143,7 +1214,132 @@ async function riquadroSaldi(anno) {
       </details>
       ${misura ? '' : '<span class="sal-avviso">Per vedere i saldi in giorni scrivi l\'orario della settimana in «✏ Spettanze».</span>'}
       <button class="btn btn-ghost btn-sm" id="fe-spettanze">✏ Spettanze</button>
-    </div>`;
+    </div>
+    ${riquadroBusta(riscontroBusta(busta, spettanze, righe), anno)}`;
+}
+
+/* RISCONTRO CON LA BUSTA (02/10/2026): per ogni mese scritto dal cedolino, il
+   «RESIDUO TOT.» e il «GODUTO A.C.» della busta accanto a quelli dell'app. */
+function riquadroBusta(righeR, anno) {
+  const anni = [...new Set(righeR.map((x) => x.anno))].sort((a, b) => b - a);
+  const mostra = righeR.filter((x) => x.anno === anno || x.anno === anno - 1);
+  const mesi = [...new Set(mostra.map((x) => `${x.anno}-${String(x.mese).padStart(2, '0')}`))].sort().reverse();
+  const nomi = Object.fromEntries(MONTI_SALDO.map((m) => [m.monte, m.nome]));
+  const monti = MONTI_SALDO.map((m) => m.monte).filter((m) => mostra.some((x) => x.monte === m));
+  const diff = mostra.filter((x) => !x.ok);
+  const cella = (x) => {
+    if (!x) return '<td class="hint">—</td>';
+    const testo = x.residuoBusta != null
+      ? `${oreCentesimi(x.residuoBusta)}${x.residuoApp != null && Math.abs(x.diffResiduo) >= 0.6 ? ` <span class="pz-bu-diff">app ${oreCentesimi(x.residuoApp)}</span>` : ''}`
+      : `godute ${oreCentesimi(x.godutoBusta)}`;
+    const god = Math.abs(x.diffGoduto) >= 0.6 ? ` <span class="pz-bu-diff">godute: busta ${oreCentesimi(x.godutoBusta)}, app ${oreCentesimi(x.godutoApp)}</span>` : '';
+    return `<td class="${x.ok ? 'pz-bu-ok' : 'pz-bu-no'}">${x.ok ? '✓ ' : '⚠ '}${testo}${god}</td>`;
+  };
+  return `<details class="pz-busta" ${diff.length ? 'open' : ''}>
+    <summary><strong>Riscontro con la busta paga</strong>
+      <span class="hint">${mostra.length ? (diff.length ? `⚠ ${diff.length} differenz${diff.length === 1 ? 'a' : 'e'} da guardare` : `✓ ${mesi.length} mes${mesi.length === 1 ? 'e' : 'i'} in pari`) : 'nessuna busta scritta'}${anni.length ? ` · anni ${anni.join(', ')}` : ''}</span></summary>
+    ${mesi.length ? `<div class="table-wrap"><table class="tbl">
+      <thead><tr><th>Mese</th>${monti.map((m) => `<th>${esc(nomi[m])} · residuo tot.</th>`).join('')}</tr></thead>
+      <tbody>${mesi.map((k) => {
+        const [a, m] = k.split('-').map(Number);
+        return `<tr><td>${MESI[m - 1]} ${a}</td>${monti.map((mo) => cella(mostra.find((x) => x.anno === a && x.mese === m && x.monte === mo))).join('')}</tr>`;
+      }).join('')}</tbody></table></div>` : ''}
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:6px">
+      <span class="hint">Ogni mese si copiano dal riquadro «Riposi» del cedolino il <strong>GODUTO A.C.</strong> e il <strong>RESIDUO TOT.</strong>
+        di ferie ed ex festività: l'app li confronta con le sue righe fino a fine mese. Una differenza vuol dire una riga sbagliata o mancante in quel mese.</span>
+      <button class="btn btn-ghost btn-sm" id="fe-busta">+ Scrivi la busta del mese</button>
+    </div>
+  </details>`;
+}
+
+async function formBusta() {
+  const oggi = new Date();
+  const precedente = new Date(oggi.getFullYear(), oggi.getMonth() - 1, 1);
+  const { data: gia } = await sb.from('s_presenze_busta').select('*').eq('dipendente', dipendente);
+  const campi = (a, m) => MONTI_SALDO.map(({ monte, nome }) => {
+    const r = (gia || []).find((x) => x.anno === a && x.mese === m && x.monte === monte);
+    return `<fieldset style="border:1px solid #e3e3e3;border-radius:6px;padding:8px 10px;margin:8px 0"><legend><strong>${esc(nome)}</strong></legend>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div class="field"><label>GODUTO A.C.</label><input id="bu-${monte}-god" placeholder="es. 130,00" value="${r ? oreCentesimi(r.goduto_ac_min) : ''}"></div>
+        <div class="field"><label>RESIDUO TOT.</label><input id="bu-${monte}-res" placeholder="es. 70,64" value="${r?.residuo_tot_min != null ? oreCentesimi(r.residuo_tot_min) : ''}"></div>
+      </div></fieldset>`;
+  }).join('');
+  apriDrawer(`Busta paga — ${dipendente}`, '', `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="field"><label>Anno *</label><input type="number" id="bu-anno" value="${precedente.getFullYear()}"></div>
+      <div class="field"><label>Mese della busta *</label><select id="bu-mese">${MESI.map((n, k) => `<option value="${k + 1}" ${k === precedente.getMonth() ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
+    </div>
+    <div id="bu-campi">${campi(precedente.getFullYear(), precedente.getMonth() + 1)}</div>
+    <p class="hint">Dal riquadro «Riposi» del cedolino, in centesimi come sono scritti («130,00», «70,64»). Basta il goduto;
+      con il residuo il controllo è completo. Il mese è quello del <strong>periodo di liquidazione</strong> della busta.</p>
+    <div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="btn btn-primary" id="bu-salva">Salva e confronta</button></div>`);
+  const ridisegna = () => { $('#bu-campi').innerHTML = campi(Number($('#bu-anno').value), Number($('#bu-mese').value)); };
+  $('#bu-anno').addEventListener('change', ridisegna);
+  $('#bu-mese').addEventListener('change', ridisegna);
+  $('#bu-salva').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
+    const anno = Number($('#bu-anno').value);
+    const mese = Number($('#bu-mese').value);
+    if (!anno || !mese) return toast('Servono anno e mese.', 'err');
+    const righe = [];
+    for (const { monte } of MONTI_SALDO) {
+      const god = oreInMinuti($(`#bu-${monte}-god`).value, { centesimi: true });
+      const res = oreInMinuti($(`#bu-${monte}-res`).value, { centesimi: true });
+      if (Number.isNaN(god) || Number.isNaN(res)) return toast('Ore non valide: scrivile come sulla busta, per esempio 130,00.', 'err');
+      if (god == null) { if (res != null) return toast('Col residuo serve anche il goduto dello stesso monte.', 'err'); continue; }
+      righe.push({ dipendente, anno, mese, monte, goduto_ac_min: god, residuo_tot_min: res,
+        fonte: `busta paga ${mese}/${anno}`, aggiornato_da: state.email, updated_at: new Date().toISOString() });
+    }
+    if (!righe.length) return toast('Scrivi almeno il goduto di un monte.', 'err');
+    attendi(btn, true);
+    const { error } = await sb.from('s_presenze_busta').upsert(righe, { onConflict: 'dipendente,anno,mese,monte' });
+    attendi(btn, false);
+    if (error) return toast('Salvataggio non riuscito: ' + error.message, 'err');
+    toast('Busta salvata: guarda il riscontro sotto le tessere.', 'ok');
+    chiudiDrawer();
+    renderFerie();
+  });
+}
+
+/* il saldo del monte di una richiesta, a oggi e dopo la richiesta (02/10/2026) */
+async function saldoRichiesta(r) {
+  const monte = { ferie: 'ferie', permessi: 'ex_festivita' }[r.monte || (r.tipo === 'ferie' ? 'ferie' : '')];
+  if (!monte) return '';
+  try {
+    const [{ data: sp, error: e1 }, { data: orari, error: e2 }] = await Promise.all([
+      sb.from('s_presenze_spettanze').select('*').eq('dipendente', r.dipendente).eq('monte', monte),
+      sb.from('s_presenze_orari').select('*').eq('dipendente', r.dipendente),
+    ]);
+    if (e1 || e2) return '';
+    const righe = await leggiTutte(() => sb.from('s_presenze_extra').select('data, causale, ore_min')
+      .eq('dipendente', r.dipendente).in('causale', MONTI_SALDO.find((m) => m.monte === monte).causali).order('id'));
+    const anno = Number(String(r.data_inizio).slice(0, 4));
+    const s = saldoMonte(anno, sp || [], godutoPerAnno(righe, monte));
+    if (s.spettanza == null) return '';
+    const oggi = new Date();
+    const mesi = anno < oggi.getFullYear() ? 12 : anno > oggi.getFullYear() ? 0 : oggi.getMonth();
+    const aOggi = (s.residuoIniziale ?? 0) + maturatoMesi(s.spettanza, mesi) - s.goduto;
+    const orario = orarioValido(orari || [], r.data_inizio);
+    const chiesta = r.righe_generate ? 0 : (r.ore ? Math.round(Number(r.ore) * 60)
+      : giorniDaGenerare(r.data_inizio, r.data_fine || r.data_inizio, orario).filter((g) => !g.salta).reduce((t, g) => t + g.ore_min, 0));
+    const fmt = (min) => { const g = giorniNumero(min, orario); return `${g ? `${g} giorni, ` : ''}${oreCentesimi(min)} h`; };
+    const nome = MONTI_SALDO.find((m) => m.monte === monte).nome.toLowerCase();
+    return `${nome} a oggi ${fmt(aOggi)}${chiesta ? ` · dopo questa richiesta ${fmt(aOggi - chiesta)}` : ' · la richiesta è già registrata'}`;
+  } catch { return ''; }
+}
+
+/* i saldi a fine mese per il foglio presenze e la mail a Patrizia (02/10/2026) */
+async function saldiAFineMese(anno, mese, orario) {
+  try {
+    const { data: sp, error } = await sb.from('s_presenze_spettanze').select('*').eq('dipendente', dipendente);
+    if (error || !(sp || []).length) return [];
+    const righe = await leggiTutte(() => sb.from('s_presenze_extra').select('data, causale, ore_min')
+      .eq('dipendente', dipendente).in('causale', CAUSALI_SALDO).order('id'));
+    return MONTI_SALDO.map((m) => {
+      const x = saldoAlMese(sp.filter((y) => y.monte === m.monte), righe, m.monte, anno, mese);
+      return x ? { nome: m.nome, residuo_min: x.residuo, giorni: giorniNumero(x.residuo, orario) } : null;
+    }).filter(Boolean);
+  } catch { return []; }
 }
 
 async function formSpettanze(annoIniz) {
@@ -1305,6 +1501,7 @@ export async function apriRichiesta(id) {
   const sonoDirettore = state.email && conf.direttore_email &&
     state.email.toLowerCase() === conf.direttore_email.toLowerCase();
   const decisa = ['approvata', 'respinta'].includes(r.aut_stato);
+  const saldoTxt = state.soloDirettore ? '' : await saldoRichiesta(r);
 
   apriDrawer(`Richiesta n° ${r.id} — ${etichettaTipo(r.tipo)} — ${r.dipendente}`, '', `
     <div class="dt-quadro-riga">
@@ -1319,6 +1516,7 @@ export async function apriRichiesta(id) {
       ? `scelta del lavoratore: <strong>${esc(COMPENSO[r.compenso] || 'non indicata')}</strong>`
       : `scalate da: <strong>${esc(etichettaMonte(r.monte))}</strong>`}</div>
     ${r.motivo ? `<div class="dt-doc-riga"><strong>Note:</strong> ${esc(r.motivo)}</div>` : ''}
+    ${saldoTxt ? `<div class="dt-doc-riga"><strong>Saldo disponibile:</strong> ${esc(saldoTxt)}</div>` : ''}
     ${r.aut_note ? `<div class="dt-doc-riga"><strong>Note del Direttore:</strong> ${esc(r.aut_note)}</div>` : ''}
 
     <hr style="margin:14px 0;border:0;border-top:1px solid var(--bordo)">
@@ -1349,7 +1547,7 @@ export async function apriRichiesta(id) {
     attendi(btn, true);
     try {
       const { pdfRichiestaFerie } = await import('./presenze-doc.js');
-      const byte = await pdfRichiestaFerie(r, null, null);
+      const byte = await pdfRichiestaFerie(r, null, null, await saldoRichiesta(r));
       const url = URL.createObjectURL(new Blob([byte], { type: 'application/pdf' }));
       const a = document.createElement('a');
       a.href = url; a.download = nomeRichiesta(r, false); a.click();
@@ -1376,7 +1574,7 @@ async function mandaAlDirettore(r, btn) {
   attendi(btn, true, 'Preparo…');
   try {
     const { pdfRichiestaFerie } = await import('./presenze-doc.js');
-    const byte = await pdfRichiestaFerie(r, null, null);
+    const byte = await pdfRichiestaFerie(r, null, null, await saldoRichiesta(r));
     scaricaEml({
       to: conf.direttore_email || 'direzione@formedilpadova.it',
       oggetto: `Formedil Padova - Richiesta ${etichettaTipo(r.tipo).toLowerCase()} - ${r.dipendente} - n. ${r.id}`,
@@ -1423,7 +1621,7 @@ async function decidiRichiesta(r, esito, btn) {
       note,
     };
     const { pdfRichiestaFerie } = await import('./presenze-doc.js');
-    const byte = await pdfRichiestaFerie(r, visto, firmaByte);
+    const byte = await pdfRichiestaFerie(r, visto, firmaByte, await saldoRichiesta(r));
 
     const cart = await risolviCartella(CARTELLA_RICHIESTE);
     if (!cart.id) throw new Error('Cartella richieste_ferie_permessi non trovata su Drive');
@@ -1477,28 +1675,39 @@ function esitoCartaceo(r) {
 /* a richiesta approvata: righe di presenza (nota) + banca ore per i giorni feriali */
 async function generaRighe(r, btn) {
   if (eSuppl(r)) return registraSupplementari(r, btn);
-  const giorni = [];
-  const fine = r.data_fine || r.data_inizio;
-  for (let d = new Date(r.data_inizio + 'T12:00'); d.toISOString().slice(0, 10) <= fine; d.setDate(d.getDate() + 1)) {
-    const dow = d.getDay();
-    if (dow !== 0 && dow !== 6) giorni.push(d.toISOString().slice(0, 10));
-  }
-  if (!giorni.length) return toast('Nessun giorno feriale nel periodo.', 'err');
+  /* SULL'ORARIO VERO E SUL CALENDARIO (02/10/2026): prima ogni giorno da lunedì a
+     venerdì valeva 8 ore, anche per chi il lunedì ne fa 6 e il venerdì riposa, e
+     i festivi finivano fra le ferie. Ora le ore sono quelle dell'orario, i festivi
+     e i giorni di riposo si saltano e lo si dice. */
+  const { data: orari, error: errO } = await sb.from('s_presenze_orari').select('*').eq('dipendente', r.dipendente);
+  if (errO) return toast("Non sono riuscito a leggere l'orario: righe non create. Riprova.", 'err');
+  const orario = orarioValido(orari || [], r.data_inizio);
+  const tutti = giorniDaGenerare(r.data_inizio, r.data_fine || r.data_inizio, orario);
+  const giorni = tutti.filter((g) => !g.salta);
+  if (!giorni.length) return toast('Nel periodo non ci sono giorni di lavoro: niente da creare.', 'err');
   /* la causale scritta in banca ore è quella del tipo, identica ai valori che
      l'ufficio usa da sempre: è il testo su cui si contano i monti (RSU compreso) */
   const causale = tipoRic(r.tipo).causale;
-  const orePerGiorno = r.ore && giorni.length ? Math.round((Number(r.ore) * 60) / giorni.length) : 480;
-  if (!confirm(`Creo ${giorni.length} giorni di ${causale} (${mm2hm(orePerGiorno)} ciascuno) in presenze e banca ore?`)) return;
+  /* un giorno solo con le ore scritte nella richiesta (un permesso di 2 ore): valgono quelle */
+  if (giorni.length === 1 && r.ore) giorni[0].ore_min = Math.round(Number(r.ore) * 60);
+  const totale = giorni.reduce((t, g) => t + g.ore_min, 0);
+  const festivi = tutti.filter((g) => /festivo/.test(g.salta || ''));
+  const avvisoOre = r.ore && giorni.length > 1 && Math.round(Number(r.ore) * 60) !== totale
+    ? `\nLa richiesta dice ${r.ore} ore, l'orario ne fa ${mm2hm(totale)}: uso l'orario.` : '';
+  if (!confirm(`Creo ${giorni.length} giorni di ${causale} in presenze e banca ore, ${mm2hm(totale)} in tutto`
+    + `${orario ? ' sull’orario del dipendente' : ' (senza orario: 8 ore dal lunedì al venerdì)'}?`
+    + `${festivi.length ? `\nSalto ${festivi.map((g) => `${dataIt(g.data)} ${g.salta}`).join(', ')}.` : ''}${avvisoOre}`)) return;
   attendi(btn, true, 'Creo le righe…');
   try {
     const nota = causale.toUpperCase();
     const { error: e1 } = await sb.from('s_presenze').insert(giorni.map((g) => ({
-      dipendente: r.dipendente, data: g, datore: 'CPT', tot_min: 0, note: nota, aggiornato_da: state.email,
+      dipendente: r.dipendente, data: g.data, datore: 'CPT', tot_min: 0, note: nota, aggiornato_da: state.email,
     })));
     if (e1) throw new Error(e1.message);
+    /* le assenze nascono chiuse: non sono partite da saldare (prima nascevano aperte) */
     const { error: e2 } = await sb.from('s_presenze_extra').insert(giorni.map((g) => ({
-      dipendente: r.dipendente, data: g, causale, ore_min: orePerGiorno,
-      note: `Richiesta n° ${r.id}`, aggiornato_da: state.email,
+      dipendente: r.dipendente, data: g.data, causale, ore_min: g.ore_min,
+      chiuso: famigliaCausale(causale) !== 'banca', note: `Richiesta n° ${r.id}`, aggiornato_da: state.email,
     })));
     if (e2) throw new Error(e2.message);
     await sb.from('s_ferie_richieste').update({

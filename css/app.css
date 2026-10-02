@@ -617,4 +617,16 @@ tr.riga-ceiv{border-left:4px solid var(--ceiv);background:var(--ceiv-bg)}
 .sal-come summary{cursor:pointer;color:var(--grigio);font-weight:600}
 .sal-come p{margin:6px 0 0;max-width:110ch;line-height:1.5}
 .sal-avviso{font-size:12px;color:#9a6b00}
+.sal-scad{font-size:11.5px;color:var(--testo-soft)}
+.sal-tot .sal-scad{color:#c7cbd1}
+/* griglia ↔ banca ore e riscontro con la busta (02/10/2026) */
+.pz-inc{background:#fff8e6;border:1px solid #f0d9a8;padding:8px 12px;margin:0 0 10px;font-size:12.5px}
+.pz-inc ul{margin:6px 0;padding-left:18px;display:grid;gap:4px}
+.pz-inc li .btn{margin-left:6px;padding:1px 8px}
+.pz-busta{background:#fff;border:1px solid var(--bordo);padding:8px 12px;margin:0 0 12px;font-size:12.5px}
+.pz-busta summary{cursor:pointer;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+.pz-busta .tbl td,.pz-busta .tbl th{font-size:12px}
+.pz-bu-ok{color:var(--in);font-variant-numeric:tabular-nums}
+.pz-bu-no{color:var(--out);font-weight:600;font-variant-numeric:tabular-nums}
+.pz-bu-diff{display:block;font-weight:500;font-size:11px}
 
