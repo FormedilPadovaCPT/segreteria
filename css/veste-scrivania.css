@@ -98,6 +98,8 @@
   }
   :root[data-veste="scrivania"] .nav-gruppo:has(.nav-item.is-active) .nav-voci,
   :root[data-veste="scrivania"] .sidebar:not(:has(.nav-item.is-active)) .nav-gruppo:first-child .nav-voci{display:flex}
+  /* scheda con una pagina sola (Cruscotto): la seconda riga resta vuota */
+  :root[data-veste="scrivania"] .nav-solo .nav-voci .nav-item{visibility:hidden}
   :root[data-veste="scrivania"] .nav-item{
     display:flex;align-items:center;gap:6px;width:auto;white-space:nowrap;
     padding:4px 10px;font-size:13px;font-weight:500;color:#3d434c;border:1px solid transparent;
@@ -131,6 +133,7 @@
 @media(max-width:900px){
   :root[data-veste="scrivania"] .sidebar{top:var(--barra)}
   :root[data-veste="scrivania"] .nav-grp{font:700 10px/1 Barlow,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:#6b7280;margin:12px 8px 4px}
+  :root[data-veste="scrivania"] .nav-solo .nav-grp{display:none}
   :root[data-veste="scrivania"] .nav-item{padding:7px 10px;font-size:13.5px}
   :root[data-veste="scrivania"] .nav-item.is-active{background:#eceef1;color:#2b2f36}
   :root[data-veste="scrivania"] .nav-n{margin-left:6px;background:#565c66;color:#fff;font-size:10px;padding:0 5px}

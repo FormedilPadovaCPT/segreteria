@@ -33,8 +33,11 @@ const VESTI = [
    index.html. Il markup del menu non cambia (lo leggono i test),
    si spostano solo i nodi. Una voce nuova non elencata qui finisce
    in «Altro», non sparisce. */
+/* Cruscotto in una scheda sua, il protocollo in un'altra con le sue tre
+   pagine (02/10/2026, chiesto dall'utente: «il cruscotto solo cruscotto») */
 const GRUPPI = [
-  ['Protocollo', ['home', 'registro', 'nuovo-in', 'nuovo-out']],
+  ['Cruscotto', ['home']],
+  ['Protocollo', ['registro', 'nuovo-in', 'nuovo-out']],
   ['Servizi CPT', ['segnalazioni', 'visite', 'consulenze', 'conferenze', 'attestazioni', 'notifiche', 'rlst', 'rls']],
   ['Tecnici', ['fatture-tecnici', 'doc-tecnici', 'zone-tecnici', 'stage']],
   ['Anagrafiche', ['imprese', 'persone', 'nomine']],
@@ -98,7 +101,8 @@ function raggruppa() {
   const gruppo = (titolo, pulsanti) => {
     if (!pulsanti.length) return;
     const g = document.createElement('div');
-    g.className = 'nav-gruppo';
+    /* una scheda con una pagina sola non ripete il nome nella seconda riga */
+    g.className = pulsanti.length === 1 ? 'nav-gruppo nav-solo' : 'nav-gruppo';
     const t = document.createElement('div');
     t.className = 'nav-grp';
     t.textContent = titolo;

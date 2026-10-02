@@ -55,7 +55,7 @@ let cercaStorico = '';
 
 const STATI = {
   ricevuta: 'Ricevuta', istruita: 'Istruita', autorizzata: 'Autorizzata',
-  assegnata: 'Assegnata', riscontrata: 'Riscontrata', chiusa: 'Chiusa', scartata: 'Scartata',
+  assegnata: 'Assegnata', eseguita: 'Visita fatta — da chiudere', riscontrata: 'Riscontrata', chiusa: 'Chiusa', scartata: 'Scartata',
 };
 const AUT = {
   da_richiedere: ['dt-senzadata', 'da richiedere'],
@@ -377,7 +377,35 @@ export async function apriPratica(id) {
   let ceiv = {};
   try { ceiv = JSON.parse(conf.organi_vigilanza_contatti || '{}').ceiv || {}; } catch { /* configurazione da sistemare */ }
 
-  apriDrawer(`Segnalazione n° ${p.progressivo ?? `m${p.id}`} — ${p.comune_cantiere || p.notificante || ''}`, '', `
+  /* visita fatta (02/10/2026): il trigger sugli incarichi porta la pratica
+     a «eseguita» e avvisa la segreteria. Qui si dice che cosa resta: per la
+     Cassa Edile l'esito; per un sindacato decidere col Direttore se e come
+     dare un riscontro; per gli altri solo chiudere */
+  const nSeg = p.progressivo ?? `m${p.id}`;
+  let questione = null;
+  if (p.stato === 'eseguita' && !esitoDovuto(p.segnalante_tipo)) {
+    const { data, error } = await sb.from('s_decisioni').select('id, stato, decisione')
+      .eq('link', `segnalazione:${p.id}`).order('id', { ascending: false }).limit(1);
+    questione = error ? { errore: error.message } : (data || [])[0] || null;
+  }
+  const boxEseguita = p.stato !== 'eseguita' ? '' : `
+    <div class="pz-inc" style="margin-bottom:12px">
+      <strong>🔧 Visita fatta${p.data_verbale ? ` il ${dataIt(String(p.data_verbale).slice(0, 10))}` : ''}</strong> — per il tecnico non c'è altro.
+      ${esitoDovuto(p.segnalante_tipo)
+        ? '<br>Resta da mandare l’<strong>esito alla Cassa Edile</strong> (più sotto), poi chiudere la pratica.'
+        : p.segnalante_tipo === 'sindacato'
+        ? '<br>Segnala un <strong>sindacato</strong>: l’esito non si comunica (regola del 16/09/2026); se e come dare un riscontro si decide col Direttore.'
+        : '<br>L’esito non si comunica: resta da chiudere la pratica.'}
+      ${questione?.errore ? `<br><span style="color:#a01f00">Non sono riuscito a leggere se la questione è già dal Direttore: ${esc(questione.errore)}</span>`
+        : questione ? `<br>Questione per il Direttore n° ${questione.id}: <strong>${esc(questione.stato)}</strong>${questione.decisione ? ` — «${esc(questione.decisione)}»` : ''}` : ''}
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+        ${!esitoDovuto(p.segnalante_tipo) && !questione && !state.soloDirettore ? '<button class="btn btn-ghost btn-sm" id="sg-chiedi-dir">❓ Chiedi al Direttore se dare un riscontro</button>' : ''}
+        ${state.soloDirettore ? '' : '<button class="btn btn-primary btn-sm" id="sg-chiudi">✔ Chiudi la pratica</button>'}
+      </div>
+    </div>`;
+
+  apriDrawer(`Segnalazione n° ${nSeg} — ${p.comune_cantiere || p.notificante || ''}`, '', `
+    ${boxEseguita}
     <div class="dt-quadro-riga">
       <span class="dt-dot ${clsAut}"></span>
       <span class="dt-quadro-req">Autorizzazione Direttore</span>
@@ -573,6 +601,47 @@ export async function apriPratica(id) {
   $('#sg-eml')?.addEventListener('click', (ev) => riscaricaEml(p, ev.currentTarget));
   $('#sg-esito')?.addEventListener('click', (ev) => preparaEsito(p, ev.currentTarget, ceiv));
   $('#sg-esito-eml')?.addEventListener('click', (ev) => riscaricaEsito(p, ev.currentTarget, ceiv));
+
+  /* la questione va nel registro del Direttore (s_decisioni), legata alla
+     pratica dal campo link: la vede nella sua pagina del gestionale */
+  $('#sg-chiedi-dir')?.addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
+    attendi(btn, true);
+    const { error } = await sb.from('s_decisioni').insert({
+      questione: `Segnalazione n° ${nSeg} (${p.segnalante_tipo || 'segnalante'}): visita fatta — si dà un riscontro al segnalante? In che termini?`.slice(0, 240),
+      dettaglio: [`Cantiere: ${[p.ind_cantiere, p.comune_cantiere].filter(Boolean).join(', ') || '—'}.`,
+        `Segnalante: ${p.notificante || '—'}.`,
+        p.data_verbale ? `Visita del ${dataIt(String(p.data_verbale).slice(0, 10))}${p.incarico_id ? ` (incarico n° ${p.incarico_id})` : ''}.` : null,
+        'Regola in vigore dal 16/09/2026: l’esito non si comunica al segnalante; la presa in carico è facoltativa e senza merito.'].filter(Boolean).join('\n'),
+      riguarda: `Segnalazione cantiere n° ${nSeg}`,
+      link: `segnalazione:${p.id}`,
+      decisore: 'direttore',
+    });
+    attendi(btn, false);
+    if (error) return toast('Questione non aperta: ' + error.message, 'err');
+    toast('Questione aperta nel registro del Direttore.', 'ok');
+    await apriPratica(p.id);
+  });
+
+  $('#sg-chiudi')?.addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
+    if (esitoDovuto(p.segnalante_tipo) && !p.esito_protocollo_id
+      && !confirm('L’esito alla Cassa Edile non risulta mandato. Chiudo lo stesso la pratica?')) return;
+    if (!esitoDovuto(p.segnalante_tipo) && !confirm('Chiudo la pratica? Il riscontro al segnalante è deciso (o non si dà).')) return;
+    attendi(btn, true);
+    const nota = `${dataIt(oggiIso())}: pratica chiusa dopo la visita.`;
+    const { error } = await sb.from('s_segnalazioni').update({
+      stato: 'chiusa',
+      note_ufficio: [p.note_ufficio, nota].filter(Boolean).join('\n'),
+      aggiornato_da: state.email,
+      updated_at: new Date().toISOString(),
+    }).eq('id', p.id);
+    attendi(btn, false);
+    if (error) return toast('Chiusura non riuscita: ' + error.message, 'err');
+    toast('Pratica chiusa.', 'ok');
+    chiudiDrawer();
+    await render();
+  });
 }
 
 /* ── richiesta di autorizzazione: PDF + bozza mail al Direttore ── */

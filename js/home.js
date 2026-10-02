@@ -292,7 +292,7 @@ export async function render() {
 
   /* ── i tre mucchi che contano ── */
   const daAutorizzare = [];
-  const daEseguire = [];
+  let daEseguire = [];
   for (const s of servizi) {
     for (const p of s.righe) {
       const riga = {
@@ -301,7 +301,7 @@ export async function render() {
         n: p.progressivo ?? `m${p.id}`, incarico_id: p.incarico_id || null,
       };
       if (['da_richiedere', 'richiesta'].includes(p.aut_stato)) daAutorizzare.push(riga);
-      else if (p.aut_stato === 'approvata' && !['svolta'].includes(p.stato)) daEseguire.push(riga);
+      else if (p.aut_stato === 'approvata' && !['svolta', 'eseguita'].includes(p.stato)) daEseguire.push(riga);
     }
   }
   daAutorizzare.sort((a, b) => String(a.quando || '').localeCompare(String(b.quando || '')));
@@ -319,6 +319,12 @@ export async function render() {
     for (const i of data || []) incDi[i.id] = i;
     for (const r of daEseguire) if (r.incarico_id && !incDi[r.incarico_id]) incDi[r.incarico_id] = error ? 'errore' : null;
   }
+  /* «da eseguire» vuol dire che tocca al tecnico (02/10/2026, chiesto
+     dall'utente sulla segnalazione n° 2): quando la visita è registrata
+     la riga esce da qui. Il seguito — chiudere, decidere il riscontro —
+     sta nel riquadro della sua pratica e in «Visite eseguite dai tecnici» */
+  const fattoDalTecnico = (i) => i && typeof i === 'object' && (i.eseguito_il || ['eseguito', 'chiuso'].includes(i.stato));
+  daEseguire = daEseguire.filter((r) => !(r.incarico_id && fattoDalTecnico(incDi[r.incarico_id])));
   /* il passo del tecnico è una pastiglia colorata, non una nota grigia
      (26/09/2026): è il fatto che conta della riga */
   const pastiglia = (tipo, html) => `<span class="hm-passo hm-passo-${tipo}">${html}</span>`;
@@ -352,7 +358,17 @@ export async function render() {
 
   /* segnalazioni aperte: hanno anche il loro riquadro, oltre ai mucchi
      autorizzativi comuni (chiesto dall'utente il 01/09) */
-  const segnalazioni = servizi.find((s) => s.vista === 'segnalazioni').righe;
+  /* dal 02/10/2026 il riquadro mostra solo quelle in cui tocca alla
+     segreteria: da autorizzare, oppure visita fatta e pratica da chiudere.
+     Le autorizzate in mano al tecnico stanno fra le «da eseguire» */
+  const segnalazioni = servizi.find((s) => s.vista === 'segnalazioni').righe
+    .filter((p) => p.aut_stato !== 'approvata' || p.stato === 'eseguita');
+  const seguitoSegn = (p) => {
+    if (p.stato !== 'eseguita') return `${esc(p.stato)}${['da_richiedere', 'richiesta'].includes(p.aut_stato) ? ' · dal Direttore' : ''}`;
+    if (p.segnalante_tipo === 'ceiv') return p.esito_protocollo_id ? 'esito mandato: da chiudere' : '<strong>esito alla Cassa Edile da mandare</strong>';
+    if (p.segnalante_tipo === 'sindacato') return '<strong>riscontro al sindacato da decidere</strong>';
+    return 'visita fatta: da chiudere';
+  };
 
   /* consulenze in corsia immediata: il giro segreteria→coordinatore→impresa */
   const cons = servizi.find((s) => s.vista === 'consulenze').righe;
@@ -695,10 +711,10 @@ export async function render() {
       ${card('🚨 Segnalazioni cantiere', segnalazioni.length,
         segnalazioni.length
           ? segnalazioni.slice(0, 6).map((p) => `
-            <div class="hm-riga" data-vista="segnalazioni" data-id="${p.id}"><span>🚨</span>
-              <span><strong>n° ${esc(String(p.progressivo ?? `m${p.id}`))}</strong> — ${esc(p.notificante || '?')}${p.comune_cantiere ? ` · ${esc(p.comune_cantiere)}` : ''}</span>
-              <span class="hint">${esc(p.stato)}${['da_richiedere', 'richiesta'].includes(p.aut_stato) ? ' · dal Direttore' : ''}</span></div>`).join('')
-          : '<p class="hint">Nessuna segnalazione aperta.</p>',
+            <div class="hm-riga" data-vista="segnalazioni" data-id="${p.id}"><span>${p.stato === 'eseguita' ? '🔧' : '🚨'}</span>
+              <span><strong>n° ${esc(String(p.progressivo ?? `m${p.id}`))}</strong> — ${esc(p.notificante || '?')}${p.comune_cantiere ? ` · ${esc(p.comune_cantiere)}` : ''}${p.stato === 'eseguita' && p.data_verbale ? `<br><span class="hm-passo hm-passo-ok">🔧 visita del ${dataIt(String(p.data_verbale).slice(0, 10))}</span>` : ''}</span>
+              <span class="hint">${seguitoSegn(p)}</span></div>`).join('')
+          : '<p class="hint">Niente da fare sulle segnalazioni: quelle autorizzate sono in mano ai tecnici («da eseguire»).</p>',
         vai('segnalazioni', 'Apri le segnalazioni'), { k: 'segnalazioni', goto: 'segnalazioni', nonLetto: nonLetti.has('serv-segnalazioni') })}
 
       ${card('🔧 Visite eseguite dai tecnici', eseguiti.length,
