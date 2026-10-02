@@ -28,7 +28,7 @@ import { scaricaEml, FIRMA_SEGRETERIA } from './eml.js';
 import { RUBRICA_INTERNA } from './lookups.js';
 import { MESI, mm2hm, eRipartizione, totaleOre, famigliaCausale, contaAttivita, contaProgetti, TESTO_AVVISO,
   MONTI_SALDO, CAUSALI_SALDO, godutoPerAnno, saldoMonte, oreInMinuti, oreCentesimi,
-  GIORNI_ORARIO, orarioValido, misuraOrario, testoGiorni, totaleSaldi } from './presenze-doc.js';
+  GIORNI_ORARIO, orarioValido, misuraOrario, testoGiorni, totaleSaldi, giorniNumero, settimaneGiorni } from './presenze-doc.js';
 
 const CARTELLA_FOGLI = '2_AREE/Amministrazione/personale/fogli_presenze';
 const CARTELLA_RICHIESTE = '2_AREE/Amministrazione/personale/richieste_ferie_permessi';
@@ -1040,72 +1040,110 @@ async function riquadroSaldi(anno) {
       sb.from('s_presenze_orari').select('*').eq('dipendente', dipendente),
     ]);
     for (const r of [r1, r3, r4, r5]) if (r.error) throw r.error;
-    orari = r5.data || [];
     spettanze = r1.data || [];
     aperte = r3.data || [];
     inArrivo = (r4.data || []).filter((r) => !r.righe_generate);
+    orari = r5.data || [];
     righe = await leggiTutte(() => sb.from('s_presenze_extra').select('data, causale, ore_min')
       .eq('dipendente', dipendente).in('causale', CAUSALI_SALDO).order('id'));
   } catch {
     return '<p class="empty" style="margin-bottom:10px">⚠ Non sono riuscito a leggere i saldi: nessun numero calcolato. Riprova.</p>';
   }
+  /* VARIANTE B «Tessere in giorni», scelta dall'utente il 02/10/2026 fra quattro
+     (proposte_grafiche/2026_10_02_saldi-presenze): una tessera per monte, il
+     numero grande IN GIORNI a oggi, le ore sotto in centesimi come in busta,
+     una barra goduto/disponibile, il dettaglio dei conti e la fine anno in
+     fondo. Totale scuro, banca ore a parte. Il «come si calcola» si apre a richiesta. */
   const banca = calcolaBanca(aperte);
-  /* le ore anche in GIORNI, sull'orario in vigore oggi (02/10/2026) */
   const orario = orarioValido(orari, oggiIso());
   const misura = misuraOrario(orario);
-  const gg = (min) => { const t = Math.round(min || 0) ? testoGiorni(min, orario) : ''; return t ? ` <span class="hint">· ${t}</span>` : ''; };
   /* maturato a MESI CONCLUSI, come la busta: a ottobre ne sono maturati nove */
   const oggi = new Date();
   const mesiConclusi = anno < oggi.getFullYear() ? 12 : anno > oggi.getFullYear() ? 0 : oggi.getMonth();
   /* richieste approvate e non ancora registrate: il «permesso» va sulle ex festività, come in busta */
   const monteRichiesta = { ferie: 'ferie', permessi: 'ex_festivita' };
-  const ore = (min) => `${mm2hm(min)} <span class="hint">(${oreCentesimi(min)})</span>`;
-  const cella = ({ monte, nome, causali }) => {
-    const sp = spettanze.filter((x) => x.monte === monte);
-    const s = saldoMonte(anno, sp, godutoPerAnno(righe, monte));
-    const attesa = inArrivo.filter((r) => monteRichiesta[r.monte] === monte).reduce((t, r) => t + Math.round(Number(r.ore || 0) * 60), 0);
-    if (s.spettanza == null) {
-      if (monte === 'rol' && !s.goduto) return '';   /* ROL/PAR vuoto, come in busta: non si mostra */
-      return `<div class="dt-quadro-riga"><span class="dt-quadro-req">${nome} ${anno}</span>
-        <span class="dt-cella dt-senzadata">godute ${ore(s.goduto)} · <strong>saldo non calcolabile</strong>: manca la spettanza ${anno}</span></div>`;
-    }
-    return `<div class="dt-quadro-riga"><span class="dt-quadro-req">${nome} ${anno}</span>
-      <span class="dt-cella ${s.saldo < 0 ? 'dt-scaduto' : 'dt-ok'}"><strong>${mm2hm(s.saldo)}</strong> (${oreCentesimi(s.saldo)}) da godere entro l'anno${gg(s.saldo)}</span></div>
-      <p class="hint" style="margin:2px 0 6px">${s.residuoIniziale == null ? 'residuo al 1° gennaio non indicato'
-        : `residuo al 1° gennaio ${ore(s.residuoIniziale)}${s.residuoDa === 'anno-prima' ? ' (riportato dal saldo ' + (anno - 1) + ')' : ''}`}
-        + spettanza ${ore(s.spettanza)} − godute ${ore(s.goduto)} <span class="hint">(${causali.map((c) => `«${c}»`).join(' + ')})</span>${mesiConclusi && mesiConclusi < 12
-        ? ` · <strong>a oggi</strong>, con ${mesiConclusi} mes${mesiConclusi === 1 ? 'e' : 'i'} maturat${mesiConclusi === 1 ? 'o' : 'i'}: ${ore((s.residuoIniziale ?? 0) + (s.spettanza * mesiConclusi / 12) - s.goduto)}${gg((s.residuoIniziale ?? 0) + (s.spettanza * mesiConclusi / 12) - s.goduto)}` : ''}${attesa
-        ? ` · <strong>${mm2hm(attesa)}</strong> approvate e non ancora registrate` : ''}${s.fonte ? ` · fonte: ${esc(s.fonte)}` : ''}</p>`;
+  const cent = (min) => oreCentesimi(min);
+  const pct = (x, tot) => (tot > 0 ? Math.max(0, Math.min(100, (x / tot) * 100)) : 0);
+  /* numero grande: giorni se c'è l'orario, altrimenti ore in centesimi */
+  const grande = (min, classe = '') => {
+    const g = giorniNumero(min, orario);
+    return g ? `<div class="sal-big ${classe}">${g}<small>${g === '1' ? 'giorno' : 'giorni'}</small></div>`
+      : `<div class="sal-big ${classe}">${cent(min)}<small>ore</small></div>`;
   };
-  return `<div class="dt-quadro" style="margin-bottom:10px">
-    <div class="dt-quadro-riga"><span class="dt-quadro-req">Banca ore</span>
-      <span class="dt-cella ${banca.saldo > 0 ? 'dt-senzadata' : 'dt-ok'}"><strong>${mm2hm(banca.saldo)}</strong> da recuperare${gg(banca.saldo)}</span></div>
-    <p class="hint" style="margin:2px 0 6px">${mm2hm(banca.supplementari)} supplementari da recuperare − ${mm2hm(banca.recuperi)} recuperi${banca.pagate
-      ? ` · ${mm2hm(banca.pagate)} supplementari da pagare (busta paga, fuori banca ore)` : ''}</p>
-    ${MONTI_SALDO.map(cella).join('')}
-    ${(() => {
-      /* il TOTALE delle giornate disponibili (02/10/2026): ferie + ex festività
-         (+ ROL se c'è), senza la banca ore */
-      const t = totaleSaldi(MONTI_SALDO.map((x) => ({ nome: x.nome, saldo: saldoMonte(anno,
-        spettanze.filter((y) => y.monte === x.monte), godutoPerAnno(righe, x.monte)) })), mesiConclusi);
-      if (!t || t.nomi.length < 2) return '';
-      return `<div class="dt-quadro-riga" style="border-top:2px solid var(--arancio, #e7500f);margin-top:4px;padding-top:6px">
-          <span class="dt-quadro-req"><strong>Totale disponibile ${anno}</strong></span>
-          <span class="dt-cella ${t.saldo < 0 ? 'dt-scaduto' : 'dt-ok'}"><strong>${mm2hm(t.saldo)}</strong> (${oreCentesimi(t.saldo)}) entro l'anno${gg(t.saldo)}</span></div>
-        <p class="hint" style="margin:2px 0 6px">${esc(t.nomi.join(' + '))}${t.aOggi != null
-          ? ` · <strong>a oggi</strong>: ${ore(t.aOggi)}${gg(t.aOggi)}` : ''}${t.senza.length
-          ? ` · esclus${t.senza.length === 1 ? 'o' : 'i'} ${esc(t.senza.join(', '))}: manca la spettanza` : ''} · la banca ore è a parte</p>`;
-    })()}
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:4px">
-      <p class="hint" style="margin:0">Saldi di ${esc(dipendente)}, con i monti del riquadro «Riposi» della busta paga.
-        ${misura ? `I giorni si contano sul suo orario (${GIORNI_ORARIO.filter((g) => Number(orario[`${g}_min`]) > 0).map((g) => `${g} ${mm2hm(Number(orario[`${g}_min`]))}`).join(', ')}): un giorno vale in media ${mm2hm(misura.media)} h.`
-          : '<strong>Per vedere anche i giorni</strong> scrivi il suo orario della settimana in «✏ Spettanze».'}
-        Fra parentesi le ore in <strong>centesimi</strong>, come sul cedolino. Le spettanze si scrivono dalla busta
-        paga: l'app non le ricava dal contratto. Il goduto si conta dalle righe registrate qui, che possono
-        differire dalla busta di qualche ora (un permesso di fine mese passa sul cedolino dopo).</p>
+  const brevi = (min) => { const g = giorniNumero(min, orario); return g ? `${g} g · ${cent(min)} h` : `${cent(min)} h`; };
+
+  const monti = MONTI_SALDO.map((x) => {
+    const sp = spettanze.filter((y) => y.monte === x.monte);
+    const s = saldoMonte(anno, sp, godutoPerAnno(righe, x.monte));
+    const maturate = s.spettanza == null ? 0 : s.spettanza * mesiConclusi / 12;
+    const aOggi = s.spettanza == null ? null : (s.residuoIniziale ?? 0) + maturate - s.goduto;
+    const attesa = inArrivo.filter((r) => monteRichiesta[r.monte] === x.monte).reduce((t, r) => t + Math.round(Number(r.ore || 0) * 60), 0);
+    return { ...x, s, maturate, aOggi, attesa };
+  }).filter((x) => x.s.spettanza != null || x.s.goduto || x.monte !== 'rol');   /* ROL/PAR vuoto: niente tessera */
+
+  const tessera = (x) => {
+    const { s } = x;
+    if (s.spettanza == null) {
+      return `<div class="sal-tes"><h4>${esc(x.nome)}</h4>
+        <div class="sal-big sal-vuoto">—</div>
+        <div class="sal-ore">saldo non calcolabile: manca la spettanza ${anno}</div>
+        <div class="sal-dett"><span>godute nel ${anno}</span><span class="num">${cent(s.goduto)}</span></div>
+        <div class="sal-fine">scrivila con «✏ Spettanze»</div></div>`;
+    }
+    const totBarra = s.goduto + Math.max(0, x.aOggi);
+    return `<div class="sal-tes"><h4>${esc(x.nome)} · a oggi</h4>
+      ${grande(x.aOggi, x.aOggi < 0 ? 'sal-neg' : '')}
+      <div class="sal-ore">${cent(x.aOggi)} h</div>
+      <div class="sal-barra" title="godute ${cent(s.goduto)} h, disponibili a oggi ${cent(x.aOggi)} h">
+        <i class="sal-god" style="width:${pct(s.goduto, totBarra)}%"></i><i class="sal-disp" style="width:${pct(Math.max(0, x.aOggi), totBarra)}%"></i></div>
+      <div class="sal-dett">
+        <span>residuo 1° gennaio${s.residuoDa === 'anno-prima' ? ' (dal saldo ' + (anno - 1) + ')' : ''}</span><span class="num">${s.residuoIniziale == null ? '—' : cent(s.residuoIniziale)}</span>
+        <span>maturate (${mesiConclusi} mes${mesiConclusi === 1 ? 'e' : 'i'})</span><span class="num">${cent(x.maturate)}</span>
+        <span>godute <span class="sal-cau">${x.causali.map((c) => `«${esc(c)}»`).join(' + ')}</span></span><span class="num">−${cent(s.goduto)}</span>
+        ${x.attesa ? `<span>approvate, da registrare</span><span class="num">−${cent(x.attesa)}</span>` : ''}
+      </div>
+      <div class="sal-fine">a fine anno <b>${brevi(s.saldo)}</b></div></div>`;
+  };
+
+  const conSaldo = monti.filter((x) => x.s.spettanza != null);
+  const totale = totaleSaldi(monti.map((x) => ({ nome: x.nome, saldo: x.s })), mesiConclusi);
+  const colori = { ferie: 'sal-c-ferie', ex_festivita: 'sal-c-ex', rol: 'sal-c-rol' };
+  const totOggi = totale ? (totale.aOggi ?? totale.saldo) : 0;
+  const tessTot = totale && totale.nomi.length >= 2 ? `<div class="sal-tes sal-tot"><h4>Totale · a oggi</h4>
+      ${grande(totOggi)}
+      <div class="sal-ore">${cent(totOggi)} h${settimaneGiorni(totOggi, orario) ? ` · ${settimaneGiorni(totOggi, orario)}` : ''}</div>
+      <div class="sal-barra" title="${esc(conSaldo.map((x) => `${x.nome} ${cent(x.aOggi)} h`).join(', '))}">
+        ${conSaldo.map((x) => `<i class="${colori[x.monte]}" style="width:${pct(Math.max(0, x.aOggi), conSaldo.reduce((t, y) => t + Math.max(0, y.aOggi), 0))}%"></i>`).join('')}</div>
+      <div class="sal-dett">${conSaldo.map((x) => `<span><i class="sal-pall ${colori[x.monte]}"></i>${esc(x.nome)}</span><span class="num">${giorniNumero(x.aOggi, orario) ? giorniNumero(x.aOggi, orario) + ' g' : cent(x.aOggi) + ' h'}</span>`).join('')}
+        ${totale.senza.length ? `<span>esclus${totale.senza.length === 1 ? 'o' : 'i'}: ${esc(totale.senza.join(', '))}</span><span class="num">manca spettanza</span>` : ''}</div>
+      <div class="sal-fine">a fine anno <b>${brevi(totale.saldo)}</b></div></div>` : '';
+
+  const tessBanca = `<div class="sal-tes"><h4>Banca ore</h4>
+      <div class="sal-big ${banca.saldo > 0 ? 'sal-ambra' : ''}">${mm2hm(banca.saldo)}<small>ore</small></div>
+      <div class="sal-ore">${giorniNumero(banca.saldo, orario) && Math.round(banca.saldo) ? `≈ ${giorniNumero(banca.saldo, orario)} giorni` : '&nbsp;'}</div>
+      <div class="sal-dett">
+        <span>supplementari da recuperare</span><span class="num">${mm2hm(banca.supplementari)}</span>
+        <span>recuperi</span><span class="num">−${mm2hm(banca.recuperi)}</span>
+        ${banca.pagate ? `<span>supplementari da pagare</span><span class="num">${mm2hm(banca.pagate)}</span>` : ''}
+      </div>
+      <div class="sal-fine sal-tenue">fuori dal totale: sono ore da recuperare</div></div>`;
+
+  const fonti = [...new Set(conSaldo.map((x) => x.s.fonte).filter(Boolean))];
+  return `<div class="sal-tessere">${monti.map(tessera).join('')}${tessTot}${tessBanca}</div>
+    <div class="sal-piede">
+      <details class="sal-come"><summary>Come si calcola</summary>
+        <p>Saldi di ${esc(dipendente)} nel ${anno}, con i monti del riquadro «Riposi» della busta paga.
+          <strong>A oggi</strong> = residuo al 1° gennaio + maturato a dodicesimi dei mesi conclusi − godute;
+          <strong>a fine anno</strong> = residuo + spettanza intera − godute.
+          Le ore sono in <strong>centesimi</strong>, come sul cedolino.
+          ${misura ? `I giorni si contano sul suo orario (${GIORNI_ORARIO.filter((g) => Number(orario[`${g}_min`]) > 0).map((g) => `${g} ${mm2hm(Number(orario[`${g}_min`]))}`).join(', ')}): un giorno vale in media ${mm2hm(misura.media)} h.` : ''}
+          Le spettanze si scrivono dalla busta paga: l'app non le ricava dal contratto. Il goduto si conta dalle righe registrate qui, che possono
+          differire dalla busta di qualche ora (un permesso di fine mese passa sul cedolino dopo). La banca ore resta fuori dal totale.
+          ${fonti.length ? `Fonte: ${esc(fonti.join(' · '))}.` : ''}</p>
+      </details>
+      ${misura ? '' : '<span class="sal-avviso">Per vedere i saldi in giorni scrivi l\'orario della settimana in «✏ Spettanze».</span>'}
       <button class="btn btn-ghost btn-sm" id="fe-spettanze">✏ Spettanze</button>
-    </div>
-  </div>`;
+    </div>`;
 }
 
 async function formSpettanze(annoIniz) {

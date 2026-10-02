@@ -146,3 +146,15 @@ test('totale: ferie + ex festività; il ROL vuoto non si cita, quello usato senz
 test('senza nessuna spettanza non c\'è un totale', () => {
   assert.equal(totaleSaldi([{ nome: 'Ferie', saldo: saldoMonte(2026, [], { 2026: 600 }) }], 9), null);
 });
+
+// Tessere in giorni (variante B, 02/10/2026): numero grande e settimane.
+import { giorniNumero, settimaneGiorni } from '../js/presenze-doc.js';
+
+test('tessere: il numero grande è in giorni, le settimane stanno sotto', () => {
+  assert.equal(giorniNumero(221.59 * 60, orarioRenato), '29,5');
+  assert.equal(settimaneGiorni(221.59 * 60, orarioRenato), '7 settimane e 1,5 giorni');
+  assert.equal(giorniNumero(60 * 60, orarioRenato), '8');
+  assert.equal(settimaneGiorni(60 * 60, orarioRenato), '2 settimane');
+  assert.equal(settimaneGiorni(7.5 * 60, orarioRenato), '1 giorno');
+  assert.equal(giorniNumero(6000, null), '', 'senza orario niente giorni');
+});

@@ -886,3 +886,24 @@ export function totaleSaldi(saldi, mesiConclusi) {
   };
 }
 
+/* ── 8. Aiuti per le TESSERE dei saldi (variante B, scelta il 02/10/2026) ──
+   Il numero grande della tessera è in giorni: «13,3», senza «≈» e senza
+   settimane, che stanno nella riga sotto. '' se l'orario manca. */
+export function giorniNumero(min, orario) {
+  const g = inGiorni(min, orario);
+  return g ? unDecimale(g.giorni) : '';
+}
+
+/* «7 settimane e 1,5 giorni», «2 settimane», «3 giorni»; '' se l'orario manca */
+export function settimaneGiorni(min, orario) {
+  const m = misuraOrario(orario);
+  if (!m || min == null) return '';
+  const giorni = Math.abs(min) / m.media;
+  const sett = Math.floor(giorni / m.giorni + 1e-9);
+  const resto = Math.round((giorni - sett * m.giorni) * 10) / 10;
+  const r = resto ? `${unDecimale(resto)} ${resto === 1 ? 'giorno' : 'giorni'}` : '';
+  if (!sett) return r || '0 giorni';
+  const sTxt = `${sett} ${sett === 1 ? 'settimana' : 'settimane'}`;
+  return `${min < 0 ? '−' : ''}${sTxt}${r ? ` e ${r}` : ''}`;
+}
+

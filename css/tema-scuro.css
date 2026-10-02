@@ -225,3 +225,20 @@
 :root[data-veste="scrivania"][data-tema="scuro"] [style*="color:#b91c1c"],
 :root[data-veste="scrivania"][data-tema="scuro"] [style*="color:#c0392b"]{color:#ff8a80 !important}
 :root[data-veste="scrivania"][data-tema="scuro"] [style*="color:#b9770e"]{color:#f0b35a !important}
+
+/* saldi delle presenze: tessere (02/10/2026) */
+:root[data-veste="scrivania"][data-tema="scuro"] .sal-tes{background:var(--superficie);border-color:var(--filetto)}
+:root[data-veste="scrivania"][data-tema="scuro"] .sal-tes.sal-tot{background:var(--superficie-2);border-color:var(--arancio);color:var(--testo)}
+:root[data-veste="scrivania"][data-tema="scuro"] .sal-tot .sal-big,
+:root[data-veste="scrivania"][data-tema="scuro"] .sal-tot .sal-dett .num{color:var(--testo)}
+:root[data-veste="scrivania"][data-tema="scuro"] .sal-tot h4,
+:root[data-veste="scrivania"][data-tema="scuro"] .sal-tot .sal-ore,
+:root[data-veste="scrivania"][data-tema="scuro"] .sal-tot .sal-dett{color:var(--testo-soft)}
+:root[data-veste="scrivania"][data-tema="scuro"] .sal-tot .sal-barra,
+:root[data-veste="scrivania"][data-tema="scuro"] .sal-barra{background:var(--filetto)}
+:root[data-veste="scrivania"][data-tema="scuro"] .sal-god{background:#5b616b}
+:root[data-veste="scrivania"][data-tema="scuro"] .sal-big.sal-ambra,
+:root[data-veste="scrivania"][data-tema="scuro"] .sal-avviso{color:var(--succ)}
+:root[data-veste="scrivania"][data-tema="scuro"] .sal-fine,
+:root[data-veste="scrivania"][data-tema="scuro"] .sal-tot .sal-fine{border-color:var(--filetto)}
+
