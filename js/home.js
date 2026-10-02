@@ -11,6 +11,7 @@
    ============================================================ */
 
 import { sb, $, esc, dataIt, oggiIso, mostraVista, codiceProtocollo, toast } from './core.js';
+import { dividiRespinte } from './mail-respinte-viste.js';
 
 const SERVIZI = [
   { tab: 's_segnalazioni', vista: 'segnalazioni', nome: 'Segnalazione', icona: '🚨', chi: (p) => p.notificante },
@@ -445,7 +446,7 @@ export async function render() {
   let respinte = [], respinteErr = false;
   try {
     const { data, error } = await sb.from('s_mail_respinte')
-      .select('id, ricevuta_il, destinatario, codice, permanente, motivo, nr_verbale, tecnico_email, ruolo, impresa_nome, stato, avviso_il, avviso_esito')
+      .select('id, ricevuta_il, destinatario, codice, permanente, motivo, nr_verbale, oggetto_originale, tecnico_email, ruolo, impresa_nome, stato, avviso_il, avviso_esito')
       .in('stato', ['nuova', 'avvisato']).order('ricevuta_il', { ascending: false }).limit(40);
     /* lettura fallita ≠ «nessun verbale respinto»: pastiglia «non letto» */
     if (error) respinteErr = true;
@@ -520,18 +521,37 @@ export async function render() {
   /* ⚠️ Un rimbalzo NON dice quale sia l'indirizzo giusto: dice che quello
      non ha accettato la mail. Lo corregge il tecnico, che sa chi ha
      incontrato in cantiere — qui si vede e si chiude, non si sistema. */
+  /* (02/10/2026) Il giro registra OGNI rimbalzo della casella, anche di
+     mail che con i verbali non c'entrano. Si dividono: quelli con un
+     numero di verbale riconosciuto (li vede anche il tecnico) e gli
+     altri, che guarda solo la segreteria. Regola in mail-respinte-viste. */
+  const { verbali: respVerb, altre: respAltre } = dividiRespinte(respinte);
+  const dataRespinta = (r) => (r.ricevuta_il ? dataIt(String(r.ricevuta_il).slice(0, 10)) : '');
+  /* un bottone solo, nella prima delle due schede che c'è */
+  const cercaRespinte = '<div class="hint" style="margin-top:6px"><button class="btn btn-ghost btn-sm" id="hm-respinte-cerca" title="Rilegge adesso i rapporti di mancata consegna">🔄 Cerca adesso</button></div>';
   const cardRespinte = respinteErr ? card('📭 Verbali non consegnati', 0, '', '', { k: 'respinte', nonLetto: true })
-    : !respinte.length ? '' : card('📭 Verbali non consegnati', respinte.length, `
-    ${respinte.slice(0, 8).map((r) => `
+    : !respVerb.length ? '' : card('📭 Verbali non consegnati', respVerb.length, `
+    ${respVerb.slice(0, 8).map((r) => `
       <div class="hm-riga" data-respinta="${r.id}" title="${esc(r.motivo || '')}">
         <span>${r.permanente === false ? '🕒' : '📭'}</span>
         <span><strong>${esc(r.destinatario || '')}</strong>${r.ruolo ? ` <span class="hint">(${esc(r.ruolo)})</span>` : ''}
-          <span class="hint" style="display:block;white-space:normal">${r.nr_verbale ? `verbale ${esc(r.nr_verbale)}` : 'senza verbale agganciato'}${r.impresa_nome ? ` · ${esc(r.impresa_nome)}` : ''}${r.tecnico_email ? ` · ${esc(r.tecnico_email.split('@')[0])}` : ' · nessun tecnico'}${r.codice ? ` · ${esc(r.codice)}` : ''}</span></span>
-        <span class="hint" style="text-align:right">${r.ricevuta_il ? dataIt(String(r.ricevuta_il).slice(0, 10)) : ''}<br>
+          <span class="hint" style="display:block;white-space:normal">verbale ${esc(r.nr_verbale)}${r.impresa_nome ? ` · ${esc(r.impresa_nome)}` : ''}${r.tecnico_email ? ` · ${esc(r.tecnico_email.split('@')[0])}` : ' · nessun tecnico'}${r.codice ? ` · ${esc(r.codice)}` : ''}</span></span>
+        <span class="hint" style="text-align:right">${dataRespinta(r)}<br>
           ${r.stato === 'avvisato' ? '<span class="hm-mini">tecnico avvisato</span>' : r.tecnico_email ? '<span class="hm-mini" style="color:#a01f00">da avvisare</span>' : '<span class="hm-mini">da guardare</span>'}</span>
       </div>`).join('')}
-    ${respinte.length > 8 ? `<p class="hint">…e altri ${respinte.length - 8}.</p>` : ''}
-    <div class="hint" style="margin-top:6px"><button class="btn btn-ghost btn-sm" id="hm-respinte-cerca" title="Rilegge adesso i rapporti di mancata consegna">🔄 Cerca adesso</button></div>`, '', { k: 'respinte' });
+    ${respVerb.length > 8 ? `<p class="hint">…e altri ${respVerb.length - 8}.</p>` : ''}
+    ${cercaRespinte}`, '', { k: 'respinte' });
+  const cardRespinteAltre = respinteErr || !respAltre.length ? '' : card('📭 Altre mail tornate indietro', respAltre.length, `
+    <p class="hint" style="white-space:normal;margin:0 0 4px">Non sono verbali: sono mail partite dalla casella dell'ufficio verso un indirizzo che le ha rifiutate. Le vedi solo tu.</p>
+    ${respAltre.slice(0, 8).map((r) => `
+      <div class="hm-riga" data-respinta="${r.id}" title="${esc(r.motivo || '')}">
+        <span>${r.permanente === false ? '🕒' : '📭'}</span>
+        <span><strong>${esc(r.destinatario || '')}</strong>
+          <span class="hint" style="display:block;white-space:normal">${r.oggetto_originale ? `«${esc(String(r.oggetto_originale).slice(0, 90))}»` : 'oggetto della mail non letto'}${r.codice ? ` · ${esc(r.codice)}` : ''}</span></span>
+        <span class="hint" style="text-align:right">${dataRespinta(r)}<br><span class="hm-mini">da guardare</span></span>
+      </div>`).join('')}
+    ${respAltre.length > 8 ? `<p class="hint">…e altre ${respAltre.length - 8}.</p>` : ''}
+    ${respVerb.length ? '' : cercaRespinte}`, '', { k: 'respinte-altre' });
 
   /* l'avviso sulla programmazione corsi: compare solo quando serve */
   const bannerFormazione = (() => {
@@ -829,7 +849,7 @@ export async function render() {
         ${eProt ? '<p class="hint" style="color:#a01f00">⚠ Non sono riuscito a leggere gli ultimi protocolli.</p>' : ''}`,
         vai('registro', 'Apri il registro'))}
       ${cardBacheca ? cardBacheca.agenda + cardBacheca.posta : ''}
-      ${cardRespinte}`;
+      ${cardRespinte}${cardRespinteAltre}`;
   host.innerHTML = `
     ${bannerCanale}${bannerFormazione}${striscia()}
     <div class="hm-griglia">${griglia}</div>`;
@@ -876,7 +896,7 @@ export async function render() {
     const id = Number(r.dataset.respinta);
     const riga = respinte.find((x) => x.id === id);
     if (!riga) return;
-    const che = prompt(`Indirizzo respinto: ${riga.destinatario}\n${riga.nr_verbale ? `Verbale ${riga.nr_verbale}\n` : ''}${riga.motivo || ''}\n\n`
+    const che = prompt(`Indirizzo respinto: ${riga.destinatario}\n${riga.nr_verbale ? `Verbale ${riga.nr_verbale}\n` : riga.oggetto_originale ? `Mail: ${riga.oggetto_originale}\n` : ''}${riga.motivo || ''}\n\n`
       + 'Scrivi come si chiude (l\'indirizzo corretto, o perché non serviva). Lascia vuoto per non chiudere.');
     if (!che || !che.trim()) return;
     const stato = confirm('Chiudere come RISOLTA?\nOK = risolta (indirizzo sistemato) · Annulla = ignorata') ? 'risolta' : 'ignorata';

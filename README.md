@@ -500,6 +500,7 @@ si registrano e basta.
 | `supabase/functions/mail-respinte/` | Il giro: Gmail in sola lettura, aggancio, scrittura, avviso al tecnico |
 | `supabase/sql/2026_09_21_mail_respinte.sql` | `s_mail_respinte`, RLS, `s_mail_respinta_chiudi`, `push_da_mail_respinte`, il job quotidiano |
 | `gestionale-visite/mail-respinte-tec.js` | Il riquadro del tecnico in Dashboard (altro repo) |
+| `js/mail-respinte-viste.js` | *(02/10/2026)* A chi si mostra una riga: con un numero di verbale riconosciuto sta in «Verbali non consegnati» (cruscotto e riquadro del tecnico); senza, in «Altre mail tornate indietro», che vede solo la segreteria. Il giro registra ogni rimbalzo della casella: la prima riga vera era una ricevuta inoltrata a un indirizzo scritto male, e il riquadro la chiamava verbale |
 
 **Tre cose che il codice tiene ferme, e il perché:**
 
