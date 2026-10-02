@@ -169,30 +169,52 @@ export async function pdfFoglioPresenze({ dipendente, anno, mese, presenze, extr
 /* Movimenti di banca ore raggruppati per causale, su pagina nuova.
    Comune al foglio del mese e al prospetto del periodo. */
 function paginaMovimenti(c, sottotitolo, extra, etichettaTotale) {
-  if ((extra || []).length) {
-    c.nuovaPagina();
-    c.scrivi('STRAORDINARI, PERMESSI E RECUPERI', c.bold, 14, c.nero);
-    c.scrivi(sottotitolo, c.bold, 11, c.arancio);
-    c.stato.y -= 8;
-    const perCausale = {};
-    for (const e of extra) (perCausale[e.causale] = perCausale[e.causale] || []).push(e);
-    let totMov = 0;
-    for (const [causale, righe] of Object.entries(perCausale)) {
-      c.serve(34);
-      const tot = righe.reduce((s, e) => s + (e.ore_min || 0), 0);
-      totMov += tot;
-      /* banda grigia con filo arancio a sinistra */
-      const yB = c.stato.y + 10;
-      c.stato.pagina.drawRectangle({ x: SX, y: yB - 15, width: DX - SX, height: 16, color: c.grigioChiaro });
-      c.stato.pagina.drawRectangle({ x: SX, y: yB - 15, width: 3.2, height: 16, color: c.arancio });
-      c.stato.pagina.drawText(causale.toUpperCase(), { x: SX + 10, y: yB - 10, size: 9, font: c.bold, color: c.nero });
-      const totC = `${mm2hm(tot)} ore`;
-      c.stato.pagina.drawText(totC, { x: DX - 8 - c.bold.widthOfTextAtSize(totC, 9), y: yB - 10, size: 9, font: c.bold, color: c.arancio });
-      c.stato.y = yB - 27;
-      for (const e of righe) {
-        c.serve(15);
-        c.stato.pagina.drawText(dataIt(e.data), { x: SX + 10, y: c.stato.y, size: 8.5, font: c.font, color: c.nero });
-        c.stato.pagina.drawText(mm2hm(e.ore_min), { x: SX + 76, y: c.stato.y, size: 8.5, font: c.bold, color: c.nero });
+  /* due sezioni distinte (02/10/2026): i movimenti che toccano banca ore o
+     monti, e il DETTAGLIO ATTIVITÀ, che dice soltanto come sono state spese
+     ore già contate nelle presenze. Prima stavano insieme e il totale le
+     sommava: riunioni + ferie + supplementari, un numero senza significato. */
+  const movimenti = (extra || []).filter((e) => famigliaCausale(e.causale) !== 'dettaglio');
+  const dettaglio = (extra || []).filter((e) => famigliaCausale(e.causale) === 'dettaglio');
+  if (!movimenti.length && !dettaglio.length) return;
+  c.nuovaPagina();
+  if (movimenti.length) sezioneCausali(c, 'STRAORDINARI, PERMESSI E RECUPERI', sottotitolo, movimenti, etichettaTotale, false);
+  if (dettaglio.length) {
+    if (movimenti.length) c.stato.y -= 10;
+    sezioneCausali(c, 'DETTAGLIO ATTIVITÀ', `${sottotitolo} — ore già comprese nelle presenze`, dettaglio,
+      'TOTALE DETTAGLIO (GIÀ NELLE ORE LAVORATE, NON SI SOMMA)', true);
+  }
+}
+
+function sezioneCausali(c, titolo, sottotitolo, righeTutte, etichettaTotale, eDettaglio) {
+  c.serve(70);
+  c.scrivi(titolo, c.bold, 14, c.nero);
+  c.scrivi(sottotitolo, c.bold, 11, c.arancio);
+  c.stato.y -= 8;
+  const perCausale = {};
+  for (const e of righeTutte) (perCausale[e.causale] = perCausale[e.causale] || []).push(e);
+  let totMov = 0;
+  for (const [causale, righe] of Object.entries(perCausale)) {
+    c.serve(34);
+    const tot = righe.reduce((s, e) => s + (e.ore_min || 0), 0);
+    totMov += tot;
+    /* banda grigia con filo arancio a sinistra */
+    const yB = c.stato.y + 10;
+    c.stato.pagina.drawRectangle({ x: SX, y: yB - 15, width: DX - SX, height: 16, color: c.grigioChiaro });
+    c.stato.pagina.drawRectangle({ x: SX, y: yB - 15, width: 3.2, height: 16, color: c.arancio });
+    c.stato.pagina.drawText(taglia(c.bold, 9, causale.toUpperCase(), DX - SX - 110), { x: SX + 10, y: yB - 10, size: 9, font: c.bold, color: c.nero });
+    const totC = `${mm2hm(tot)} ore`;
+    c.stato.pagina.drawText(totC, { x: DX - 8 - c.bold.widthOfTextAtSize(totC, 9), y: yB - 10, size: 9, font: c.bold, color: c.arancio });
+    c.stato.y = yB - 27;
+    for (const e of righe) {
+      c.serve(15);
+      c.stato.pagina.drawText(dataIt(e.data), { x: SX + 10, y: c.stato.y, size: 8.5, font: c.font, color: c.nero });
+      c.stato.pagina.drawText(mm2hm(e.ore_min), { x: SX + 76, y: c.stato.y, size: 8.5, font: c.bold, color: c.nero });
+      let flag;
+      if (eDettaglio) {
+        /* il dettaglio non ha partite da chiudere; le spunte che lo storico Access
+           gli aveva messo si dicono, non si nascondono e non si correggono */
+        flag = [e.pagato ? 'segnata pagata (storico)' : null, e.recuperato ? 'segnata recuperata (storico)' : null].filter(Boolean).join(', ');
+      } else {
         const stato = e.chiuso ? 'chiusa' : 'APERTA';
         c.stato.pagina.drawText(stato, { x: SX + 116, y: c.stato.y, size: 7.6,
           font: e.chiuso ? c.italic : c.bold, color: e.chiuso ? c.grigio : c.arancio });
@@ -200,26 +222,222 @@ function paginaMovimenti(c, sottotitolo, extra, etichettaTotale) {
            oppure recuperata con la data (24/09/2026: il prospetto diceva «recuperata»
            per un'ora ancora da recuperare, e taceva quando non c'era nessuna spunta) */
         const suppl = /suppl|straord/i.test(e.causale || '');
-        const flag = suppl
+        flag = suppl
           ? (e.pagato ? 'da pagare (busta paga)'
             : e.recuperato ? `recuperata${e.recuperato_il ? ' il ' + dataIt(e.recuperato_il) : ''}`
             : 'da recuperare')
           : [e.pagato ? 'pagata' : null, e.recuperato ? `recuperata${e.recuperato_il ? ' il ' + dataIt(e.recuperato_il) : ''}` : null].filter(Boolean).join(', ');
-        if (flag) c.stato.pagina.drawText(flag, { x: SX + 158, y: c.stato.y, size: 7.4, font: c.italic, color: c.grigio });
-        if (e.note) c.stato.pagina.drawText(taglia(c.font, 7.6, String(e.note), DX - (SX + 244) - 4), { x: SX + 244, y: c.stato.y, size: 7.6, font: c.font, color: c.nero });
-        c.stato.pagina.drawLine({ start: { x: SX, y: c.stato.y - 4 }, end: { x: DX, y: c.stato.y - 4 }, thickness: 0.4, color: c.grigioChiaro });
-        c.stato.y -= 13.5;
       }
-      c.stato.y -= 8;
+      if (flag) c.stato.pagina.drawText(flag, { x: SX + (eDettaglio ? 116 : 158), y: c.stato.y, size: 7.4, font: c.italic, color: c.grigio });
+      if (e.note) c.stato.pagina.drawText(taglia(c.font, 7.6, String(e.note), DX - (SX + 244) - 4), { x: SX + 244, y: c.stato.y, size: 7.6, font: c.font, color: c.nero });
+      c.stato.pagina.drawLine({ start: { x: SX, y: c.stato.y - 4 }, end: { x: DX, y: c.stato.y - 4 }, thickness: 0.4, color: c.grigioChiaro });
+      c.stato.y -= 13.5;
     }
-    c.serve(26);
-    const yT2 = c.stato.y + 10;
-    c.stato.pagina.drawRectangle({ x: SX, y: yT2 - 16, width: DX - SX, height: 17, color: c.arancio });
-    c.stato.pagina.drawText(etichettaTotale, { x: SX + 6, y: yT2 - 11, size: 9, font: c.bold, color: c.bianco });
-    const t2 = `${extra.length} movimenti — ${mm2hm(totMov)} ore`;
-    c.stato.pagina.drawText(t2, { x: DX - 8 - c.bold.widthOfTextAtSize(t2, 9), y: yT2 - 11, size: 9, font: c.bold, color: c.bianco });
-    c.stato.y = yT2 - 30;
+    c.stato.y -= 8;
   }
+  c.serve(26);
+  const yT2 = c.stato.y + 10;
+  c.stato.pagina.drawRectangle({ x: SX, y: yT2 - 16, width: DX - SX, height: 17, color: c.arancio });
+  c.stato.pagina.drawText(etichettaTotale, { x: SX + 6, y: yT2 - 11, size: 8.5, font: c.bold, color: c.bianco });
+  const t2 = `${righeTutte.length} ${eDettaglio ? 'righe' : 'movimenti'} — ${mm2hm(totMov)} ore`;
+  c.stato.pagina.drawText(t2, { x: DX - 8 - c.bold.widthOfTextAtSize(t2, 9), y: yT2 - 11, size: 9, font: c.bold, color: c.bianco });
+  c.stato.y = yT2 - 30;
+}
+
+/* ── 4. DETTAGLIO ATTIVITÀ e contatori ──
+   Chiesto dall'utente il 02/10/2026: dentro le ore lavorate di una giornata
+   si vuole dire che due ore erano una riunione o il lavoro sul progetto X,
+   per avere dei CONTATORI (ore per progetto da rendicontare, quante riunioni,
+   quanta formazione frequentata). Non sono straordinari né banca ore: sono un
+   «di cui», come il permesso sindacale.
+
+   L'ufficio lo faceva già da Access: 202 righe dal 2016 in Straordinari_Recuperi
+   («Riunione», «Formazione», «Progettazione SPISAL (2021 AUDIT)»…), tutte
+   chiuse. La famiglia si decide dalla CAUSALE, non da una spunta: così vale
+   identica per lo storico e per le righe nuove, senza riscrivere niente.
+
+   REGOLA per le ore oltre l'orario (dell'utente, 02/10/2026): il dettaglio
+   conta TUTTE le ore spese sull'attività, comprese quelle in più; le ore in
+   più si registrano ANCHE come «Ore supplementari», che dicono soltanto come
+   vengono compensate. Lo storico è già scritto così (08/10/2021: AUDIT 7:00
+   e 7:00 di supplementari). */
+
+const BANCA = /suppl|straord/i;
+const BANCA_ESATTE = /^(recupero|pagato)$/i;
+const ASSENZE = /^(ferie|permesso|malattia|festivit[aà]|permessi legge 104\/92|permesso sindacale rsu|riunione sindacale)$/i;
+
+/* 'banca' | 'assenza' | 'dettaglio' */
+export function famigliaCausale(causale) {
+  const c = String(causale || '').trim().replace(/\s+/g, ' ');
+  if (!c) return 'banca';
+  if (BANCA.test(c) || BANCA_ESATTE.test(c)) return 'banca';
+  if (ASSENZE.test(c)) return 'assenza';
+  return 'dettaglio';
+}
+
+const chiaveCausale = (c) => String(c || '').trim().replace(/\s+/g, ' ').toLowerCase();
+
+/* I contatori di un periodo.
+   extra    = righe s_presenze_extra (qualunque famiglia: si tiene il dettaglio,
+              e delle supplementari si legge quante ce n'erano nel giorno);
+   presenze = righe s_presenze degli stessi dipendenti e date.
+   Restituisce le attività ordinate per ore, ognuna con le sue righe e, per
+   riga, gli AVVISI sullo storico: si segnalano, non si correggono.
+     'doppia'          stessa persona, giorno, attività e ore scritte due volte
+     'oltre'           il dettaglio del giorno supera le ore lavorate registrate
+     'senza-presenze'  quel giorno nel foglio presenze non c'è nessuna riga
+     'spunte-storico'  la riga porta «pagata»/«recuperata», che al dettaglio non servono */
+export function contaAttivita({ extra, presenze }) {
+  const giorno = (dip, data) => `${dip}|${data}`;
+  const lav = {};
+  for (const p of presenze || []) {
+    const k = giorno(p.dipendente, p.data);
+    (lav[k] = lav[k] || []).push(p);
+  }
+  const lavMin = {};
+  for (const [k, rr] of Object.entries(lav)) lavMin[k] = totaleOre(rr);
+  const dettGiorno = {};
+  const supplGiorno = {};
+  const visti = {};
+  const dettaglio = [];
+  for (const e of extra || []) {
+    const k = giorno(e.dipendente, e.data);
+    const fam = famigliaCausale(e.causale);
+    if (fam === 'dettaglio') {
+      dettGiorno[k] = (dettGiorno[k] || 0) + (e.ore_min || 0);
+      const kd = `${k}|${chiaveCausale(e.causale)}|${e.ore_min}`;
+      visti[kd] = (visti[kd] || 0) + 1;
+      dettaglio.push(e);
+    } else if (BANCA.test(e.causale || '')) {
+      supplGiorno[k] = (supplGiorno[k] || 0) + (e.ore_min || 0);
+    }
+  }
+  const gruppi = {};
+  for (const e of dettaglio) {
+    const k = giorno(e.dipendente, e.data);
+    const avvisi = [];
+    if (visti[`${k}|${chiaveCausale(e.causale)}|${e.ore_min}`] > 1) avvisi.push('doppia');
+    if (lav[k] === undefined) avvisi.push('senza-presenze');
+    else if (dettGiorno[k] > lavMin[k]) avvisi.push('oltre');
+    if (e.pagato || e.recuperato) avvisi.push('spunte-storico');
+    const riga = { ...e, lavorateGiorno: lavMin[k] ?? null, supplGiorno: supplGiorno[k] || 0, dettaglioGiorno: dettGiorno[k], avvisi };
+    const g = (gruppi[chiaveCausale(e.causale)] = gruppi[chiaveCausale(e.causale)] || { grafie: {}, righe: [] });
+    g.grafie[e.causale] = (g.grafie[e.causale] || 0) + 1;
+    g.righe.push(riga);
+  }
+  return Object.values(gruppi).map((g) => {
+    g.righe.sort((p, q) => (p.data < q.data ? -1 : p.data > q.data ? 1 : (p.id || 0) - (q.id || 0)));
+    /* la grafia più usata dà il nome; le altre si dichiarano */
+    const grafie = Object.entries(g.grafie).sort((a, b) => b[1] - a[1]).map(([t]) => t);
+    return {
+      causale: grafie[0],
+      altreGrafie: grafie.slice(1),
+      totMin: g.righe.reduce((s, r) => s + (r.ore_min || 0), 0),
+      giorni: new Set(g.righe.map((r) => `${r.dipendente}|${r.data}`)).size,
+      righe: g.righe,
+      avvisi: g.righe.filter((r) => r.avvisi.some((a) => a !== 'senza-presenze')).length,
+    };
+  }).sort((a, b) => b.totMin - a.totMin || a.causale.localeCompare(b.causale));
+}
+
+export const TESTO_AVVISO = {
+  doppia: 'forse scritta due volte (stesso giorno, attività e ore)',
+  oltre: 'il dettaglio del giorno supera le ore lavorate',
+  'senza-presenze': 'giornata non registrata nel foglio presenze',
+  'spunte-storico': 'porta «pagata/recuperata» dallo storico',
+};
+
+/* Contatori in CSV per Excel italiano: punto e virgola, BOM, ore decimali con la virgola */
+export function csvContatori(attivita, { tutti } = {}) {
+  const q = (v) => {
+    const s = String(v ?? '');
+    return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const dec = (min) => (Math.round((min || 0) / 60 * 100) / 100).toFixed(2).replace('.', ',');
+  const testa = [...(tutti ? ['Dipendente'] : []), 'Attività', 'Data', 'Ore (hh:mm)', 'Ore (decimali)', 'Ore lavorate nel giorno', 'Supplementari nel giorno', 'Note', 'Avvisi'];
+  const righe = [testa.join(';')];
+  for (const a of attivita) {
+    for (const r of a.righe) {
+      righe.push([...(tutti ? [r.dipendente] : []), a.causale, dataIt(r.data), mm2hm(r.ore_min), dec(r.ore_min),
+        r.lavorateGiorno == null ? '' : mm2hm(r.lavorateGiorno), r.supplGiorno ? mm2hm(r.supplGiorno) : '',
+        r.note || '', r.avvisi.map((x) => TESTO_AVVISO[x]).join(', ')].map(q).join(';'));
+    }
+  }
+  return '﻿' + righe.join('\r\n') + '\r\n';
+}
+
+/* PDF dei contatori: riepilogo per attività in testa, poi le righe di ognuna */
+export async function pdfContatori({ chi, da, a, attivita, tutti }) {
+  const c = await apriCarta();
+  const tot = attivita.reduce((s, x) => s + x.totMin, 0);
+  c.scrivi('CONTATORI DELLE ATTIVITÀ', c.bold, 14, c.nero);
+  c.scrivi(etichettaPeriodo(da, a).toUpperCase(), c.bold, 11, c.arancio);
+  c.stato.y -= 4;
+  c.campo('Dipendente', chi);
+  c.campo('Periodo', `dal ${dataIt(da)} al ${dataIt(a)}`);
+  c.campo('Che cosa conta', 'Ore di dettaglio delle attività: sono già comprese nelle ore lavorate e non si sommano. Le ore oltre l’orario compaiono anche come ore supplementari.');
+  c.stato.y -= 8;
+  const RH = 13.6;
+  const C = [SX, 330, 400, 460, DX];
+  const banda = (lab) => {
+    c.serve(26);
+    const y0 = c.stato.y - 4;
+    c.stato.pagina.drawRectangle({ x: SX, y: y0 - 2, width: DX - SX, height: 17, color: c.arancio });
+    lab.forEach(([t, x]) => c.stato.pagina.drawText(t, { x: x + 6, y: y0 + 3, size: 7.5, font: c.bold, color: c.bianco }));
+    c.stato.y = y0 - 2 - RH + 3;
+  };
+  const filo = () => c.stato.pagina.drawLine({ start: { x: SX, y: c.stato.y - 4 }, end: { x: DX, y: c.stato.y - 4 }, thickness: 0.5, color: c.grigioChiaro });
+  banda([['ATTIVITÀ', C[0]], ['ORE', C[1]], ['GIORNATE', C[2]], ['AVVISI', C[3]]]);
+  for (const x of attivita) {
+    c.serve(RH + 4);
+    c.stato.pagina.drawText(taglia(c.font, 9, x.causale, C[1] - C[0] - 12), { x: C[0] + 6, y: c.stato.y, size: 9, font: c.font, color: c.nero });
+    c.stato.pagina.drawText(mm2hm(x.totMin), { x: C[1] + 6, y: c.stato.y, size: 9, font: c.bold, color: c.nero });
+    c.stato.pagina.drawText(String(x.giorni), { x: C[2] + 6, y: c.stato.y, size: 9, font: c.font, color: c.nero });
+    if (x.avvisi) c.stato.pagina.drawText(`${x.avvisi} da guardare`, { x: C[3] + 6, y: c.stato.y, size: 8, font: c.italic, color: c.arancio });
+    filo();
+    c.stato.y -= RH;
+  }
+  c.serve(24);
+  const yR = c.stato.y + RH - 3.5;
+  c.stato.pagina.drawRectangle({ x: SX, y: yR - 19, width: DX - SX, height: 19, color: c.arancio });
+  c.stato.pagina.drawText('TOTALE DETTAGLIO NEL PERIODO', { x: SX + 6, y: yR - 13, size: 9, font: c.bold, color: c.bianco });
+  const tt = `${mm2hm(tot)} ore`;
+  c.stato.pagina.drawText(tt, { x: DX - 8 - c.bold.widthOfTextAtSize(tt, 9.5), y: yR - 13, size: 9.5, font: c.bold, color: c.bianco });
+  c.stato.y = yR - 40;
+
+  for (const x of attivita) {
+    c.serve(60);
+    const yB = c.stato.y + 10;
+    c.stato.pagina.drawRectangle({ x: SX, y: yB - 15, width: DX - SX, height: 16, color: c.grigioChiaro });
+    c.stato.pagina.drawRectangle({ x: SX, y: yB - 15, width: 3.2, height: 16, color: c.arancio });
+    c.stato.pagina.drawText(taglia(c.bold, 9, x.causale.toUpperCase(), DX - SX - 130), { x: SX + 10, y: yB - 10, size: 9, font: c.bold, color: c.nero });
+    const sub = `${mm2hm(x.totMin)} ore — ${x.giorni} ${x.giorni === 1 ? 'giornata' : 'giornate'}`;
+    c.stato.pagina.drawText(sub, { x: DX - 8 - c.bold.widthOfTextAtSize(sub, 9), y: yB - 10, size: 9, font: c.bold, color: c.arancio });
+    c.stato.y = yB - 27;
+    if (x.altreGrafie.length) {
+      c.stato.pagina.drawText(taglia(c.italic, 7.4, `scritta anche: ${x.altreGrafie.join(' / ')}`, DX - SX - 20), { x: SX + 10, y: c.stato.y, size: 7.4, font: c.italic, color: c.grigio });
+      c.stato.y -= 12;
+    }
+    for (const r of x.righe) {
+      c.serve(15);
+      let xx = SX + 10;
+      if (tutti) {
+        c.stato.pagina.drawText(taglia(c.font, 7.6, r.dipendente, 90), { x: xx, y: c.stato.y, size: 7.6, font: c.font, color: c.nero });
+        xx += 96;
+      }
+      c.stato.pagina.drawText(dataIt(r.data), { x: xx, y: c.stato.y, size: 8.5, font: c.font, color: c.nero });
+      c.stato.pagina.drawText(mm2hm(r.ore_min), { x: xx + 64, y: c.stato.y, size: 8.5, font: c.bold, color: c.nero });
+      const extraTxt = r.supplGiorno ? `+ ${mm2hm(r.supplGiorno)} suppl. nel giorno` : '';
+      if (extraTxt) c.stato.pagina.drawText(extraTxt, { x: xx + 100, y: c.stato.y, size: 7.2, font: c.italic, color: c.grigio });
+      const av = r.avvisi.filter((v) => v !== 'senza-presenze').map((v) => TESTO_AVVISO[v]).join('; ');
+      const testo = [av ? `! ${av}` : null, r.note].filter(Boolean).join(' — ');
+      if (testo) c.stato.pagina.drawText(taglia(c.font, 7.4, testo, DX - (xx + 190) - 4), { x: xx + 190, y: c.stato.y, size: 7.4, font: av ? c.bold : c.font, color: av ? c.arancio : c.nero });
+      c.stato.pagina.drawLine({ start: { x: SX, y: c.stato.y - 4 }, end: { x: DX, y: c.stato.y - 4 }, thickness: 0.4, color: c.grigioChiaro });
+      c.stato.y -= 13.5;
+    }
+    c.stato.y -= 8;
+  }
+  return salva(c.doc);
 }
 
 /* ── 3. prospetto presenze di un PERIODO ──
@@ -339,7 +557,7 @@ export async function pdfPresenzePeriodo({ dipendente, da, a, presenze, extra })
     c.stato.pagina.drawRectangle({ x: SX, y: yB - 15, width: DX - SX, height: 16, color: c.grigioChiaro });
     c.stato.pagina.drawRectangle({ x: SX, y: yB - 15, width: 3.2, height: 16, color: c.arancio });
     c.stato.pagina.drawText(`${MESI[x.mese - 1].toUpperCase()} ${x.anno}`, { x: SX + 10, y: yB - 10, size: 9, font: c.bold, color: c.nero });
-    const sub = x.righe.length ? `${mm2hm(x.totMin)} ore — ${x.giorni} giorni` : 'nessuna presenza registrata';
+    const sub = x.righe.length ? `${mm2hm(x.totMin)} ore — ${x.giorni} ${x.giorni === 1 ? 'giorno' : 'giorni'}` : 'nessuna presenza registrata';
     c.stato.pagina.drawText(sub, { x: DX - 8 - c.bold.widthOfTextAtSize(sub, 9), y: yB - 10, size: 9, font: c.bold, color: x.righe.length ? c.arancio : c.grigio });
     c.stato.y = yB - 27;
     for (const p of x.righe) {

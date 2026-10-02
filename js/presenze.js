@@ -26,7 +26,7 @@ import { APP_URL } from './config.js';
 import { risolviCartella, leggiByte } from './drive.js';
 import { scaricaEml, FIRMA_SEGRETERIA } from './eml.js';
 import { RUBRICA_INTERNA } from './lookups.js';
-import { MESI, mm2hm, eRipartizione, totaleOre } from './presenze-doc.js';
+import { MESI, mm2hm, eRipartizione, totaleOre, famigliaCausale, contaAttivita, TESTO_AVVISO } from './presenze-doc.js';
 
 const CARTELLA_FOGLI = '2_AREE/Amministrazione/personale/fogli_presenze';
 const CARTELLA_RICHIESTE = '2_AREE/Amministrazione/personale/richieste_ferie_permessi';
@@ -165,7 +165,7 @@ export async function render() {
   host.innerHTML = `
     <div class="dt-barra" style="margin-bottom:10px">
       <div class="seg" id="pz-tab">
-        ${[['mese', '📅 Mese'], ['banca', '⏱ Banca ore'], ['ferie', '🏖 Ferie e permessi']].map(([v, l]) =>
+        ${[['mese', '📅 Mese'], ['banca', '⏱ Banca ore'], ['contatori', '📊 Contatori attività'], ['ferie', '🏖 Ferie e permessi']].map(([v, l]) =>
           `<button class="seg-btn ${tab === v ? 'is-active' : ''}" data-val="${v}">${l}</button>`).join('')}
       </div>
       <div style="display:flex;gap:6px;align-items:center">
@@ -185,6 +185,7 @@ export async function render() {
   const corpo = $('#pz-corpo');
   if (tab === 'mese') return renderMese(corpo);
   if (tab === 'banca') return renderBanca(corpo);
+  if (tab === 'contatori') return renderContatori(corpo);
   return renderFerie(corpo);
 }
 
@@ -332,6 +333,20 @@ function formPresenza(p, dataIso) {
   });
 }
 
+/* righe della mail: i movimenti (banca ore, assenze) e il dettaglio attività
+   in due elenchi separati — il dettaglio non è un movimento da gestire (02/10/2026) */
+function testiMovimenti(extra) {
+  const somma = (righe) => {
+    const per = {};
+    for (const e of righe) per[e.causale] = (per[e.causale] || 0) + (e.ore_min || 0);
+    return Object.entries(per).map(([c, m]) => `- ${c}: ${mm2hm(m)}`).join('\n');
+  };
+  return {
+    movimenti: somma(extra.filter((e) => famigliaCausale(e.causale) !== 'dettaglio')),
+    dettaglio: somma(extra.filter((e) => famigliaCausale(e.causale) === 'dettaglio')),
+  };
+}
+
 /* fine mese: foglio REGP (+ deposito Drive e bozza mail se conMail) */
 async function chiudiMese(btn, conMail) {
   attendi(btn, true, 'Preparo il foglio…');
@@ -362,9 +377,7 @@ async function chiudiMese(btn, conMail) {
 
     const amm = RUBRICA_INTERNA.find((x) => /amministrazione/i.test(x.nome));
     const totMese = totaleOre(presenze);   /* il permesso sindacale non si somma */
-    const perCausale = {};
-    for (const e of extra) perCausale[e.causale] = (perCausale[e.causale] || 0) + (e.ore_min || 0);
-    const riepilogo = Object.entries(perCausale).map(([c, m]) => `- ${c}: ${mm2hm(m)}`).join('\n');
+    const { movimenti: riepilogo, dettaglio } = testiMovimenti(extra);
     const { data: aperte, error: errAp } = await sb.from('s_presenze_extra').select('causale, ore_min, pagato')
       .eq('dipendente', dipendente).eq('chiuso', false);
     /* senza i movimenti aperti la mail direbbe «saldo 0» all'Amministrazione */
@@ -384,7 +397,7 @@ async function chiudiMese(btn, conMail) {
 in allegato il foglio di rilevazione presenze di ${dipendente} per il mese di ${MESI[mese - 1]} ${anno}.
 
 Ore lavorate nel mese: ${mm2hm(totMese)}.
-${riepilogo ? `\nMovimenti del mese (straordinari, permessi, recuperi):\n${riepilogo}\n` : ''}${bancaTxt ? `\nBanca ore e conteggi aperti:\n${bancaTxt}\n` : ''}
+${riepilogo ? `\nMovimenti del mese (straordinari, permessi, recuperi):\n${riepilogo}\n` : ''}${dettaglio ? `\nDettaglio attività (ore già comprese in quelle lavorate, non si sommano):\n${dettaglio}\n` : ''}${bancaTxt ? `\nBanca ore e conteggi aperti:\n${bancaTxt}\n` : ''}
 Il foglio è anche depositato in archivio (personale/fogli_presenze).
 
 Cordiali saluti.
@@ -413,7 +426,7 @@ function formPeriodo() {
   const [anno, mese] = cursore.split('-').map(Number);
   const daProp = isoData(new Date(anno, mese - 3, 1));
   const aProp = isoData(new Date(anno, mese, 0));
-  apriDrawer('Prospetto presenze di un periodo', dipendente, `
+  apriDrawer(`Prospetto presenze — ${dipendente}`, '', `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
       <div class="field"><label>Dal *</label><input type="date" id="pp-da" value="${daProp}"></div>
       <div class="field"><label>Al *</label><input type="date" id="pp-a" value="${aProp}"></div>
@@ -468,9 +481,7 @@ async function prospettoPeriodo(btn, conMail) {
     const perMese = mesi.map((x) => `- ${MESI[x.mese - 1]} ${x.anno}: ${x.righe.length
       ? `${mm2hm(x.totMin)} (${x.giorni} ${x.giorni === 1 ? 'giorno' : 'giorni'})` : 'nessuna presenza registrata'}`).join('\n');
     const totPeriodo = mesi.reduce((s, x) => s + x.totMin, 0);
-    const perCausale = {};
-    for (const e of extra || []) perCausale[e.causale] = (perCausale[e.causale] || 0) + (e.ore_min || 0);
-    const movimenti = Object.entries(perCausale).map(([c, m]) => `- ${c}: ${mm2hm(m)}`).join('\n');
+    const { movimenti, dettaglio } = testiMovimenti(extra || []);
     const periodo = etichettaPeriodo(da, a);
     const amm = RUBRICA_INTERNA.find((x) => /amministrazione/i.test(x.nome));
 
@@ -485,7 +496,7 @@ Ore per mese:
 ${perMese}
 
 Totale del periodo: ${mm2hm(totPeriodo)}.
-${movimenti ? `\nMovimenti del periodo (straordinari, permessi, recuperi):\n${movimenti}\n` : ''}
+${movimenti ? `\nMovimenti del periodo (straordinari, permessi, recuperi):\n${movimenti}\n` : ''}${dettaglio ? `\nDettaglio attività (ore già comprese in quelle lavorate, non si sommano):\n${dettaglio}\n` : ''}
 Il prospetto è anche depositato in archivio (personale/fogli_presenze).
 
 Cordiali saluti.
@@ -500,6 +511,151 @@ ${FIRMA_SEGRETERIA}`,
   } finally {
     attendi(btn, false);
   }
+}
+
+/* ══════════ scheda CONTATORI ATTIVITÀ ══════════
+   Chiesto dall'utente il 02/10/2026: quante ore per progetto (rendicontazione),
+   quante riunioni, quanta formazione frequentata. Legge le righe di DETTAGLIO
+   ATTIVITÀ di s_presenze_extra — le stesse che l'ufficio scrive da Access dal
+   2016 — e le ore lavorate degli stessi giorni, per i controlli sullo storico:
+   le anomalie si mostrano, non si correggono (regola d'oro 9). */
+
+let contDa = `${oggiIso().slice(0, 4)}-01-01`;
+let contA = oggiIso();
+let contTutti = false;
+const contAperte = new Set();
+
+/* Supabase restituisce al massimo 1000 righe per chiamata: si legge a pagine,
+   o un periodo lungo verrebbe contato a metà senza dirlo */
+async function leggiTutte(costruisci) {
+  const out = [];
+  for (let da = 0; ; da += 1000) {
+    const { data, error } = await costruisci().range(da, da + 999);
+    if (error) throw error;
+    out.push(...(data || []));
+    if (!data || data.length < 1000) return out;
+  }
+}
+
+async function datiContatori() {
+  const filtra = (q) => (contTutti ? q : q.eq('dipendente', dipendente));
+  const extra = await leggiTutte(() => filtra(sb.from('s_presenze_extra')
+    .select('id, dipendente, data, causale, ore_min, pagato, recuperato, note'))
+    .gte('data', contDa).lte('data', contA).order('data').order('id'));
+  const giorni = new Set(extra.filter((e) => famigliaCausale(e.causale) === 'dettaglio').map((e) => e.data));
+  const presenze = giorni.size ? await leggiTutte(() => filtra(sb.from('s_presenze')
+    .select('id, dipendente, data, tot_min, note'))
+    .gte('data', contDa).lte('data', contA).order('data').order('id')) : [];
+  return contaAttivita({ extra, presenze: presenze.filter((p) => giorni.has(p.data)) });
+}
+
+async function renderContatori(hostArg) {
+  const host = hostArg || $('#pz-corpo');
+  host.innerHTML = '<p class="empty">Un istante…</p>';
+  let attivita;
+  try { attivita = await datiContatori(); }
+  catch {
+    host.innerHTML = '<p class="empty">⚠ Non sono riuscito a leggere le ore del periodo: nessun contatore calcolato. Riprova.</p>';
+    return;
+  }
+  const tot = attivita.reduce((s, x) => s + x.totMin, 0);
+  const daGuardare = attivita.reduce((s, x) => s + x.avvisi, 0);
+  const anno = Number(oggiIso().slice(0, 4));
+  const scorciatoie = [
+    ['anno', `Anno ${anno}`, `${anno}-01-01`, oggiIso()],
+    ['prec', `Anno ${anno - 1}`, `${anno - 1}-01-01`, `${anno - 1}-12-31`],
+    ['tutto', 'Tutto lo storico', '2009-01-01', oggiIso()],
+  ];
+
+  host.innerHTML = `
+    <div class="dt-barra" style="flex-wrap:wrap;gap:8px">
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <label class="hint">Dal</label><input type="date" id="ct-da" class="inp inp-sm" value="${contDa}">
+        <label class="hint">al</label><input type="date" id="ct-a" class="inp inp-sm" value="${contA}">
+        <div class="seg" id="ct-scorc">${scorciatoie.map(([v, l, d, a]) =>
+          `<button class="seg-btn ${contDa === d && contA === a ? 'is-active' : ''}" data-da="${d}" data-a="${a}">${l}</button>`).join('')}</div>
+        <label style="display:flex;gap:5px;align-items:center;cursor:pointer" class="hint">
+          <input type="checkbox" id="ct-tutti" ${contTutti ? 'checked' : ''} style="width:auto;margin:0"> tutti i dipendenti</label>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button class="btn btn-ghost btn-sm" id="ct-csv">⬇ Excel (CSV)</button>
+        <button class="btn btn-ghost btn-sm" id="ct-pdf">📄 PDF</button>
+        <button class="btn btn-primary btn-sm" id="ct-nuovo">+ Registra un'attività</button>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0">
+      <span class="dt-cella dt-ok" style="padding:4px 10px">📊 ${mm2hm(tot)} ore di dettaglio · ${attivita.length} attività</span>
+      ${daGuardare ? `<span class="dt-cella dt-senzadata" style="padding:4px 10px">⚠ ${daGuardare} righe da guardare</span>` : ''}
+    </div>
+    <div class="table-wrap">
+      <table class="tbl">
+        <thead><tr><th>Attività</th><th>Ore</th><th>Giornate</th><th>Da guardare</th></tr></thead>
+        <tbody>${attivita.map((x, i) => {
+          const aperta = contAperte.has(x.causale);
+          const dettaglio = aperta ? x.righe.map((r) => `<tr class="ct-riga" data-id="${r.id}" style="background:var(--bg-soft, #fafafa);cursor:pointer">
+              <td style="padding-left:22px">${contTutti ? `<span class="hint">${esc(r.dipendente)}</span> · ` : ''}${dataIt(r.data)}
+                <span class="hint">${esc(r.note || '')}</span></td>
+              <td><strong>${mm2hm(r.ore_min)}</strong></td>
+              <td class="hint">${r.lavorateGiorno == null ? 'giornata non nel foglio' : `lavorate ${mm2hm(r.lavorateGiorno)}`}${r.supplGiorno ? ` · +${mm2hm(r.supplGiorno)} suppl.` : ''}</td>
+              <td>${r.avvisi.filter((v) => v !== 'senza-presenze').map((v) => `<span class="dt-cella dt-senzadata" style="padding:1px 6px;margin:1px">${esc(TESTO_AVVISO[v])}</span>`).join('')}</td>
+            </tr>`).join('') : '';
+          return `<tr class="ct-att" data-i="${i}" style="cursor:pointer">
+              <td>${aperta ? '▾' : '▸'} <strong>${esc(x.causale)}</strong>${x.altreGrafie.length ? ` <span class="hint">(scritta anche: ${esc(x.altreGrafie.join(' / '))})</span>` : ''}</td>
+              <td><strong>${mm2hm(x.totMin)}</strong></td>
+              <td>${x.giorni}</td>
+              <td>${x.avvisi ? `<span class="dt-cella dt-senzadata" style="padding:1px 6px">⚠ ${x.avvisi}</span>` : ''}</td>
+            </tr>${dettaglio}`;
+        }).join('') || '<tr><td colspan="4" class="empty">Nessuna attività nel periodo.</td></tr>'}</tbody>
+      </table>
+    </div>
+    <p class="hint" style="margin-top:8px">Il <strong>dettaglio attività</strong> dice come sono state spese ore già comprese in quelle
+      lavorate: non si somma al totale e non tocca la banca ore. Comprende tutto lo storico registrato da Access (dal 2016).
+      Clic su un'attività per vedere le giornate, su una giornata per correggerla. Le righe «da guardare» sono anomalie
+      dello storico — un possibile doppione, più ore di dettaglio che ore lavorate, spunte «pagata/recuperata» che al
+      dettaglio non servono: <strong>l'app le segnala e non le corregge</strong>, decidi tu.</p>`;
+
+  const ricarica = () => renderContatori();
+  $('#ct-da').addEventListener('change', (e) => { contDa = e.target.value || contDa; ricarica(); });
+  $('#ct-a').addEventListener('change', (e) => { contA = e.target.value || contA; ricarica(); });
+  $('#ct-scorc').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-da]');
+    if (b) { contDa = b.dataset.da; contA = b.dataset.a; ricarica(); }
+  });
+  $('#ct-tutti').addEventListener('change', (e) => { contTutti = e.target.checked; ricarica(); });
+  $('#ct-nuovo').addEventListener('click', () => formMovimento(null, 'Riunione'));
+  host.querySelectorAll('tr.ct-att').forEach((tr) => tr.addEventListener('click', () => {
+    const c = attivita[Number(tr.dataset.i)].causale;
+    if (contAperte.has(c)) contAperte.delete(c); else contAperte.add(c);
+    ricarica();
+  }));
+  host.querySelectorAll('tr.ct-riga').forEach((tr) => tr.addEventListener('click', async () => {
+    const { data: e, error } = await sb.from('s_presenze_extra').select('*').eq('id', Number(tr.dataset.id)).single();
+    if (error || !e) return toast('Non sono riuscito ad aprire la riga.', 'err');
+    formMovimento(e);
+  }));
+  const chi = contTutti ? 'tutti i dipendenti' : dipendente;
+  const nomeBase = `contatori-attivita_${contTutti ? 'tutti' : dipFile(dipendente)}_${contDa}_${contA}`;
+  $('#ct-csv').addEventListener('click', async () => {
+    const { csvContatori } = await import('./presenze-doc.js');
+    scaricaFile(new Blob([csvContatori(attivita, { tutti: contTutti })], { type: 'text/csv;charset=utf-8' }), `${nomeBase}.csv`);
+  });
+  $('#ct-pdf').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
+    attendi(btn, true, 'Preparo il PDF…');
+    try {
+      const { pdfContatori } = await import('./presenze-doc.js');
+      const byte = await pdfContatori({ chi, da: contDa, a: contA, attivita, tutti: contTutti });
+      scaricaFile(new Blob([byte], { type: 'application/pdf' }), `${nomeBase}.pdf`);
+    } catch (e) { toast(e.message, 'err'); }
+    finally { attendi(btn, false); }
+  });
+}
+
+function scaricaFile(blob, nome) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url; link.download = nome; link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
 
 /* ══════════ scheda BANCA ORE ══════════ */
@@ -551,12 +707,14 @@ async function renderBanca(hostArg) {
           <td>${dataIt(e.data)}</td>
           <td>${esc(e.causale)}</td>
           <td><strong>${mm2hm(e.ore_min)}</strong></td>
-          <td>${e.chiuso ? '<span class="dt-cella dt-ok" style="padding:1px 6px">chiusa</span>' : '<span class="dt-cella dt-senzadata" style="padding:1px 6px">APERTA</span>'}
+          <td>${famigliaCausale(e.causale) === 'dettaglio'
+            ? `<span class="hint" title="Dettaglio attività: ore già comprese in quelle lavorate, non si sommano e non toccano la banca ore">📊 dettaglio attività</span>${e.pagato || e.recuperato ? ' <span class="hint">(spunte dallo storico)</span>' : ''}`
+            : `${e.chiuso ? '<span class="dt-cella dt-ok" style="padding:1px 6px">chiusa</span>' : '<span class="dt-cella dt-senzadata" style="padding:1px 6px">APERTA</span>'}
             ${/suppl|straord/i.test(e.causale || '')
               ? (e.pagato ? ' <span class="hint">💶 da pagare</span>'
                 : e.recuperato ? ` <span class="hint">↩ recuperata${e.recuperato_il ? ' il ' + dataIt(e.recuperato_il) : ''}</span>`
                 : ' <span class="hint">⏳ da recuperare</span>')
-              : `${e.pagato ? ' 💶' : ''}${e.recuperato ? ` ↩${e.recuperato_il ? ' ' + dataIt(e.recuperato_il) : ''}` : ''}`}</td>
+              : `${e.pagato ? ' 💶' : ''}${e.recuperato ? ` ↩${e.recuperato_il ? ' ' + dataIt(e.recuperato_il) : ''}` : ''}`}`}</td>
           <td class="hint">${esc(e.note || '')}</td>
         </tr>`).join('') || '<tr><td colspan="5" class="empty">Nessun movimento con questo filtro.</td></tr>'}</tbody>
       </table>
@@ -576,7 +734,7 @@ async function renderBanca(hostArg) {
     tr.addEventListener('click', () => formMovimento(movimenti.find((e) => e.id === Number(tr.dataset.id)))));
 }
 
-async function formMovimento(e) {
+async function formMovimento(e, causaleProposta) {
   /* tendina VERA delle causali: quelle di base più tutte quelle già usate
      nello storico (i progetti SPISAL/CAM, GSuite, 104/92…), con in fondo
      «Altra causale…» per il testo libero (regola delle maschere: la
@@ -585,7 +743,7 @@ async function formMovimento(e) {
   const altre = [...new Set((usate || []).map((r) => r.causale).filter(Boolean))]
     .filter((c) => !CAUSALI_BASE.includes(c)).sort((a, b) => a.localeCompare(b));
   const causali = [...CAUSALI_BASE, ...altre];
-  const corrente = e?.causale || 'Ore supplementari';
+  const corrente = e?.causale || causaleProposta || 'Ore supplementari';
   const inLista = causali.includes(corrente);
 
   apriDrawer(e ? `Movimento del ${dataIt(e.data)}` : 'Registra movimento banca ore', '', `
@@ -615,7 +773,12 @@ async function formMovimento(e) {
           <input type="checkbox" id="mv-recu" ${e?.recuperato ? 'checked' : ''} style="width:auto;margin:0"> Già recuperata il</label>
         <input type="date" id="mv-recdata" value="${e?.recuperato_il || ''}"></div>
     </div>
-    <label style="display:flex;gap:6px;align-items:center;margin-top:6px;cursor:pointer">
+    <div id="mv-dett-box" class="hint" style="display:none;margin-top:6px;padding:8px 10px;border-left:3px solid var(--arancio, #e7500f);background:rgba(231,80,15,.06)">
+      📊 <strong>Dettaglio attività</strong>: dice come sono state spese ore <strong>già comprese</strong> in quelle lavorate
+      (riunione, formazione, progetto…). Non si somma, non tocca la banca ore e non va chiusa: serve ai contatori.
+      Metti <strong>tutte</strong> le ore spese sull'attività, anche quelle oltre l'orario; quelle in più registrale
+      <strong>anche</strong> come «Ore supplementari», che dicono come vengono compensate.</div>
+    <label id="mv-chiuso-box" style="display:flex;gap:6px;align-items:center;margin-top:6px;cursor:pointer">
       <input type="checkbox" id="mv-chiuso" ${e?.chiuso ? 'checked' : ''} style="width:auto;margin:0"> Chiusa (partita saldata)</label>
     <p class="hint" style="margin-top:6px"><strong>Da recuperare</strong> = va in banca ore finché non la recuperi;
       <strong>da pagare</strong> = circuito ordinario (busta paga), fuori dalla banca ore. «Già recuperata» si spunta
@@ -631,6 +794,9 @@ async function formMovimento(e) {
   const modoScelto = () => document.querySelector('input[name="mv-modo"]:checked')?.value || 'recupero';
   const aggiornaCompensa = () => {
     const suppl = /suppl|straord/i.test(causaleScelta() || '');
+    const dett = !!String(causaleScelta() || '').trim() && famigliaCausale(causaleScelta()) === 'dettaglio';
+    $('#mv-dett-box').style.display = dett ? 'block' : 'none';
+    $('#mv-chiuso-box').style.display = dett ? 'none' : 'flex';
     $('#mv-compensa-box').style.display = suppl ? 'grid' : 'none';
     $('#mv-recu-box').style.visibility = suppl && modoScelto() === 'recupero' ? 'visible' : 'hidden';
   };
@@ -659,7 +825,9 @@ async function formMovimento(e) {
     const dati = {
       dipendente, data: $('#mv-data').value, causale, ore_min: oreMin,
       note: $('#mv-note').value.trim() || null,
-      pagato, recuperato, chiuso: $('#mv-chiuso').checked,
+      /* il dettaglio non ha partite aperte: si salva sempre chiuso, così non
+         compare mai fra i «conteggi aperti» della banca ore */
+      pagato, recuperato, chiuso: famigliaCausale(causale) === 'dettaglio' ? true : $('#mv-chiuso').checked,
       recuperato_il: recuperatoIl,
       aggiornato_da: state.email, updated_at: new Date().toISOString(),
     };
@@ -670,7 +838,7 @@ async function formMovimento(e) {
     if (error) return toast('Salvataggio non riuscito: ' + error.message, 'err');
     toast('Movimento registrato.', 'ok');
     chiudiDrawer();
-    renderBanca();
+    (tab === 'contatori' ? renderContatori : renderBanca)();
   });
   $('#mv-elimina')?.addEventListener('click', async () => {
     if (!confirm('Elimino questo movimento?')) return;
@@ -678,7 +846,7 @@ async function formMovimento(e) {
     if (error) return toast(error.message, 'err');
     toast('Movimento eliminato.', 'ok');
     chiudiDrawer();
-    renderBanca();
+    (tab === 'contatori' ? renderContatori : renderBanca)();
   });
 }
 
