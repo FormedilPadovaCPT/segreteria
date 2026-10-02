@@ -27,7 +27,7 @@ import { risolviCartella, leggiByte } from './drive.js';
 import { scaricaEml, FIRMA_SEGRETERIA } from './eml.js';
 import { RUBRICA_INTERNA } from './lookups.js';
 import { MESI, mm2hm, eRipartizione, totaleOre, famigliaCausale, contaAttivita, contaProgetti, TESTO_AVVISO,
-  CAUSALE_SALDO, godutoPerAnno, saldoMonte, oreInMinuti } from './presenze-doc.js';
+  MONTI_SALDO, CAUSALI_SALDO, godutoPerAnno, saldoMonte, oreInMinuti, oreCentesimi } from './presenze-doc.js';
 
 const CARTELLA_FOGLI = '2_AREE/Amministrazione/personale/fogli_presenze';
 const CARTELLA_RICHIESTE = '2_AREE/Amministrazione/personale/richieste_ferie_permessi';
@@ -36,7 +36,7 @@ const CARTELLA_RICHIESTE = '2_AREE/Amministrazione/personale/richieste_ferie_per
    ⚠️ «Riunione» è la riunione di lavoro, «Riunione sindacale» è un'altra cosa e
    scala il monte RSU: non si accorpano (chiesto dall'utente il 22/09/2026). */
 const CAUSALI_BASE = ['Ore supplementari', 'Recupero', 'Ferie', 'Permesso', 'Malattia', 'Riunione', 'Formazione',
-  'Permesso sindacale RSU', 'Riunione sindacale', 'Permessi legge 104/92', 'Festività'];
+  'Permesso sindacale RSU', 'Riunione sindacale', 'Permessi legge 104/92', 'Festività', 'Ex festività', 'ROL'];
 
 /* I tipi di richiesta e il monte da cui attingono.
    ⚠️ I DUE MONTI SINDACALI SONO DISTINTI (precisato dall'utente il 22/09/2026):
@@ -1042,27 +1042,32 @@ async function riquadroSaldi(anno) {
     aperte = r3.data || [];
     inArrivo = (r4.data || []).filter((r) => !r.righe_generate);
     righe = await leggiTutte(() => sb.from('s_presenze_extra').select('data, causale, ore_min')
-      .eq('dipendente', dipendente).in('causale', Object.values(CAUSALE_SALDO)).order('id'));
+      .eq('dipendente', dipendente).in('causale', CAUSALI_SALDO).order('id'));
   } catch {
     return '<p class="empty" style="margin-bottom:10px">⚠ Non sono riuscito a leggere i saldi: nessun numero calcolato. Riprova.</p>';
   }
   const banca = calcolaBanca(aperte);
-  const mesi = mesiTrascorsi(anno);
-  const cella = (monte) => {
+  /* maturato a MESI CONCLUSI, come la busta: a ottobre ne sono maturati nove */
+  const oggi = new Date();
+  const mesiConclusi = anno < oggi.getFullYear() ? 12 : anno > oggi.getFullYear() ? 0 : oggi.getMonth();
+  /* richieste approvate e non ancora registrate: il «permesso» va sulle ex festività, come in busta */
+  const monteRichiesta = { ferie: 'ferie', permessi: 'ex_festivita' };
+  const ore = (min) => `${mm2hm(min)} <span class="hint">(${oreCentesimi(min)})</span>`;
+  const cella = ({ monte, nome, causali }) => {
     const sp = spettanze.filter((x) => x.monte === monte);
     const s = saldoMonte(anno, sp, godutoPerAnno(righe, monte));
-    const attesa = inArrivo.filter((r) => r.monte === monte).reduce((t, r) => t + Math.round(Number(r.ore || 0) * 60), 0);
-    const nome = monte === 'ferie' ? 'Ferie' : 'Permessi (contratto)';
+    const attesa = inArrivo.filter((r) => monteRichiesta[r.monte] === monte).reduce((t, r) => t + Math.round(Number(r.ore || 0) * 60), 0);
     if (s.spettanza == null) {
+      if (monte === 'rol' && !s.goduto) return '';   /* ROL/PAR vuoto, come in busta: non si mostra */
       return `<div class="dt-quadro-riga"><span class="dt-quadro-req">${nome} ${anno}</span>
-        <span class="dt-cella dt-senzadata">godute ${mm2hm(s.goduto)} · <strong>saldo non calcolabile</strong>: manca la spettanza ${anno}</span></div>`;
+        <span class="dt-cella dt-senzadata">godute ${ore(s.goduto)} · <strong>saldo non calcolabile</strong>: manca la spettanza ${anno}</span></div>`;
     }
     return `<div class="dt-quadro-riga"><span class="dt-quadro-req">${nome} ${anno}</span>
-      <span class="dt-cella ${s.saldo < 0 ? 'dt-scaduto' : 'dt-ok'}"><strong>${mm2hm(s.saldo)}</strong> da godere</span></div>
+      <span class="dt-cella ${s.saldo < 0 ? 'dt-scaduto' : 'dt-ok'}"><strong>${mm2hm(s.saldo)}</strong> (${oreCentesimi(s.saldo)}) da godere entro l'anno</span></div>
       <p class="hint" style="margin:2px 0 6px">${s.residuoIniziale == null ? 'residuo al 1° gennaio non indicato'
-        : `residuo al 1° gennaio ${mm2hm(s.residuoIniziale)}${s.residuoDa === 'anno-prima' ? ' (riportato dal saldo ' + (anno - 1) + ')' : ''}`}
-        + spettanza ${mm2hm(s.spettanza)} − godute ${mm2hm(s.goduto)}${anno === new Date().getFullYear()
-        ? ` · maturate a oggi ~${mm2hm(Math.round(s.spettanza * mesi / 12))} (a dodicesimi)` : ''}${attesa
+        : `residuo al 1° gennaio ${ore(s.residuoIniziale)}${s.residuoDa === 'anno-prima' ? ' (riportato dal saldo ' + (anno - 1) + ')' : ''}`}
+        + spettanza ${ore(s.spettanza)} − godute ${ore(s.goduto)} <span class="hint">(${causali.map((c) => `«${c}»`).join(' + ')})</span>${mesiConclusi && mesiConclusi < 12
+        ? ` · <strong>a oggi</strong>, con ${mesiConclusi} mes${mesiConclusi === 1 ? 'e' : 'i'} maturat${mesiConclusi === 1 ? 'o' : 'i'}: ${ore((s.residuoIniziale ?? 0) + Math.round(s.spettanza * mesiConclusi / 12) - s.goduto)}` : ''}${attesa
         ? ` · <strong>${mm2hm(attesa)}</strong> approvate e non ancora registrate` : ''}${s.fonte ? ` · fonte: ${esc(s.fonte)}` : ''}</p>`;
   };
   return `<div class="dt-quadro" style="margin-bottom:10px">
@@ -1070,10 +1075,12 @@ async function riquadroSaldi(anno) {
       <span class="dt-cella ${banca.saldo > 0 ? 'dt-senzadata' : 'dt-ok'}"><strong>${mm2hm(banca.saldo)}</strong> da recuperare</span></div>
     <p class="hint" style="margin:2px 0 6px">${mm2hm(banca.supplementari)} supplementari da recuperare − ${mm2hm(banca.recuperi)} recuperi${banca.pagate
       ? ` · ${mm2hm(banca.pagate)} supplementari da pagare (busta paga, fuori banca ore)` : ''}</p>
-    ${cella('ferie')}${cella('permessi')}
+    ${MONTI_SALDO.map(cella).join('')}
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:4px">
-      <p class="hint" style="margin:0">Saldi di ${esc(dipendente)}. Le ore spettanti si prendono dalla <strong>busta paga</strong>:
-        l'app non le ricava dal contratto. Il goduto si conta dalle righe «Ferie» e «Permesso» registrate.</p>
+      <p class="hint" style="margin:0">Saldi di ${esc(dipendente)}, con i monti del riquadro «Riposi» della busta paga.
+        Fra parentesi le ore in <strong>centesimi</strong>, come sul cedolino. Le spettanze si scrivono dalla busta
+        paga: l'app non le ricava dal contratto. Il goduto si conta dalle righe registrate qui, che possono
+        differire dalla busta di qualche ora (un permesso di fine mese passa sul cedolino dopo).</p>
       <button class="btn btn-ghost btn-sm" id="fe-spettanze">✏ Spettanze</button>
     </div>
   </div>`;
@@ -1083,37 +1090,40 @@ async function formSpettanze(annoIniz) {
   const { data: tutte, error } = await sb.from('s_presenze_spettanze').select('*').eq('dipendente', dipendente).order('anno', { ascending: false });
   if (error) return toast('Non sono riuscito a leggere le spettanze già scritte. Riprova.', 'err');
   const di = (anno, monte) => (tutte || []).find((x) => x.anno === anno && x.monte === monte);
-  const hmv = (m) => (m == null ? '' : mm2hm(m));
-  const campi = (anno) => ['ferie', 'permessi'].map((monte) => {
+  const cent = (m) => (m == null ? '' : oreCentesimi(m));
+  const nomeMonte = (m) => MONTI_SALDO.find((x) => x.monte === m)?.nome || m;
+  const campi = (anno) => MONTI_SALDO.map(({ monte, nome }) => {
     const r = di(anno, monte);
     return `<fieldset style="border:1px solid #e3e3e3;border-radius:6px;padding:8px 10px;margin:8px 0">
-      <legend><strong>${monte === 'ferie' ? 'Ferie' : 'Permessi retribuiti (contratto)'}</strong></legend>
+      <legend><strong>${nome}</strong></legend>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-        <div class="field"><label>Ore spettanti nell'anno *</label><input id="sp-${monte}-sp" placeholder="es. 176 o 176:00" value="${hmv(r?.spettanza_min)}"></div>
-        <div class="field"><label>Residuo al 1° gennaio</label><input id="sp-${monte}-res" placeholder="vuoto = saldo dell'anno prima" value="${hmv(r?.residuo_iniziale_min)}"></div>
+        <div class="field"><label>Ore spettanti nell'anno</label><input id="sp-${monte}-sp" placeholder="es. 159,96" value="${cent(r?.spettanza_min)}"></div>
+        <div class="field"><label>Residuo al 1° gennaio (RESIDUO A.P.)</label><input id="sp-${monte}-res" placeholder="vuoto = saldo dell'anno prima" value="${cent(r?.residuo_iniziale_min)}"></div>
       </div></fieldset>`;
   }).join('');
   apriDrawer(`Spettanze — ${dipendente}`, '', `
     <div class="field"><label>Anno *</label><input type="number" id="sp-anno" min="2009" max="2100" value="${annoIniz}" style="max-width:120px"></div>
     <div id="sp-campi">${campi(annoIniz)}</div>
-    <div class="field"><label>Fonte</label><input id="sp-fonte" placeholder="es. busta paga di dicembre ${annoIniz - 1}" value="${esc(di(annoIniz, 'ferie')?.fonte || di(annoIniz, 'permessi')?.fonte || '')}"></div>
-    <p class="hint">In ore: 8 ore = 1 giorno. «8.30» sono 8 ore e mezza, «176,5» sono 176 ore e mezza.
-      Il residuo lascialo vuoto se vuoi che l'app riporti il saldo calcolato dell'anno prima (serve la spettanza di quell'anno).
-      Si può lasciare vuoto anche un monte intero: si salva solo quello compilato.</p>
+    <div class="field"><label>Fonte</label><input id="sp-fonte" placeholder="es. busta paga di agosto ${annoIniz}" value="${esc(MONTI_SALDO.map((m) => di(annoIniz, m.monte)?.fonte).find(Boolean) || '')}"></div>
+    <p class="hint">Si copiano dal riquadro <strong>«Riposi»</strong> della busta paga, in <strong>ore e centesimi</strong> come
+      sono scritte lì: «152,58» (o «152.58») sono 152 ore e 58 centesimi. Per ore e minuti usa i due punti («8:30»).
+      <strong>Residuo al 1° gennaio</strong> = «RESIDUO A.P.». <strong>Ore spettanti nell'anno</strong>: la busta mostra il
+      «MATURATO A.C.» fino a quel mese — per l'anno intero si divide per i mesi e si moltiplica per 12 (agosto: × 12 ÷ 8).
+      Il residuo lascialo vuoto se vuoi che l'app riporti il saldo dell'anno prima. Si salvano solo i monti compilati.</p>
     <div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="btn btn-primary" id="sp-salva">Salva</button></div>
     ${(tutte || []).length ? `<h4 style="margin:14px 0 4px">Già scritte</h4><table class="tbl"><tbody>${(tutte || []).map((x) => `<tr>
-      <td>${x.anno}</td><td>${x.monte}</td><td>${mm2hm(x.spettanza_min)}</td>
-      <td class="hint">${x.residuo_iniziale_min == null ? 'residuo riportato' : 'residuo ' + mm2hm(x.residuo_iniziale_min)}${x.fonte ? ' · ' + esc(x.fonte) : ''}</td></tr>`).join('')}</tbody></table>` : ''}`);
+      <td>${x.anno}</td><td>${esc(nomeMonte(x.monte))}</td><td>${oreCentesimi(x.spettanza_min)}</td>
+      <td class="hint">${x.residuo_iniziale_min == null ? 'residuo riportato' : 'residuo ' + oreCentesimi(x.residuo_iniziale_min)}${x.fonte ? ' · ' + esc(x.fonte) : ''}</td></tr>`).join('')}</tbody></table>` : ''}`);
   $('#sp-anno').addEventListener('change', (e) => { const a = Number(e.target.value); if (a) $('#sp-campi').innerHTML = campi(a); });
   $('#sp-salva').addEventListener('click', async (ev) => {
     const btn = ev.currentTarget;
     const anno = Number($('#sp-anno').value);
     if (!anno || anno < 2009 || anno > 2100) return toast("Serve l'anno.", 'err');
     const righe = [];
-    for (const monte of ['ferie', 'permessi']) {
-      const sp = oreInMinuti($(`#sp-${monte}-sp`).value);
-      const res = oreInMinuti($(`#sp-${monte}-res`).value);
-      if (Number.isNaN(sp) || Number.isNaN(res)) return toast('Ore non valide: scrivi per esempio 176, 176,5 o 176:30.', 'err');
+    for (const { monte } of MONTI_SALDO) {
+      const sp = oreInMinuti($(`#sp-${monte}-sp`).value, { centesimi: true });
+      const res = oreInMinuti($(`#sp-${monte}-res`).value, { centesimi: true });
+      if (Number.isNaN(sp) || Number.isNaN(res)) return toast('Ore non valide: scrivile come sulla busta paga, per esempio 152,58.', 'err');
       if (sp == null) { if (res != null) return toast("Il residuo da solo non basta: serve anche la spettanza dell'anno.", 'err'); continue; }
       righe.push({ dipendente, anno, monte, spettanza_min: sp, residuo_iniziale_min: res,
         fonte: $('#sp-fonte').value.trim() || null, aggiornato_da: state.email, updated_at: new Date().toISOString() });

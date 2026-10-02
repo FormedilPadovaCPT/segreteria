@@ -264,7 +264,7 @@ function sezioneCausali(c, titolo, sottotitolo, righeTutte, etichettaTotale, eDe
 
 const BANCA = /suppl|straord/i;
 const BANCA_ESATTE = /^(recupero|pagato)$/i;
-const ASSENZE = /^(ferie|permesso|malattia|festivit[aà]|permessi legge 104\/92|permesso sindacale rsu|riunione sindacale)$/i;
+const ASSENZE = /^(ferie|permesso|malattia|festivit[aà]|ex[ -]?festivit[aà]|rol|permessi legge 104\/92|permesso sindacale rsu|riunione sindacale)$/i;
 
 /* 'banca' | 'assenza' | 'dettaglio' */
 export function famigliaCausale(causale) {
@@ -746,13 +746,25 @@ export async function pdfRichiestaFerie(r, visto, firmaByte) {
    saldo = residuo al 1° gennaio + spettanza dell'anno − goduto dell'anno.
    Residuo non scritto = si riporta il saldo calcolato dell'anno prima, se
    l'anno prima ha la sua spettanza; altrimenti si dice che manca. */
-export const CAUSALE_SALDO = { ferie: 'Ferie', permessi: 'Permesso' };
+/* I monti sono quelli del riquadro «Riposi» della busta paga (agosto 2026):
+   FERIE, EX FESTIVITÀ, ROL/PAR. Le ex festività si usano anche a ore
+   (l'utente, 02/10/2026), e in busta il «Permesso» registrato in ufficio
+   scala proprio le ex festività: nel 2026 di Renato Squizzato il ROL/PAR è
+   vuoto e le ex festività godute sono 11 h (9 h di «Permesso» del 2026 più,
+   con ogni probabilità, le 2 h del 29/12/2025 passate sul cedolino di gennaio).
+   «Festività» NON è un monte: sono i festivi veri (Pasquetta, 2 giugno). */
+export const MONTI_SALDO = [
+  { monte: 'ferie', nome: 'Ferie', causali: ['Ferie'] },
+  { monte: 'ex_festivita', nome: 'Ex festività', causali: ['Ex festività', 'Permesso'] },
+  { monte: 'rol', nome: 'ROL / PAR', causali: ['ROL'] },
+];
+export const CAUSALI_SALDO = MONTI_SALDO.flatMap((m) => m.causali);
 
 export function godutoPerAnno(righe, monte) {
-  const causale = CAUSALE_SALDO[monte].toLowerCase();
+  const causali = (MONTI_SALDO.find((m) => m.monte === monte)?.causali || []).map((c) => c.toLowerCase());
   const per = {};
   for (const r of righe || []) {
-    if (String(r.causale || '').trim().toLowerCase() !== causale) continue;
+    if (!causali.includes(String(r.causale || '').trim().toLowerCase())) continue;
     const anno = Number(String(r.data).slice(0, 4));
     per[anno] = (per[anno] || 0) + (r.ore_min || 0);
   }
@@ -764,30 +776,42 @@ export function saldoMonte(anno, spettanze, godute, profondita = 0) {
   const sp = (spettanze || []).find((s) => Number(s.anno) === Number(anno));
   const goduto = (godute || {})[anno] || 0;
   if (!sp) return { anno, spettanza: null, residuoIniziale: null, residuoDa: null, goduto, saldo: null };
-  let residuo = sp.residuo_iniziale_min;
+  /* numeric(10,2) arriva dal database come TESTO («9597.60»): senza Number()
+     il saldo concatenerebbe le cifre invece di sommarle */
+  let residuo = sp.residuo_iniziale_min == null ? null : Number(sp.residuo_iniziale_min);
   let residuoDa = residuo != null ? 'busta-paga' : null;
   if (residuo == null && profondita < 50) {
     const prec = saldoMonte(anno - 1, spettanze, godute, profondita + 1);
     if (prec.saldo != null) { residuo = prec.saldo; residuoDa = 'anno-prima'; }
   }
   return {
-    anno, spettanza: sp.spettanza_min, residuoIniziale: residuo, residuoDa, goduto,
-    saldo: (residuo ?? 0) + sp.spettanza_min - goduto,
+    anno, spettanza: Number(sp.spettanza_min), residuoIniziale: residuo, residuoDa, goduto,
+    saldo: (residuo ?? 0) + Number(sp.spettanza_min) - goduto,
     fonte: sp.fonte || null,
   };
 }
 
 /* «176», «176,5», «176:30», «8.30» → minuti; vuoto → null; non valido → NaN.
    Punto con due cifre = ore e minuti, come nel resto della scheda presenze
-   («8.30» sono 8 ore e mezza); la virgola è il decimale («176,5»). */
-export function oreInMinuti(testo) {
+   («8.30» sono 8 ore e mezza); la virgola è il decimale («176,5»).
+   Con { centesimi: true } — le ore della BUSTA PAGA, scritte in centesimi
+   («152,58» = 152 ore e 58 centesimi, non 58 minuti) — anche il punto è
+   decimale, e solo i due punti dicono ore e minuti. */
+export function oreInMinuti(testo, { centesimi = false } = {}) {
   const t = String(testo ?? '').trim();
   if (!t) return null;
-  let m = t.match(/^(\d{1,4})[:.](\d{2})$/);
+  let m = centesimi ? t.match(/^(\d{1,4}):(\d{2})$/) : t.match(/^(\d{1,4})[:.](\d{2})$/);
   if (m) return Number(m[1]) * 60 + Number(m[2]);
+  /* dalla busta: niente arrotondamento al minuto, o il saldo perde un centesimo
+     (106,64 h = 6398,4 minuti); si tengono due decimali di minuto */
+  const minDec = (x) => Math.round(x * 60 * 100) / 100;
+  if (centesimi && /^-?\d{1,4}([.,]\d{1,2})?$/.test(t)) return minDec(Number(t.replace(',', '.')));
   m = t.match(/^-?\d{1,4}([.,]\d{1,2})?$/);
   if (m) return Math.round(Number(t.replace(',', '.')) * 60);
   m = t.match(/^-(\d{1,4}):(\d{2})$/);
   if (m) return -(Number(m[1]) * 60 + Number(m[2]));
   return NaN;
 }
+
+/* minuti → ore in centesimi, come sulla busta paga: 4238 → «70,63» */
+export const oreCentesimi = (min) => (Math.round((min || 0) / 60 * 100) / 100).toFixed(2).replace('.', ',');

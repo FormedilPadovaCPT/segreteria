@@ -6,7 +6,7 @@
 //   busta paga, mai ricavate a stima; il goduto dalle righe vere.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { contaAttivita, contaProgetti, csvContatori, saldoMonte, godutoPerAnno, oreInMinuti } from '../js/presenze-doc.js';
+import { contaAttivita, contaProgetti, csvContatori, saldoMonte, godutoPerAnno, oreInMinuti, oreCentesimi, famigliaCausale } from '../js/presenze-doc.js';
 
 const R = 'Renato Squizzato';
 const ex = (id, data, causale, ore_min) => ({ id, dipendente: R, data, causale, ore_min, pagato: false, recuperato: false });
@@ -54,7 +54,28 @@ test('il goduto si conta dalle sole righe della causale del monte', () => {
     { data: '2025-12-29', causale: 'Ferie', ore_min: 480 },
   ];
   assert.deepEqual(godutoPerAnno(righe, 'ferie'), { 2026: 960, 2025: 480 });
-  assert.deepEqual(godutoPerAnno(righe, 'permessi'), { 2026: 120 }, 'il permesso RSU non scala i permessi del contratto');
+  assert.deepEqual(godutoPerAnno(righe, 'ex_festivita'), { 2026: 120 }, 'il permesso RSU non scala le ex festività');
+});
+
+test('i monti sono quelli della busta: il «Permesso» e le «Ex festività» a ore scalano le ex festività, la «Festività» no', () => {
+  const righe = [
+    { data: '2026-02-16', causale: 'Permesso', ore_min: 60 }, { data: '2026-06-03', causale: 'Ex festività', ore_min: 120 },
+    { data: '2026-06-02', causale: 'Festività', ore_min: 480 }, { data: '2026-04-06', causale: 'Festività', ore_min: 360 },
+  ];
+  assert.deepEqual(godutoPerAnno(righe, 'ex_festivita'), { 2026: 180 });
+  assert.deepEqual(godutoPerAnno(righe, 'rol'), {});
+});
+
+test('busta paga di agosto 2026: con le ore della busta il saldo torna al centesimo', () => {
+  // riquadro «Riposi»: FERIE residuo A.P. 94,00 + maturato 106,64 − goduto 130,00 = 70,64
+  const res = oreInMinuti('94,00', { centesimi: true });
+  const mat = oreInMinuti('106,64', { centesimi: true });
+  const god = oreInMinuti('130,00', { centesimi: true });
+  assert.equal(oreCentesimi(res + mat - god), '70,64');
+  // EX FESTIVITÀ: 152,58 + 17,76 − 11,00 = 159,34 — «152.58» col punto è lo stesso numero
+  const s = saldoMonte(2026, [{ anno: 2026, spettanza_min: oreInMinuti('17.76', { centesimi: true }), residuo_iniziale_min: oreInMinuti('152.58', { centesimi: true }) }],
+    { 2026: oreInMinuti('11,00', { centesimi: true }) });
+  assert.equal(oreCentesimi(s.saldo), '159,34');
 });
 
 test('le ore si scrivono come in ufficio: 176, 176,5, 176:30, 8.30', () => {
@@ -64,4 +85,17 @@ test('le ore si scrivono come in ufficio: 176, 176,5, 176:30, 8.30', () => {
   assert.equal(oreInMinuti('8.30'), 8 * 60 + 30, '«8.30» sono 8 ore e mezza, come nel resto della scheda');
   assert.equal(oreInMinuti(''), null);
   assert.ok(Number.isNaN(oreInMinuti('tante')));
+  assert.equal(oreInMinuti('8.30', { centesimi: true }), 8 * 60 + 18, 'dalla busta paga «8.30» sono 8,30 ore');
+  assert.equal(oreInMinuti('8:30', { centesimi: true }), 8 * 60 + 30);
+});
+
+test('«Ex festività» e «ROL» sono assenze, non dettaglio attività', () => {
+  assert.equal(famigliaCausale('Ex festività'), 'assenza');
+  assert.equal(famigliaCausale('ROL'), 'assenza');
+});
+
+test('le spettanze arrivano dal database come testo («9597.60»): si sommano, non si concatenano', () => {
+  const s = saldoMonte(2026, [{ anno: 2026, spettanza_min: '9597.60', residuo_iniziale_min: '5640.00' }], { 2026: 7800 });
+  assert.equal(s.saldo, 5640 + 9597.6 - 7800);
+  assert.equal(oreCentesimi(s.saldo), '123,96');
 });

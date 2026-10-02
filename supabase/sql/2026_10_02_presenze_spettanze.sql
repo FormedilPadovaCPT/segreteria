@@ -32,3 +32,13 @@ create policy sgr_presenze_spettanze_all on public.s_presenze_spettanze
   for all using (is_segreteria()) with check (is_segreteria());
 revoke all on public.s_presenze_spettanze from anon;
 grant select, insert, update, delete on public.s_presenze_spettanze to authenticated;
+
+-- ── stesso giorno, dopo la busta paga di agosto 2026 ──
+-- I monti sono quelli del riquadro «Riposi» della busta: ferie, ex festività,
+-- ROL/PAR (non «permessi»). Le ore della busta sono in CENTESIMI: 106,64 h =
+-- 6398,4 minuti, e in minuti interi il saldo perdeva un centesimo.
+alter table public.s_presenze_spettanze drop constraint if exists s_presenze_spettanze_monte_check;
+alter table public.s_presenze_spettanze add constraint s_presenze_spettanze_monte_check
+  check (monte in ('ferie', 'ex_festivita', 'rol'));
+alter table public.s_presenze_spettanze alter column spettanza_min type numeric(10,2);
+alter table public.s_presenze_spettanze alter column residuo_iniziale_min type numeric(10,2);
