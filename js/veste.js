@@ -37,11 +37,16 @@ const VESTI = [
    pagine (02/10/2026, chiesto dall'utente: «il cruscotto solo cruscotto») */
 const GRUPPI = [
   ['Cruscotto', ['home']],
-  ['Protocollo', ['registro', 'nuovo-in', 'nuovo-out']],
+  ['Protocollo', ['registro', 'nuovo-in', 'nuovo-out', 'statistiche']],
   ['Servizi CPT', ['segnalazioni', 'visite', 'consulenze', 'conferenze', 'attestazioni', 'notifiche', 'rlst', 'rls']],
-  ['Tecnici', ['fatture-tecnici', 'doc-tecnici', 'zone-tecnici', 'stage']],
+  ['Tecnici', ['fatture-tecnici', 'amministrazione', 'doc-tecnici', 'zone-tecnici', 'stage']],
   ['Anagrafiche', ['imprese', 'persone', 'nomine']],
-  ['Formazione e ufficio', ['corsi', 'presenze', 'comunicazione', 'statistiche']],
+  /* stesso giorno: statistiche del registro sotto Protocollo, i mandati
+     accanto a incarichi e fatture, e tre schede a sé per formazione,
+     presenze (uso quotidiano) e comunicazione (comparto a sé) */
+  ['Formazione', ['corsi']],
+  ['Presenze e ferie', ['presenze']],
+  ['Comunicazione', ['comunicazione']],
 ];
 
 /* Nel browser si salva solo la scelta di tornare alla veste di prima:
