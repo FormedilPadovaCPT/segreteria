@@ -99,3 +99,30 @@ test('le spettanze arrivano dal database come testo («9597.60»): si sommano, n
   assert.equal(s.saldo, 5640 + 9597.6 - 7800);
   assert.equal(oreCentesimi(s.saldo), '123,96');
 });
+
+// Le ore in GIORNI sull'orario vero (02/10/2026, scelta dell'utente):
+// part-time verticale lunedì 6 h, martedì-giovedì 8 h → un giorno vale 7,5 h.
+import { orarioValido, inGiorni, testoGiorni } from '../js/presenze-doc.js';
+const orarioRenato = { dal: '2026-01-01', lun_min: 360, mar_min: 480, mer_min: 480, gio_min: 480, ven_min: 0, sab_min: 0, dom_min: 0 };
+
+test('100 ore di ferie sono 13,3 giorni: 3 settimane piene e 10 ore', () => {
+  const g = inGiorni(100 * 60, orarioRenato);
+  assert.equal(Math.round(g.giorni * 10) / 10, 13.3);
+  assert.equal(g.settimane, 3);
+  assert.equal(g.restoMin, 600);
+  assert.equal(testoGiorni(100 * 60, orarioRenato), '≈ 13,3 giorni (3 settimane e 10:00 h)');
+  assert.equal(testoGiorni(30 * 60, orarioRenato), '≈ 4 giorni (1 settimana)');
+  assert.equal(testoGiorni(7.5 * 60, orarioRenato), '≈ 1 giorno');
+});
+
+test('senza orario i giorni non si inventano', () => {
+  assert.equal(testoGiorni(6000, null), '');
+  assert.equal(testoGiorni(6000, { dal: '2026-01-01' }), '', 'un orario tutto a zero non è un orario');
+});
+
+test('vale l\'orario in vigore alla data: un cambio non riscrive il passato', () => {
+  const dopo = { ...orarioRenato, dal: '2027-01-01', lun_min: 480 };
+  assert.equal(orarioValido([orarioRenato, dopo], '2026-10-02').dal, '2026-01-01');
+  assert.equal(orarioValido([orarioRenato, dopo], '2027-03-01').dal, '2027-01-01');
+  assert.equal(orarioValido([dopo], '2026-10-02'), null);
+});

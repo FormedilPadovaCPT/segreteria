@@ -27,7 +27,8 @@ import { risolviCartella, leggiByte } from './drive.js';
 import { scaricaEml, FIRMA_SEGRETERIA } from './eml.js';
 import { RUBRICA_INTERNA } from './lookups.js';
 import { MESI, mm2hm, eRipartizione, totaleOre, famigliaCausale, contaAttivita, contaProgetti, TESTO_AVVISO,
-  MONTI_SALDO, CAUSALI_SALDO, godutoPerAnno, saldoMonte, oreInMinuti, oreCentesimi } from './presenze-doc.js';
+  MONTI_SALDO, CAUSALI_SALDO, godutoPerAnno, saldoMonte, oreInMinuti, oreCentesimi,
+  GIORNI_ORARIO, orarioValido, misuraOrario, testoGiorni } from './presenze-doc.js';
 
 const CARTELLA_FOGLI = '2_AREE/Amministrazione/personale/fogli_presenze';
 const CARTELLA_RICHIESTE = '2_AREE/Amministrazione/personale/richieste_ferie_permessi';
@@ -1029,15 +1030,17 @@ async function renderFerie(hostArg) {
    per ferie e permessi le ore spettanti si scrivono dalla busta paga
    (s_presenze_spettanze), il goduto si conta dalle righe vere. */
 async function riquadroSaldi(anno) {
-  let spettanze; let righe; let aperte; let inArrivo;
+  let spettanze; let righe; let aperte; let inArrivo; let orari;
   try {
-    const [r1, r3, r4] = await Promise.all([
+    const [r1, r3, r4, r5] = await Promise.all([
       sb.from('s_presenze_spettanze').select('*').eq('dipendente', dipendente),
       sb.from('s_presenze_extra').select('causale, ore_min, pagato').eq('dipendente', dipendente).eq('chiuso', false),
       sb.from('s_ferie_richieste').select('tipo, monte, ore, data_inizio, righe_generate, aut_stato')
         .eq('dipendente', dipendente).eq('aut_stato', 'approvata').gte('data_inizio', `${anno}-01-01`).lte('data_inizio', `${anno}-12-31`),
+      sb.from('s_presenze_orari').select('*').eq('dipendente', dipendente),
     ]);
-    for (const r of [r1, r3, r4]) if (r.error) throw r.error;
+    for (const r of [r1, r3, r4, r5]) if (r.error) throw r.error;
+    orari = r5.data || [];
     spettanze = r1.data || [];
     aperte = r3.data || [];
     inArrivo = (r4.data || []).filter((r) => !r.righe_generate);
@@ -1047,6 +1050,10 @@ async function riquadroSaldi(anno) {
     return '<p class="empty" style="margin-bottom:10px">⚠ Non sono riuscito a leggere i saldi: nessun numero calcolato. Riprova.</p>';
   }
   const banca = calcolaBanca(aperte);
+  /* le ore anche in GIORNI, sull'orario in vigore oggi (02/10/2026) */
+  const orario = orarioValido(orari, oggiIso());
+  const misura = misuraOrario(orario);
+  const gg = (min) => { const t = Math.round(min || 0) ? testoGiorni(min, orario) : ''; return t ? ` <span class="hint">· ${t}</span>` : ''; };
   /* maturato a MESI CONCLUSI, come la busta: a ottobre ne sono maturati nove */
   const oggi = new Date();
   const mesiConclusi = anno < oggi.getFullYear() ? 12 : anno > oggi.getFullYear() ? 0 : oggi.getMonth();
@@ -1063,21 +1070,23 @@ async function riquadroSaldi(anno) {
         <span class="dt-cella dt-senzadata">godute ${ore(s.goduto)} · <strong>saldo non calcolabile</strong>: manca la spettanza ${anno}</span></div>`;
     }
     return `<div class="dt-quadro-riga"><span class="dt-quadro-req">${nome} ${anno}</span>
-      <span class="dt-cella ${s.saldo < 0 ? 'dt-scaduto' : 'dt-ok'}"><strong>${mm2hm(s.saldo)}</strong> (${oreCentesimi(s.saldo)}) da godere entro l'anno</span></div>
+      <span class="dt-cella ${s.saldo < 0 ? 'dt-scaduto' : 'dt-ok'}"><strong>${mm2hm(s.saldo)}</strong> (${oreCentesimi(s.saldo)}) da godere entro l'anno${gg(s.saldo)}</span></div>
       <p class="hint" style="margin:2px 0 6px">${s.residuoIniziale == null ? 'residuo al 1° gennaio non indicato'
         : `residuo al 1° gennaio ${ore(s.residuoIniziale)}${s.residuoDa === 'anno-prima' ? ' (riportato dal saldo ' + (anno - 1) + ')' : ''}`}
         + spettanza ${ore(s.spettanza)} − godute ${ore(s.goduto)} <span class="hint">(${causali.map((c) => `«${c}»`).join(' + ')})</span>${mesiConclusi && mesiConclusi < 12
-        ? ` · <strong>a oggi</strong>, con ${mesiConclusi} mes${mesiConclusi === 1 ? 'e' : 'i'} maturat${mesiConclusi === 1 ? 'o' : 'i'}: ${ore((s.residuoIniziale ?? 0) + Math.round(s.spettanza * mesiConclusi / 12) - s.goduto)}` : ''}${attesa
+        ? ` · <strong>a oggi</strong>, con ${mesiConclusi} mes${mesiConclusi === 1 ? 'e' : 'i'} maturat${mesiConclusi === 1 ? 'o' : 'i'}: ${ore((s.residuoIniziale ?? 0) + Math.round(s.spettanza * mesiConclusi / 12) - s.goduto)}${gg((s.residuoIniziale ?? 0) + Math.round(s.spettanza * mesiConclusi / 12) - s.goduto)}` : ''}${attesa
         ? ` · <strong>${mm2hm(attesa)}</strong> approvate e non ancora registrate` : ''}${s.fonte ? ` · fonte: ${esc(s.fonte)}` : ''}</p>`;
   };
   return `<div class="dt-quadro" style="margin-bottom:10px">
     <div class="dt-quadro-riga"><span class="dt-quadro-req">Banca ore</span>
-      <span class="dt-cella ${banca.saldo > 0 ? 'dt-senzadata' : 'dt-ok'}"><strong>${mm2hm(banca.saldo)}</strong> da recuperare</span></div>
+      <span class="dt-cella ${banca.saldo > 0 ? 'dt-senzadata' : 'dt-ok'}"><strong>${mm2hm(banca.saldo)}</strong> da recuperare${gg(banca.saldo)}</span></div>
     <p class="hint" style="margin:2px 0 6px">${mm2hm(banca.supplementari)} supplementari da recuperare − ${mm2hm(banca.recuperi)} recuperi${banca.pagate
       ? ` · ${mm2hm(banca.pagate)} supplementari da pagare (busta paga, fuori banca ore)` : ''}</p>
     ${MONTI_SALDO.map(cella).join('')}
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:4px">
       <p class="hint" style="margin:0">Saldi di ${esc(dipendente)}, con i monti del riquadro «Riposi» della busta paga.
+        ${misura ? `I giorni si contano sul suo orario (${GIORNI_ORARIO.filter((g) => Number(orario[`${g}_min`]) > 0).map((g) => `${g} ${mm2hm(Number(orario[`${g}_min`]))}`).join(', ')}): un giorno vale in media ${mm2hm(misura.media)} h.`
+          : '<strong>Per vedere anche i giorni</strong> scrivi il suo orario della settimana in «✏ Spettanze».'}
         Fra parentesi le ore in <strong>centesimi</strong>, come sul cedolino. Le spettanze si scrivono dalla busta
         paga: l'app non le ricava dal contratto. Il goduto si conta dalle righe registrate qui, che possono
         differire dalla busta di qualche ora (un permesso di fine mese passa sul cedolino dopo).</p>
@@ -1087,8 +1096,13 @@ async function riquadroSaldi(anno) {
 }
 
 async function formSpettanze(annoIniz) {
-  const { data: tutte, error } = await sb.from('s_presenze_spettanze').select('*').eq('dipendente', dipendente).order('anno', { ascending: false });
-  if (error) return toast('Non sono riuscito a leggere le spettanze già scritte. Riprova.', 'err');
+  const [{ data: tutte, error }, { data: orari, error: errO }] = await Promise.all([
+    sb.from('s_presenze_spettanze').select('*').eq('dipendente', dipendente).order('anno', { ascending: false }),
+    sb.from('s_presenze_orari').select('*').eq('dipendente', dipendente).order('dal', { ascending: false }),
+  ]);
+  if (error || errO) return toast('Non sono riuscito a leggere spettanze e orario già scritti. Riprova.', 'err');
+  const orarioOra = orarioValido(orari, oggiIso());
+  const orarioVal = (g) => (orarioOra && Number(orarioOra[`${g}_min`]) ? mm2hm(Number(orarioOra[`${g}_min`])) : '');
   const di = (anno, monte) => (tutte || []).find((x) => x.anno === anno && x.monte === monte);
   const cent = (m) => (m == null ? '' : oreCentesimi(m));
   const nomeMonte = (m) => MONTI_SALDO.find((x) => x.monte === m)?.nome || m;
@@ -1110,6 +1124,15 @@ async function formSpettanze(annoIniz) {
       <strong>Residuo al 1° gennaio</strong> = «RESIDUO A.P.». <strong>Ore spettanti nell'anno</strong>: la busta mostra il
       «MATURATO A.C.» fino a quel mese — per l'anno intero si divide per i mesi e si moltiplica per 12 (agosto: × 12 ÷ 8).
       Il residuo lascialo vuoto se vuoi che l'app riporti il saldo dell'anno prima. Si salvano solo i monti compilati.</p>
+    <fieldset style="border:1px solid #e3e3e3;border-radius:6px;padding:8px 10px;margin:8px 0">
+      <legend><strong>Orario della settimana</strong> — serve a dire le ore anche in giorni</legend>
+      <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px">
+        ${GIORNI_ORARIO.map((g) => `<div class="field"><label>${g}</label><input id="sp-or-${g}" placeholder="0" value="${orarioVal(g)}"></div>`).join('')}
+      </div>
+      <div class="field" style="max-width:200px"><label>Vale dal</label><input type="date" id="sp-or-dal" value="${orarioOra?.dal || oggiIso()}"></div>
+      <p class="hint" style="margin:4px 0 0">Ore di ogni giorno, per esempio 8 o 7:30; vuoto = giorno di riposo. Se l'orario cambia,
+        cambia la data «vale dal»: l'orario di prima resta per il passato.</p>
+    </fieldset>
     <div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="btn btn-primary" id="sp-salva">Salva</button></div>
     ${(tutte || []).length ? `<h4 style="margin:14px 0 4px">Già scritte</h4><table class="tbl"><tbody>${(tutte || []).map((x) => `<tr>
       <td>${x.anno}</td><td>${esc(nomeMonte(x.monte))}</td><td>${oreCentesimi(x.spettanza_min)}</td>
@@ -1128,11 +1151,23 @@ async function formSpettanze(annoIniz) {
       righe.push({ dipendente, anno, monte, spettanza_min: sp, residuo_iniziale_min: res,
         fonte: $('#sp-fonte').value.trim() || null, aggiornato_da: state.email, updated_at: new Date().toISOString() });
     }
-    if (!righe.length) return toast("Non c'è niente da salvare: compila almeno le ore spettanti di un monte.", 'err');
+    /* orario: si salva se è stato scritto almeno un giorno */
+    const orarioNuovo = { dipendente, dal: $('#sp-or-dal').value || oggiIso(), aggiornato_da: state.email, updated_at: new Date().toISOString() };
+    let unGiorno = false;
+    for (const g of GIORNI_ORARIO) {
+      const v = oreInMinuti($(`#sp-or-${g}`).value);
+      if (Number.isNaN(v) || (v != null && (v < 0 || v > 1440))) return toast(`Orario di ${g} non valido: scrivi per esempio 8 o 7:30.`, 'err');
+      orarioNuovo[`${g}_min`] = v || 0;
+      if (v) unGiorno = true;
+    }
+    if (!righe.length && !unGiorno) return toast("Non c'è niente da salvare: compila le ore spettanti di un monte o l'orario.", 'err');
     attendi(btn, true);
-    const { error: errS } = await sb.from('s_presenze_spettanze').upsert(righe, { onConflict: 'dipendente,anno,monte' });
+    const { error: errS } = righe.length
+      ? await sb.from('s_presenze_spettanze').upsert(righe, { onConflict: 'dipendente,anno,monte' }) : { error: null };
+    const { error: errOr } = !errS && unGiorno
+      ? await sb.from('s_presenze_orari').upsert(orarioNuovo, { onConflict: 'dipendente,dal' }) : { error: null };
     attendi(btn, false);
-    if (errS) return toast('Salvataggio non riuscito: ' + errS.message, 'err');
+    if (errS || errOr) return toast('Salvataggio non riuscito: ' + (errS || errOr).message, 'err');
     toast('Spettanze salvate.', 'ok');
     chiudiDrawer();
     renderFerie();

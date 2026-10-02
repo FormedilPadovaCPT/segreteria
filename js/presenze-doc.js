@@ -815,3 +815,55 @@ export function oreInMinuti(testo, { centesimi = false } = {}) {
 
 /* minuti → ore in centesimi, come sulla busta paga: 4238 → «70,63» */
 export const oreCentesimi = (min) => (Math.round((min || 0) / 60 * 100) / 100).toFixed(2).replace('.', ',');
+
+/* ── 6. Le ore IN GIORNI, sull'orario vero del dipendente (02/10/2026) ──
+   Chiesto dall'utente: vedere le ferie anche in giorni. I giorni non sono tutti
+   uguali (part-time verticale: lunedì 6 h, martedì-giovedì 8 h) e l'utente ha
+   scelto di contarli SUL SUO ORARIO, non a 8 h fisse né col divisore della
+   busta. Un giorno = ore della settimana ÷ giorni lavorati nella settimana
+   (30 h ÷ 4 = 7,5 h), e si dice anche in settimane piene più il resto, che è
+   la lettura che serve quando si prenotano le ferie. */
+export const GIORNI_ORARIO = ['lun', 'mar', 'mer', 'gio', 'ven', 'sab', 'dom'];
+
+/* l'orario in vigore a quella data: la riga con il «dal» più recente non dopo la data */
+export function orarioValido(orari, data) {
+  return (orari || []).filter((o) => String(o.dal) <= String(data))
+    .sort((a, b) => (String(a.dal) < String(b.dal) ? 1 : -1))[0] || null;
+}
+
+export function misuraOrario(orario) {
+  if (!orario) return null;
+  const ore = GIORNI_ORARIO.map((g) => Number(orario[`${g}_min`] || 0));
+  const settimana = ore.reduce((t, x) => t + x, 0);
+  const giorni = ore.filter((x) => x > 0).length;
+  if (!settimana || !giorni) return null;
+  return { settimana, giorni, media: settimana / giorni };
+}
+
+/* minuti → { giorni, settimane, restoMin } sull'orario; null se l'orario manca */
+export function inGiorni(min, orario) {
+  const m = misuraOrario(orario);
+  if (!m || min == null) return null;
+  const segno = min < 0 ? -1 : 1;
+  const a = Math.abs(min);
+  return {
+    giorni: segno * a / m.media,
+    settimane: segno * Math.floor(a / m.settimana),
+    restoMin: segno * (a % m.settimana),
+    media: m.media,
+  };
+}
+
+const unDecimale = (x) => (Math.round(x * 10) / 10).toFixed(1).replace('.', ',').replace(',0', '');
+
+/* «≈ 13,3 giorni (3 settimane e 10:00 h)»; '' se l'orario manca */
+export function testoGiorni(min, orario) {
+  const g = inGiorni(min, orario);
+  if (!g) return '';
+  const n = unDecimale(g.giorni);
+  const giorni = `≈ ${n} ${n === '1' || n === '-1' ? 'giorno' : 'giorni'}`;
+  if (Math.abs(g.settimane) < 1) return giorni;
+  const sett = `${Math.abs(g.settimane)} ${Math.abs(g.settimane) === 1 ? 'settimana' : 'settimane'}`;
+  return `${giorni} (${g.settimane < 0 ? '−' : ''}${sett}${g.restoMin ? ` e ${mm2hm(Math.abs(g.restoMin))} h` : ''})`;
+}
+
