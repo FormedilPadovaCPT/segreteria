@@ -126,3 +126,23 @@ test('vale l\'orario in vigore alla data: un cambio non riscrive il passato', ()
   assert.equal(orarioValido([orarioRenato, dopo], '2027-03-01').dal, '2027-01-01');
   assert.equal(orarioValido([dopo], '2026-10-02'), null);
 });
+
+// Totale delle giornate disponibili (02/10/2026): ferie + ex festività, senza banca ore.
+import { totaleSaldi } from '../js/presenze-doc.js';
+
+test('totale: ferie + ex festività; il ROL vuoto non si cita, quello usato senza spettanza sì', () => {
+  const ferie = saldoMonte(2026, [{ anno: 2026, spettanza_min: '9600.00', residuo_iniziale_min: '5640.00' }], { 2026: 154 * 60 });
+  const exf = saldoMonte(2026, [{ anno: 2026, spettanza_min: '1600.80', residuo_iniziale_min: '9154.80' }], { 2026: 11 * 60 });
+  const rolVuoto = saldoMonte(2026, [], {});
+  const t = totaleSaldi([{ nome: 'Ferie', saldo: ferie }, { nome: 'Ex festività', saldo: exf }, { nome: 'ROL / PAR', saldo: rolVuoto }], 9);
+  assert.equal(oreCentesimi(t.saldo), '268,26');          // 100,00 + 168,26
+  assert.deepEqual(t.nomi, ['Ferie', 'Ex festività']);
+  assert.deepEqual(t.senza, []);
+  assert.equal(testoGiorni(t.saldo, orarioRenato), '≈ 35,8 giorni (8 settimane e 28:16 h)');
+  const rolUsato = saldoMonte(2026, [], { 2026: 120 });
+  assert.deepEqual(totaleSaldi([{ nome: 'Ferie', saldo: ferie }, { nome: 'ROL / PAR', saldo: rolUsato }], 9).senza, ['ROL / PAR']);
+});
+
+test('senza nessuna spettanza non c\'è un totale', () => {
+  assert.equal(totaleSaldi([{ nome: 'Ferie', saldo: saldoMonte(2026, [], { 2026: 600 }) }], 9), null);
+});

@@ -28,7 +28,7 @@ import { scaricaEml, FIRMA_SEGRETERIA } from './eml.js';
 import { RUBRICA_INTERNA } from './lookups.js';
 import { MESI, mm2hm, eRipartizione, totaleOre, famigliaCausale, contaAttivita, contaProgetti, TESTO_AVVISO,
   MONTI_SALDO, CAUSALI_SALDO, godutoPerAnno, saldoMonte, oreInMinuti, oreCentesimi,
-  GIORNI_ORARIO, orarioValido, misuraOrario, testoGiorni } from './presenze-doc.js';
+  GIORNI_ORARIO, orarioValido, misuraOrario, testoGiorni, totaleSaldi } from './presenze-doc.js';
 
 const CARTELLA_FOGLI = '2_AREE/Amministrazione/personale/fogli_presenze';
 const CARTELLA_RICHIESTE = '2_AREE/Amministrazione/personale/richieste_ferie_permessi';
@@ -1083,6 +1083,19 @@ async function riquadroSaldi(anno) {
     <p class="hint" style="margin:2px 0 6px">${mm2hm(banca.supplementari)} supplementari da recuperare − ${mm2hm(banca.recuperi)} recuperi${banca.pagate
       ? ` · ${mm2hm(banca.pagate)} supplementari da pagare (busta paga, fuori banca ore)` : ''}</p>
     ${MONTI_SALDO.map(cella).join('')}
+    ${(() => {
+      /* il TOTALE delle giornate disponibili (02/10/2026): ferie + ex festività
+         (+ ROL se c'è), senza la banca ore */
+      const t = totaleSaldi(MONTI_SALDO.map((x) => ({ nome: x.nome, saldo: saldoMonte(anno,
+        spettanze.filter((y) => y.monte === x.monte), godutoPerAnno(righe, x.monte)) })), mesiConclusi);
+      if (!t || t.nomi.length < 2) return '';
+      return `<div class="dt-quadro-riga" style="border-top:2px solid var(--arancio, #e7500f);margin-top:4px;padding-top:6px">
+          <span class="dt-quadro-req"><strong>Totale disponibile ${anno}</strong></span>
+          <span class="dt-cella ${t.saldo < 0 ? 'dt-scaduto' : 'dt-ok'}"><strong>${mm2hm(t.saldo)}</strong> (${oreCentesimi(t.saldo)}) entro l'anno${gg(t.saldo)}</span></div>
+        <p class="hint" style="margin:2px 0 6px">${esc(t.nomi.join(' + '))}${t.aOggi != null
+          ? ` · <strong>a oggi</strong>: ${ore(t.aOggi)}${gg(t.aOggi)}` : ''}${t.senza.length
+          ? ` · esclus${t.senza.length === 1 ? 'o' : 'i'} ${esc(t.senza.join(', '))}: manca la spettanza` : ''} · la banca ore è a parte</p>`;
+    })()}
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:4px">
       <p class="hint" style="margin:0">Saldi di ${esc(dipendente)}, con i monti del riquadro «Riposi» della busta paga.
         ${misura ? `I giorni si contano sul suo orario (${GIORNI_ORARIO.filter((g) => Number(orario[`${g}_min`]) > 0).map((g) => `${g} ${mm2hm(Number(orario[`${g}_min`]))}`).join(', ')}): un giorno vale in media ${mm2hm(misura.media)} h.`

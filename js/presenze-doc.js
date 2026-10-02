@@ -867,3 +867,22 @@ export function testoGiorni(min, orario) {
   return `${giorni} (${g.settimane < 0 ? '−' : ''}${sett}${g.restoMin ? ` e ${mm2hm(Math.abs(g.restoMin))} h` : ''})`;
 }
 
+/* ── 7. TOTALE delle giornate disponibili (02/10/2026) ──
+   Chiesto dall'utente: ferie + ex festività in un numero solo. Si sommano i
+   soli monti con la spettanza scritta (un monte senza spettanza non ha un
+   saldo, e sommarlo come zero sarebbe falso: si dice quali mancano). La banca
+   ore resta fuori: sono ore da recuperare, non giornate di ferie.
+   «a oggi» = residuo + maturato a mesi conclusi − goduto, come per ogni monte. */
+export function totaleSaldi(saldi, mesiConclusi) {
+  const con = (saldi || []).filter((x) => x.saldo?.spettanza != null);
+  const senza = (saldi || []).filter((x) => x.saldo?.spettanza == null && x.saldo?.goduto).map((x) => x.nome);   /* un monte vuoto (ROL a zero) non si cita */
+  if (!con.length) return null;
+  const aOggi = (x) => (x.saldo.residuoIniziale ?? 0) + Math.round(x.saldo.spettanza * mesiConclusi / 12) - x.saldo.goduto;
+  return {
+    nomi: con.map((x) => x.nome),
+    senza,
+    saldo: con.reduce((t, x) => t + x.saldo.saldo, 0),
+    aOggi: mesiConclusi && mesiConclusi < 12 ? con.reduce((t, x) => t + aOggi(x), 0) : null,
+  };
+}
+
