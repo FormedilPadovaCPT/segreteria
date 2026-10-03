@@ -184,11 +184,36 @@ export function modelloProtocollato(p, contesto = {}) {
   return m;
 }
 
+/* Dal 02/10/2026 le note di un protocollo nato da una mail portano il testo
+   COMPLETO, con le intestazioni in testa («Da:», «A:», «Cc:», «Oggetto:»,
+   «Allegati:») e saluto e firma dentro. Nella maschera dell'invio quel
+   testo usciva tale e quale: intestazioni nel corpo, due saluti, due firme
+   (Prot_26-27_0009, 03/10/2026). Qui la mail registrata si scompone: il
+   saluto va nella sua casella, il corpo nel testo, intestazioni e firma
+   restano solo nel protocollo. Le note senza intestazioni non si toccano. */
+const RIGA_INTESTAZIONE = /^(da|from|a|to|cc|ccn|bcc|oggetto|subject|allegati|data|date|inviato|sent):\s/i;
+const RIGA_SALUTO = /^(gent\.?(le|mo|ma|ili)?|gentil[ei]ssim[oa]|gentile|spett\.?(le|abile)?|egregi[oa]|car[oaie]|buongiorno|buonasera|salve|ciao)\b[^\n]*$/i;
+const RIGA_CHIUSURA = /^(cordiali saluti|cordialmente|distinti saluti|saluti cordiali|un cordiale saluto|i migliori saluti|saluti)[\s.!,]*$/i;
+export function mailDaNote(note) {
+  const righe = String(note ?? '').replace(/\r\n/g, '\n').trim().split('\n');
+  if (!RIGA_INTESTAZIONE.test(righe[0] || '')) return null;
+  let i = 0;
+  while (i < righe.length && righe[i].trim() !== '') i++;
+  const corpo = righe.slice(i).join('\n').trim().split('\n');
+  let saluto = '';
+  if (RIGA_SALUTO.test((corpo[0] || '').trim())) saluto = corpo.shift().trim();
+  /* tutto ciò che segue la formula di chiusura è firma: la mette la mail */
+  const k = corpo.findIndex((r) => RIGA_CHIUSURA.test(r.trim()));
+  const testo = (k >= 0 ? corpo.slice(0, k + 1) : corpo).join('\n').trim();
+  return { saluto, testo };
+}
+
 /** Il testo da proporre nella maschera: le note del protocollo, se ci
- *  sono; altrimenti quello standard del tipo di documento. */
+ *  sono (della mail registrata, il solo corpo); altrimenti quello standard
+ *  del tipo di documento. */
 export function testoProposto(p, contesto = {}) {
   const note = (p?.note || '').trim();
-  if (note) return note;
+  if (note) return mailDaNote(note)?.testo ?? note;
   return modelloProtocollato(p, contesto).testo || '';
 }
 
@@ -221,6 +246,9 @@ export function nomeImpresaLeggibile(nome) {
 export function salutoProposto(p, contesto = {}) {
   const m = modelloProtocollato(p, contesto);
   if (m.saluto) return m.saluto.replace('{impresa}', nomeImpresaLeggibile(p?.impresa_nome) || 'Impresa');
+  /* se le note sono la mail già scritta, il saluto è il suo */
+  const dallaMail = mailDaNote(p?.note)?.saluto;
+  if (dallaMail) return dallaMail;
   const chi = (p?.persona || p?.alla_ca || p?.impresa_nome || '').trim();
   return `Gent.le ${chi},\nbuongiorno,`;
 }

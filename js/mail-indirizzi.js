@@ -215,3 +215,8 @@ export function vociDaGruppo(membri, nomeGruppo) {
 
 /** Le note del vault non sono documenti da allegare (né da agganciare). */
 export const E_NOTA = (nome) => /\.(md|base|canvas)$/i.test(String(nome ?? ''));
+
+/** Che cosa non si allega MAI a una mail in uscita (regola dell'utente,
+ *  03/10/2026): le note del vault e le bozze .eml — una bozza è la mail
+ *  stessa, non un documento da mandare. */
+export const NON_SI_ALLEGA = (nome) => E_NOTA(nome) || /\.eml$/i.test(String(nome ?? ''));

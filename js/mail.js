@@ -45,7 +45,7 @@ import {
   oggettoProposto, MODELLI_PROTOCOLLATO,
 } from './lookups.js';
 import {
-  paroleNominativo, chiaveNominativo, vociIndirizzi, raccogliDestinatari, dividiIndirizzi, nomeDiPersona, E_NOTA, EMAIL_VALIDA,
+  paroleNominativo, chiaveNominativo, vociIndirizzi, raccogliDestinatari, dividiIndirizzi, nomeDiPersona, E_NOTA, NON_SI_ALLEGA, EMAIL_VALIDA,
   vociDaGruppo,
 } from './mail-indirizzi.js';
 import { collegaBarraFormato } from './testo-formato.js';
@@ -179,8 +179,8 @@ export async function apriDialogoMail(p, modo = 'avviso') {
     .order('principale', { ascending: false })
     .order('timbrato', { ascending: false })
     .order('id');
-  /* le note del vault (.md) non sono documenti da allegare */
-  const conDrive = (allegati || []).filter((a) => a.drive_file_id && !E_NOTA(a.nome));
+  /* le note del vault (.md) e le bozze .eml non si allegano mai (03/10/2026) */
+  const conDrive = (allegati || []).filter((a) => a.drive_file_id && !NON_SI_ALLEGA(a.nome));
   if (eAll) guasti.push('i documenti collegati al protocollo');
 
   /* il modello del tipo di documento: testo, saluto, a chi va e che cosa
@@ -203,6 +203,9 @@ export async function apriDialogoMail(p, modo = 'avviso') {
        che il tipo di documento si porta dietro (la UNI 11751-1 col 5.D.3). */
   const preselezione = (a, i) => {
     if (avviso) return false;
+    /* una mail .msg collegata resta proponibile (inoltro), ma non spuntata:
+       è il documento da cui nasce il testo, non un allegato (Prot_26-27_0009) */
+    if (/\.msg$/i.test(a.nome || '')) return false;
     if (a.fisso) return true;
     if (protocollato) return conDrive.some((x) => x.timbrato) ? !!a.timbrato : true;
     return i === 0;
