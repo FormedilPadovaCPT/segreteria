@@ -157,19 +157,29 @@ async function eseguiRicerca(testo) {
     <div class="table-wrap">
       <table class="tbl">
         <thead><tr>
-          <th>Ragione sociale</th><th style="width:150px">Codice fiscale</th>
-          <th style="width:120px">CEIV</th><th style="width:180px">Comune</th>
-          <th style="width:90px">Stato</th>
+          <th>Ragione sociale</th><th style="width:130px">P.IVA</th>
+          <th style="width:150px">Codice fiscale</th><th style="width:100px">CEIV</th>
+          <th>Indirizzo</th>
         </tr></thead>
         <tbody>
-          ${data.map((i) => `
+          ${data.map((i) => {
+            // Il codice interno (impresa_id) è la P.IVA solo per le imprese
+            // recenti: per quelle storiche è un numero di Access (2597, 5863),
+            // e prima stava sotto «Codice fiscale» facendosi passare per tale.
+            const cf = i.impresa_cf && i.impresa_cf !== i.piva ? i.impresa_cf : '';
+            const codiceInterno = i.impresa_id !== i.piva && i.impresa_id !== i.impresa_cf ? i.impresa_id : '';
+            // «stato» in anagrafica è la nazione (ITALIA quasi sempre): si mostra solo se estera.
+            const estero = i.stato && !/^\s*italia/i.test(i.stato) && !/^\d+$/.test(i.stato.trim()) ? ` — ${i.stato.trim()}` : '';
+            const luogo = [i.cap, i.comune].filter(Boolean).join(' ') + (i.prov ? ` (${i.prov})` : '') + estero;
+            return `
             <tr data-imp="${esc(i.impresa_id)}">
               <td><strong>${esc(i.impresa_nome)}</strong>${i.pec ? `<span class="cell-sub">${esc(i.pec)}</span>` : ''}</td>
-              <td>${esc(i.impresa_id)}</td>
+              <td>${i.piva ? esc(i.piva) : '<span class="cell-sub">non in anagrafica</span>'}</td>
+              <td>${esc(cf)}${codiceInterno ? `<span class="cell-sub">codice interno ${esc(codiceInterno)}</span>` : ''}</td>
               <td>${esc(i.cod_ceiv || '')}</td>
-              <td>${esc([i.comune, i.prov].filter(Boolean).join(' — '))}</td>
-              <td>${esc(i.stato || '')}</td>
-            </tr>`).join('')}
+              <td>${esc(i.indirizzo || '')}${luogo.trim() ? `<span class="cell-sub">${esc(luogo.trim())}</span>` : ''}</td>
+            </tr>`;
+          }).join('')}
         </tbody>
       </table>
     </div>
