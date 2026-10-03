@@ -104,6 +104,14 @@ begin
   assert not has_function_privilege('anon', 'public.verbale_mancanze(text)', 'EXECUTE'), 'anon non deve eseguire verbale_mancanze';
   assert not has_function_privilege('anon', 'public.imprese_senza_cf()', 'EXECUTE'), 'anon non deve eseguire imprese_senza_cf';
   assert not has_function_privilege('authenticated', 'public.tg_visite_chiusura_solo_completa()', 'EXECUTE'), 'la funzione del trigger non si chiama a mano';
+  -- il codice del comune: elenco ISTAT completo, e per i comuni soppressi il codice del tempo (03/10/2026)
+  assert (select count(*) from public.comuni_istat) > 7500, 'comuni_istat deve avere l''elenco ISTAT completo';
+  assert public.calcola_comune_cod('Padova') = '028060' and public.calcola_comune_cod('DOLO') = '027012', 'codici di Padova e Dolo';
+  assert public.calcola_comune_cod_al('Carceri', date '2024-01-21') = '028022', 'Carceri prima della fusione ha il suo codice';
+  assert public.calcola_comune_cod_al('Carceri', date '2024-01-22') = '028108' and public.calcola_comune_cod('Vighizzolo d''Este') = '028108', 'dal 22/01/2024 vale Santa Caterina d''Este';
+  assert public.calcola_comune_cod_al('Saletto', date '2018-02-16') = '028074' and public.calcola_comune_cod('Saletto') = '028107', 'Saletto: Borgo Veneto dal 17/02/2018';
+  assert public.calcola_comune_cod('Castro') is null, 'un nome di due comuni non si risolve da solo';
+  assert not has_function_privilege('anon', 'public.calcola_comune_cod_al(text,date)', 'EXECUTE'), 'anon non deve eseguire calcola_comune_cod_al';
 end $$;
 
 rollback;
