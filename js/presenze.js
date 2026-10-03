@@ -582,6 +582,8 @@ ${FIRMA_SEGRETERIA}`,
 
 let contDa = `${oggiIso().slice(0, 4)}-01-01`;
 let contA = oggiIso();
+/* Le due date arrivano da campi della pagina: si accettano solo se sono date (aaaa-mm-gg), altrimenti resta quella di prima. */
+const soloData = (v, ripiego) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) ? String(v) : ripiego);
 let contTutti = false;
 const contAperte = new Set();
 
@@ -646,10 +648,10 @@ async function renderContatori(hostArg) {
   host.innerHTML = `
     <div class="dt-barra" style="flex-wrap:wrap;gap:8px">
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-        <label class="hint">Dal</label><input type="date" id="ct-da" class="inp inp-sm" value="${contDa}">
-        <label class="hint">al</label><input type="date" id="ct-a" class="inp inp-sm" value="${contA}">
+        <label class="hint">Dal</label><input type="date" id="ct-da" class="inp inp-sm" value="${esc(contDa)}">
+        <label class="hint">al</label><input type="date" id="ct-a" class="inp inp-sm" value="${esc(contA)}">
         <div class="seg" id="ct-scorc">${scorciatoie.map(([v, l, d, a]) =>
-          `<button class="seg-btn ${contDa === d && contA === a ? 'is-active' : ''}" data-da="${d}" data-a="${a}">${l}</button>`).join('')}</div>
+          `<button class="seg-btn ${contDa === d && contA === a ? 'is-active' : ''}" data-da="${esc(d)}" data-a="${esc(a)}">${esc(l)}</button>`).join('')}</div>
         <label style="display:flex;gap:5px;align-items:center;cursor:pointer" class="hint">
           <input type="checkbox" id="ct-tutti" ${contTutti ? 'checked' : ''} style="width:auto;margin:0"> tutti i dipendenti</label>
       </div>
@@ -701,11 +703,11 @@ async function renderContatori(hostArg) {
       dettaglio non servono: <strong>l'app le segnala e non le corregge</strong>, decidi tu.</p>`;
 
   const ricarica = () => renderContatori();
-  $('#ct-da').addEventListener('change', (e) => { contDa = e.target.value || contDa; ricarica(); });
-  $('#ct-a').addEventListener('change', (e) => { contA = e.target.value || contA; ricarica(); });
+  $('#ct-da').addEventListener('change', (e) => { contDa = soloData(e.target.value, contDa); ricarica(); });
+  $('#ct-a').addEventListener('change', (e) => { contA = soloData(e.target.value, contA); ricarica(); });
   $('#ct-scorc').addEventListener('click', (e) => {
     const b = e.target.closest('[data-da]');
-    if (b) { contDa = b.dataset.da; contA = b.dataset.a; ricarica(); }
+    if (b) { contDa = soloData(b.dataset.da, contDa); contA = soloData(b.dataset.a, contA); ricarica(); }
   });
   $('#ct-tutti').addEventListener('change', (e) => { contTutti = e.target.checked; ricarica(); });
   $('#ct-nuovo').addEventListener('click', () => formMovimento(null, 'Riunione'));
