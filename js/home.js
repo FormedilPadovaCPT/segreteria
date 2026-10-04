@@ -116,6 +116,22 @@ export async function render() {
     if (error) backupErr = error.message; else backup = (data || [])[0] || null;
   } catch (e) { backupErr = e?.message || String(e); } })();
 
+  /* ── l'ultimo giro dei test automatici (04/10/2026): il test settimanale del
+     database è rimasto rosso dal 21/09 al 04/10 senza che nessuno se ne
+     accorgesse, perché l'unico avviso era un'email di GitHub. I workflow
+     test-db.yml (suite «database», il lunedì) ed e2e.yml del gestionale
+     (suite «browser», ogni mattina feriale e dopo ogni pubblicazione)
+     scrivono il verdetto in s_test_automatici. Come per il backup, nessuna
+     riga da troppo tempo vale come un fallimento. ── */
+  let testAuto = { database: null, browser: null }, testAutoErr = null;
+  const pTestAuto = (async () => { try {
+    const { data, error } = await sb.from('s_test_automatici')
+      .select('id, eseguita_il, suite, esito, passati, falliti, elenco_falliti, run_url')
+      .order('id', { ascending: false }).limit(40);
+    if (error) testAutoErr = error.message;
+    else for (const r of data || []) if (!testAuto[r.suite]) testAuto[r.suite] = r;
+  } catch (e) { testAutoErr = e?.message || String(e); } })();
+
   /* ── il controllo settimanale delle tendine (04/10/2026): ogni lunedì il
      database confronta i valori veri con le voci delle tendine delle app
      (s_controllo_tendine). Un valore NUOVO fuori elenco vuol dire che
@@ -288,7 +304,7 @@ export async function render() {
   let firme = null;
   const pFirme = (async () => { firme = await datiFirme(); })();
 
-  await Promise.all([pBacheca, pFlussi, pForm, pBackup, pTendine, pProm, pCanale, pCritici, pQuest, pIscr, pEseguiti, pFatture, pFirme]);
+  await Promise.all([pBacheca, pFlussi, pForm, pBackup, pTestAuto, pTendine, pProm, pCanale, pCritici, pQuest, pIscr, pEseguiti, pFatture, pFirme]);
 
   /* documenti dei tecnici: lo stato si calcola come nella loro pagina —
      per ogni tecnico in griglia e ogni requisito conta il documento PIÙ
@@ -788,6 +804,39 @@ export async function render() {
         return card('💾 Prova di ripristino del backup', ok ? 0 : '!', corpo, '',
           { k: 'backup', segno: '✓', nonLetto: !!backupErr,
             aiuto: ok ? `${aiutoDi('backup')} Ultima prova riuscita il ${dataIt(String(backup.eseguita_il).slice(0, 10))}: ${backup.tabelle_ok} tabelle, ${backup.durata_s} s.` : '' });
+      })()}
+
+      ${(() => {
+        // database: il lunedì, quindi oltre 9 giorni il giro non è partito;
+        // browser: ogni mattina feriale, quindi oltre 4 giorni (un ponte lungo)
+        const SUITE = [
+          { k: 'database', nome: 'Test del database', limite: 9, unita: 'file', dove: '«Test database»' },
+          { k: 'browser',  nome: 'Prove nel browser del gestionale', limite: 4, unita: 'prove', dove: '«Prove nel browser (Playwright)»' },
+        ];
+        const righe = SUITE.map(s => {
+          const r = testAuto[s.k];
+          const quando = r?.eseguita_il ? new Date(r.eseguita_il) : null;
+          const giorni = quando && !isNaN(quando) ? Math.floor((Date.now() - quando.getTime()) / 864e5) : null;
+          const riuscita = !!r && r.esito === 'riuscita';
+          const vecchio = giorni === null || giorni > s.limite;
+          return { ...s, r, giorni, riuscita, vecchio, ok: riuscita && !vecchio };
+        });
+        const ok = !testAutoErr && righe.every(x => x.ok);
+        const corpo = testAutoErr
+          ? `<p class="hint" style="color:#a01f00">⚠ Non sono riuscito a leggere i verdetti dei test: ${esc(testAutoErr)}. Non si può dire che i test siano verdi.</p>`
+          : righe.map(x => !x.r
+              ? `<div class="hm-riga"><span>🔴</span><span>${x.nome}: <strong>nessun giro registrato</strong>. Su GitHub, repo gestionale-visite, tab Actions, ${x.dove}, Run workflow.</span><span></span></div>`
+              : `<div class="hm-riga"><span>${x.ok ? '🟢' : '🔴'}</span>
+                   <span>${x.nome}: <strong>${esc(x.r.esito)}</strong>${x.r.passati != null ? ` · ${x.r.passati} ${x.unita} passati` : ''}${x.r.falliti ? ` · <strong>${x.r.falliti} falliti</strong>` : ''}
+                     ${(x.r.elenco_falliti || []).length ? `<span class="hint" style="display:block;white-space:normal">${x.r.elenco_falliti.map(esc).join(' · ')}</span>` : ''}
+                     ${x.vecchio ? `<span class="hint" style="display:block;white-space:normal;color:#a01f00">Più vecchio di ${x.limite} giorni: il giro non è partito o non ha scritto.</span>` : ''}
+                     ${!x.ok && x.r.run_url ? `<a class="hint" href="${esc(x.r.run_url)}" target="_blank" rel="noopener">dettaglio del giro su GitHub</a>` : ''}</span>
+                   <span class="hint">${dataIt(String(x.r.eseguita_il).slice(0, 10))} · ${x.giorni} giorni fa</span></div>`).join('')
+            + (ok ? '' : '<div class="hm-riga"><span>⚠</span><span>Un test rosso vuol dire che una regola delle app non vale più, o che il test va aggiornato: non è un lavoro della segreteria sistemarlo, è un segnale da girare a chi segue le app.</span><span></span></div>');
+        const db = righe[0], br = righe[1];
+        return card('🧪 Test automatici delle app', ok ? 0 : '!', corpo, '',
+          { k: 'test', segno: '✓', nonLetto: !!testAutoErr,
+            aiuto: ok ? `${aiutoDi('test')} Database: ${db.r.passati} file verdi il ${dataIt(String(db.r.eseguita_il).slice(0, 10))}. Browser: ${br.r.passati} prove verdi il ${dataIt(String(br.r.eseguita_il).slice(0, 10))}.` : '' });
       })()}
 
       ${(() => {
