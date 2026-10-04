@@ -14,7 +14,7 @@
    (regola del vault sulle note di riepilogo con formazione).
    ============================================================ */
 
-import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo, impresaPerPiva, testoSpesa } from './core.js';
+import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo, impresaPerPiva, testoSpesa, opzioniTendina } from './core.js';
 import { APP_URL } from './config.js';
 import { risolviCartella, leggiByte, idDaLink } from './drive.js';
 import { scaricaEml, FIRMA_SEGRETERIA } from './eml.js';
@@ -313,11 +313,9 @@ export async function apriPratica(id) {
     <hr style="margin:14px 0;border:0;border-top:1px solid var(--bordo)">
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
       <div class="field"><label>Stato pratica</label>
-        <select id="cf-stato">${Object.entries(STATI).map(([k, l]) =>
-          `<option value="${k}" ${p.stato === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+        <select id="cf-stato">${opzioniTendina(Object.entries(STATI), p.stato)}</select></div>
       <div class="field"><label>Tecnico assegnato</label>
-        <select id="cf-tecnico"><option value="">—</option>${tecnici.map((t) =>
-          `<option value="${t.email}" ${(p.tecnico_assegnato || p.tecnico_proposto) === t.email ? 'selected' : ''}>${esc(nomeTecnico(t.email))}</option>`).join('')}</select></div>
+        <select id="cf-tecnico">${opzioniTendina(tecnici.map((t) => [t.email, nomeTecnico(t.email)]), (p.tecnico_assegnato || p.tecnico_proposto), { vuota: true })}</select></div>
       <div class="field"><label>Data conferenza</label>
         <input type="date" id="cf-data" value="${esc(p.data_conferenza || '')}"></div>
       <div class="field"><label>N° partecipanti</label>

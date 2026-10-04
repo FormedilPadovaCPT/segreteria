@@ -372,8 +372,18 @@ async function scheda(host) {
       error = e2;
       if (!error) { corrente = null; attendi(btn, false); toast('Persona creata.', 'ok'); return apriPersona(data.persona_id); }
     } else {
+      /* 04/10/2026: si scrivono solo i campi cambiati rispetto a quando la scheda si è
+         aperta. Prima si riscrivevano tutti: un telefono aggiornato nel frattempo dal
+         gestionale tornava al valore vecchio. */
+      const diff = {};
+      for (const [k, v] of Object.entries(agg)) {
+        const prima = k === 'contatti_riservati' ? (p[k] || []).join(',') : String(p[k] ?? '');
+        const dopo = k === 'contatti_riservati' ? (v || []).join(',') : String(v ?? '');
+        if (prima !== dopo) diff[k] = v;
+      }
+      if (!Object.keys(diff).length) { attendi(btn, false); return toast('Nessuna modifica da salvare.'); }
       ({ error } = await sb.from('persone')
-        .update({ ...agg, updated_by: state.email, updated_at: new Date().toISOString() })
+        .update({ ...diff, updated_by: state.email, updated_at: new Date().toISOString() })
         .eq('persona_id', p.persona_id));
     }
     attendi(btn, false);

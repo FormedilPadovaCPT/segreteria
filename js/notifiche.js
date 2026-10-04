@@ -14,7 +14,7 @@
    quando viene creato); il verbale vive di là.
    ============================================================ */
 
-import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo, siglaProtocollo, impresaPerPiva } from './core.js';
+import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo, siglaProtocollo, impresaPerPiva, opzioniTendina } from './core.js';
 import { scaricaEml, FIRMA_SEGRETERIA } from './eml.js';
 import { risolviCartella, caricaByte } from './drive.js';
 
@@ -256,11 +256,9 @@ export async function apriPratica(id) {
     <hr style="margin:14px 0;border:0;border-top:1px solid var(--bordo)">
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
       <div class="field"><label>Stato pratica</label>
-        <select id="nt-stato">${Object.entries(STATI).map(([k, l]) =>
-          `<option value="${k}" ${p.stato === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+        <select id="nt-stato">${opzioniTendina(Object.entries(STATI), p.stato)}</select></div>
       <div class="field"><label>Tecnico assegnato</label>
-        <select id="nt-tecnico"><option value="">—</option>${tecnici.map((t) =>
-          `<option value="${t.email}" ${(p.tecnico_assegnato || p.tecnico_proposto) === t.email ? 'selected' : ''}>${esc(nomeTecnico(t.email))}</option>`).join('')}</select></div>
+        <select id="nt-tecnico">${opzioniTendina(tecnici.map((t) => [t.email, nomeTecnico(t.email)]), (p.tecnico_assegnato || p.tecnico_proposto), { vuota: true })}</select></div>
     </div>
     <div class="field" style="margin-top:8px"><label>Note dell'ufficio</label>
       <textarea id="nt-note">${esc(p.note_ufficio || '')}</textarea></div>

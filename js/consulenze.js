@@ -23,7 +23,7 @@
    lavorazione), settore edile dall'ATECO.
    ============================================================ */
 
-import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo, siglaProtocollo, impresaPerPiva, testoSpesa } from './core.js';
+import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo, siglaProtocollo, impresaPerPiva, testoSpesa, opzioniTendina } from './core.js';
 import { APP_URL } from './config.js';
 import { risolviCartella, caricaByte, leggiByte, idDaLink } from './drive.js';
 import { scaricaEml, allargaDestinatari, FIRMA_SEGRETERIA } from './eml.js';
@@ -395,8 +395,7 @@ export async function apriPratica(id) {
       <textarea id="cn-risposta" rows="4" placeholder="La risposta da trasmettere all'impresa">${esc(p.risposta || '')}</textarea></div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px">
       <div class="field"><label>Stato pratica</label>
-        <select id="cn-stato">${Object.entries(STATI).map(([k, l]) =>
-          `<option value="${k}" ${p.stato === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+        <select id="cn-stato">${opzioniTendina(Object.entries(STATI), p.stato)}</select></div>
       <div class="field"><label>Modalità</label>
         <select id="cn-luogo">${Object.entries(LUOGHI).map(([k, l]) =>
           `<option value="${k}" ${p.luogo === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
@@ -407,8 +406,7 @@ export async function apriPratica(id) {
         <input id="cn-codceiv" value="${esc(codiceProposto)}"></div>
       ${uscita ? `
       <div class="field"><label>Tecnico assegnato</label>
-        <select id="cn-tecnico"><option value="">—</option>${tecnici.map((t) =>
-          `<option value="${t.email}" ${p.tecnico_assegnato === t.email ? 'selected' : ''}>${esc(nomeTecnico(t.email))}</option>`).join('')}</select></div>
+        <select id="cn-tecnico">${opzioniTendina(tecnici.map((t) => [t.email, nomeTecnico(t.email)]), p.tecnico_assegnato, { vuota: true })}</select></div>
       <div class="field"><label>Data intervento</label>
         <input type="date" id="cn-dataint" value="${esc(p.data_intervento || '')}"></div>
       <div class="field"><label>Spesa</label>

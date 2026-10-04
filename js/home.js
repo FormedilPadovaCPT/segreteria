@@ -116,6 +116,23 @@ export async function render() {
     if (error) backupErr = error.message; else backup = (data || [])[0] || null;
   } catch (e) { backupErr = e?.message || String(e); } })();
 
+  /* ── il controllo settimanale delle tendine (04/10/2026): ogni lunedì il
+     database confronta i valori veri con le voci delle tendine delle app
+     (s_controllo_tendine). Un valore NUOVO fuori elenco vuol dire che
+     qualcuno scrive in quella colonna con parole diverse: è come è nato
+     l'errore di «Modifica impresa». Si mostrano i nuovi non ancora visti,
+     e il battito del giro (il silenzio non è un esito). ── */
+  let tendine = { giro: null, nuovi: [] }, tendineErr = null;
+  const pTendine = (async () => { try {
+    const [{ data: g, error: e1 }, { data: v, error: e2 }] = await Promise.all([
+      sb.from('s_tendine_giri').select('fatto_il, colonne, colonne_ko, valori_fuori, nuovi, errori')
+        .order('id', { ascending: false }).limit(1),
+      sb.from('s_tendine_valori').select('tabella, colonna, valore, righe, primo_visto')
+        .is('visto_il', null).gt('righe', 0).order('righe', { ascending: false }).limit(30),
+    ]);
+    if (e1 || e2) tendineErr = (e1 || e2).message; else tendine = { giro: (g || [])[0] || null, nuovi: v || [] };
+  } catch (e) { tendineErr = e?.message || String(e); } })();
+
   /* ── i promemoria delle lezioni (28/09/2026): partono da soli, quindi si
      sorvegliano. Contano quelli NON partiti e gli iscritti senza indirizzo
      delle lezioni ancora da fare, e il giro del mattino: se manca da più di
@@ -271,7 +288,7 @@ export async function render() {
   let firme = null;
   const pFirme = (async () => { firme = await datiFirme(); })();
 
-  await Promise.all([pBacheca, pFlussi, pForm, pBackup, pProm, pCanale, pCritici, pQuest, pIscr, pEseguiti, pFatture, pFirme]);
+  await Promise.all([pBacheca, pFlussi, pForm, pBackup, pTendine, pProm, pCanale, pCritici, pQuest, pIscr, pEseguiti, pFatture, pFirme]);
 
   /* documenti dei tecnici: lo stato si calcola come nella loro pagina —
      per ogni tecnico in griglia e ogni requisito conta il documento PIÙ
@@ -773,6 +790,33 @@ export async function render() {
             aiuto: ok ? `${aiutoDi('backup')} Ultima prova riuscita il ${dataIt(String(backup.eseguita_il).slice(0, 10))}: ${backup.tabelle_ok} tabelle, ${backup.durata_s} s.` : '' });
       })()}
 
+      ${(() => {
+        const LIMITE_GIORNI = 9;   // il giro è settimanale: oltre 9 giorni non è partito
+        const g = tendine.giro;
+        const quando = g?.fatto_il ? new Date(g.fatto_il) : null;
+        const giorni = quando && !isNaN(quando) ? Math.floor((Date.now() - quando.getTime()) / 864e5) : null;
+        const vecchio = giorni === null || giorni > LIMITE_GIORNI;
+        const ko = (g?.colonne_ko || 0) > 0;
+        const nuovi = tendine.nuovi;
+        const ok = !tendineErr && !vecchio && !ko && !nuovi.length;
+        const corpo = tendineErr
+          ? `<p class="hint" style="color:#a01f00">⚠ Non sono riuscito a leggere il controllo delle tendine: ${esc(tendineErr)}. Non si può dire che i dati siano a posto.</p>`
+          : `${nuovi.map((n) => `<div class="hm-riga"><span>🟠</span>
+               <span><strong>${esc(n.valore)}</strong> in ${esc(n.tabella)}.${esc(n.colonna)}
+                 <span class="hint" style="display:block;white-space:normal">fuori dalle voci delle tendine · visto la prima volta il ${dataIt(String(n.primo_visto).slice(0, 10))}</span></span>
+               <span class="hm-mini">${n.righe}</span></div>`).join('')}
+             ${nuovi.length ? `<p class="hint" style="white-space:normal">Un valore che nessuna tendina conosce: qualcuno (un'app, un import, una persona) scrive in quella colonna con parole diverse. Le maschere lo tengono «com'è scritto» e non lo perdono; va capito da dove arriva e, se è giusto, aggiunto alle voci della tendina. <button class="btn btn-ghost btn-sm" type="button" data-tendine-visti data-aiuto="Segna come guardati i valori qui sopra: escono dalla tessera e ricompaiono solo valori nuovi. I dati non cambiano.">✓ Visti</button></p>` : ''}
+             ${!g
+               ? '<p class="hint" style="color:#a01f00">🔴 Il controllo delle tendine non è mai girato: il giro pg_cron «controllo-tendine» non ha scritto.</p>'
+               : `<div class="hm-riga"><span>${vecchio || ko ? '🔴' : '🟢'}</span>
+                    <span>Ultimo controllo: ${g.colonne} colonne, ${g.valori_fuori} valori fuori elenco già noti${ko ? ` · <strong>${g.colonne_ko} colonne non lette</strong>` : ''}</span>
+                    <span class="hint">${dataIt(String(g.fatto_il).slice(0, 10))} · ${giorni} giorni fa</span></div>
+                  ${vecchio ? `<div class="hm-riga"><span>🔴</span><span>Il controllo ha più di ${LIMITE_GIORNI} giorni: il giro del lunedì non è partito o non ha scritto (pg_cron «controllo-tendine»).</span><span></span></div>` : ''}`}`;
+        return card('🔎 Tendine e dati', ok ? 0 : '!', corpo, '',
+          { k: 'tendine', segno: '✓', nonLetto: !!tendineErr,
+            aiuto: ok ? `${aiutoDi('tendine')} Ultimo controllo il ${dataIt(String(g.fatto_il).slice(0, 10))}: nessun valore nuovo.` : '' });
+      })()}
+
       ${card('🦺 Pratiche RLST aperte', (rlst || []).length,
         (rlst || []).length
           ? (rlst || []).slice(0, 6).map((p) => `
@@ -878,6 +922,12 @@ export async function render() {
     ${bannerCanale}${bannerFormazione}${striscia()}
     <div class="hm-griglia">${griglia}</div>`;
   collegaFirme(host, render);
+  host.querySelector('[data-tendine-visti]')?.addEventListener('click', async (ev) => {
+    const b = ev.currentTarget; b.disabled = true;
+    const { error } = await sb.rpc('s_tendine_visti');
+    if (error) { b.disabled = false; return toast('Non riuscito: ' + error.message, 'err'); }
+    render();
+  });
 
   /* «Aggiorna adesso» della card Posta e agenda: rilancia bacheca-giornata e ridisegna.
      La funzione non onora input e scrive solo le sue tabelle: un clic in più non fa danni. */

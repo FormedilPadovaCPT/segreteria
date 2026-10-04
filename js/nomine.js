@@ -411,7 +411,13 @@ function formNomina(n, { prefill = {}, dopo } = {}) {
       riga.data_reg = oggiIso();
       ({ error } = await sb.from('s_nomine').insert(riga));
     } else {
-      ({ error } = await sb.from('s_nomine').update(riga).eq('access_id', d.access_id));
+      /* 04/10/2026: solo i campi cambiati rispetto a quando la nomina si è aperta */
+      const diff = {};
+      for (const [k, v] of Object.entries(riga)) {
+        if (k !== 'updated_at' && String(d[k] ?? '') !== String(v ?? '')) diff[k] = v;
+      }
+      if (!Object.keys(diff).length) { attendi(btn, false); chiudiDrawer(); return toast('Nessuna modifica da salvare.'); }
+      ({ error } = await sb.from('s_nomine').update({ ...diff, updated_at: riga.updated_at }).eq('access_id', d.access_id));
     }
     attendi(btn, false);
     if (error) return toast('Salvataggio non riuscito: ' + error.message, 'err');

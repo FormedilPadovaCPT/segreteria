@@ -266,6 +266,7 @@ window.AIUTO_TESTI = {
   'sg-chiudi': 'Chiude la segnalazione: esce dal cruscotto e dagli elenchi da lavorare. Si fa dopo aver mandato l’esito (Cassa Edile) o deciso il riscontro.',
   'hm-eseguite': 'Visite eseguite nel gestionale, in attesa della chiusura della segreteria: da qui si decide se e a chi comunicare l\'esito.',
   'hm-canale': 'Il portale servizi funziona: il battito lo scrive ogni notte un controllo automatico, e serve a distinguere «nessuno ha inviato» da «il canale è rotto». Se qualcosa non va, compare una tessera rossa.',
+  'hm-tendine': 'Ogni lunedì il database confronta i valori scritti nelle colonne condivise (imprese, persone, verbali, cantieri, protocollo, corsi) con le voci delle tendine di tutte le app. Arancione = è comparso un valore che nessuna tendina conosce: qualcuno scrive con parole diverse. Rossa se il controllo non gira da più di 9 giorni.',
   'hm-backup': 'Ogni notte il database viene salvato cifrato su Drive; una volta al mese un controllo automatico lo riapre in un database vuoto e verifica che ogni tabella torni con le stesse righe. Verde = l\'ultima prova è riuscita ed è recente; rossa se è fallita, o se manca da più di 35 giorni.',
   'hm-rlst': 'Le richieste di affidamento al servizio RLST non ancora chiuse.',
   'hm-documenti': 'Per ogni tecnico e ogni requisito conta il documento più recente, con la stessa regola della pagina Documenti tecnici (rinnovo tacito compreso). «Mai registrati» sono i requisiti per cui la pagina non ha nessun documento.',

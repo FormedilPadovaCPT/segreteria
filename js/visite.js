@@ -19,7 +19,7 @@
    al tecnico; il verbale poi vive nel gestionale visite.
    ============================================================ */
 
-import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo, impresaPerPiva, testoSpesa } from './core.js';
+import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo, impresaPerPiva, testoSpesa, opzioniTendina } from './core.js';
 import { APP_URL } from './config.js';
 import { risolviCartella, leggiByte, idDaLink } from './drive.js';
 import { scaricaEml, FIRMA_SEGRETERIA } from './eml.js';
@@ -484,11 +484,9 @@ export async function apriPratica(id) {
     <hr style="margin:14px 0;border:0;border-top:1px solid var(--bordo)">
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
       <div class="field"><label>Stato pratica</label>
-        <select id="vs-stato">${Object.entries(STATI).map(([k, l]) =>
-          `<option value="${k}" ${p.stato === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+        <select id="vs-stato">${opzioniTendina(Object.entries(STATI), p.stato)}</select></div>
       <div class="field"><label>Tecnico assegnato</label>
-        <select id="vs-tecnico"><option value="">—</option>${tecnici.map((t) =>
-          `<option value="${t.email}" ${(p.tecnico_assegnato || p.tecnico_proposto) === t.email ? 'selected' : ''}>${esc(nomeTecnico(t.email))}</option>`).join('')}</select></div>
+        <select id="vs-tecnico">${opzioniTendina(tecnici.map((t) => [t.email, nomeTecnico(t.email)]), (p.tecnico_assegnato || p.tecnico_proposto), { vuota: true })}</select></div>
       <div class="field"><label>Esito CEIV${esitoProposto !== p.esito_ceiv ? ' <span class="hint">(dall’anagrafica: Salva per confermare)</span>' : ''}</label>
         <select id="vs-esitoceiv">${Object.keys(ESITI).map((k) =>
           `<option value="${k}" ${esitoProposto === k ? 'selected' : ''}>${ESITI[k][1]}</option>`).join('')}</select></div>

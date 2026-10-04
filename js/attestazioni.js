@@ -22,7 +22,7 @@
       presidente_nome / presidente_firma_id).
    ============================================================ */
 
-import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo, siglaProtocollo, impresaPerPiva } from './core.js';
+import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo, siglaProtocollo, impresaPerPiva, opzioniTendina } from './core.js';
 import { APP_URL } from './config.js';
 import { risolviCartella, caricaByte, leggiByte, idDaLink } from './drive.js';
 import { scaricaEml, FIRMA_SEGRETERIA } from './eml.js';
@@ -295,14 +295,12 @@ export async function apriPratica(id) {
     <hr style="margin:14px 0;border:0;border-top:1px solid var(--bordo)">
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
       <div class="field"><label>Stato pratica</label>
-        <select id="at-stato">${Object.entries(STATI).map(([k, l]) =>
-          `<option value="${k}" ${p.stato === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+        <select id="at-stato">${opzioniTendina(Object.entries(STATI), p.stato)}</select></div>
       <div class="field"><label>Regolarità versamenti</label>
         <select id="at-reg">${Object.keys(REGOLARITA).map((k) =>
           `<option value="${k}" ${p.regolarita_versamenti === k ? 'selected' : ''}>${REGOLARITA[k][1]}</option>`).join('')}</select></div>
       <div class="field"><label>Tecnico assegnato</label>
-        <select id="at-tecnico"><option value="">—</option>${tecnici.map((t) =>
-          `<option value="${t.email}" ${(p.tecnico_assegnato || p.tecnico_proposto) === t.email ? 'selected' : ''}>${esc(nomeTecnico(t.email))}</option>`).join('')}</select></div>
+        <select id="at-tecnico">${opzioniTendina(tecnici.map((t) => [t.email, nomeTecnico(t.email)]), (p.tecnico_assegnato || p.tecnico_proposto), { vuota: true })}</select></div>
       <div class="field"><label>Cantieri concordati</label>
         <input id="at-concordati" value="${esc(p.cantieri_concordati || '')}" placeholder="quali si visitano (concordati con l'impresa)"></div>
       <div class="field"><label>Prima visita: data</label>

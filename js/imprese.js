@@ -622,7 +622,8 @@ const CAMPI = [
 const CCNL_OPZIONI = ['Edilizia Industria', 'Edilizia Artigianato', 'Edilizia Piccola industria', 'Edilizia Cooperative',
   'Metalmeccanico Industria', 'Metalmeccanico Artigianato', 'Installatori Impianti', 'Legno', 'Altro'];
 const OPZIONI = {
-  tipo_impresa: ['S.r.l.', 'S.r.l.s', 'S.r.l. Unipersonale', 'S.n.c.', 'S.A.S.', 'S.p.A.', 'S.coop.', 'Consorzio', 'Ditta Individuale'],
+  /* «Lavoratore autonomo» e «Altro» come nel gestionale (04/10/2026: lo ha trovato tools/tendine.cjs) */
+  tipo_impresa: ['S.r.l.', 'S.r.l.s', 'S.r.l. Unipersonale', 'S.n.c.', 'S.A.S.', 'S.p.A.', 'S.coop.', 'Consorzio', 'Ditta Individuale', 'Lavoratore autonomo', 'Altro'],
   ruolo: ['IMPRESA Edile', 'IMPRESA NON EDILE', 'IMPRESA IMPIANTI', 'LAVORATORE AUTONOMO', 'CONSORZIO', 'ENTE', 'STUDIO',
     'LIBERO PROFESSIONISTA', 'CONSULENTE DEL LAVORO', 'FORNITORE', 'COMMITTENTE PERS. GIU.', 'COMMITTENTE PERS. FIS. Privato',
     'COMMITTENTE PERS. FIS. Pubblico', 'SINDACATO', 'STAMPA', 'MEDICO', 'SPISAL', 'IMPRENDITORE', 'DIPENDENTE',

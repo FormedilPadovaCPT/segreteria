@@ -35,7 +35,7 @@
    consultazione, per precedenti e statistiche.
    ============================================================ */
 
-import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo, siglaProtocollo } from './core.js';
+import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo, siglaProtocollo, opzioniTendina } from './core.js';
 import { APP_URL } from './config.js';
 import { risolviCartella, caricaByte, leggiByte, idDaLink } from './drive.js';
 import { scaricaEml, FIRMA_SEGRETERIA } from './eml.js';
@@ -457,14 +457,12 @@ export async function apriPratica(id) {
     <hr style="margin:14px 0;border:0;border-top:1px solid var(--bordo)">
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
       <div class="field"><label>Stato pratica</label>
-        <select id="sg-stato">${Object.entries(STATI).map(([k, l]) =>
-          `<option value="${k}" ${p.stato === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+        <select id="sg-stato">${opzioniTendina(Object.entries(STATI), p.stato)}</select></div>
       <div class="field"><label>Chi segnala (tipo)</label>
         <select id="sg-tiposeg"><option value="">—</option>${TIPI_SEGNALANTE.map((t) =>
           `<option value="${t}" ${p.segnalante_tipo === t ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
       <div class="field"><label>Tecnico assegnato</label>
-        <select id="sg-tecnico"><option value="">—</option>${tecnici.map((t) =>
-          `<option value="${t.email}" ${(p.tecnico_assegnato || p.tecnico_proposto) === t.email ? 'selected' : ''}>${esc(nomeTecnico(t.email))}</option>`).join('')}</select></div>
+        <select id="sg-tecnico">${opzioniTendina(tecnici.map((t) => [t.email, nomeTecnico(t.email)]), (p.tecnico_assegnato || p.tecnico_proposto), { vuota: true })}</select></div>
       <div class="field"><label>Data verbale visita</label>
         <input type="date" id="sg-dataverb" value="${esc(p.data_verbale || '')}"></div>
     </div>
