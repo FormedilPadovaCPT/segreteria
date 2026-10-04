@@ -22,6 +22,7 @@
 import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, codiceProtocollo } from './core.js';
 import { risolviCartella, caricaByte, leggiByte } from './drive.js';
 import { scaricaEml, FIRMA_SEGRETERIA, collegaDoppioClickMail } from './eml.js';
+import { chiediFirma, scaricaFirmata, firmeDi, etichettaFirma } from './firme-presidente.js';
 /* la ricerca in anagrafica sta in un posto solo: la usa anche la
    maschera manuale delle richieste di visita */
 import { collegaRicercaPersone } from './ricerca-anagrafica.js';
@@ -347,6 +348,10 @@ export async function apriCorso(id) {
     sb.from('s_corsi_iscritti').select('*').eq('corso_id', id).order('nominativo'),
     sb.from('s_corsi_incarichi').select('*').eq('corso_id', id).order('id'),
   ]);
+  /* la firma del Presidente sulle lettere di incarico (04/10/2026) */
+  let firmeInc = new Map(), firmeErr = null;
+  try { firmeInc = await firmeDi('incarico_docenza', (incarichi || []).map((k) => `docenza:${k.id}`)); }
+  catch (e) { firmeErr = e.message; }
   const gIds = (giornate || []).map((g) => g.id);
   let pres = [];
   if (gIds.length) {
@@ -457,9 +462,9 @@ export async function apriCorso(id) {
     <td>${k.ore ?? '—'}</td>
     <td>${k.tariffa_oraria != null ? `€ ${k.tariffa_oraria}` : (forfait(k) ? '<span class="hint">forfait</span>' : '—')}</td>
     <td>${k.corrispettivo != null ? `€ ${Number(k.corrispettivo).toFixed(2)}` : '—'}</td>
-    <td>${k.protocollo_out_id ? '✓ prot.' : (k.data_incarico ? dataIt(k.data_incarico) : '—')}</td>
+    <td>${k.protocollo_out_id ? '✓ prot.' : (k.data_incarico ? dataIt(k.data_incarico) : '—')}${firmeErr ? ' <span class="hint" title="' + esc(firmeErr) + '">⚠ firma non letta</span>' : (firmeInc.get(`docenza:${k.id}`) ? '<br>' + etichettaFirma(firmeInc.get(`docenza:${k.id}`)) : '')}</td>
     <td>${destinoCompenso(k, prestDi[k.id], fattDi[k.id])}</td>
-    <td style="white-space:nowrap"><a href="#" data-mod-inc="${k.id}">modifica</a> · <a href="#" data-lett-inc="${k.id}">📄 lettera</a> · <a href="#" data-del-inc="${k.id}">elimina</a></td>
+    <td style="white-space:nowrap"><a href="#" data-mod-inc="${k.id}">modifica</a> · <a href="#" data-lett-inc="${k.id}">${(() => { const f = firmeInc.get(`docenza:${k.id}`); return f?.stato === 'firmata' ? '📨 mail con la lettera firmata' : f?.stato === 'in_attesa' ? '📄 rigenera la lettera' : k.protocollo_out_id ? '📄 lettera al Presidente' : '📄 lettera da firmare'; })()}</a> · <a href="#" data-del-inc="${k.id}">elimina</a></td>
   </tr>`;
 
   apriDrawer(`${TIPI[c.tipo] || 'Corso'} n° ${c.id} — ${c.titolo}`, '', `
@@ -752,12 +757,20 @@ Registro lo stesso una fattura qui?`)) return;
   $('#drawer-body').querySelectorAll('[data-lett-inc]').forEach((a) => a.addEventListener('click', (e) => {
     e.preventDefault();
     const k = (incarichi || []).find((x) => x.id === Number(a.dataset.lettInc));
-    if (k) letteraIncarico(c, k, interventi || [], giornate || []);
+    if (k) letteraIncarico(c, k, interventi || [], giornate || [], firmeInc.get(`docenza:${k.id}`) || null);
   }));
 }
 
-/* ── LETTERA DI INCARICO: protocollo OUT + PDF + bozza .eml ── */
-async function letteraIncarico(c, k, interventi, giornate) {
+/* ── LETTERA DI INCARICO: protocollo OUT + PDF + firma del Presidente ──
+   Dal 04/10/2026 la lettera non esce più con la firma del Presidente
+   stampata da sola: si protocolla, si genera senza firma e va al
+   Presidente da firmare nell'app (firme-presidente.js), con la mail che
+   lo avvisa. Firmata, lo stesso pulsante deposita la versione firmata
+   e prepara la bozza mail al docente, che manda la segreteria.
+   Una lettera già protocollata si rigenera COL SUO NUMERO: prima ogni
+   clic ne prendeva uno nuovo. */
+async function letteraIncarico(c, k, interventi, giornate, firma) {
+  if (firma?.stato === 'firmata') return mailLetteraFirmata(c, k, firma);
   /* ⚠️ il modello è quello della DOCENZA (contratto d'opera, i dieci
      obblighi del docente, l'accordo quadro): per un relatore ospite o
      un moderatore lo si può usare, ma va detto prima — scelta
@@ -767,64 +780,103 @@ async function letteraIncarico(c, k, interventi, giornate) {
   const compenso = forfait(k)
     ? `compenso forfettario di € ${k.corrispettivo}`
     : `${k.ore ?? '?'} ore a € ${k.tariffa_oraria ?? '?'}/h`;
-  if (!confirm(`Genero la lettera di incarico per ${k.nominativo} (${compenso}), protocollata in uscita nel registro unico. Procedo?`)) return;
+  const rifare = !!k.protocollo_out_id;
+  if (!confirm(rifare
+    ? `La lettera per ${k.nominativo} ha già il suo protocollo: la rigenero con lo stesso numero (${compenso}) e la mando al Presidente da firmare nell'app${firma?.stato === 'in_attesa' ? ', al posto di quella che aspetta già la firma' : ''}. Gli arriva una mail. Procedo?`
+    : `Genero la lettera di incarico per ${k.nominativo} (${compenso}), protocollata in uscita nel registro unico, e la mando al Presidente da firmare nell'app: gli arriva una mail. Procedo?`)) return;
   try {
     const giornataDi = Object.fromEntries(giornate.map((g) => [g.id, g.data]));
     const miei = interventi
       .filter((x) => (k.persona_id && x.persona_id === k.persona_id) || x.nominativo === k.nominativo)
       .map((x) => ({ ...x, giornata_data: giornataDi[x.giornata_id] || null }));
 
-    const { data: nuovo, error: errProt } = await sb.rpc('s_crea_protocollo', { p: {
-      direzione: 'OUT',
-      data_prot: oggiIso(),
-      data_doc: k.data_incarico || oggiIso(),
-      persona: k.nominativo,
-      oggetto: `Lettera di incarico per attività di docenza — ${c.titolo}`,
-      sintesi: `Incarico ${QUALITA[k.qualita] || 'docenza'} corso n° ${c.id} (${TIPI[c.tipo] || c.tipo}): ${compenso}${!forfait(k) && k.corrispettivo ? `, corrispettivo € ${k.corrispettivo}` : ''}.`,
-      ufficio: 'Segreteria Area Sicurezza e Salute',
-      mezzo: 'e-mail',
-      tipo_doc_txt: 'Lettera di incarico docenza',
-      cartella: `2_AREE/Formazione`,
-    } });
-    if (errProt) throw new Error('Protocollazione non riuscita: ' + errProt.message);
-
-    let firmaByte = null;
-    if (conf.presidente_firma_id) {
-      try { firmaByte = await leggiByte(conf.presidente_firma_id); } catch { /* firma a mano */ }
+    let prot;
+    if (rifare) {
+      const { data, error } = await sb.from('s_protocollo').select('*').eq('id', k.protocollo_out_id).maybeSingle();
+      if (error || !data) throw new Error('Non trovo il protocollo della lettera: ' + (error?.message || `id ${k.protocollo_out_id}`));
+      prot = data;
+    } else {
+      const { data: nuovo, error: errProt } = await sb.rpc('s_crea_protocollo', { p: {
+        direzione: 'OUT',
+        data_prot: oggiIso(),
+        data_doc: k.data_incarico || oggiIso(),
+        persona: k.nominativo,
+        oggetto: `Lettera di incarico per attività di docenza — ${c.titolo}`,
+        sintesi: `Incarico ${QUALITA[k.qualita] || 'docenza'} corso n° ${c.id} (${TIPI[c.tipo] || c.tipo}): ${compenso}${!forfait(k) && k.corrispettivo ? `, corrispettivo € ${k.corrispettivo}` : ''}.`,
+        ufficio: 'Segreteria Area Sicurezza e Salute',
+        mezzo: 'e-mail',
+        tipo_doc_txt: 'Lettera di incarico docenza',
+        cartella: `2_AREE/Formazione`,
+      } });
+      if (errProt) throw new Error('Protocollazione non riuscita: ' + errProt.message);
+      prot = nuovo;
+      const { error: eInc } = await sb.from('s_corsi_incarichi').update({
+        protocollo_out_id: nuovo.id, data_incarico: k.data_incarico || oggiIso(),
+      }).eq('id', k.id);
+      if (eInc) throw new Error(`Protocollata ${codiceProtocollo(nuovo)}, ma non collegata all'incarico: ${eInc.message}`);
+      k = { ...k, protocollo_out_id: nuovo.id, data_incarico: k.data_incarico || oggiIso() };
     }
+
     let anagDoc = null;
-    let emailDoc = '';
     if (k.persona_id) {
       const { data: p } = await sb.from('persone')
-        .select('comune_nascita, data_nascita, cf, email').eq('persona_id', k.persona_id).maybeSingle();
-      if (p) { anagDoc = { nato_luogo: p.comune_nascita, nato_il: p.data_nascita, cf: p.cf }; emailDoc = p.email || ''; }
+        .select('comune_nascita, data_nascita, cf').eq('persona_id', k.persona_id).maybeSingle();
+      if (p) anagDoc = { nato_luogo: p.comune_nascita, nato_il: p.data_nascita, cf: p.cf };
     }
 
-    const { pdfLetteraIncarico, scaricaPdf } = await import('./corsi-doc.js');
-    const byte = await pdfLetteraIncarico(c, k, miei, conf, codiceProtocollo(nuovo), firmaByte, anagDoc);
-    const nome = `${oggiIso().replace(/-/g, '_')}_INC_${k.nominativo}_docenza-corso-${c.id}.pdf`;
-    scaricaPdf(byte, nome);
+    const { pdfLetteraIncarico } = await import('./corsi-doc.js');
+    const esito = {};
+    const byte = await pdfLetteraIncarico(c, k, miei, conf, codiceProtocollo(prot), null, anagDoc, esito);
+    const nome = `${(k.data_incarico || oggiIso()).replace(/-/g, '_')}_INC_${k.nominativo}_docenza-corso-${c.id}.pdf`;
+    const r = await chiediFirma([{
+      tipo: 'incarico_docenza', rif: `docenza:${k.id}`, protocollo_id: prot.id,
+      titolo: `Lettera di incarico di docenza a ${k.nominativo} — corso n° ${c.id} «${c.titolo}»`,
+      destinatario: k.nominativo, nome_file: nome, byte, riquadro: esito.riquadro,
+    }]);
+    if (r?.avviso?.inviata) toast(`Lettera ${codiceProtocollo(prot)} mandata al Presidente da firmare: gli è arrivata la mail.`, 'ok');
+    else toast(`Lettera ${codiceProtocollo(prot)} in firma, ma la mail al Presidente non è partita: ${r?.avviso?.errore || 'motivo sconosciuto'}. Riprova da «Ricorda al Presidente» nel cruscotto.`, 'err');
+    apriCorso(c.id);
+  } catch (e) {
+    toast(e.message, 'err');
+  }
+}
 
-    /* deposito su Drive nella cartella del protocollo + aggancio */
-    try {
-      const cart = await risolviCartella('2_AREE/Formazione');
-      if (cart.id) {
-        const su = await caricaByte(nuovo, nome, byte, 'application/pdf', cart.id);
-        await sb.from('s_prot_allegati').insert({
-          protocollo_id: nuovo.id, nome: su.file_name || nome, mime: 'application/pdf',
-          dimensione: byte.length, principale: true, created_by: state.email,
-          drive_file_id: su.drive_file_id, drive_url: su.drive_url,
-        });
-      }
-    } catch { /* il PDF locale c'è comunque */ }
+/* La lettera FIRMATA dal Presidente: si deposita su Drive (la prima volta),
+   si collega al protocollo e si prepara la bozza mail al docente. */
+async function mailLetteraFirmata(c, k, firma) {
+  try {
+    const byte = await scaricaFirmata(firma);
+    const { data: prot, error: eP } = await sb.from('s_protocollo').select('*').eq('id', firma.protocollo_id || k.protocollo_out_id).maybeSingle();
+    if (eP || !prot) throw new Error('Non trovo il protocollo della lettera: ' + (eP?.message || ''));
+    const compenso = forfait(k)
+      ? `compenso forfettario di € ${k.corrispettivo}`
+      : `${k.ore ?? '?'} ore a € ${k.tariffa_oraria ?? '?'}/h`;
+    const nome = `${(k.data_incarico || oggiIso()).replace(/-/g, '_')}_INC_${k.nominativo}_docenza-corso-${c.id}_firmata.pdf`;
 
-    await sb.from('s_corsi_incarichi').update({
-      protocollo_out_id: nuovo.id, data_incarico: k.data_incarico || oggiIso(),
-    }).eq('id', k.id);
+    /* deposito su Drive nella cartella del protocollo + aggancio, una volta sola */
+    if (!firma.usata_il) {
+      try {
+        const cart = await risolviCartella('2_AREE/Formazione');
+        if (cart.id) {
+          const su = await caricaByte(prot, nome, byte, 'application/pdf', cart.id);
+          await sb.from('s_prot_allegati').insert({
+            protocollo_id: prot.id, nome: su.file_name || nome, mime: 'application/pdf',
+            dimensione: byte.length, principale: true, created_by: state.email,
+            drive_file_id: su.drive_file_id, drive_url: su.drive_url,
+          });
+        }
+        await sb.rpc('s_firma_usata', { p_id: firma.id });
+      } catch (e) { toast('Bozza pronta, ma il deposito su Drive non è riuscito: ' + e.message, 'err'); }
+    }
 
+    let emailDoc = '';
+    if (k.persona_id) {
+      const { data: p } = await sb.from('persone').select('email').eq('persona_id', k.persona_id).maybeSingle();
+      emailDoc = p?.email || '';
+    }
     scaricaEml({
       to: emailDoc,
-      oggetto: `Formedil Padova - Area Sicurezza e Salute - Lettera di incarico docenza ${codiceProtocollo(nuovo)} - ${c.titolo}`,
+      oggetto: `Formedil Padova - Area Sicurezza e Salute - Lettera di incarico docenza ${codiceProtocollo(prot)} - ${c.titolo}`,
       corpo: `Egr. ${k.nominativo},
 
 in allegato la lettera di incarico per l'attività in oggetto (${compenso}). La preghiamo di restituirla firmata per accettazione.
@@ -835,7 +887,7 @@ ${FIRMA_SEGRETERIA}`,
       allegati: [{ nome, byte }],
       nomeFile: `incarico-docenza-corso-${c.id}-${k.id}.eml`,
     });
-    toast(`Lettera protocollata ${codiceProtocollo(nuovo)}: PDF e bozza mail scaricati.`, 'ok');
+    toast(`Lettera firmata ${codiceProtocollo(prot)}: bozza mail scaricata.`, 'ok');
     apriCorso(c.id);
   } catch (e) {
     toast(e.message, 'err');

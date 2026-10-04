@@ -772,7 +772,12 @@ export async function pdfQuestionarioCartaceo(corso, quest) {
 }
 
 /* ── 3. LETTERA DI INCARICO DOCENZA (contratto d'opera) ── */
-export async function pdfLetteraIncarico(corso, incarico, mieiInterventi, conf, protocolloTxt, firmaByte, anagDocente) {
+/* Dal 04/10/2026 la firma del Presidente NON si stampa più da sola: la
+   lettera nasce senza, va al Presidente da firmare nell'app
+   (firme-presidente.js) e la firma la appone la funzione firma-presidente
+   nel riquadro che questa funzione scrive in `esito.riquadro`.
+   `firmaByte` resta per chi rigenera una lettera vecchia, ma corsi.js passa null. */
+export async function pdfLetteraIncarico(corso, incarico, mieiInterventi, conf, protocolloTxt, firmaByte, anagDocente, esito = {}) {
   const c = await apriCarta();
   c.scrivi('CONFERIMENTO INCARICO DOCENZA CORSO DI FORMAZIONE', c.bold, 12, c.arancio);
   c.scrivi('PER LA SALUTE E LA SICUREZZA NEI LUOGHI DI LAVORO — Contratto d\'opera', c.bold, 9.5, c.grigio);
@@ -825,6 +830,9 @@ export async function pdfLetteraIncarico(corso, incarico, mieiInterventi, conf, 
   c.stato.pagina.drawLine({ start: { x: SX, y: yF - 40 }, end: { x: SX + 180, y: yF - 40 }, thickness: 0.7, color: c.grigio });
   c.stato.pagina.drawText('FORMEDIL PADOVA — il Legale Rappresentante', { x: 320, y: yF, size: 8.5, font: c.font, color: c.grigio });
   c.stato.pagina.drawText(corso.rappresentante_legale || conf.presidente_nome || '', { x: 320, y: yF - 12, size: 9.5, font: c.bold, color: c.nero });
+  /* dove va la firma del Presidente (coordinate PDF, pagina contata da 0):
+     lo stesso spazio in cui fino al 04/10/2026 si stampava da sola */
+  esito.riquadro = { pagina: c.doc.getPages().indexOf(c.stato.pagina), x: 330, y: yF - 16 - 60, w: 130, h: 60 };
   if (firmaByte) {
     try {
       let img;

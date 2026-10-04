@@ -12,6 +12,7 @@
 
 import { sb, $, esc, dataIt, oggiIso, mostraVista, codiceProtocollo, toast } from './core.js';
 import { dividiRespinte } from './mail-respinte-viste.js';
+import { datiCruscotto as datiFirme, cardFirme, collegaFirme } from './firme-presidente.js';
 
 const SERVIZI = [
   { tab: 's_segnalazioni', vista: 'segnalazioni', nome: 'Segnalazione', icona: '🚨', chi: (p) => p.notificante },
@@ -265,7 +266,12 @@ export async function render() {
 
   /* 26/09/2026: le nove letture qui sopra sono indipendenti e partono insieme —
      prima erano una dopo l'altra, e sul telefono ogni giro di rete si sommava */
-  await Promise.all([pBacheca, pFlussi, pForm, pBackup, pProm, pCanale, pCritici, pQuest, pIscr, pEseguiti, pFatture]);
+  /* ── le firme del Presidente nell'app (04/10/2026): lettere in firma,
+     rimandate, firmate ancora da spedire, originali a mano da segnare ── */
+  let firme = null;
+  const pFirme = (async () => { firme = await datiFirme(); })();
+
+  await Promise.all([pBacheca, pFlussi, pForm, pBackup, pProm, pCanale, pCritici, pQuest, pIscr, pEseguiti, pFatture, pFirme]);
 
   /* documenti dei tecnici: lo stato si calcola come nella loro pagina —
      per ogni tecnico in griglia e ogni requisito conta il documento PIÙ
@@ -605,6 +611,8 @@ export async function render() {
           ? daAutorizzare.slice(0, 8).map(rigaPratica).join('') + (daAutorizzare.length > 8 ? `<p class="hint">…e altre ${daAutorizzare.length - 8}.</p>` : '')
           : '<p class="hint">Nessuna pratica da autorizzare.</p>', '', { k: 'direttore', nonLetto: nonLetti.has('servizi') })}
 
+      ${cardFirme(card, firme)}
+
       ${card('✋ Incarichi rifiutati dal tecnico', rifiutati.length,
         rifiutati.length
           ? rifiutati.slice(0, 6).map((r) => {
@@ -869,6 +877,7 @@ export async function render() {
   host.innerHTML = `
     ${bannerCanale}${bannerFormazione}${striscia()}
     <div class="hm-griglia">${griglia}</div>`;
+  collegaFirme(host, render);
 
   /* «Aggiorna adesso» della card Posta e agenda: rilancia bacheca-giornata e ridisegna.
      La funzione non onora input e scrive solo le sue tabelle: un clic in più non fa danni. */

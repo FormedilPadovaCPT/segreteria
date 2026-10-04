@@ -29,7 +29,7 @@ const sincronizza = process.argv.includes('--sincronizza');
 /* Le funzioni che compongono posta con la firma dell'ufficio: ognuna ha
    la sua copia di firma.js e la sua firma-logo.js che scarica il logo.
    avviso-pagamento aggiunta il 16/09/2026. */
-const FUNZIONI_POSTA = ['send-protocollo', 'avviso-pagamento', 'avviso-approvazione', 'mail-respinte', 'promemoria-corsi'];
+const FUNZIONI_POSTA = ['send-protocollo', 'avviso-pagamento', 'avviso-approvazione', 'mail-respinte', 'promemoria-corsi', 'firma-presidente'];
 /* Altri moduli puri che una funzione tiene in copia, per poterli provare con
    `node --test` senza Deno: la lettura dei rapporti di mancata consegna
    (21/09/2026). Si allineano allo stesso modo. */
