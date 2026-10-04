@@ -19,7 +19,7 @@
       va SOLO sui corsi riconosciuti (riconosciuto_regione).
    ============================================================ */
 
-import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, codiceProtocollo } from './core.js';
+import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, codiceProtocollo, opzioniTendina } from './core.js';
 import { risolviCartella, caricaByte, leggiByte } from './drive.js';
 import { scaricaEml, FIRMA_SEGRETERIA, collegaDoppioClickMail } from './eml.js';
 import { chiediFirma, scaricaFirmata, firmeDi, etichettaFirma } from './firme-presidente.js';
@@ -190,9 +190,9 @@ function formCorso(c, prefill = {}) {
       <label><input type="checkbox" id="fc-quest" ${v.questionario_previsto ? 'checked' : ''}> Questionario gradimento</label>
     </div>
     <div class="field"><label>Valido per (testo sull'attestato)</label>
-      <textarea id="fc-validita" rows="2">${esc(v.validita_txt || (v.tipo === 'conferenza_cantiere' ? 'Informazione' : ''))}</textarea></div>
+      <textarea id="fc-validita" rows="2">${esc(c?.id ? (v.validita_txt || '') : (v.validita_txt || (v.tipo === 'conferenza_cantiere' ? 'Informazione' : '')))}</textarea></div>
     <div class="field"><label>Normativa di riferimento</label>
-      <input id="fc-normativa" value="${esc(v.normativa || 'D.Lgs. 09 aprile 2008 n. 81 (Testo Unico Sicurezza)')}"></div>
+      <input id="fc-normativa" value="${esc(c?.id ? (v.normativa || '') : (v.normativa || 'D.Lgs. 09 aprile 2008 n. 81 (Testo Unico Sicurezza)'))}"></div>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
       <div class="field"><label>Referente</label><input id="fc-refnome" value="${esc(v.referente_nome || '')}"></div>
       <div class="field"><label>Email referente</label><input id="fc-refemail" data-mail="1" data-mail-chi="${esc(v.referente_nome || '')}" value="${esc(v.referente_email || '')}"></div>
@@ -935,12 +935,11 @@ function formIntervento(c, giornate, i) {
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
       <div class="field"><label>Nominativo *</label><input id="fi-nome" value="${esc(i?.nominativo || '')}"></div>
       <div class="field"><label>Qualità</label>
-        <select id="fi-qualita">${Object.entries(QUALITA).map(([k, l]) =>
-          `<option value="${k}" ${(i?.qualita || 'docente') === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+        <select id="fi-qualita">${opzioniTendina(Object.entries(QUALITA), i ? i.qualita : 'docente')}</select></div>
       <div class="field"><label>Giornata</label>
         <select id="fi-giornata"><option value="">—</option>${giornate.map((g) =>
           `<option value="${g.id}" ${i?.giornata_id === g.id ? 'selected' : ''}>${dataIt(g.data)}</option>`).join('')}</select></div>
-      <div class="field"><label>Materia</label><input id="fi-materia" value="${esc(i?.materia || 'Salute e sicurezza sul lavoro')}"></div>
+      <div class="field"><label>Materia</label><input id="fi-materia" value="${esc(i ? (i.materia || '') : 'Salute e sicurezza sul lavoro')}"></div>
       <div class="field"><label>Dalle</label><input type="time" id="fi-dalle" value="${orario(i?.dalle)}"></div>
       <div class="field"><label>Alle</label><input type="time" id="fi-alle" value="${orario(i?.alle)}"></div>
     </div>
@@ -1161,7 +1160,7 @@ function formIscritto(c, i) {
       <div id="fp-impresa-hint" class="hint"></div></div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
       <div class="field"><label>In qualità di</label>
-        <select id="fp-ruolo">${RUOLI_AZ.map((r) => `<option ${((i?.ruolo || 'DIPENDENTE') === r) ? 'selected' : ''}>${r}</option>`).join('')}</select></div>
+        <select id="fp-ruolo">${opzioniTendina(RUOLI_AZ, i ? i.ruolo : 'DIPENDENTE')}</select></div>
       <div class="field"><label>Mansione</label><input id="fp-mansione" value="${esc(i?.mansione || '')}"></div>
       <div class="field"><label>Esito</label>
         <select id="fp-esito">${Object.entries(ESITI_ISCR).map(([k, l]) =>
@@ -1254,7 +1253,7 @@ function formIscritto(c, i) {
       cf: $('#fp-cf').value.trim() || null,
       impresa_id: impresaId,
       impresa_txt: $('#fp-impresa').value.trim() || null,
-      ruolo: $('#fp-ruolo').value,
+      ruolo: $('#fp-ruolo').value || null,
       mansione: $('#fp-mansione').value.trim() || null,
       esito: $('#fp-esito').value,
       valutazione: $('#fp-val').value.trim() || null,

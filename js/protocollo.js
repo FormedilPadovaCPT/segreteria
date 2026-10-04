@@ -8,7 +8,7 @@
 import {
   sb, state, $, $$, esc, dataIt, oggiIso, toast, attendi,
   mostraVista, apriDrawer, chiudiDrawer,
-  codiceProtocollo, protocolloEsteso, perNominativo,
+  codiceProtocollo, protocolloEsteso, perNominativo, opzioniTendina,
 } from './core.js';
 import { PAGE_SIZE } from './config.js';
 import { agganci, caricaFile, cestina, dove, idDaLink, risolviCartella, sfoglia, LIMITE_MB } from './drive.js';
@@ -930,8 +930,13 @@ export async function apriForm(direzione, record = null, duplica = false, dopoSa
 
   const optTipi = state.tipiDoc.map((t) =>
     `<option value="${t.id_doc}" ${Number(r.tipo_doc_id) === t.id_doc ? 'selected' : ''}>${esc(t.descrizione)}</option>`).join('');
-  const optUff = UFFICI.map((u) => `<option ${r.ufficio === u ? 'selected' : ''}>${esc(u)}</option>`).join('');
-  const optMezzi = MEZZI.map((m) => `<option ${normalizzaMezzo(r.mezzo) === m ? 'selected' : ''}>${esc(m)}</option>`).join('');
+  /* 04/10/2026: un ufficio o un mezzo fuori elenco (o vuoto) resta com'è; prima
+     ripiegava sulla prima voce e salvando si perdeva. «E-Mail» → «e-mail» resta
+     normalizzato; le varianti con la nota fra parentesi («copia di cortesia;
+     originale via SdI») no, perché la nota è il dato. */
+  const mezzoVal = r.mezzo && /[(;]/.test(r.mezzo) ? r.mezzo.trim() : normalizzaMezzo(r.mezzo);
+  const optUff = r.id ? opzioniTendina(UFFICI, r.ufficio) : UFFICI.map((u) => `<option ${r.ufficio === u ? 'selected' : ''}>${esc(u)}</option>`).join('');
+  const optMezzi = r.id ? opzioniTendina(MEZZI, mezzoVal) : MEZZI.map((m) => `<option ${normalizzaMezzo(r.mezzo) === m ? 'selected' : ''}>${esc(m)}</option>`).join('');
 
   /* in uscita il destinatario può essere un gruppo (chi ha oggi una nomina):
      la mail d'invio ne propone i membri in «A» (16/09/2026) */

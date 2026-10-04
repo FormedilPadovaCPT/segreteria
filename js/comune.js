@@ -9,6 +9,23 @@
    client Supabase.
    ============================================================ */
 
+/* Le voci di una tendina col valore che sta nel database (04/10/2026).
+   Se il valore non è fra le voci — scritto da un'altra app, da un import,
+   da una versione vecchia — si aggiunge «(com'è scritto)» e resta scelto:
+   aprire e salvare senza toccare non cambia niente. Prima la tendina
+   ripiegava sulla prima voce, e al salvataggio il dato vero si perdeva
+   (3.373 ruoli degli iscritti ai corsi, 74 uffici e mezzi del protocollo).
+   voci: ['A', 'B'] oppure [['codice', 'etichetta'], …]
+   vuota: aggiunge la voce «—» (valore vuoto) */
+export function opzioniTendina(voci, valore, { vuota = false } = {}) {
+  const coppie = voci.map((v) => (Array.isArray(v) ? v : [v, v]));
+  const val = valore == null ? '' : String(valore);
+  const noto = coppie.some(([v]) => String(v) === val);
+  return (vuota || val === '' ? `<option value="" ${val === '' ? 'selected' : ''}>—</option>` : '')
+    + (!noto && val !== '' ? `<option value="${esc(val)}" selected>${esc(val)} (com'è scritto)</option>` : '')
+    + coppie.map(([v, l]) => `<option value="${esc(v)}" ${String(v) === val ? 'selected' : ''}>${esc(l)}</option>`).join('');
+}
+
 export const esc = (s) => String(s ?? '')
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;');
