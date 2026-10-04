@@ -18,7 +18,7 @@
 import { sb, $, esc, oggiIso, toast, attendi, apriDrawer, chiudiDrawer } from './core.js';
 import { risolviCartella, leggiByte } from './drive.js';
 import { scaricaEml, FIRMA_SEGRETERIA } from './eml.js';
-import { generaCodice, serieVerificabile, urlVerifica, URL_VERIFICA_PREDEFINITA } from './attestati-verifica.js';
+import { generaCodice, serieVerificabile, urlVerifica, URL_VERIFICA_PREDEFINITA, suffissoNumeroFile } from './attestati-verifica.js';
 import { riassuntoMancanti, raggruppaRichieste, testoRichiestaDati, testoInvioAttestati, destinatariPossibili } from './corsi-anagrafica.js';
 import { conf, TIPI_ATT, render, apriCorso } from './corsi.js';
 
@@ -199,7 +199,7 @@ async function generaAttestati(c, giornate, interventi, iscritti, btn, esitoDati
         logoRegioneByte, loghiExtra: [], dataRilascio: oggi,
         verifica: { codice, url: urlVerifica(numero, codice, conf.attestati_verifica_url || URL_VERIFICA_PREDEFINITA) },
       });
-      const nome = `${(c.data_fine || c.data_inizio || oggi)}_Attestato_${i.nominativo}${i.cf ? `_${i.cf}` : ''}_Prot_${numero.replace('/', '-')}.pdf`;
+      const nome = `${(c.data_fine || c.data_inizio || oggi)}_Attestato_${i.nominativo}${i.cf ? `_${i.cf}` : ''}${suffissoNumeroFile(numero)}.pdf`;
       const agg = { attestato_numero: numero, attestato_data: oggi, verifica_codice: codice, updated_at: new Date().toISOString() };
       if (cart.id) {
         const { data: su, error: errUp } = await sb.functions.invoke('allegati-protocollo', {
@@ -267,8 +267,7 @@ async function pdfByteAttestatoEsistente(c, i, giornate, interventi) {
     dataRilascio: i.attestato_data || c.data_fine || c.data_inizio,
     verifica,
   });
-  const numeroFile = String(i.attestato_numero).replace('/', '-');
-  const nome = `${(c.data_fine || c.data_inizio || oggiIso())}_Attestato_${i.nominativo}${i.cf ? `_${i.cf}` : ''}_Prot_${numeroFile}.pdf`;
+  const nome = `${(c.data_fine || c.data_inizio || oggiIso())}_Attestato_${i.nominativo}${i.cf ? `_${i.cf}` : ''}${suffissoNumeroFile(i.attestato_numero)}.pdf`;
   if (verifica) await aggiornaVerificaPubblica(true);
   return { byte, nome };
 }

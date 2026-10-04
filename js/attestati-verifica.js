@@ -42,3 +42,14 @@ export function urlVerifica(numero, codice, base = URL_VERIFICA_PREDEFINITA) {
   const b = base.endsWith('/') ? base : `${base}/`;
   return `${b}?n=${encodeURIComponent(String(numero).replace('/', '-'))}&c=${encodeURIComponent(String(codice).toUpperCase())}`;
 }
+
+/* Il numero nel NOME DEL FILE dell'attestato (04/10/2026, deciso
+   dall'utente). L'attestato ha il suo contatore e non e' un protocollo:
+   la serie nuova N/aaaa prende «_n1-2026», la stessa forma con cui il
+   vault scrive il numero di un documento nella sua serie (le circolari:
+   «_n56-2026»). «_Prot_» resta solo agli storici, il cui numero Access
+   si chiamava davvero «Prot.». Si protocolla l'invio, non l'attestato. */
+export function suffissoNumeroFile(numero) {
+  const n = String(numero ?? '').trim();
+  return n.includes('/') ? `_n${n.replace('/', '-')}` : `_Prot_${n}`;
+}

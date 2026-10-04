@@ -26,3 +26,12 @@ assert.equal(urlVerifica('12/2026', 'abcdefghjk'), 'https://formedilpadovacpt.gi
 assert.equal(urlVerifica('3/2027', 'X', 'https://esempio.it/v'), 'https://esempio.it/v/?n=3-2027&c=X');
 
 console.log('attestati-verifica: tutti i casi passano');
+
+// il numero nel nome del file: la serie nuova non si chiama «Prot» (04/10/2026)
+{
+  const { suffissoNumeroFile } = await import('../js/attestati-verifica.js');
+  assert.equal(suffissoNumeroFile('1/2026'), '_n1-2026');
+  assert.equal(suffissoNumeroFile('12/2027'), '_n12-2027');
+  assert.equal(suffissoNumeroFile('4123'), '_Prot_4123');   // storico di Access
+  assert.ok(!suffissoNumeroFile('8/2026').includes('Prot'), 'la serie nuova non porta Prot');
+}
