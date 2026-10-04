@@ -1,5 +1,10 @@
 # App Segreteria — Formedil Padova
 
+> ⚠️ **Avviso del 04/10/2026 — parti di questo file sono superate.** Il testo sotto resta com'era; le regole correnti stanno in `_SISTEMA/regole_app/CRONACA - app segreteria.md` (vault). In particolare:
+> - **`send-protocollo` non spedisce**: l'app prepara solo **bozze** (`.eml` per Outlook o bozza nelle Bozze di Gmail, `azione: 'bozza'`); l'invio lo fa sempre una persona. La sezione su `send-protocollo` «tramite Gmail API» descrive una capacità che l'app non usa.
+> - **Non entra solo la segreteria** (sezione «Chi può entrare»): ci sono anche il ruolo `amministrazione` (dal 16/09/2026, mandati e pagamenti) e l'ingresso del Direttore per le autorizzazioni (`is_direttore()`).
+> - **Ultimo numero in uscita del doppio registro e timbri** (tre stili: blocco, minimo, striscia, posizione trascinabile sul foglio): vedi la CRONACA, non le tabelle e la sezione «Timbro» qui sotto.
+
 Webapp dell'ufficio di segreteria dell'Area Sicurezza e Salute. Sostituisce le
 maschere Access, a partire dal **registro di protocollo** (entrata e uscita).
 
