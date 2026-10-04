@@ -152,6 +152,13 @@ async function eseguiRicerca(testo) {
   const { data, error } = await sb.rpc('s_cerca_imprese', { p_testo: testo, p_limite: 60 });
   if (error) { box.innerHTML = `<p class="empty">${esc(error.message)}</p>`; return; }
   if (!data?.length) { box.innerHTML = '<p class="empty">Nessuna impresa trovata.</p>'; return; }
+  /* le cessate in Camera di Commercio (04/10/2026): s_cerca_imprese non le dice */
+  const cessate = new Map();
+  {
+    const { data: ce } = await sb.from('imprese').select('impresa_id, cessata_il')
+      .in('impresa_id', data.map((i) => i.impresa_id)).not('cessata_il', 'is', null);
+    (ce || []).forEach((r) => cessate.set(r.impresa_id, r.cessata_il));
+  }
 
   box.innerHTML = `
     <div class="table-wrap">
@@ -173,7 +180,7 @@ async function eseguiRicerca(testo) {
             const luogo = [i.cap, i.comune].filter(Boolean).join(' ') + (i.prov ? ` (${i.prov})` : '') + estero;
             return `
             <tr data-imp="${esc(i.impresa_id)}">
-              <td><strong>${esc(i.impresa_nome)}</strong>${i.pec ? `<span class="cell-sub">${esc(i.pec)}</span>` : ''}</td>
+              <td><strong>${esc(i.impresa_nome)}</strong>${cessate.has(i.impresa_id) ? ` <span class="pill" style="background:#c0392b;color:#fff;font-size:10px">cessata ${esc(dataIt(cessate.get(i.impresa_id)))}</span>` : ''}${i.pec ? `<span class="cell-sub">${esc(i.pec)}</span>` : ''}</td>
               <td>${i.piva ? esc(i.piva) : '<span class="cell-sub">non in anagrafica</span>'}</td>
               <td>${esc(cf)}${codiceInterno ? `<span class="cell-sub">codice interno ${esc(codiceInterno)}</span>` : ''}</td>
               <td>${esc(i.cod_ceiv || '')}</td>
@@ -298,6 +305,7 @@ function disegnaScheda() {
         ${i.piva && i.piva !== i.impresa_id ? `<span class="chip"><b>${esc(i.piva)}</b><span>Partita IVA</span></span>` : ''}
         ${i.comune ? `<span class="chip"><b>${esc(i.comune)}${i.prov ? ' (' + esc(i.prov) + ')' : ''}</b><span>Comune</span></span>` : ''}
         ${i.stato ? `<span class="pill ${/attiv/i.test(i.stato) ? 'pill-prima' : 'pill-off'}">${esc(i.stato)}</span>` : ''}
+        ${i.cessata_il ? `<span class="pill" style="background:#c0392b;color:#fff" title="Cessata nel Registro Imprese${i.cessata_fonte ? ' — fonte: ' + esc(i.cessata_fonte) : ''}. Non è lo stato in Cassa Edile.">CESSATA dal ${esc(dataIt(i.cessata_il))}</span>` : ''}
       </div>
     </div>
 
@@ -549,6 +557,10 @@ const CAMPI = [
     ['ragione_sociale2', 'Ragione sociale estesa', 'span3'],
     ['impresa_id', 'Codice fiscale (chiave)', '', true],
     ['piva', 'Partita IVA'],
+    /* 04/10/2026: il codice fiscale personale del titolare delle ditte
+       individuali (la chiave è la P.IVA). Il gestionale lo mostrava già,
+       qui mancava: le due schede sembravano dire cose diverse. */
+    ['impresa_cf', 'Codice fiscale del titolare'],
     ['tipo_impresa', 'Forma giuridica'],
     ['ruolo', 'Ruolo'],
     ['stato', 'Stato'],
@@ -558,6 +570,10 @@ const CAMPI = [
     ['prov', 'Provincia'],
     ['cap', 'CAP'],
     ['sede_amministrativa', 'Sede amministrativa', 'span3'],
+    /* 04/10/2026, chiesto dall'utente: la cessazione in Camera di
+       Commercio, diversa dallo «Stato in Cassa» della Cassa Edile */
+    ['cessata_il', 'Cessata il (Registro Imprese)'],
+    ['cessata_fonte', 'Fonte della cessazione', 'span2'],
   ]],
   ['Contatti', 'grid-5', [
     ['impresa_email_ref', 'Email di riferimento'],
@@ -574,8 +590,11 @@ const CAMPI = [
     ['ccnl', 'CCNL'],
     ['contratto_ccnl', 'Contratto CCNL'],
     ['contratto_ccnl_altro', 'Altro contratto'],
-    ['cassa_edile', 'Codice Cassa Edile'],
-    ['ce', 'Cassa Edile'],
+    /* 04/10/2026: le due etichette erano scambiate — cassa_edile contiene
+       il nome della cassa (C.E.I.V., EDILCASSA VENETO), ce il vecchio
+       codice di Access (802C, 67164) */
+    ['cassa_edile', 'Cassa Edile'],
+    ['ce', 'Codice Cassa Edile (Access)'],
     ['ce_altra', 'Altra Cassa Edile'],
     ['stato_cassa', 'Stato in Cassa'],
     ['cod_ceiv', 'Codice CEIV'],
@@ -680,6 +699,8 @@ function tabAnagrafica() {
           ${noto ? '' : `<option value="${esc(val)}" selected>${esc(val)} (com'è scritto)</option>`}
           ${opts.map(([v, l]) => `<option value="${esc(v)}" ${v === val ? 'selected' : ''}>${esc(l)}</option>`).join('')}
         </select>`;
+    } else if (k === 'cessata_il') {
+      controllo = dataInput(`id="ia-${k}" data-campo="${k}" data-data="1"`, val);
     } else if (k === 'comune' || k === 'stato') {
       controllo = `<input type="text" id="ia-${k}" data-campo="${k}" value="${esc(val)}" list="ia-dl-${k}" autocomplete="off">
         <datalist id="ia-dl-${k}">${k === 'stato' ? STATI.map((s) => `<option value="${s}">`).join('') : ''}</datalist>`;
@@ -904,12 +925,19 @@ function agganciaAnagrafica() {
   $('#ia-salva')?.addEventListener('click', async (e) => {
     const btn = e.currentTarget;
     const dati = {};
+    let dataErrata = null;
     $$('[data-campo]').forEach((el) => {
       if (el.readOnly) return;
       const k = el.dataset.campo;
-      const v = el.value.trim();
+      let v = el.value.trim();
+      if (el.dataset.data) {
+        const iso = leggiData(v);
+        if (iso === false) { dataErrata = el; return; }
+        v = iso || '';
+      }
       if ((scheda.impresa[k] ?? '') + '' !== v) dati[k] = v === '' ? null : v;
     });
+    if (dataErrata) { dataErrata.focus(); return toast('Data non valida: scrivila come gg/mm/aaaa.', 'err'); }
 
     const riservatiNuovo = CAMPI_RISERVABILI_IMPRESA.filter(([k]) => $(`#ia-ris-${k}`)?.checked).map(([k]) => k);
     const riservatiPrima = scheda.impresa.contatti_riservati || [];

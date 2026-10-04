@@ -357,6 +357,9 @@ try {
          interna del portale servizi, che parte PRIMA dell'import delle 6:30
          e quindi non ha ancora un id di pratica da puntare (06/09/2026) */
       const hashVista = location.hash.match(/^#vista-([a-z-]+)$/);
+      /* #impresa-<chiave> apre la scheda dell'impresa: è il doppio clic
+         sulle righe impresa del gestionale visite (04/10/2026) */
+      const hashImpresa = location.hash.match(/^#impresa-(.+)$/);
       const apriDaHash = async () => {
         if (hashVista) { await vaiA(hashVista[1]); return; }
         if (!hashPratica) return;
@@ -398,7 +401,10 @@ try {
         mod.protocollo = await import('./protocollo.js');
         await mod.protocollo.init();
         /* la prima pagina è il CRUSCOTTO, non il registro (deciso 01/09/2026) */
-        if (hashPratica || hashVista) await apriDaHash();
+        if (hashImpresa) {
+          mod.imprese = mod.imprese || await import('./imprese.js');
+          await mod.imprese.apriScheda(decodeURIComponent(hashImpresa[1]));
+        } else if (hashPratica || hashVista) await apriDaHash();
         else await vaiA('home');
       }
     }
