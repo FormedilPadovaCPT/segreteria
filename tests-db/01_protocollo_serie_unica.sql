@@ -10,7 +10,7 @@ select set_config('request.jwt.claims',
 do $$
 declare
   r1 public.s_protocollo; r2 public.s_protocollo; r3 public.s_protocollo; r4 public.s_protocollo;
-  v_in int; v_out int; v_dal date;
+  v_in int; v_out int; v_dal date; v_su int;
 begin
   select valore::date into v_dal from public.s_config where chiave = 'protocollo_serie_unica_dal';
   assert v_dal = date '2026-10-01', 'la data del passaggio alla serie unica non e'' piu'' il 01/10/2026: ' || coalesce(v_dal::text, 'null');
@@ -24,14 +24,17 @@ begin
   assert r1.esercizio is null and r1.numero = v_in + 1,  'IN storico: atteso ' || (v_in + 1) || ', trovato ' || r1.numero;
   assert r2.esercizio is null and r2.numero = v_out + 1, 'OUT storico: atteso ' || (v_out + 1) || ', trovato ' || r2.numero;
 
-  -- dal passaggio: entrata e uscita pescano dallo stesso contatore dell'esercizio
+  -- dal passaggio: entrata e uscita pescano dallo stesso contatore dell'esercizio.
+  -- Fino al 30/09/2026 il contatore era vuoto e il test pretendeva il n. 1; dal
+  -- 01/10 ci sono protocolli veri, quindi si parte dall'ultimo numero assegnato.
+  select coalesce(max(numero), 0) into v_su from public.s_protocollo where esercizio = public.s_esercizio(v_dal);
   r3 := public.s_crea_protocollo(jsonb_build_object('direzione', 'IN',  'data_prot', v_dal,     'oggetto', 'TEST automatico'));
   r4 := public.s_crea_protocollo(jsonb_build_object('direzione', 'OUT', 'data_prot', v_dal + 1, 'oggetto', 'TEST automatico'));
-  assert r3.esercizio = public.s_esercizio(v_dal) and r3.numero = 1,
-    'serie unica, primo numero: ' || coalesce(r3.esercizio, 'null') || '/' || r3.numero;
-  assert r4.esercizio = r3.esercizio and r4.numero = 2,
+  assert r3.esercizio = public.s_esercizio(v_dal) and r3.numero = v_su + 1,
+    'serie unica, numero successivo: atteso ' || (v_su + 1) || ', trovato ' || coalesce(r3.esercizio, 'null') || '/' || r3.numero;
+  assert r4.esercizio = r3.esercizio and r4.numero = r3.numero + 1,
     'serie unica: IN e OUT devono condividere il contatore, trovato ' || r4.numero;
-  assert r3.codice = 'Prot_' || r3.esercizio || '_0001', 'codice della serie unica: ' || coalesce(r3.codice, 'null');
+  assert r3.codice = 'Prot_' || r3.esercizio || '_' || lpad(r3.numero::text, 4, '0'), 'codice della serie unica: ' || coalesce(r3.codice, 'null');
 
   -- l'esercizio dell'ente va dal 1/10 al 30/9
   assert public.s_esercizio('2026-09-30') = '25-26' and public.s_esercizio('2026-10-01') = '26-27'

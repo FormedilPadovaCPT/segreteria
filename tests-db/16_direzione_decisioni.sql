@@ -97,8 +97,10 @@ begin
   perform set_config('role', 'postgres', true);
   perform set_config('request.jwt.claims', json_build_object('role', 'authenticated', 'email', 'cptpd@did.formedilpadova.it')::text, true);
   perform set_config('role', 'authenticated', true);
-  insert into public.visite_obiettivo_esercizio (esercizio, contributi_ceiv) values ('TEST-0000', 412500);
-  assert (select visite_minime = 825 from public.visite_obiettivo_esercizio where esercizio = 'TEST-0000'), '412.500 euro = 825 visite';
+  -- l'esercizio ha la forma aaaa/aaaa (vincolo visite_obiettivo_esercizio_forma):
+  -- 'TEST-0000' la violava e ha tenuto rosso il test dal 21/09 al 04/10/2026
+  insert into public.visite_obiettivo_esercizio (esercizio, contributi_ceiv) values ('1999/2000', 412500);
+  assert (select visite_minime = 825 from public.visite_obiettivo_esercizio where esercizio = '1999/2000'), '412.500 euro = 825 visite';
 
   perform set_config('role', 'postgres', true);
   raise notice 'OK registro decisioni e obiettivo visite';

@@ -24,9 +24,18 @@ begin
   assert public.visite_count_map() = '{}'::jsonb,       'estraneo: visite_count_map non vuota';
   assert public.committenti_duplicati() = '[]'::jsonb,  'estraneo: committenti_duplicati non vuota';
   assert public.committenti_simili('x') = '[]'::jsonb,  'estraneo: committenti_simili non vuota';
-  ok := false;
-  begin perform public.s_redazione_materia(3); exception when raise_exception then ok := true; end;
-  assert ok, 'estraneo: s_redazione_materia non rifiutata';
+  -- s_redazione_materia lascia passare apposta la connessione diretta al database
+  -- (session_user = 'postgres'), che e' proprio quella del workflow: da qui il
+  -- rifiuto non si puo' provare, quindi si controlla che la guardia ci sia.
+  -- Il test pretendeva il rifiuto ed e' rimasto rosso dal 21/09 al 04/10/2026.
+  if session_user <> 'postgres' then
+    ok := false;
+    begin perform public.s_redazione_materia(3); exception when raise_exception then ok := true; end;
+    assert ok, 'estraneo: s_redazione_materia non rifiutata';
+  else
+    assert pg_get_functiondef('public.s_redazione_materia(integer)'::regprocedure) ilike '%is_segreteria()%raise exception%',
+      's_redazione_materia ha perso la guardia sulla segreteria';
+  end if;
   foreach t in array array['public.ricontrolli_pendenti(integer)', 'public.s_tariffa(text,date,text)',
                            'public.s_regime_tecnico(text,date)', 'public.s_prossimo_numero(text)',
                            'public.incarichi_ricalcola(bigint,text)', 'public.a_gdv_sync_pratica()',
@@ -57,9 +66,11 @@ begin
   select count(*) into n from public.committenti_lista(); assert n > 0, 'il personale deve vedere i committenti';
   assert public.visite_count_map() <> '{}'::jsonb, 'il tecnico deve vedere il conteggio visite per cantiere';
   -- la materia della redazione social e' della sola segreteria
-  ok := false;
-  begin perform public.s_redazione_materia(3); exception when raise_exception then ok := true; end;
-  assert ok, 'un tecnico non deve leggere la materia della redazione social';
+  if session_user <> 'postgres' then   -- vedi sopra: dalla connessione diretta passa apposta
+    ok := false;
+    begin perform public.s_redazione_materia(3); exception when raise_exception then ok := true; end;
+    assert ok, 'un tecnico non deve leggere la materia della redazione social';
+  end if;
   raise notice 'OK: tecnico vede i dati';
 end $$;
 

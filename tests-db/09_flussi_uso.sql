@@ -25,9 +25,10 @@ begin
   -- riga che lo conta e la riga dell'elenco che lo fa comparire anche a
   -- zero), e se se ne dimentica uno il conto non torna. Storia: 29 al
   -- 17/09/2026, 38 dopo questionari, test e iscrizioni (18-19/09), 40 con
-  -- l'avviso al coordinatore e i verbali non consegnati (21/09).
+  -- l'avviso al coordinatore e i verbali non consegnati (21/09), 41 col
+  -- promemoria delle lezioni (28/09: aggiornato qui solo il 04/10).
   select count(*), count(distinct codice) into n_righe, n_codici from public.s_flussi_uso();
-  assert n_righe = 40 and n_codici = 40, format('attese 40 righe e 40 codici, trovate %s e %s — se hai aggiunto un flusso, aggiorna questo numero; se non l''hai aggiunto, ne manca uno dei due punti di s_flussi_uso', n_righe, n_codici);
+  assert n_righe = 41 and n_codici = 41, format('attese 41 righe e 41 codici, trovate %s e %s — se hai aggiunto un flusso, aggiorna questo numero; se non l''hai aggiunto, ne manca uno dei due punti di s_flussi_uso', n_righe, n_codici);
   assert (select count(*) from public.s_flussi_uso() where codice = 'avviso_approvazione') = 1,
     'il flusso «avviso al coordinatore» c''è (21/09/2026)';
   assert (select count(*) from public.s_flussi_uso() where codice = 'mail_respinta') = 1,
