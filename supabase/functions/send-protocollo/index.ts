@@ -61,7 +61,7 @@ import { componiEml, firmaHtml, oggettoUfficio, testoInHtml } from './firma.js'
 import { caricaLogo } from './firma-logo.js'
 // il timbro di protocollo in HTML da posta: stesso disegno del cartaceo
 // @ts-ignore modulo JS puro, senza tipi
-import { timbroHtml, timbroTesto, testoQrTimbro, FONT_MAIL } from './timbro-mail.js'
+import { timbroHtml, timbroTesto, testoQrTimbro, nomeFileEml, FONT_MAIL } from './timbro-mail.js'
 // il QR del timbro: la stessa libreria del timbro sul cartaceo
 // (qrcode-generator), da esm.sh perche' Deno non ha node_modules
 // @ts-ignore modulo senza tipi
@@ -418,7 +418,7 @@ serve(async (req) => {
        pronto. Outlook lo apre in composizione, con l'allegato gia'
        dentro; l'account e il momento dell'invio li sceglie chi manda. */
     if (bozza) {
-      const nomeFile = `Prot_${cod}_${quale === 'protocollato' ? 'invio' : quale}.eml`.replace(/[\\/:*?"<>|]/g, '-')
+      const nomeFile = nomeFileEml(cod, quale)
       return new Response(JSON.stringify({
         ok: true, bozza: true, eml: utf8ToBase64(mime), nomeFile,
         logo: logo.ok ? undefined : `senza logo: ${logo.motivo}`,

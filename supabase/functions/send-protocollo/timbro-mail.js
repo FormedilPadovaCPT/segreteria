@@ -39,13 +39,28 @@ const numeroTimbro = (p) => p.esercizio
   ? (p.codice || `Prot_${p.esercizio}_${String(p.numero ?? '').padStart(4, '0')}`)
   : `n° ${p.numero ?? ''}`;
 
+/* Il codice come si scrive in un QR o nel nome di un file: sempre col
+   prefisso Prot_, ma una volta sola. Dalla serie unica (01/10/2026) il
+   codice lo porta già (Prot_26-27_0009); lo storico no (2603-out).
+   Gemella di siglaProtocollo in js/comune.js. */
+export const siglaProt = (codice) => {
+  const c = String(codice ?? '');
+  return c.startsWith('Prot_') ? c : `Prot_${c}`;
+};
+
+/* Il nome del .eml che torna all'app: Prot_26-27_0009_invio.eml, e per
+   lo storico Prot_2603-out_invio.eml come prima. Fino al 04/10/2026
+   la serie unica usciva Prot_Prot_26-27_0009_invio.eml. */
+export const nomeFileEml = (codice, quale) =>
+  `${siglaProt(codice)}_${quale === 'protocollato' ? 'invio' : quale}.eml`.replace(/[\\/:*?"<>|]/g, '-');
+
 /* Il testo che il QR porta: identico a quello del timbro sul cartaceo
    (testoQr in timbro-disegno.js), così i due QR dicono la stessa cosa. */
 export function testoQrTimbro(p) {
   const codice = p.codice || (p.esercizio
     ? `Prot_${p.esercizio}_${String(p.numero ?? '').padStart(4, '0')}`
     : `${p.numero ?? ''}${p.direzione === 'IN' ? '-in' : p.direzione === 'OUT' ? '-out' : ''}`);
-  const sigla = codice.startsWith('Prot_') ? codice : `Prot_${codice}`;
+  const sigla = siglaProt(codice);
   const nominativo = p.impresa_nome || p.persona || p.alla_ca || '';
   return [sigla, dataIt(p.data_prot), (p.oggetto || '').slice(0, 90), nominativo.slice(0, 60)]
     .filter(Boolean).join(' ');
