@@ -13,10 +13,12 @@
      nuova (il verbale resta di chi l'ha fatto), gli incarichi NO —
      si riassegnano uno per uno da «Incarichi», come sempre;
    - passa un'area intera a un altro tecnico (come da Canova a Bordina);
+   - crea un'area NUOVA per un tecnico (05/10/2026): prende il numero
+     dopo l'ultimo e nasce vuota, i comuni si aggiungono con «+ Comune»;
    - accende o spegne «vede solo le sue visite» per ogni tecnico;
    - assegna le pratiche aperte rimaste senza un tecnico in zona.
    Tutte le scritture passano da funzioni del database che controllano
-   il ruolo segreteria (zone_sposta, zone_passa_area, pendenza_assegna,
+   il ruolo segreteria (zone_sposta, zone_passa_area, zone_crea_area, pendenza_assegna,
    tecnico_imposta_visibilita).
    ============================================================ */
 
@@ -132,7 +134,7 @@ export async function render() {
     <p class="hint">Le zone di oggi, con le date come in Access. Clic su un comune per spostarlo in un'altra area:
       passano al tecnico nuovo le sole <strong>visite aperte</strong> (il verbale resta di chi l'ha fatto);
       gli <strong>incarichi</strong> si riassegnano da «Incarichi», uno per uno.</p>
-    <h3>Aree</h3>
+    <h3>Aree <button type="button" class="btn btn-ghost btn-sm" id="zt-nuova-area">+ Nuova area</button></h3>
     <div class="zt-aree">${schede || '<p class="empty">Nessuna area in uso.</p>'}</div>
 
     <h3>Pratiche aperte di tecnici non più attivi <span class="muted">(${nonAttivi.length})</span></h3>
@@ -156,6 +158,7 @@ export async function render() {
     <div class="table-wrap"><table class="tbl"><tbody>${vis}</tbody></table></div>`;
 
   host.querySelectorAll('.zt-comune').forEach((b) => b.addEventListener('click', () => apriSposta(Number(b.dataset.id))));
+  $('#zt-nuova-area')?.addEventListener('click', apriNuovaArea);
   host.querySelectorAll('.zt-passa').forEach((b) => b.addEventListener('click', () => apriPassa(Number(b.dataset.area))));
   host.querySelectorAll('.zt-aggiungi').forEach((b) => b.addEventListener('click', () => apriAggiungi(Number(b.dataset.area))));
   host.querySelectorAll('.zt-solo').forEach((c) => c.addEventListener('change', () => impostaVisibilita(c)));
@@ -252,6 +255,32 @@ function apriPassa(area) {
     toast(`Area ${area} a ${data.tecnico}: ${data.pendenze_spostate} visite aperte passate`, 'ok');
     chiudiDrawer();
     render();
+  });
+}
+
+/* ── creare un'area nuova (05/10/2026) ── */
+function apriNuovaArea() {
+  const prossima = aree.reduce((m, a) => Math.max(m, a.area_id), 0) + 1;
+  apriDrawer('Nuova area', '', `
+    <p>Diventa l'<strong>area ${prossima}</strong> (il numero dopo l'ultimo, come in Access) e da oggi è del tecnico scelto.
+      Nasce vuota: dopo si aggiungono i comuni.</p>
+    <div class="field"><label>Tecnico</label>
+      <select id="zt-na-tec"><option value="">— scegli —</option>${opzioniTecnici(null)}</select></div>
+    <div class="field"><label>Etichetta <span class="muted">(facoltativa)</span></label>
+      <input id="zt-na-et" placeholder="se vuota: anno, mese e cognome, come in Access"></div>
+    <div class="field"><label>Note <span class="muted">(facoltative)</span></label><input id="zt-na-note"></div>
+    <div class="drawer-azioni"><button type="button" class="btn btn-primary" id="zt-nuova-ok">Crea l'area</button></div>`);
+  $('#zt-nuova-ok').addEventListener('click', async (e) => {
+    const tec = $('#zt-na-tec').value;
+    if (!tec) { toast('Scegli il tecnico', 'err'); return; }
+    attendi(e.target, true, 'Creo…');
+    const { data, error } = await sb.rpc('zone_crea_area', { p_tecnico: tec, p_etichetta: $('#zt-na-et').value, p_note: $('#zt-na-note').value });
+    attendi(e.target, false);
+    if (error) { toast('Area non creata: ' + error.message, 'err'); return; }
+    toast(`Area ${data.area} creata per ${data.tecnico}: ora aggiungi i comuni`, 'ok');
+    chiudiDrawer();
+    await render();
+    apriAggiungi(data.area);
   });
 }
 

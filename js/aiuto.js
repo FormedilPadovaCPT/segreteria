@@ -290,6 +290,8 @@ window.AIUTO_TESTI = {
   "zt-conferma": "Da oggi il comune passa all'area scelta e le visite aperte al suo tecnico. Il verbale resta di chi l'ha fatto; gli incarichi si riassegnano a parte.",
   "zt-aggiungi-ok": "Mette il comune nell'area da oggi. Se era altrove, lo sposta e ne passano anche le visite aperte.",
   "zt-passa-ok": "L'area passa da oggi al tecnico scelto con le visite aperte dei suoi comuni. Gli incarichi restano dove sono.",
+  "zt-nuova-area": "Apre un'area nuova, col numero dopo l'ultimo, per un tecnico da oggi. Nasce vuota: i comuni si aggiungono subito dopo.",
+  "zt-nuova-ok": "Crea l'area col numero dopo l'ultimo e la dà da oggi al tecnico scelto. Poi si apre la finestra per aggiungere i comuni.",
   "zt-assegna-tutte": "Passa ogni pratica elencata al tecnico proposto (quello che oggi ha il comune). Quelle senza proposta restano da fare a mano.",
   "t:assegna": "Da oggi è questo tecnico a dover tornare in cantiere per questa pratica. Il verbale resta di chi l'ha fatto.",
 };
