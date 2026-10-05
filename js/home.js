@@ -14,6 +14,19 @@ import { sb, $, esc, dataIt, oggiIso, mostraVista, codiceProtocollo, toast } fro
 import { dividiRespinte } from './mail-respinte-viste.js';
 import { datiCruscotto as datiFirme, cardFirme, collegaFirme } from './firme-presidente.js';
 
+/* 05/10/2026 — gli incarichi che si chiudono col cantiere, e quelli che restano aperti perché hanno altri
+   cantieri aperti (incarichi_del_cantiere, stessa regola di chiudi_cantiere). Lettura fallita = detta, non «nessuno». */
+async function incarichiDelCantiere(cantiereId) {
+  const { data, error } = await sb.rpc('incarichi_del_cantiere', { p_cantiere_id: cantiereId });
+  if (error) return `\n\n⚠ Non sono riuscito a leggere gli incarichi del cantiere (${error.message}): quelli che hanno solo questo cantiere si chiudono comunque.`;
+  const voce = (r) => `· #${r.id} ${r.tipo_richiesta || 'incarico'}${r.tecnico_nome ? ' — ' + r.tecnico_nome : ''}`;
+  const chiude = (data || []).filter((r) => r.si_chiude), resta = (data || []).filter((r) => !r.si_chiude);
+  let t = '';
+  if (chiude.length) t += `\n\nSi chiude anche ${chiude.length === 1 ? "l'incarico" : 'gli incarichi'}:\n` + chiude.map(voce).join('\n');
+  if (resta.length) t += '\n\nResta aperto:\n' + resta.map((r) => `${voce(r)} (${r.stage ? 'stage: si chiude con la relazione' : (r.altri_cantieri_aperti === 1 ? 'ha un altro cantiere aperto' : `ha altri ${r.altri_cantieri_aperti} cantieri aperti`)})`).join('\n');
+  return t;
+}
+
 const SERVIZI = [
   { tab: 's_segnalazioni', vista: 'segnalazioni', nome: 'Segnalazione', icona: '🚨', chi: (p) => p.notificante },
   { tab: 's_consulenze', vista: 'consulenze', nome: 'Consulenza', icona: '💬', chi: (p) => p.ragione_sociale },
@@ -1034,12 +1047,15 @@ export async function render() {
     ev.stopPropagation();
     const p = propChius.find((x) => x.id === Number(b.dataset.pcChiudi));
     if (!p) return;
-    if (!confirm(`Chiudere il cantiere «${lblCant(p)}» per fine lavori?\nTutte le visite collegate verranno chiuse.\n\nProposta di ${p.proposta_nome || p.proposta_da}: «${p.motivo}»`)) return;
+    /* 05/10/2026: con il cantiere si chiudono i suoi incarichi (chiudi_cantiere): la conferma dice quali */
+    const inc = await incarichiDelCantiere(p.cantiere_id);
+    if (!confirm(`Chiudere il cantiere «${lblCant(p)}» per fine lavori?\nTutte le visite collegate verranno chiuse.${inc}\n\nProposta di ${p.proposta_nome || p.proposta_da}: «${p.motivo}»`)) return;
     const note = prompt('Note sulla chiusura (facoltative). Annulla per interrompere.', p.motivo || '');
     if (note === null) return;
     const { data, error } = await sb.rpc('chiudi_cantiere', { p_cantiere_id: p.cantiere_id, p_motivo: 'termini_lavori', p_note: note.trim() || null });
     if (error) return toast('Chiusura non riuscita: ' + error.message, 'err');
-    toast(`Cantiere chiuso · ${(data && data.visite_chiuse) || 0} visite chiuse. La proposta risulta accolta.`, 'ok');
+    const chiusi = (data && data.incarichi_chiusi) || [];
+    toast(`Cantiere chiuso · ${(data && data.visite_chiuse) || 0} visite chiuse${chiusi.length ? ' · ' + (chiusi.length === 1 ? `incarico #${chiusi[0].id} chiuso` : `${chiusi.length} incarichi chiusi (${chiusi.map((x) => '#' + x.id).join(', ')})`) : ''}. La proposta risulta accolta.`, 'ok');
     render();
   }));
   host.querySelectorAll('[data-pc-respingi]').forEach((b) => b.addEventListener('click', async (ev) => {
