@@ -14,6 +14,7 @@ import { sb, state, $, $$, esc, dataIt, leggiData, toast, attendi, mostraVista, 
 import { collegaDoppioClickMail } from './eml.js';
 import { cronologiaCassaHtml } from './cassa-storico.js';
 import { COD_CANTIERE } from './lookups.js';
+import { pannelloHtml as pannelloDatiUfficiali, aggancia as agganciaDatiUfficiali } from './dati-ufficiali.js';
 
 let scheda = null;          // ultimo JSON caricato
 let schedaTab = 'anagrafica';
@@ -718,6 +719,7 @@ function tabAnagrafica() {
   };
 
   return `
+    ${pannelloDatiUfficiali()}
     ${CAMPI.map(([titolo, griglia, campi]) => `
       <div class="sez">
         <h3>${esc(titolo)}</h3>
@@ -922,6 +924,13 @@ function agganciaAnagrafica() {
   agganciaAteco();
   agganciaCambioChiave();
   agganciaCertificazioni();
+  // (06/10/2026) i dati ufficiali di InfoCamere e VIES, come nel gestionale: propone, non salva
+  agganciaDatiUfficiali({
+    sb, toast,
+    campo: (k) => $(`#ia-${k}`),
+    attuali: () => Object.fromEntries(['impresa_nome', 'piva', 'impresa_cf', 'impresa_id', 'indirizzo', 'comune', 'cap', 'prov', 'tipo_impresa']
+      .map((k) => [k, $(`#ia-${k}`)?.value ?? (scheda.impresa[k] ?? '')])),
+  });
 
   $('#ia-salva')?.addEventListener('click', async (e) => {
     const btn = e.currentTarget;
