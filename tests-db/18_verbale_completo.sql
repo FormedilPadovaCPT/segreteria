@@ -2,7 +2,8 @@
 --   · un verbale diventa definitivo SOLO passando da chiudi_verbale: la scrittura diretta di
 --     stato = 'definitivo' (una pagina rimasta aperta da prima) viene rifiutata;
 --   · chiudi_verbale su una bozza incompleta non chiude e restituisce l'elenco di ciò che manca;
---   · il comune va scritto, il codice ISTAT lo ricava il gestionale: non ferma il tecnico;
+--   · il comune deve avere il codice ISTAT, che lo mette il gestionale scegliendo il comune (dal 06/10/2026;
+--     fino ad allora bastava il nome);
 --   · osservatorio_controllo conta in modo coerente, e a un estraneo non dice niente.
 -- Tutto dentro una transazione annullata: non resta nessuna riga.
 begin;
@@ -56,11 +57,11 @@ begin
   assert (select stato from public.visite where visita_id = 'TEST-VC-1') = 'bozza', 'dopo un rifiuto il verbale resta bozza';
   assert public.verbale_mancanze('TEST-VC-1') = r->'mancanze', 'chiudi_verbale e verbale_mancanze devono dire la stessa cosa';
 
-  -- 4. il comune va scritto: è il nome che conta, non il codice (un cantiere fuori provincia non ferma il tecnico)
+  -- 4. il comune: ci vogliono il nome e il codice ISTAT, che chiede l'Osservatorio (06/10/2026, deciso dall'utente)
   assert pg_get_functiondef('public.verbale_mancanze(text)'::regprocedure) like '%if trim(coalesce(c.comune_nome,'''')) = '''' then%',
     'verbale_mancanze deve guardare il nome del comune';
-  assert pg_get_functiondef('public.verbale_mancanze(text)'::regprocedure) not like '%if coalesce(c.cantiere_comune_cod,'''') !~%',
-    'verbale_mancanze non deve fermare il verbale per il codice ISTAT';
+  assert pg_get_functiondef('public.verbale_mancanze(text)'::regprocedure) like '%elsif coalesce(c.cantiere_comune_cod,'''') !~ ''^[0-9]{6}$'' then%',
+    'verbale_mancanze deve fermare il verbale se il comune non ha il codice ISTAT';
 
   -- 5. osservatorio_controllo: i conti tornano
   r := public.osservatorio_controllo(date '2025-10-01', date '2026-09-30', true);
