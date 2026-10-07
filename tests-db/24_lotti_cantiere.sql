@@ -52,6 +52,22 @@ begin
 
   assert public.etichetta_con_lotto('Via Boccaccio PADOVA - lotto 5 (Furlan)','x','snc','6')='Via Boccaccio PADOVA – lotto 6', 'il lotto vecchio si sostituisce';
   assert public.etichetta_con_lotto(null,'Via Roma','SNC','2')='Via Roma – lotto 2', 'senza etichetta: indirizzo, niente SNC';
+  -- (07/10/2026) anche senza CNCE, e anche dopo aver corretto l'indirizzo di un lotto
+  select k.cantiere_id into cid from public.cantieri k
+   where coalesce(k.elimina,0)=0 and coalesce(k.cantiere_cnce,'')='' and coalesce(btrim(k.lotto),'')=''
+     and exists (select 1 from public.visite v where v.cantiere_id=k.cantiere_id and v.elimina=0)
+   order by k.cantiere_id limit 1;
+  assert cid is not null, 'serve un cantiere senza CNCE con visite';
+  r := public.crea_lotto_cantiere(cid, 'A', 'B');
+  nid := r->>'cantiere_id';
+  assert (select lotto_di from public.cantieri where cantiere_id=nid)=cid, 'la copia ricorda la scheda di partenza';
+  assert (select lotto_di from public.cantieri where cantiere_id=cid) is null, 'la scheda di partenza non ha radice';
+  update public.cantieri set cantiere_indirizzo = cantiere_indirizzo || ' interno' where cantiere_id = nid;
+  assert exists (select 1 from public.lotti_del_cantiere(cid) l where l.cantiere_id=nid), 'il lotto con l''indirizzo corretto resta nel complesso';
+  r := public.crea_lotto_cantiere(nid, null, 'C');
+  assert (select lotto_di from public.cantieri where cantiere_id=r->>'cantiere_id')=cid, 'la copia di una copia punta alla prima';
+  assert (select count(*) from public.lotti_del_cantiere(nid))=3, 'tre lotti, da qualunque lotto si guardi';
+
   assert not has_function_privilege('anon','public.crea_lotto_cantiere(text,text,text)','EXECUTE');
   assert not has_function_privilege('anon','public.togli_lotto_cantiere(text)','EXECUTE');
 end $$;
