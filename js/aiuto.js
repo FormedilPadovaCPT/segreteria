@@ -289,6 +289,7 @@ window.AIUTO_TESTI = {
   "t:+ comune": "Mette un comune (o un quartiere di Padova) in quest'area da oggi. Se era in un'altra area, viene spostato con le sue visite aperte.",
   "zt-conferma": "Sposta: da oggi il comune passa all'area scelta e le visite aperte al suo tecnico. Condividi: resta anche qui e le visite aperte restano a chi le ha. Il verbale resta di chi l'ha fatto; gli incarichi si riassegnano a parte.",
   "zt-condividi": "Con la spunta il comune si aggiunge a quest'area senza toglierlo a quella dove già sta: lo seguono tutti e due i tecnici e le visite aperte restano a chi le ha.",
+  "cm-chiudi-mai": "Le attività di mesi già chiusi mai entrate in un riepilogo che hai lasciato senza spunta si registrano come non da fatturare, col motivo: non torneranno più nelle chiusure.",
   "ft-avviso-salva": "Salva l'avviso del mese: esce in tutte le lettere di incarico di quel mese ancora da protocollare. Se il riquadro è vuoto, l'avviso si toglie.",
   "ft-testo-fisso": "Apre il testo fisso in fondo a tutte le lettere mensili (modalità visite e consulenze) per cambiarlo. Resta scritto chi l'ha cambiato e quando.",
   "ft-tf-salva": "Salva il testo fisso: vale per le lettere preparate da adesso, quelle già protocollate non cambiano.",

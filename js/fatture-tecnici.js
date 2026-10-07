@@ -728,10 +728,18 @@ async function chiudiMese(t, inc) {
     a_pratica_id: r.a_pratica_id, progetto_id: r.progetto_id, fattura_id: null,
   }));
 
+  /* MAI REGISTRATE (07/10/2026, proposta approvata dall'utente) — attività dei mesi già chiusi che alla chiusura del
+     loro mese non sono state registrate (spunta tolta, o incarico arrivato dopo): da lì nessuna chiusura le riproponeva.
+     Caso: la docenza di De Marco alla Formazione tecnici del 23/09. Arrivano SENZA spunta, perché alcune possono essere
+     state lasciate fuori apposta: la segreteria decide se pagarle qui o registrarle come chiuse, col motivo.
+     Lettura fallita ≠ «nessuna»: lo si dice nella finestra. */
+  const { data: mai, error: eMai } = await sb.rpc('s_prestazioni_mai_registrate', { p_tecnico: t.tecnico_id, p_anno: anno, p_mese: mese });
+  const maiReg = (mai || []).map((r) => ({ ...r, mai: true, sorgente: `mai registrata ${MESI[(r.origine_mese || 1) - 1]} ${r.origine_anno}` }));
+
   /* una riga CHIUSA (non si fattura piu', 21/09/2026) non si ripropone
      spuntata: resta visibile perche' si sappia che c'e', e si riapre
      dalla scheda «Prestazioni e storico». */
-  const righe = [...arretrate, ...(calc || [])].map((r, k) => ({ ...r, k, sel: !r.fattura_id && !r.chiusa_il, gia: !!r.prestazione_id }));
+  const righe = [...arretrate, ...maiReg, ...(calc || [])].map((r, k) => ({ ...r, k, sel: !r.fattura_id && !r.chiusa_il && !r.mai, gia: !!r.prestazione_id }));
   const fisc = fiscDi(t.tecnico_id, meseRange(anno, mese).a);
 
   const disegna = () => {
@@ -747,6 +755,12 @@ async function chiudiMese(t, inc) {
         — altrimenti non verrebbero pagate. Togli la spunta se non devono andarci.
         <br><button class="btn btn-ghost btn-sm" id="cm-chiudi-arr" style="margin-top:6px">🗄 Chiudi le arretrate senza spunta (non si fatturano più)</button>
         <span class="hint">Non le cancella: restano in archivio con il motivo, e si riaprono dalla scheda «Prestazioni e storico».</span></div>` : ''}
+      ${eMai ? `<div class="dt-doc-riga" style="margin-bottom:8px;color:var(--rosso,#c0392b)">Non sono riuscito a cercare le attività dei mesi passati mai registrate (${esc(eMai.message)}): questa chiusura potrebbe non vederle tutte.</div>` : ''}
+      ${maiReg.length ? `<div class="dt-doc-riga" style="margin-bottom:8px"><strong>${maiReg.length} attività di mesi già chiusi mai entrate in un riepilogo</strong>
+        (per esempio una spunta tolta, o un incarico arrivato dopo la chiusura). Sono <strong>senza spunta</strong>: alcune possono essere
+        state lasciate fuori apposta. Spunta quelle da pagare in questo riepilogo: restano del loro mese.
+        <br><button class="btn btn-ghost btn-sm" id="cm-chiudi-mai" style="margin-top:6px">🗄 Registra come non da fatturare quelle senza spunta</button>
+        <span class="hint">Restano in archivio con il motivo e non tornano più; si riaprono dalla scheda «Prestazioni e storico».</span></div>` : ''}
       <div class="table-wrap"><table class="tbl" style="min-width:0">
         <thead><tr><th></th><th>Fonte</th><th>Data</th><th>Tipo</th><th>Descrizione</th><th>Q.tà</th><th>Tariffa</th><th>Netto</th><th>Stato</th></tr></thead>
         <tbody>${righe.map((r) => `<tr data-k="${r.k}" ${r.fattura_id ? 'style="opacity:.55"' : ''}>
@@ -858,8 +872,43 @@ async function chiudiMese(t, inc) {
         chiudiMese(t, inc);
       } catch (e) { toast(e.message, 'err'); attendi(btn, false); }
     });
+    $('#cm-chiudi-mai')?.addEventListener('click', async (ev) => {
+      const btn = ev.currentTarget;
+      ricalcola();
+      const daChiudere = righe.filter((r) => r.mai && !r.sel);
+      if (!daChiudere.length) return toast('Sono tutte spuntate: niente da registrare come non da fatturare.', 'err');
+      const tot = daChiudere.reduce((x, r) => x + Number(r.importo || 0), 0);
+      const motivo = prompt(`Perché queste ${daChiudere.length} attività (${euro(tot)}) non si fatturano?\nÈ la riga che rileggerà chi le ritroverà.`, '');
+      if (motivo == null) return;
+      if (!motivo.trim()) return toast('Serve il motivo.', 'err');
+      if (!confirm(`Registro ${daChiudere.length} attività di ${nomeTec(t)} per ${euro(tot)} come NON da fatturare: non torneranno più nelle chiusure.\nSi riaprono dalla scheda «Prestazioni e storico».`)) return;
+      attendi(btn, true, 'Registro…');
+      try {
+        const { data: ins, error } = await sb.from('s_prestazioni').insert(daChiudere.map((r) => rigaPrestazione(t, r, null,
+          `mai registrata alla chiusura di ${MESI[(r.origine_mese || 1) - 1]} ${r.origine_anno}: registrata come non da fatturare nella chiusura di ${MESI[mese - 1]} ${anno}`))).select('id');
+        if (error) throw new Error('Non registrate: ' + error.message);
+        const { data: n, error: e2 } = await sb.rpc('s_prestazioni_chiudi', { p_ids: (ins || []).map((x) => x.id), p_motivo: motivo.trim() });
+        if (e2) throw new Error('Registrate ma non chiuse (le ritrovi fra le arretrate): ' + e2.message);
+        toast(`${n} attività registrate come non da fatturare.`, 'ok');
+        chiudiMese(t, inc);
+      } catch (e) { toast(e.message, 'err'); attendi(btn, false); }
+    });
   };
   disegna();
+}
+
+/* la riga di s_prestazioni per un'attività calcolata. Una «mai registrata» resta del suo mese d'origine
+   (07/10/2026): l'anno e il mese sono quelli in cui è stata fatta, non quelli della chiusura che la paga. */
+function rigaPrestazione(t, r, incaricoId, nota = null) {
+  const [anno, mese] = r.mai ? [r.origine_anno, r.origine_mese] : cursore.split('-').map(Number);
+  return {
+    tecnico_id: t.tecnico_id, tecnico_nome: nomeTec(t), data: String(r.data || '').slice(0, 10) || meseRange(anno, mese).da,
+    anno, mese, tipo: r.tipo, descrizione: r.descrizione, quantita: r.quantita ?? 1, unita: r.unita || 'visita',
+    tariffa_codice: r.tariffa_codice || null, tariffa_unitaria: r.tariffa_unitaria, importo: r.importo,
+    visita_id: r.visita_id || null, visita_stage_id: r.visita_stage_id || null, incarico_id: r.incarico_id || null, corso_incarico_id: r.corso_incarico_id || null,
+    a_pratica_id: r.a_pratica_id || null, progetto_id: r.progetto_id || null, incarico_mensile_id: incaricoId,
+    origine: 'chiusura', creato_da: state.email, ...(nota ? { note: nota } : {}),
+  };
 }
 
 function datiRiepilogo(t, sel, fisc, note) {
@@ -914,12 +963,8 @@ async function congelaEInvia(t, inc, anno, mese, sel, fisc, note, btn) {
 
     /* prestazioni: nuove in insert, esistenti aggiornate al mese */
     const nuove = sel.filter((r) => !r.prestazione_id).map((r) => ({
-      tecnico_id: t.tecnico_id, tecnico_nome: nomeTec(t), data: String(r.data || '').slice(0, 10) || meseRange(anno, mese).da,
-      anno, mese, tipo: r.tipo, descrizione: r.descrizione, quantita: r.quantita ?? 1, unita: r.unita || 'visita',
-      tariffa_codice: r.tariffa_codice || null, tariffa_unitaria: r.tariffa_unitaria, importo: r.importo,
-      visita_id: r.visita_id || null, visita_stage_id: r.visita_stage_id || null, incarico_id: r.incarico_id || null, corso_incarico_id: r.corso_incarico_id || null,
-      a_pratica_id: r.a_pratica_id || null, progetto_id: r.progetto_id || null, incarico_mensile_id: incarico.id,
-      origine: 'chiusura', creato_da: state.email,
+      ...rigaPrestazione(t, r, incarico.id, r.mai ? `mai registrata alla chiusura di ${MESI[(r.origine_mese || 1) - 1]} ${r.origine_anno}: pagata nella chiusura di ${MESI[mese - 1]} ${anno}` : null),
+      ...(r.mai ? {} : { anno, mese }),
     }));
     if (nuove.length) {
       const { error } = await sb.from('s_prestazioni').insert(nuove);
