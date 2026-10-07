@@ -16,10 +16,15 @@
    - crea un'area NUOVA per un tecnico (05/10/2026): prende il numero
      dopo l'ultimo e nasce vuota, i comuni si aggiungono con «+ Comune»;
    - accende o spegne «vede solo le sue visite» per ogni tecnico;
-   - assegna le pratiche aperte rimaste senza un tecnico in zona.
+   - assegna le pratiche aperte rimaste senza un tecnico in zona;
+   - CONDIVIDE un comune o un quartiere fra due aree (07/10/2026, Padova Q1
+     a De Marco e Visentini): resta anche nell'area di prima, le visite
+     aperte restano a chi le ha (zone_condividi). Spostarlo in una delle
+     aree che già lo hanno lo toglie alle altre;
+   - apre la MAPPA delle aree, stampabile (mappa-zone.js).
    Tutte le scritture passano da funzioni del database che controllano
    il ruolo segreteria (zone_sposta, zone_passa_area, zone_crea_area, pendenza_assegna,
-   tecnico_imposta_visibilita).
+   tecnico_imposta_visibilita, zone_condividi).
    ============================================================ */
 
 import { sb, $, esc, dataIt, toast, attendi, apriDrawer, chiudiDrawer } from './core.js';
@@ -75,6 +80,9 @@ function opzioniTecnici(sel) {
   return `<optgroup label="Con un'area oggi">${a.map(opt).join('')}</optgroup>` + (b.length ? `<optgroup label="Altri in servizio">${b.map(opt).join('')}</optgroup>` : '');
 }
 const titolariArea = (a) => titolari.filter((t) => t.area_id === a && t.tecnico_id);
+/* le altre aree che hanno lo stesso comune o quartiere (condiviso, 07/10/2026) */
+const altreAree = (r) => [...new Set(comuni.filter((c) => c.area_id !== r.area_id && c.comune_nome === r.comune_nome
+  && (c.quartiere || 0) === (r.quartiere || 0)).map((c) => c.area_id))];
 const areeInUso = () => aree.filter((a) => comuni.some((c) => c.area_id === a.area_id) || titolariArea(a.area_id).length);
 const nomeArea = (a) => {
   const t = titolariArea(a).map((x) => nomeTec(x.tecnico_id));
@@ -93,8 +101,11 @@ export async function render() {
     const tit = titolariArea(a.area_id);
     const suoi = comuni.filter((c) => c.area_id === a.area_id)
       .sort((x, y) => (x.comune_nome + (x.quartiere || 0)).localeCompare(y.comune_nome + (y.quartiere || 0)));
-    const chips = suoi.map((c) => `<button type="button" class="zt-comune" data-id="${c.id}"
-        title="In quest'area dal ${dataIt(c.dal)}">${esc(etichettaComune(c.comune_nome, c.quartiere))}</button>`).join(' ');
+    const chips = suoi.map((c) => {
+      const altre = altreAree(c);
+      return `<button type="button" class="zt-comune${altre.length ? ' zt-condiviso' : ''}" data-id="${c.id}"
+        title="In quest'area dal ${dataIt(c.dal)}${altre.length ? ' · condiviso con ' + esc(altre.map(nomeArea).join(', ')) : ''}">${esc(etichettaComune(c.comune_nome, c.quartiere))}${altre.length ? ' ⇄' : ''}</button>`;
+    }).join(' ');
     return `<div class="zt-area">
       <div class="zt-area-testa">
         <strong>Area ${a.area_id}</strong>
@@ -133,8 +144,10 @@ export async function render() {
   host.innerHTML = `
     <p class="hint">Le zone di oggi, con le date come in Access. Clic su un comune per spostarlo in un'altra area:
       passano al tecnico nuovo le sole <strong>visite aperte</strong> (il verbale resta di chi l'ha fatto);
-      gli <strong>incarichi</strong> si riassegnano da «Incarichi», uno per uno.</p>
-    <h3>Aree <button type="button" class="btn btn-ghost btn-sm" id="zt-nuova-area">+ Nuova area</button></h3>
+      gli <strong>incarichi</strong> si riassegnano da «Incarichi», uno per uno. Un comune segnato ⇄ è
+      <strong>condiviso</strong> fra più aree.</p>
+    <h3>Aree <button type="button" class="btn btn-ghost btn-sm" id="zt-nuova-area">+ Nuova area</button>
+      <button type="button" class="btn btn-ghost btn-sm" id="zt-mappa">🗺️ Mappa delle aree</button></h3>
     <div class="zt-aree">${schede || '<p class="empty">Nessuna area in uso.</p>'}</div>
 
     <h3>Pratiche aperte di tecnici non più attivi <span class="muted">(${nonAttivi.length})</span></h3>
@@ -159,6 +172,7 @@ export async function render() {
 
   host.querySelectorAll('.zt-comune').forEach((b) => b.addEventListener('click', () => apriSposta(Number(b.dataset.id))));
   $('#zt-nuova-area')?.addEventListener('click', apriNuovaArea);
+  $('#zt-mappa')?.addEventListener('click', apriMappa);
   host.querySelectorAll('.zt-passa').forEach((b) => b.addEventListener('click', () => apriPassa(Number(b.dataset.area))));
   host.querySelectorAll('.zt-aggiungi').forEach((b) => b.addEventListener('click', () => apriAggiungi(Number(b.dataset.area))));
   host.querySelectorAll('.zt-solo').forEach((c) => c.addEventListener('change', () => impostaVisibilita(c)));
@@ -177,16 +191,33 @@ function apriSposta(idRiga) {
   const r = comuni.find((c) => c.id === idRiga);
   if (!r) return;
   const nome = etichettaComune(r.comune_nome, r.quartiere);
+  const altre = altreAree(r);
   apriDrawer(`Sposta ${nome}`, '', `
     <p>Ora è nell'<strong>${esc(nomeArea(r.area_id))}</strong>, dal ${dataIt(r.dal)}.</p>
-    <div class="field"><label>Nuova area</label>
+    ${altre.length ? `<p>È <strong>condiviso</strong> anche con: ${esc(altre.map(nomeArea).join(', '))}.
+      Per toglierlo da quest'area spostalo in una di quelle.</p>` : ''}
+    <div class="field"><label>Che cosa fai</label>
+      <label class="zt-modo"><input type="radio" name="zt-modo" value="sposta" checked> <span><strong>Sposta</strong>: passa all'area scelta e lascia le altre</span></label>
+      <label class="zt-modo"><input type="radio" name="zt-modo" value="condividi"> <span><strong>Condividi</strong>: resta anche qui, lo seguono tutti e due i tecnici</span></label></div>
+    <div class="field"><label>Area</label>
       <select id="zt-dest"><option value="">— scegli —</option>${opzioniAree(r.area_id)}</select></div>
     <div id="zt-anteprima" class="hint">Scegli l'area per vedere che cosa si sposta.</div>
     <div class="drawer-azioni"><button type="button" class="btn btn-primary" id="zt-conferma" disabled>Sposta da oggi</button></div>`);
   const dest = $('#zt-dest'), conf = $('#zt-conferma'), box = $('#zt-anteprima');
-  dest.addEventListener('change', async () => {
+  const modo = () => (document.querySelector('input[name="zt-modo"]:checked') || {}).value || 'sposta';
+  const aggiorna = async () => {
     conf.disabled = true;
+    conf.textContent = modo() === 'condividi' ? 'Condividi da oggi' : 'Sposta da oggi';
     if (!dest.value) { box.textContent = 'Scegli l\'area per vedere che cosa si sposta.'; return; }
+    if (modo() === 'condividi') {
+      const giaLi = altre.includes(Number(dest.value));
+      box.innerHTML = giaLi ? `<p>${esc(nome)} è già in quell'area.</p>`
+        : `<p>${esc(nome)} resta nell'area ${r.area_id} e si aggiunge all'<strong>${esc(nomeArea(Number(dest.value)))}</strong>.
+           Le visite aperte <strong>restano a chi le ha</strong>; le nuove visite le fa chi va in cantiere.
+           Le proposte automatiche del tecnico (portale, servizi, stage) qui non scelgono: lo indica la segreteria.</p>`;
+      conf.disabled = giaLi;
+      return;
+    }
     box.textContent = 'Controllo…';
     const { data, error } = await sb.rpc('zone_anteprima_sposta', { p_comune: r.comune_nome, p_quartiere: r.quartiere, p_area_nuova: Number(dest.value) });
     if (error) { box.textContent = 'Non sono riuscito a fare l\'anteprima: ' + error.message; return; }
@@ -199,8 +230,20 @@ function apriSposta(idRiga) {
       <p>Incarichi aperti su ${esc(nome)} del tecnico che lo lascia: <strong>${data.incarichi_aperti || 0}</strong>
         ${data.incarichi_aperti ? '— non si spostano: riassegnali da «Incarichi», uno per uno.' : ''}</p>`;
     conf.disabled = false;
-  });
+  };
+  dest.addEventListener('change', aggiorna);
+  document.querySelectorAll('input[name="zt-modo"]').forEach((x) => x.addEventListener('change', aggiorna));
   conf.addEventListener('click', async () => {
+    if (modo() === 'condividi') {
+      attendi(conf, true, 'Condivido…');
+      const { data, error } = await sb.rpc('zone_condividi', { p_comune: r.comune_nome, p_quartiere: r.quartiere, p_area: Number(dest.value) });
+      attendi(conf, false);
+      if (error) { toast('Condivisione non riuscita: ' + error.message, 'err'); return; }
+      toast(`${nome} ora è anche nell'area ${data.area}: le visite aperte restano a chi le ha`, 'ok');
+      chiudiDrawer();
+      render();
+      return;
+    }
     attendi(conf, true, 'Sposto…');
     const { data, error } = await sb.rpc('zone_sposta', { p_comune: r.comune_nome, p_quartiere: r.quartiere, p_area_nuova: Number(dest.value) });
     attendi(conf, false);
@@ -218,7 +261,9 @@ function apriAggiungi(area) {
     <div class="field"><label>Comune</label><input id="zt-nuovo-comune" placeholder="es. PADOVA, ESTE…"></div>
     <div class="field" id="zt-q-box" hidden><label>Quartiere di Padova</label>
       <select id="zt-nuovo-q">${Object.entries(QNOME).map(([k, v]) => `<option value="${k}">${esc(v)}</option>`).join('')}</select></div>
-    <p class="hint">Se il comune è già in un'altra area, viene spostato qui con le sue visite aperte (come dal clic sul comune).</p>
+    <label class="zt-modo"><input type="checkbox" id="zt-condividi"> <span>Se è già in un'altra area, <strong>condividilo</strong>: resta anche là
+      e le visite aperte restano a chi le ha (per esempio un quartiere di Padova seguito da due tecnici)</span></label>
+    <p class="hint">Senza la spunta, se il comune è già in un'altra area viene spostato qui con le sue visite aperte (come dal clic sul comune).</p>
     <div class="drawer-azioni"><button type="button" class="btn btn-primary" id="zt-aggiungi-ok">Aggiungi da oggi</button></div>`);
   const inp = $('#zt-nuovo-comune');
   inp.addEventListener('input', () => { $('#zt-q-box').hidden = inp.value.trim().toUpperCase() !== 'PADOVA'; });
@@ -226,11 +271,16 @@ function apriAggiungi(area) {
     const c = inp.value.trim();
     if (!c) { toast('Scrivi il comune', 'err'); return; }
     const q = c.toUpperCase() === 'PADOVA' ? Number($('#zt-nuovo-q').value) : null;
+    const condividi = $('#zt-condividi').checked;
     attendi(e.target, true, 'Salvo…');
-    const { data, error } = await sb.rpc('zone_sposta', { p_comune: c, p_quartiere: q, p_area_nuova: area });
+    const { data, error } = condividi
+      ? await sb.rpc('zone_condividi', { p_comune: c, p_quartiere: q, p_area: area })
+      : await sb.rpc('zone_sposta', { p_comune: c, p_quartiere: q, p_area_nuova: area });
     attendi(e.target, false);
     if (error) { toast('Non riuscito: ' + error.message, 'err'); return; }
-    toast(`${etichettaComune(data.comune, data.quartiere)} nell'area ${area}` + (data.pendenze_spostate ? `: ${data.pendenze_spostate} visite aperte passate` : ''), 'ok');
+    toast(condividi
+      ? `${etichettaComune(data.comune, data.quartiere)} nell'area ${area}` + ((data.condiviso_con || []).length ? `, condiviso con l'area ${data.condiviso_con.join(', ')}` : '')
+      : `${etichettaComune(data.comune, data.quartiere)} nell'area ${area}` + (data.pendenze_spostate ? `: ${data.pendenze_spostate} visite aperte passate` : ''), 'ok');
     chiudiDrawer();
     render();
   });
@@ -281,6 +331,16 @@ function apriNuovaArea() {
     chiudiDrawer();
     await render();
     apriAggiungi(data.area);
+  });
+}
+
+/* ── la mappa delle aree, stampabile (07/10/2026) ── */
+async function apriMappa() {
+  const { apri } = await import('./mappa-zone.js');
+  const conComuni = areeInUso().filter((a) => comuni.some((c) => c.area_id === a.area_id));
+  await apri({
+    aree: conComuni.map((a) => ({ area_id: a.area_id, tecnici: titolariArea(a.area_id).map((t) => nomeTec(t.tecnico_id)) })),
+    comuni: comuni.filter((c) => !c.dal || c.dal <= oggi()),
   });
 }
 

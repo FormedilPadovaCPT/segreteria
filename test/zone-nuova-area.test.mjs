@@ -26,7 +26,7 @@ test('il database: solo segreteria, numero dopo l’ultimo sotto lucchetto, tecn
 });
 
 test('la schermata: pulsante, chiamata giusta, poi la finestra dei comuni sull’area nuova', () => {
-  assert.match(js, /<h3>Aree <button type="button" class="btn btn-ghost btn-sm" id="zt-nuova-area">\+ Nuova area<\/button><\/h3>/);
+  assert.match(js, /<h3>Aree <button type="button" class="btn btn-ghost btn-sm" id="zt-nuova-area">\+ Nuova area<\/button>/);   // dal 07/10 accanto c'è «🗺️ Mappa delle aree»
   assert.match(js, /\$\('#zt-nuova-area'\)\?\.addEventListener\('click', apriNuovaArea\);/);
   const f = js.match(/function apriNuovaArea\(\) \{[\s\S]*?\n\}\n/);
   assert.ok(f, 'manca apriNuovaArea');

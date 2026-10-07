@@ -579,6 +579,8 @@ tr.riga-ceiv{border-left:4px solid var(--ceiv);background:var(--ceiv-bg)}
 .zt-chips{display:flex;flex-wrap:wrap;gap:6px}
 .zt-comune{border:1px solid var(--bordo);background:var(--grigio-chiaro);border-radius:14px;padding:3px 10px;font-size:12px;cursor:pointer}
 .zt-comune:hover{border-color:var(--arancio);background:var(--arancio-chiaro)}
+.zt-condiviso{border-style:dashed;border-color:var(--arancio)}
+.zt-modo{display:flex;gap:8px;align-items:flex-start;font-weight:400;margin:4px 0;cursor:pointer}.zt-modo input{margin-top:3px}
 .zt-lista{margin:6px 0 10px 18px;font-size:12px}
 .zt-vis{display:inline-flex;gap:6px;align-items:center;cursor:pointer}
 .zt-vis-spenta{cursor:default;opacity:.6}
