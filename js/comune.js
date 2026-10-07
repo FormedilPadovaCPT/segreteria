@@ -74,9 +74,11 @@ const PDF_TRADUZIONI = {
 };
 const PDF_AMMESSI = new Set('€‚ƒ„…†‡ˆ‰Š‹ŒŽ'
   + '‘’“”•–—˜™š›œžŸ');
+/* (07/10/2026) le emoji (📌 📩…) sono un carattere solo fuori dal piano base: prima ogni metà diventava «?», e
+   nella lettera mensile uscivano «??». Ora si leggono per carattere e un'emoji senza traduzione sparisce. */
 export function testoPdf(s) {
-  return String(s ?? '').replace(/[Ā-￿]/g, (ch) =>
-    PDF_AMMESSI.has(ch) ? ch : (PDF_TRADUZIONI[ch] ?? '?'));
+  return String(s ?? '').replace(/[\u{100}-\u{10FFFF}]/gu, (ch) =>
+    PDF_AMMESSI.has(ch) ? ch : (PDF_TRADUZIONI[ch] ?? (/\p{Extended_Pictographic}|\u{FE0F}|\u{200D}/u.test(ch) ? '' : '?')));
 }
 
 export function oggiIso() {

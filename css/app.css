@@ -580,6 +580,7 @@ tr.riga-ceiv{border-left:4px solid var(--ceiv);background:var(--ceiv-bg)}
 .zt-comune{border:1px solid var(--bordo);background:var(--grigio-chiaro);border-radius:14px;padding:3px 10px;font-size:12px;cursor:pointer}
 .zt-comune:hover{border-color:var(--arancio);background:var(--arancio-chiaro)}
 .zt-condiviso{border-style:dashed;border-color:var(--arancio)}
+.ft-avviso{border:1px solid var(--bordo);border-left:4px solid var(--arancio);border-radius:8px;padding:8px 10px;margin:0 0 10px;background:var(--bianco,#fff)}.ft-avviso textarea{width:100%;margin:4px 0}.ft-avviso-piede{display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap}
 .zt-modo{display:flex;gap:8px;align-items:flex-start;font-weight:400;margin:4px 0;cursor:pointer}.zt-modo input{margin-top:3px}
 .zt-lista{margin:6px 0 10px 18px;font-size:12px}
 .zt-vis{display:inline-flex;gap:6px;align-items:center;cursor:pointer}

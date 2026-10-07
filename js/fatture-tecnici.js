@@ -184,12 +184,16 @@ async function renderMese(hostArg) {
   host.innerHTML = '<p class="empty">Un istante…</p>';
   const [anno, mese] = cursore.split('-').map(Number);
   const { da, a } = meseRange(anno, mese);
-  const [{ data: inc }, { data: vs }, { data: ff }] = await Promise.all([
+  const [{ data: inc }, { data: vs }, { data: ff }, avv] = await Promise.all([
     sb.from('s_incarichi_mensili').select('*').eq('anno', anno).eq('mese', mese).order('tecnico_nome'),
     sb.from('visite').select('tecnico_id, rlst_sn').gte('data_visita', da).lte('data_visita', a).or('elimina.is.null,elimina.neq.1'),
     sb.from('s_fatture_tecnici').select('id, incarico_mensile_id, numero, stato, importo').not('incarico_mensile_id', 'is', null),
+    /* l'avviso di questo mese e l'ultimo prima, da riproporre (07/10/2026) */
+    sb.from('s_incarichi_avvisi').select('*').lte('anno', anno).order('anno', { ascending: false }).order('mese', { ascending: false }).limit(24),
   ]);
   incarichiMese = inc || [];
+  const avvisoQui = (avv.data || []).find((x) => x.anno === anno && x.mese === mese) || null;
+  const avvisoPrima = avvisoQui ? null : (avv.data || []).find((x) => x.anno * 100 + x.mese < anno * 100 + mese) || null;
   /* quante prestazioni del mese sono ancora senza fattura: un mese puo'
      essere pagato da piu' fatture, e finche' ne resta di aperta il mese
      non e' chiuso davvero */
@@ -230,7 +234,26 @@ async function renderMese(hostArg) {
     </tr>`;
   }).join('');
 
+  const boxAvviso = avv.error
+    ? `<div class="ft-avviso"><p class="hint" style="color:var(--rosso,#c0392b)">Non sono riuscito a leggere l'avviso del mese (${esc(avv.error.message)}): prima di preparare le lettere ricarica la pagina.</p></div>`
+    : `<div class="ft-avviso">
+      <label for="ft-avviso"><strong>📣 Avviso del mese</strong> — esce in tutte le lettere di ${MESI[mese - 1]} ${anno}</label>
+      <textarea id="ft-avviso" rows="2" placeholder="Es. ATTENZIONE – NUOVE ZONE dal 7 ottobre. Vuoto = nessun avviso.">${esc(avvisoQui?.testo || avvisoPrima?.testo || '')}</textarea>
+      <div class="ft-avviso-piede">
+        <span class="hint" id="ft-avviso-stato">${avvisoQui
+          ? `Salvato${avvisoQui.aggiornato_da ? ` da ${esc(avvisoQui.aggiornato_da)}` : ''} il ${dataIt(String(avvisoQui.aggiornato_il).slice(0, 10))}.`
+          : avvisoPrima
+            ? `<strong>Ripreso da ${MESI[avvisoPrima.mese - 1]} ${avvisoPrima.anno} e non ancora salvato: nelle lettere non esce.</strong> Controllalo e premi Salva, oppure cancellalo.`
+            : 'Nessun avviso per questo mese.'}</span>
+        <span style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn btn-primary btn-sm" id="ft-avviso-salva">💾 Salva avviso</button>
+          <button class="btn btn-ghost btn-sm" id="ft-testo-fisso">✏️ Testo fisso della lettera</button>
+        </span>
+      </div>
+    </div>`;
+
   host.innerHTML = `
+    ${boxAvviso}
     <div class="dt-barra">
       <div style="display:flex;gap:6px;align-items:center">
         <button class="btn btn-ghost btn-sm" id="ft-prec">‹</button>
@@ -248,6 +271,8 @@ async function renderMese(hostArg) {
     <p class="hint" style="margin-top:8px">Il numero dell'incarico prosegue la serie Access (929 in poi). Il massimo visite del mese
       nel gestionale (card «obiettivo del mese» del tecnico) si aggiorna da solo dai cantieri assegnati.</p>`;
 
+  $('#ft-avviso-salva')?.addEventListener('click', (e) => salvaAvviso(anno, mese, !!avvisoQui, e.currentTarget));
+  $('#ft-testo-fisso')?.addEventListener('click', apriTestoFisso);
   $('#ft-prec').addEventListener('click', () => { cursore = isoM(prec); renderMese(); });
   $('#ft-succ').addEventListener('click', () => { cursore = isoM(succ); renderMese(); });
   host.querySelectorAll('tbody tr[data-tec]').forEach((tr) => {
@@ -256,6 +281,51 @@ async function renderMese(hostArg) {
     tr.querySelector('[data-az="lettera"]').addEventListener('click', (e) => { e.stopPropagation(); formIncarico(t, i); });
     tr.querySelector('[data-az="chiudi"]').addEventListener('click', (e) => { e.stopPropagation(); chiudiMese(t, i); });
     tr.addEventListener('click', () => i ? dettaglioIncarico(i, t) : formIncarico(t, null));
+  });
+}
+
+/* ── la coda della lettera (07/10/2026, proposta approvata dall'utente) ──
+   Tre parti: l'AVVISO DEL MESE (uno per mese, in tutte le lettere), la NOTA per il singolo tecnico e il TESTO FISSO
+   («Modalità visite e consulenze», s_config, ogni cambio in s_config_storia). L'avviso del mese prima si ripropone
+   a video ma non esce finché non si salva: un avviso vecchio non deve partire da solo. */
+async function salvaAvviso(anno, mese, esiste, btn) {
+  const testo = ($('#ft-avviso')?.value || '').trim();
+  if (!testo && !esiste) return toast('Nessun avviso da salvare: il mese resta senza.', 'ok');
+  attendi(btn, true);
+  const { error } = testo
+    ? await sb.from('s_incarichi_avvisi').upsert({ anno, mese, testo, aggiornato_da: state.email, aggiornato_il: new Date().toISOString() })
+    : await sb.from('s_incarichi_avvisi').delete().eq('anno', anno).eq('mese', mese);
+  attendi(btn, false);
+  if (error) return toast('Avviso non salvato: ' + error.message, 'err');
+  toast(testo ? `Avviso di ${MESI[mese - 1]} ${anno} salvato: esce in tutte le lettere del mese non ancora protocollate.` : `Avviso di ${MESI[mese - 1]} ${anno} tolto.`, 'ok');
+  renderMese();
+}
+
+async function apriTestoFisso() {
+  const [{ data: cfg, error }, { data: st }] = await Promise.all([
+    sb.from('s_config').select('valore, updated_by, updated_at').eq('chiave', 'incarico_visite_testo').maybeSingle(),
+    sb.from('s_config_storia').select('cambiato_da, cambiato_il').eq('chiave', 'incarico_visite_testo').order('cambiato_il', { ascending: false }).limit(5),
+  ]);
+  if (error || !cfg) return toast('Non sono riuscito a leggere il testo fisso: ' + (error?.message || 'manca in s_config'), 'err');
+  apriDrawer('Testo fisso della lettera mensile', '', `
+    <p class="hint">Esce in fondo a <strong>tutte</strong> le lettere di incarico, dopo l'avviso del mese e la nota del tecnico.
+      Un cambio vale per le lettere che si preparano da adesso: quelle già protocollate restano come sono.
+      Le righe vuote separano i paragrafi; niente emoji, il PDF non le sa stampare.</p>
+    <div class="field"><textarea id="ft-tf" rows="16" style="font-family:inherit">${esc(cfg.valore || '')}</textarea></div>
+    ${(st || []).length ? `<p class="hint">Ultimi cambi: ${(st || []).map((r) => `${dataIt(String(r.cambiato_il).slice(0, 10))} (${esc(r.cambiato_da || '?')})`).join(' · ')}</p>` : ''}
+    <div class="drawer-azioni"><button type="button" class="btn btn-primary" id="ft-tf-salva">💾 Salva il testo fisso</button></div>`);
+  $('#ft-tf-salva').addEventListener('click', async (e) => {
+    const v = $('#ft-tf').value.trim();
+    if (!v) return toast('Il testo fisso non può essere vuoto: se non serve, lascia almeno una riga.', 'err');
+    if (v === (cfg.valore || '').trim()) return toast('Nessun cambiamento.', 'ok');
+    const btn = e.currentTarget;
+    attendi(btn, true);
+    const { error: e2 } = await sb.from('s_config').update({ valore: v, updated_by: state.email, updated_at: new Date().toISOString() }).eq('chiave', 'incarico_visite_testo');
+    attendi(btn, false);
+    if (e2) return toast('Testo non salvato: ' + e2.message, 'err');
+    conf.incarico_visite_testo = v;
+    toast('Testo fisso salvato: vale dalle prossime lettere.', 'ok');
+    chiudiDrawer();
   });
 }
 
@@ -291,7 +361,8 @@ function formIncarico(t, i) {
     </div>
     <div class="field" style="margin-top:8px"><label>Comuni di competenza (uno per riga o separati da virgola — proposti dalle zone del gestionale)</label>
       <textarea id="fi-comuni" rows="3">${esc(Array.isArray(i?.comuni) ? i.comuni.join(', ') : (i?.comuni || ''))}</textarea></div>
-    <div class="field" style="margin-top:6px"><label>Note per il tecnico (vanno in lettera)</label><textarea id="fi-note" rows="2">${esc(i?.note || '')}</textarea></div>
+    <div class="field" style="margin-top:6px"><label>Nota per questo tecnico (va nella sua lettera; l'avviso per tutti si scrive sopra l'elenco dei tecnici)</label><textarea id="fi-note" rows="2">${esc(i?.note || '')}</textarea></div>
+    ${i?.note_interne ? `<p class="hint">Annotazioni interne (non vanno in lettera): ${esc(i.note_interne)}</p>` : ''}
     <div style="display:flex;gap:8px;justify-content:space-between;margin-top:12px;flex-wrap:wrap">
       <button class="btn btn-primary" id="fi-salva">💾 Salva</button>
       <div style="display:flex;gap:6px;flex-wrap:wrap">
@@ -301,7 +372,7 @@ function formIncarico(t, i) {
     </div>
     <p class="hint" style="margin-top:8px">La lettera porta comuni, cantieri con ritorno previsto (stessa regola dello scadenzario del gestionale:
       n° accesso + IPC, con la data del tecnico se c'è), richieste in attesa (incarichi aperti del tecnico, anche quelli storici senza email),
-      altri incarichi in sospeso (docenze, conferenze, asseverazioni) e il testo standard di s_config. Salva prima, poi protocolla.
+      altri incarichi in sospeso (docenze, conferenze, asseverazioni), poi l'avviso del mese, la nota per il tecnico e il testo fisso. Salva prima, poi protocolla.
       ${i?.lettera_protocollo_id ? `<br><strong>Già protocollata</strong>${i.lettera_drive_url ? ` · <a href="${esc(i.lettera_drive_url)}" target="_blank" rel="noopener">documento su Drive</a>` : ''}${i.lettera_mail_at ? ` · bozza mail del ${dataIt(i.lettera_mail_at.slice(0, 10))}` : ''}` : ''}</p>`);
 
   if (!i) comuniDi(t).then((cc) => { const el = $('#fi-comuni'); if (el && !el.value) el.value = cc.join(', '); });
@@ -483,9 +554,12 @@ async function datiLettera(t, inc) {
       calcolata: v.calcolata, scaduto: v.scaduto, ipc: v.ipc,
       impresa: imp[v.impresa_id] || v.impresa_rl_nome || cant[v.cantiere_id]?.cantiere_etichetta || '', comune: cant[v.cantiere_id]?.comune_nome || '' }))
     .sort((a, b) => String(a.ritorno).localeCompare(String(b.ritorno)));
+  /* l'avviso del mese: se non si legge la lettera non si fa, altrimenti uscirebbe senza (07/10/2026) */
+  const { data: av, error: eAv } = await sb.from('s_incarichi_avvisi').select('testo').eq('anno', inc.anno).eq('mese', inc.mese).maybeSingle();
+  if (eAv) throw new Error('Non sono riuscito a leggere l\'avviso del mese: ' + eAv.message);
   return {
     tecnico: nomeTec(t), comuni: inc.comuni?.length ? inc.comuni : await comuniDi(t),
-    ncAperte, richieste: rq, sospesi, testo: conf.incarico_visite_testo || '', coordinatore: conf.coordinatore_nome || '',
+    ncAperte, richieste: rq, sospesi, avviso: av?.testo || '', testo: conf.incarico_visite_testo || '', coordinatore: conf.coordinatore_nome || '',
   };
 }
 
@@ -545,8 +619,8 @@ ${integrazione ? `a integrazione della comunicazione ${codiceProtocollo(prot)} g
 cantieri assegnati ${inc.cantieri_assegnati ?? 0}${inc.seconde_visite ? `, seconde visite ${inc.seconde_visite}` : ''}${inc.altro ? `, altro ${inc.altro}` : ''}.
 Comuni di competenza: ${(d.comuni || []).join(', ') || '—'}.
 ${d.ncAperte.length ? `\nCantieri con ritorno previsto da richiudere: ${d.ncAperte.length} (elenco in lettera).` : ''}${d.richieste.length ? `\nRichieste in attesa: ${d.richieste.length} (elenco in lettera).` : ''}${d.sospesi.length ? `\nAltri incarichi in sospeso: ${d.sospesi.length} (elenco in lettera).` : ''}
-${inc.note ? `\n${inc.note}\n` : ''}
-${conf.incarico_visite_testo ? `${conf.incarico_visite_testo}\n` : ''}
+${d.avviso ? `\n${d.avviso}\n` : ''}${inc.note ? `\n${inc.note}\n` : ''}
+${d.testo ? `${d.testo}\n` : ''}
 Cordiali saluti.
 
 ${FIRMA_SEGRETERIA}`,
@@ -574,7 +648,8 @@ async function dettaglioIncarico(i, t) {
       ${i.totale_netto != null ? ` · netto ${euro(i.totale_netto)} · lordo ${euro(i.totale_lordo)}` : ''}
       ${i.riepilogo_drive_url ? ` · <a href="${esc(i.riepilogo_drive_url)}" target="_blank" rel="noopener">riepilogo PDF</a>` : ''}</div>
     ${Array.isArray(i.comuni) && i.comuni.length ? `<div class="dt-doc-riga"><strong>Comuni:</strong> ${esc(i.comuni.join(', '))}</div>` : ''}
-    ${i.note ? `<div class="dt-doc-riga"><strong>Note:</strong> ${esc(i.note)}</div>` : ''}
+    ${i.note ? `<div class="dt-doc-riga"><strong>Nota in lettera:</strong> ${esc(i.note)}</div>` : ''}
+    ${i.note_interne ? `<div class="dt-doc-riga"><strong>Annotazioni interne:</strong> ${esc(i.note_interne)}</div>` : ''}
     ${i.cantieri_visitati != null ? `<div class="dt-doc-riga"><strong>Cantieri visitati (Access):</strong> ${i.cantieri_visitati}</div>` : ''}
     <hr style="margin:10px 0;border:0;border-top:1px solid var(--bordo)">
     <h4 style="margin:0 0 4px">Prestazioni del mese (${prest.length})</h4>
@@ -744,7 +819,7 @@ async function chiudiMese(t, inc) {
         const { error } = await sb.from('s_incarichi_mensili').update({
           stato: 'chiuso', chiuso_il: new Date().toISOString(), chiuso_da: state.email,
           totale_netto: 0, totale_lordo: 0, cantieri_visitati: 0,
-          note: inc.note ? `${inc.note}\n${nota}` : nota,
+          note_interne: inc.note_interne ? `${inc.note_interne}\n${nota}` : nota,   // non va in lettera (07/10/2026)
           aggiornato_da: state.email, updated_at: new Date().toISOString(),
         }).eq('id', inc.id).eq('stato', 'aperto');
         if (error) throw new Error(error.message);

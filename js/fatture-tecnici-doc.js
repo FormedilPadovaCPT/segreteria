@@ -183,12 +183,13 @@ export async function pdfLetteraIncarico(inc, prot, d) {
   }
   c.stato.y -= 8;
 
+  /* (07/10/2026) la coda in tre parti: avviso del mese per tutti, nota per questo tecnico, testo fisso.
+     Tolta la riga «L'incarico vale per il mese indicato…»: lo dice già il punto 1 del testo fisso. */
+  if (d.avviso) { c.scrivi(d.avviso, c.bold, 10, c.nero); c.stato.y -= 6; }
   if (inc.note) { c.scrivi(inc.note, c.font, 9.5); c.stato.y -= 6; }
   if (d.testo) {
     for (const par of String(d.testo).split(/\n{2,}/)) { c.scrivi(par, c.font, 9, c.nero); c.stato.y -= 4; }
   }
-  c.stato.y -= 4;
-  c.scrivi(`L'incarico vale per il mese indicato. Per ogni chiarimento resta a disposizione il coordinatore${d.coordinatore ? ` (${d.coordinatore})` : ''}.`, c.italic, 8.5, c.grigio);
   firmaSegreteria(c, prot);
   return salva(c.doc);
 }
