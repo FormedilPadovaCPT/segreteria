@@ -42,3 +42,16 @@ test('testo fisso dall\'app, annotazioni interne fuori dalla lettera', () => {
   const sql = fs.readFileSync(new URL('../supabase/sql/2026_10_07_lettera_incarico_testi.sql', import.meta.url), 'utf8');
   assert.ok(/create table if not exists public\.s_incarichi_avvisi/.test(sql) && /create trigger trg_s_config_storia/.test(sql) && /9\) Comunicazioni con il CPT/.test(sql));
 });
+
+test('docenze in sospeso: solo i corsi non ancora tenuti (la Formazione tecnici del 23/09 non esce a ottobre)', () => {
+  const m = ft.match(/const finito = \(c\) => ([\s\S]*?);\r?\n/);
+  assert.ok(m, 'la regola dei corsi finiti');
+  const finito = new Function('c', 'oggi', `return ${m[1]};`);
+  const oggi = '2026-10-07';
+  assert.equal(finito({ id: 203, stato: 'svolto', data_inizio: '2026-09-23', data_fine: '2026-09-23' }, oggi), true, 'svolto il 23/09: non in sospeso');
+  assert.equal(finito({ stato: 'programmato', data_inizio: '2026-10-20', data_fine: '2026-10-20' }, oggi), false, 'una lezione futura resta');
+  assert.equal(finito({ stato: 'in corso', data_inizio: '2026-09-30', data_fine: '2026-11-10' }, oggi), false, 'un corso a cavallo resta');
+  assert.equal(finito({ stato: 'annullato', data_inizio: '2026-11-10' }, oggi), true, 'annullato: mai');
+  assert.equal(finito({ stato: 'programmato' }, oggi), false, 'senza date e non svolto: resta');
+  assert.ok(/\.filter\(\(c\) => !finito\(c\)\)\.map\(\(c\) => c\.id\)/.test(ft), 'il filtro si usa');
+});

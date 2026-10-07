@@ -468,7 +468,12 @@ async function sospesiDelTecnico(t) {
   ]).catch((e) => { console.error('sospesiDelTecnico', e); return [{ data: [] }, { data: [] }]; });
 
   const out = [];
-  const idCorsi = (corsi?.data || []).map((c) => c.id);
+  /* (07/10/2026) una docenza è «in sospeso» finché la lezione non c'è stata: un corso già tenuto ma non ancora
+     chiuso (stato «svolto», compensi da sistemare) non è lavoro da fare per il tecnico. Prima bastava che il corso
+     non fosse «chiuso», e la Formazione tecnici del 23/09 usciva ancora nella lettera di ottobre a De Marco. */
+  const finito = (c) => c.stato === 'annullato'
+    || ((c.data_fine || c.data_inizio) ? (c.data_fine || c.data_inizio) < oggi : ['svolto', 'chiuso'].includes(c.stato));
+  const idCorsi = (corsi?.data || []).filter((c) => !finito(c)).map((c) => c.id);
   if (idCorsi.length) {
     const { data: inc } = await sb.from('s_corsi_incarichi').select('id, corso_id, nominativo, ore, corrispettivo, data_incarico').in('corso_id', idCorsi);
     const perId = Object.fromEntries((corsi.data || []).map((c) => [c.id, c]));
