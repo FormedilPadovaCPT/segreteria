@@ -26,7 +26,7 @@ begin
   assert ok, 'un avviso per mese';
   ok := false; begin insert into public.s_incarichi_avvisi (anno, mese, testo) values (2031, 1, '  '); exception when check_violation then ok := true; end;
   assert ok, 'un avviso vuoto non si salva: si cancella';
-  assert (select testo from public.s_incarichi_avvisi where anno = 2026 and mese = 10) = 'ATTENZIONE - NUOVE ZONE -', 'l''avviso di ottobre';
+  -- (il testo dell'avviso di ottobre lo cambia la segreteria: il test non ne controlla il contenuto)
 
   assert not exists (select 1 from public.s_incarichi_mensili where anno = 2026 and (note ~ '^\d{2}/\d{2}/\d{4} chiuso senza attività' or note like 'Riaperto il %')),
     'le annotazioni dell''app non stanno nella nota della lettera';

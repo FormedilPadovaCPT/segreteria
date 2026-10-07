@@ -39,6 +39,9 @@ const CHIUSE = ['chiusa', 'scartata', 'annullata', 'rilasciata'];
 const apriPratica = (vista, id) =>
   document.dispatchEvent(new CustomEvent('apri-pratica', { detail: { vista, id } }));
 
+/* esiti senza visita dichiarati dal tecnico (07/10/2026, gestionale: esito-incarico.js) */
+const ESITO_SENZA_VISITA = { cantiere_finito: 'cantiere già finito', cantiere_non_trovato: "nessun cantiere all'indirizzo", altro: 'visita non possibile' };
+
 export async function render() {
   const host = $('#home-host');
   host.innerHTML = '<p class="empty">Un istante…</p>';
@@ -254,7 +257,7 @@ export async function render() {
   const praticaDi = {};
   const pEseguiti = (async () => { try {
     const { data, error: eEs } = await sb.from('incarichi')
-      .select('id, tipo_richiesta, impresa, comune, tecnico_nome, visita_id, eseguito_il, data_richiesta')
+      .select('id, tipo_richiesta, impresa, comune, tecnico_nome, visita_id, eseguito_il, data_richiesta, esito_senza_visita, esito_data, esito_nota')
       .eq('stato', 'eseguito').order('eseguito_il', { ascending: false }).limit(30);
     if (eEs) nonLetti.add('incarichi');
     eseguiti = data || [];
@@ -775,6 +778,13 @@ export async function render() {
         eseguiti.length
           ? eseguiti.slice(0, 6).map((r) => {
               const pr = praticaDi[r.id];
+              /* (07/10/2026) «cantiere finito / non trovato»: nessun verbale, la nota del tecnico e la chiusura qui */
+              if (r.esito_senza_visita) {
+                return `<div class="hm-riga" ${pr ? `data-vista="${pr.vista}" data-id="${pr.id}"` : ''}><span>🏁</span>
+                <span><strong>inc. ${r.id}</strong> — ${esc(r.impresa || r.comune || '?')} <span class="hint">(${esc(r.tecnico_nome || '')})</span>
+                  <br><span class="hint">senza visita, ${esc(ESITO_SENZA_VISITA[r.esito_senza_visita] || 'esito senza verbale')}${r.esito_data ? ` (sul posto il ${dataIt(r.esito_data)})` : ''}: «${esc(String(r.esito_nota || '').slice(0, 120))}»</span></span>
+                <button class="btn btn-ghost btn-sm" data-chiudi-esito="${r.id}" data-aiuto="Chiude l'incarico: il tecnico è andato ma non c'era da fare la visita. L'uscita gli si paga come una visita nella chiusura del mese.">Chiudi</button></div>`;
+              }
               return `<div class="hm-riga" ${pr ? `data-vista="${pr.vista}" data-id="${pr.id}"` : 'data-goto="visite"'}><span>🔧</span>
                 <span><strong>inc. ${r.id}</strong> — ${esc(r.impresa || r.comune || '?')}${r.visita_id ? ` · verbale ${esc(String(r.visita_id))}` : ''} <span class="hint">(${esc(r.tecnico_nome || '')})</span></span>
                 <span class="hint">${r.eseguito_il ? dataIt(String(r.eseguito_il).slice(0, 10)) : ''}</span></div>`;
@@ -1077,6 +1087,16 @@ export async function render() {
     a.addEventListener('click', (ev) => {
       ev.preventDefault();
       apriPratica(a.dataset.vistaInc, Number(a.dataset.idInc));
+    }));
+  host.querySelectorAll('[data-chiudi-esito]').forEach((b) =>
+    b.addEventListener('click', async (ev) => {
+      ev.stopPropagation();
+      const id = Number(b.dataset.chiudiEsito);
+      if (!confirm(`Chiudere l'incarico n° ${id}? Il tecnico è andato sul posto ma la visita non c'era da fare: l'uscita gli si paga come una visita nella chiusura del mese.`)) return;
+      const { error } = await sb.rpc('incarichi_set_stato', { p_id: id, p_stato: 'chiuso' });
+      if (error) return toast('Non chiuso: ' + error.message, 'err');
+      toast(`Incarico n° ${id} chiuso.`, 'ok');
+      render();
     }));
   host.querySelectorAll('[data-riassegna]').forEach((b) =>
     b.addEventListener('click', async (ev) => {
