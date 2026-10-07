@@ -261,6 +261,12 @@ export async function render() {
       .eq('stato', 'eseguito').order('eseguito_il', { ascending: false }).limit(30);
     if (eEs) nonLetti.add('incarichi');
     eseguiti = data || [];
+    /* le foto delle uscite senza visita (07/10/2026), su Drive come quelle dei verbali */
+    const conEsito = eseguiti.filter((r) => r.esito_senza_visita).map((r) => r.id);
+    if (conEsito.length) {
+      const { data: ff, error: eFf } = await sb.from('incarichi_foto').select('incarico_id, drive_url').in('incarico_id', conEsito).order('id');
+      eseguiti.forEach((r) => { if (r.esito_senza_visita) { r._foto = (ff || []).filter((f) => f.incarico_id === r.id); r._fotoErr = !!eFf; } });
+    }
     /* il tecnico che non puo' prendere una visita lo dichiara motivando
        (04/09/2026): il rifiuto vive nel gestionale, ma a doverci fare
        qualcosa e' la segreteria, quindi si vede qui */
@@ -782,7 +788,8 @@ export async function render() {
               if (r.esito_senza_visita) {
                 return `<div class="hm-riga" ${pr ? `data-vista="${pr.vista}" data-id="${pr.id}"` : ''}><span>🏁</span>
                 <span><strong>inc. ${r.id}</strong> — ${esc(r.impresa || r.comune || '?')} <span class="hint">(${esc(r.tecnico_nome || '')})</span>
-                  <br><span class="hint">senza visita, ${esc(ESITO_SENZA_VISITA[r.esito_senza_visita] || 'esito senza verbale')}${r.esito_data ? ` (sul posto il ${dataIt(r.esito_data)})` : ''}: «${esc(String(r.esito_nota || '').slice(0, 120))}»</span></span>
+                  <br><span class="hint">senza visita, ${esc(ESITO_SENZA_VISITA[r.esito_senza_visita] || 'esito senza verbale')}${r.esito_data ? ` (sul posto il ${dataIt(r.esito_data)})` : ''}: «${esc(String(r.esito_nota || '').slice(0, 120))}»</span>
+                  ${(r._foto || []).map((f, k) => ` <a href="${esc(f.drive_url || '#')}" target="_blank" rel="noopener" onclick="event.stopPropagation()">📷 foto ${k + 1}</a>`).join('')}${r._fotoErr ? ' <span class="hint" style="color:#a01f00">foto non lette</span>' : ''}</span>
                 <button class="btn btn-ghost btn-sm" data-chiudi-esito="${r.id}" data-aiuto="Chiude l'incarico: il tecnico è andato ma non c'era da fare la visita. L'uscita gli si paga come una visita nella chiusura del mese.">Chiudi</button></div>`;
               }
               return `<div class="hm-riga" ${pr ? `data-vista="${pr.vista}" data-id="${pr.id}"` : 'data-goto="visite"'}><span>🔧</span>

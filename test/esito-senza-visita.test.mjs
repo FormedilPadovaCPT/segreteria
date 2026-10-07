@@ -14,6 +14,11 @@ test('il cruscotto: esito, nota del tecnico, chiusura', () => {
   assert.ok(/sb\.rpc\('incarichi_set_stato', \{ p_id: id, p_stato: 'chiuso' \}\)/.test(home) && /if \(error\) return toast\('Non chiuso: '/.test(home));
 });
 
+test('il cruscotto mostra le foto, e dice se non le legge', () => {
+  assert.ok(/from\('incarichi_foto'\)\.select\('incarico_id, drive_url'\)\.in\('incarico_id', conEsito\)/.test(home));
+  assert.ok(/📷 foto \$\{k \+ 1\}/.test(home) && /foto non lette/.test(home));
+});
+
 test('il calcolo: l\'uscita si paga come una visita, una volta sola', () => {
   assert.ok(/'sorgente', 'senza_visita'/.test(sql) && /'tipo', 'visita_prima'/.test(sql));
   assert.ok(/public\.s_tariffa\('visita_prima', i\.esito_data, p_tecnico\)/.test(sql), 'tariffa della visita, alla data dell\'uscita');
