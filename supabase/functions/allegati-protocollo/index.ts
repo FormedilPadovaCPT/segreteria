@@ -219,10 +219,20 @@ serve(async (req) => {
       const inAttesa = !parent_id
 
       /* Il codice del protocollo entra nel NOME, non nella cartella:
-         cosi' il file resta riconoscibile ovunque venga smistato. */
+         cosi' il file resta riconoscibile ovunque venga smistato.
+         Va IN CODA, prima dell'estensione e col prefisso «Prot_», come
+         vuole la convenzione del vault (data in testa, protocollo in coda):
+         `2026_10_07_COMU_…_ottobre-2026_Prot_26-27_0011.pdf`. Fino al
+         09/10/2026 andava in testa (`Prot_26-27_0011_2026_10_07_…`,
+         `2555-out_2026_09_07_…`) e i file erano da rinominare a mano
+         (deciso dall'utente, rianalisi R064). Gli agganci lo trovano anche
+         in coda, perche' e' preceduto da «Prot». */
       const nudo = pulito(filename)
       const cod = pulito(codice)
-      const safeName = cod && !nudo.includes(cod) ? `${cod}_${nudo}` : nudo
+      const sigla = /^prot_/i.test(cod) ? cod : `Prot_${cod}`
+      const punto = nudo.lastIndexOf('.')
+      const safeName = !cod || nudo.includes(cod) ? nudo
+        : punto > 0 ? `${nudo.slice(0, punto)}_${sigla}${nudo.slice(punto)}` : `${nudo}_${sigla}`
       const fileBytes = b64ToBytes(base64)
       const boundary = '-------DocumentoProtocollo'
       const metadata = JSON.stringify({ name: safeName, parents: [folderId] })
@@ -361,8 +371,9 @@ serve(async (req) => {
          quel numero non e' un protocollo ma un anno (successo alla
          prima prova, 29/08/2026). Perche' sia un protocollo il codice
          deve essere annunciato come tale: preceduto da «Prot», oppure
-         in testa al nome — che e' la forma con cui l'app battezza i
-         file che carica lei. */
+         in testa al nome — la forma con cui l'app battezzava i file che
+         caricava fino al 09/10/2026 (ora li battezza `…_Prot_<codice>`,
+         in coda): i file di prima restano riconoscibili. */
       const codiceEsc = codice.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
       const fine = '([^0-9A-Za-z]|$)'
       const dentro = /^prot/i.test(codice)
