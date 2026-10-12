@@ -661,7 +661,7 @@ async function richiestaAutorizzazione(p, btn) {
 vogliate trovare in allegato la richiesta di autorizzazione per la visita su segnalazione n. ${n} (${[p.ind_cantiere, p.comune_cantiere].filter(Boolean).join(' — ') || 'cantiere da individuare'}).
 Tecnico proposto: ${tecnico || 'da assegnare'}.
 
->>> Autorizza dall'app (si apre direttamente la pratica):
+>>>> ✅ Apri la pratica e autorizza (pratica da autorizzare: si apre direttamente nell'app):
 ${APP_URL}#segnalazione-${p.id}
 
 In alternativa resta il giro cartaceo: firmare il foglio allegato e restituirlo alla Segreteria.

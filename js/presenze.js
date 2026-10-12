@@ -1586,7 +1586,7 @@ in allegato la richiesta di ${etichettaTipo(r.tipo).toLowerCase()} n. ${r.id} di
 ${eSuppl(r) ? 'il giorno' : 'periodo'} ${dataIt(r.data_inizio)}${r.data_fine ? ` → ${dataIt(r.data_fine)}` : ''}${r.ora_dalle ? ` dalle ${hm(r.ora_dalle)} alle ${hm(r.ora_alle)}` : ''}${r.ore != null ? `, ${r.ore} ore` : ''}.${eSuppl(r) ? `
 Scelta del lavoratore: ${COMPENSO[r.compenso] || 'non indicata'}.` : ''}
 
->>> Autorizza dall'app (si apre direttamente la pratica):
+>>>> ✅ Apri la richiesta e autorizza (richiesta da autorizzare: si apre direttamente nell'app):
 ${APP_URL}#ferie-${r.id}
 
 In alternativa resta il giro cartaceo: firmare il modulo allegato e restituirlo alla Segreteria.

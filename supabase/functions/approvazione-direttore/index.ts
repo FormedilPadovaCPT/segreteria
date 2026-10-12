@@ -251,10 +251,10 @@ async function avvisaDirettore(sb: any, conf: Record<string, string>, a: string)
       : `ci sono ${righe.length} preventivi di asseverazione che aspettano la sua approvazione prima di uscire a sua firma:`,
     righe.map(voce).join('\n'),
     '',
-    'Si leggono e si approvano dall\'app, nella pagina Direzione del gestionale visite: si apre la bozza e si preme «Approvo». Se qualcosa non va, «Rimando» con due righe di nota lo riporta alla segreteria. Il preventivo prende il numero di protocollo, il timbro e la sua firma solo dopo l\'approvazione.',
-    '',
-    '>>> Apri i preventivi da approvare:',
+    '>>>> ✅ Apri i preventivi e approva (da approvare: pagina Direzione del gestionale visite):',
     PAGINA_DIREZIONE,
+    '',
+    'Si apre la bozza e si preme «Approvo». Se qualcosa non va, «Rimando» con due righe di nota lo riporta alla segreteria. Il preventivo prende il numero di protocollo, il timbro e la sua firma solo dopo l\'approvazione.',
     '',
     'Cordiali saluti.',
   ].join('\n')

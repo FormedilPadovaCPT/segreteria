@@ -495,7 +495,7 @@ Tecnico proposto: ${tecnico || 'da assegnare'}.
 Spesa prevista: ${voce(campi, 'Spesa prevista')}.
 CEIV: ${voce(campi, 'CEIV')}.
 
->>> Autorizza dall'app (si apre direttamente la pratica):
+>>>> ✅ Apri la pratica e autorizza (pratica da autorizzare: si apre direttamente nell'app):
 ${APP_URL}#conferenza-${p.id}
 
 In alternativa resta il giro cartaceo: firmare il foglio allegato e restituirlo alla Segreteria.

@@ -304,8 +304,19 @@ ${bottoneMail({ href, testo: etichetta, larga })}
 
       diventa il blocco qui sopra nella versione HTML, e resta com'è
       scritta nella versione in righe. È l'unica forma interpretata:
-      tutto il resto del testo resta testo (vedi testoInHtml). ── */
-const AZIONE_RE = /^[ \t]*>>>[ \t]*([^\n(]{2,60}?)[ \t]*(?:\(([^)\n]{0,160})\))?[ \t]*:?[ \t]*\r?\n[ \t]*(https?:\/\/[^\s<]+)[ \t]*$/gm;
+      tutto il resto del testo resta testo (vedi testoInHtml).
+      (12/10/2026) Con QUATTRO segni, «>>>> Etichetta (nota):», il blocco
+      esce IN EVIDENZA: pulsante a tutta riga dentro un riquadro col bordo
+      arancione. È per le mail che chiedono a Direttore, Presidente e
+      Amministrazione di decidere o firmare (chiesto da Patrizia): lì il
+      pulsante normale si perdeva. ── */
+const AZIONE_RE = /^[ \t]*>>>(>?)[ \t]*([^\n(]{2,60}?)[ \t]*(?:\(([^)\n]{0,160})\))?[ \t]*:?[ \t]*\r?\n[ \t]*(https?:\/\/[^\s<]+)[ \t]*$/gm;
+
+/* il riquadro col bordo arancione che mette in evidenza un blocco */
+export function riquadroEvidenza(html) {
+  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%;border-collapse:collapse;margin:0 0 16px;">
+<tr><td style="border:3px solid ${ARANCIO};border-radius:10px;padding:6px 6px 0;">${html}</td></tr></table>`;
+}
 
 export function corpoInHtml(testo) {
   const s = String(testo ?? '').replace(/\r\n/g, '\n');
@@ -315,7 +326,13 @@ export function corpoInHtml(testo) {
   for (let m = AZIONE_RE.exec(s); m; m = AZIONE_RE.exec(s)) {
     const prima = s.slice(da, m.index).trim();
     if (prima) pezzi.push(testoInHtml(prima));
-    pezzi.push(bloccoAzioneMail({ testo: (m[2] || '').trim(), href: m[3], etichetta: m[1].trim() }));
+    const forte = m[1] === '>';
+    const nota = (m[3] || '').trim();
+    /* in evidenza la nota diventa il titolo del riquadro, con la freccia */
+    const blocco = forte
+      ? bloccoAzioneMail({ titolo: nota ? `👉 ${nota.charAt(0).toUpperCase()}${nota.slice(1)}` : '', href: m[4], etichetta: m[2].trim(), larga: true })
+      : bloccoAzioneMail({ testo: nota, href: m[4], etichetta: m[2].trim() });
+    pezzi.push(forte ? riquadroEvidenza(blocco) : blocco);
     da = m.index + m[0].length;
   }
   const resto = s.slice(da).trim();
