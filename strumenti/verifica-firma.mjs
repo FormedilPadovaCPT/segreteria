@@ -29,13 +29,15 @@ const sincronizza = process.argv.includes('--sincronizza');
 /* Le funzioni che compongono posta con la firma dell'ufficio: ognuna ha
    la sua copia di firma.js e la sua firma-logo.js che scarica il logo.
    avviso-pagamento aggiunta il 16/09/2026. */
-const FUNZIONI_POSTA = ['send-protocollo', 'avviso-pagamento', 'avviso-approvazione', 'mail-respinte', 'promemoria-corsi', 'firma-presidente', 'approvazione-direttore'];
+const FUNZIONI_POSTA = ['send-protocollo', 'avviso-pagamento', 'avviso-approvazione', 'mail-respinte', 'promemoria-corsi', 'firma-presidente', 'approvazione-direttore', 'risposte-verbali'];
 /* Altri moduli puri che una funzione tiene in copia, per poterli provare con
    `node --test` senza Deno: la lettura dei rapporti di mancata consegna
    (21/09/2026). Si allineano allo stesso modo. */
 const ALTRE_COPIE = [{ fn: 'mail-respinte', f: 'mail-respinte-lettura.js' },
   /* le regole dei promemoria delle lezioni (28/09/2026) */
-  { fn: 'promemoria-corsi', f: 'corsi-promemoria-testo.js' }];
+  { fn: 'promemoria-corsi', f: 'corsi-promemoria-testo.js' },
+  /* le risposte ai verbali girate al tecnico (12/10/2026): la sua lettura e quella dei rimbalzi, che usa */
+  { fn: 'risposte-verbali', f: 'mail-respinte-lettura.js' }, { fn: 'risposte-verbali', f: 'risposte-verbali-lettura.js' }];
 const COPIE = FUNZIONI_POSTA.map((fn) => ({ fn, f: 'firma.js' })).concat(ALTRE_COPIE)
   .map(({ fn, f }) => ({
     orig: join(radice, 'js', f),
