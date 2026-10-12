@@ -139,13 +139,18 @@ export async function render() {
      (suite «browser», ogni mattina feriale e dopo ogni pubblicazione)
      scrivono il verdetto in s_test_automatici. Come per il backup, nessuna
      riga da troppo tempo vale come un fallimento. ── */
+  /* (12/10/2026) l'ultimo verdetto si legge PER SUITE. Prima erano le ultime 40 righe di tutte e due
+     insieme: le prove nel browser girano più volte al giorno (47 righe fra il 05/10 e il 10/10) e
+     spingevano fuori il giro del lunedì, che risultava «nessun giro registrato» pur essendo riuscito. */
   let testAuto = { database: null, browser: null }, testAutoErr = null;
   const pTestAuto = (async () => { try {
-    const { data, error } = await sb.from('s_test_automatici')
+    const letture = await Promise.all(Object.keys(testAuto).map(suite => sb.from('s_test_automatici')
       .select('id, eseguita_il, suite, esito, passati, falliti, elenco_falliti, run_url')
-      .order('id', { ascending: false }).limit(40);
-    if (error) testAutoErr = error.message;
-    else for (const r of data || []) if (!testAuto[r.suite]) testAuto[r.suite] = r;
+      .eq('suite', suite).order('id', { ascending: false }).limit(1)));
+    letture.forEach(({ data, error }, i) => {
+      if (error) testAutoErr = error.message;
+      else testAuto[Object.keys(testAuto)[i]] = (data || [])[0] || null;
+    });
   } catch (e) { testAutoErr = e?.message || String(e); } })();
 
   /* ── il controllo settimanale delle tendine (04/10/2026): ogni lunedì il
