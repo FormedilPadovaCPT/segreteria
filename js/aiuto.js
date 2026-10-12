@@ -246,7 +246,7 @@ window.AIUTO_TESTI = {
   'hm-aposto': 'Aree senza niente in sospeso. Clic su una pastiglia per aprire la sua pagina. Il cruscotto conta le righe delle tabelle, non tiene una lista sua: le pratiche chiuse e scartate non compaiono.',
   'hm-non-letto': 'Non sono riuscito a leggere questi dati: il numero non si conosce, non vuol dire che non ci sia niente. Ricarica la pagina; se resta così, avvisa chi segue l\'app.',
   'hm-giorni': 'Giorni passati da quando la richiesta è arrivata. Oltre 60 la cifra diventa rossa.',
-  'hm-direttore': 'Pratiche dei servizi CPT che aspettano l\'autorizzazione del Direttore. Finché non c\'è, non si lavorano.',
+  'hm-direttore': 'Quello che aspetta il Direttore: le pratiche dei servizi CPT da autorizzare (finché non c\'è, non si lavorano) e i preventivi di asseverazione da approvare, con quelli rimandati da correggere e quelli approvati da protocollare nell\'app asseverazione.',
   'hm-firme': 'Le lettere di incarico mandate al Presidente da firmare nell\'app: quelle in attesa, quelle rimandate col motivo e quelle firmate da spedire. In fondo, gli originali firmati a mano (facoltativi) da segnare.',
   't:ricorda al presidente': 'Rimanda al Presidente la mail con l\'elenco di tutto quello che aspetta la sua firma nell\'app.',
   'p:lettera al presidente': 'Rigenera la lettera col suo numero di protocollo e la manda al Presidente da firmare nell\'app: gli arriva una mail.',

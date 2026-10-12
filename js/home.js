@@ -13,6 +13,7 @@
 import { sb, $, esc, dataIt, oggiIso, mostraVista, codiceProtocollo, toast } from './core.js';
 import { dividiRespinte } from './mail-respinte-viste.js';
 import { datiCruscotto as datiFirme, cardFirme, collegaFirme } from './firme-presidente.js';
+import { datiApprovazioni, quanteApprovazioni, righeApprovazioni, bottoneRicorda, collegaApprovazioni } from './approvazioni-direttore.js';
 
 /* 05/10/2026 — gli incarichi che si chiudono col cantiere, e quelli che restano aperti perché hanno altri
    cantieri aperti (incarichi_del_cantiere, stessa regola di chiudi_cantiere). Lettura fallita = detta, non «nessuno». */
@@ -330,8 +331,11 @@ export async function render() {
      rimandate, firmate ancora da spedire, originali a mano da segnare ── */
   let firme = null;
   const pFirme = (async () => { firme = await datiFirme(); })();
+  /* i preventivi di asseverazione che aspettano il Direttore (12/10/2026): stessa tessera dei servizi */
+  let approv = null;
+  const pApprov = (async () => { approv = await datiApprovazioni(); })();
 
-  await Promise.all([pBacheca, pFlussi, pForm, pBackup, pTestAuto, pTendine, pProm, pCanale, pCritici, pQuest, pIscr, pEseguiti, pFatture, pFirme]);
+  await Promise.all([pBacheca, pFlussi, pForm, pBackup, pTestAuto, pTendine, pProm, pCanale, pCritici, pQuest, pIscr, pEseguiti, pFatture, pFirme, pApprov]);
 
   /* documenti dei tecnici: lo stato si calcola come nella loro pagina —
      per ogni tecnico in griglia e ogni requisito conta il documento PIÙ
@@ -666,10 +670,13 @@ export async function render() {
   const canaleOk = !!canale && !canale.nonLetto && !canale.mutoDiretto && !canale.senzaRiscontro && !canale.mutoCassetta && !canale.ferme;
   const griglia = `
 
-      ${card('⏳ In attesa del Direttore', daAutorizzare.length,
-        daAutorizzare.length
+      ${card('⏳ In attesa del Direttore', daAutorizzare.length + quanteApprovazioni(approv),
+        (daAutorizzare.length
           ? daAutorizzare.slice(0, 8).map(rigaPratica).join('') + (daAutorizzare.length > 8 ? `<p class="hint">…e altre ${daAutorizzare.length - 8}.</p>` : '')
-          : '<p class="hint">Nessuna pratica da autorizzare.</p>', '', { k: 'direttore', nonLetto: nonLetti.has('servizi') })}
+          : quanteApprovazioni(approv) ? '' : '<p class="hint">Nessuna pratica da autorizzare.</p>')
+        + righeApprovazioni(approv)
+        + (approv?.errore ? `<p class="hint" style="color:#a01f00">⚠ Non sono riuscito a leggere i preventivi di asseverazione: ${esc(approv.errore)}</p>` : ''),
+        bottoneRicorda(approv), { k: 'direttore', nonLetto: nonLetti.has('servizi'), sempre: !!approv?.errore })}
 
       ${cardFirme(card, firme)}
 
@@ -1009,6 +1016,7 @@ export async function render() {
     ${bannerCanale}${bannerFormazione}${striscia()}
     <div class="hm-griglia">${griglia}</div>`;
   collegaFirme(host, render);
+  collegaApprovazioni(host, render);
   host.querySelector('[data-tendine-visti]')?.addEventListener('click', async (ev) => {
     const b = ev.currentTarget; b.disabled = true;
     const { error } = await sb.rpc('s_tendine_visti');
