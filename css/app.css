@@ -633,3 +633,13 @@ tr.riga-ceiv{border-left:4px solid var(--ceiv);background:var(--ceiv-bg)}
 .pz-bu-no{color:var(--out);font-weight:600;font-variant-numeric:tabular-nums}
 .pz-bu-diff{display:block;font-weight:500;font-size:11px}
 
+/* (12/10/2026) la presa visione dell'Amministrazione: riquadro arancione, freccia che si muove, pulsante grande */
+.mp-firma-box{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin:0 0 14px;padding:14px 16px;border:2px solid #e7500f;border-radius:10px;background:#fff3ec}
+.mp-firma-testo{display:flex;align-items:center;gap:10px;flex:1 1 260px;font-size:15px;color:#3a2a20}
+.mp-freccia{font-size:30px;line-height:1;animation:mpFreccia 1.2s ease-in-out infinite}
+.mp-firma-btn{font-size:17px;font-weight:700;padding:12px 22px;flex:1 1 240px;box-shadow:0 2px 8px rgba(231,80,15,.35)}
+@keyframes mpFreccia{0%,100%{transform:translateX(0)}50%{transform:translateX(8px)}}
+@media (prefers-reduced-motion:reduce){.mp-freccia{animation:none}}
+:root[data-theme="dark"] .mp-firma-box{background:#3a2418}
+:root[data-theme="dark"] .mp-firma-testo{color:#f3e3d8}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .mp-firma-box{background:#3a2418}:root:not([data-theme="light"]) .mp-firma-testo{color:#f3e3d8}}

@@ -12,6 +12,7 @@
 import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, esercizioDi } from './core.js';
 import { risolviCartella, creaCartella } from './drive.js';
 import { scaricaEml } from './eml.js';
+import { corpoInHtml, paginaHtml, bloccoAzioneMail } from './firma.js';
 import { MESI, euro } from './fatture-tecnici-doc.js';
 import { APP_URL } from './config.js';
 import { datiMandato, dettaglioMandato, firmeMandato } from './amministrazione.js';
@@ -99,25 +100,31 @@ async function emettiMandato(sel, btn) {
        pagamenti, senza stampare e riportare il foglio. Il PDF resta
        allegato per chi lo vuole leggere subito. */
     const link = `${APP_URL}#mandato-${m.id}`;
-    const prima = `Buongiorno Patrizia,
+    /* (12/10/2026, chiesto da Patrizia) il pulsante stava a metà mail, dopo l'elenco delle fatture, e si
+       vedeva poco: ora viene subito dopo il saluto, a tutta riga, in un riquadro col bordo arancione */
+    const sopra = `Buongiorno Patrizia,
 
-in allegato il mandato di pagamento n° ${m.id} per le fatture dei tecnici approvate dal coordinatore:
+c'è da firmare il mandato di pagamento n° ${m.id} (${euro(totale)}).`;
+    const azione = {
+      etichetta: `✍️ Apri il mandato n° ${m.id} e firma`,
+      testo: "Si apre nell'app Segreteria: guardate il mandato e premete «Prendo visione e firmo». Da lì segnate anche i pagamenti.",
+    };
+    const sotto = `Il mandato è anche in allegato. Riguarda le fatture dei tecnici approvate dal coordinatore:
 ${fatture.map((f) => `- ${f.tecnico_nome}: fattura n° ${f.numero || '?'}${f.incarico ? ` (${MESI[f.incarico.mese - 1]} ${f.incarico.anno})` : ''} — ${euro(f.importo)}`).join('\n')}
 
 Importo totale: ${euro(totale)}.
 
-Per la presa visione con la firma, e poi per segnare i pagamenti:
-
->>> Apri il mandato n° ${m.id} (si apre nell'app Segreteria):
-${link}`;
-    const dopo = `A pagamento registrato, ogni tecnico riceve da solo l'avviso via mail.
+A pagamento registrato, ogni tecnico riceve da solo l'avviso via mail.
 
 Cordiali saluti.`;
+    const riquadro = `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%;border-collapse:collapse;margin:0 0 16px;">
+<tr><td style="border:3px solid #e7500f;border-radius:10px;padding:6px 6px 0;">${bloccoAzioneMail({ titolo: `👉 Mandato n° ${m.id} da firmare`, testo: azione.testo, href: link, etichetta: azione.etichetta, larga: true })}</td></tr></table>`;
     scaricaEml({
       to: conf.amministrazione_email || 'amministrazione@formedilpadova.it',
       cc: [conf.direttore_email].filter(Boolean),
       oggetto: `Mandato di pagamento n° ${m.id} del ${dataIt(m.data)} - fatture tecnici - alla c.a. Bertin Patrizia`,
-      corpo: `${prima}\n\n${dopo}`,
+      corpo: `${sopra}\n\n>>> ${azione.etichetta} (${azione.testo}):\n${link}\n\n${sotto}`,
+      html: paginaHtml([corpoInHtml(sopra), riquadro, corpoInHtml(sotto)].join('\n')),
       allegati: [{ nome: su.file_name || nomeFile, byte }],
       nomeFile: `mandato-${m.id}.eml`,
     });

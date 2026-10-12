@@ -117,7 +117,15 @@ export async function render() {
         <td>${m.pagato_il ? pill('dt-ok', dataIt(m.pagato_il)) : pagate ? pill('dt-senzadata', `${pagate} di ${fatt.length}`) : '—'}</td></tr>`;
     }).join('') || `<tr><td colspan="7" class="empty">${vuoto}</td></tr>`}</tbody></table></div>`;
 
+  /* (12/10/2026, chiesto da Patrizia) il pulsante della presa visione si vedeva poco: in cima alla
+     pagina un avviso grande che apre il mandato più vecchio ancora da firmare */
+  const primo = daVedere[daVedere.length - 1];
   host.innerHTML = `
+    ${amm && primo ? `<div class="mp-firma-box">
+      <div class="mp-firma-testo"><span class="mp-freccia" aria-hidden="true">👉</span>
+        <span>${daVedere.length === 1 ? 'C’è <strong>1 mandato</strong> che aspetta' : `Ci sono <strong>${daVedere.length} mandati</strong> che aspettano`} la vostra presa visione.</span></div>
+      <button class="btn btn-primary mp-firma-btn" id="mp-apri-primo">✍️ Apri ${daVedere.length === 1 ? 'il mandato' : 'il primo'} da firmare</button>
+    </div>` : ''}
     <p class="hint" style="margin:0 0 10px">${amm
       ? 'I mandati di pagamento delle fatture dei tecnici. Aprite un mandato per la <strong>presa visione</strong> (firma) e, a pagamento fatto, per segnarlo: il tecnico riceve l\'avviso da solo.'
       : 'La pagina dell\'Amministrazione: qui si vede a che punto sono presa visione e pagamenti dei mandati emessi.'}</p>
@@ -129,6 +137,7 @@ export async function render() {
     <h4 style="margin:14px 0 6px">✅ Pagati (${pagati.length})</h4>
     ${tabella(pagati.slice(0, 40), 'Nessun mandato pagato.')}`;
   host.querySelectorAll('tr[data-m]').forEach((tr) => tr.addEventListener('click', () => dettaglioMandato(Number(tr.dataset.m))));
+  $('#mp-apri-primo')?.addEventListener('click', () => dettaglioMandato(primo.id));
 }
 
 /* ══════════ dettaglio ══════════ */
@@ -162,6 +171,11 @@ export async function dettaglioMandato(id) {
   const suCarta = m.visto_fonte === 'carta';
 
   apriDrawer(`Mandato di pagamento n° ${m.id} del ${dataIt(m.data)}`, '', `
+    ${!m.visto_il && amm ? `<div class="mp-firma-box">
+      <div class="mp-firma-testo"><span class="mp-freccia" aria-hidden="true">👉</span>
+        <span>Questo mandato aspetta la vostra <strong>presa visione</strong>: guardate il PDF qui sotto, poi premete il pulsante.</span></div>
+      <button class="btn btn-primary mp-firma-btn" id="mp-visto">✍️ Prendo visione e firmo</button>
+    </div>` : ''}
     <div class="dt-doc-riga"><strong>Totale:</strong> ${euro(m.totale)} · ${fatture.length} fatture
       ${m.pagato_il ? ` · ${pill('dt-ok', `pagato il ${dataIt(m.pagato_il)}`)}` : ''}</div>
     <div class="dt-doc-riga"><strong>Presa visione:</strong> ${m.visto_il
@@ -170,7 +184,6 @@ export async function dettaglioMandato(id) {
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin:10px 0">
       ${m.drive_file_id ? '<button class="btn btn-ghost btn-sm" id="mp-pdf">📄 Mandato (PDF)</button>' : ''}
       ${m.visto_drive_file_id ? '<button class="btn btn-ghost btn-sm" id="mp-pdf-visto">📄 Mandato con il visto (PDF)</button>' : ''}
-      ${!m.visto_il && amm ? '<button class="btn btn-primary btn-sm" id="mp-visto">✍️ Presa visione e firma</button>' : ''}
       ${!m.visto_il && !amm ? '<button class="btn btn-ghost btn-sm" id="mp-carta">🖊 Registra il visto ricevuto su carta</button>' : ''}
       ${m.visto_il && !m.visto_drive_file_id && !suCarta ? '<button class="btn btn-ghost btn-sm" id="mp-rigenera">🔁 Genera il PDF col visto</button>' : ''}
     </div>
