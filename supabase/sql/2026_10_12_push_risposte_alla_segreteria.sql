@@ -124,3 +124,8 @@ end $$;
 drop trigger if exists trg_push_incarico_risposta on public.incarichi;
 create trigger trg_push_incarico_risposta after update of accettato_il, rifiutato_il, esito_il on public.incarichi
   for each row execute function push_incarico_risposta();
+
+-- (12/10/2026, dopo il test settimanale rosso) i trigger non si eseguono con la chiave pubblica
+revoke execute on function public.push_aut_decisa() from public, anon;
+revoke execute on function public.push_mandato_amministrazione() from public, anon;
+revoke execute on function public.push_incarico_risposta() from public, anon;
