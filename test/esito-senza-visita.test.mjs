@@ -11,7 +11,10 @@ const sql = fs.readFileSync(new URL('../supabase/sql/2026_10_07_prestazioni_senz
 test('il cruscotto: esito, nota del tecnico, chiusura', () => {
   assert.ok(/esito_senza_visita, esito_data, esito_nota'\)\n\s*\.eq\('stato', 'eseguito'\)/.test(home), 'legge l\'esito degli eseguiti');
   assert.ok(/if \(r\.esito_senza_visita\) \{/.test(home) && /data-chiudi-esito="\$\{r\.id\}"/.test(home));
-  assert.ok(/sb\.rpc\('incarichi_set_stato', \{ p_id: id, p_stato: 'chiuso' \}\)/.test(home) && /if \(error\) return toast\('Non chiuso: '/.test(home));
+  // (12/10/2026) se l'uscita si paga lo decide la segreteria: due pulsanti, «non si paga» chiede il motivo
+  assert.ok(/data-paga="1"[^>]*>💶 Chiudi e paga</.test(home) && /data-paga="0"[^>]*>🚫 Chiudi senza pagare</.test(home), 'i due pulsanti');
+  assert.ok(/sb\.rpc\('incarico_esito_chiudi', \{ p_id: id, p_pagare: paga, p_motivo: motivo \}\)/.test(home) && /if \(error\) return toast\('Non chiuso: '/.test(home));
+  assert.ok(/if \(!motivo\.trim\(\)\) return toast\('Senza motivo non si chiude/.test(home), 'senza motivo non parte');
 });
 
 test('il cruscotto mostra le foto, e dice se non le legge', () => {
@@ -25,4 +28,10 @@ test('il calcolo: l\'uscita si paga come una visita, una volta sola', () => {
   assert.ok(/and i\.esito_data between v_dal and v_al/.test(sql), 'nel mese in cui è andato');
   assert.ok(/and i\.esito_senza_visita is null {3}-- 07\/10\/2026/.test(sql), 'la parte c) la esclude');
   assert.ok(/a\.data_delibera is not null or a\.data_parere is not null/.test(sql), 'resta la regola delle asseverazioni a fine processo');
+});
+
+test('la decisione della segreteria: «non si paga» resta fuori dalla chiusura del mese', () => {
+  const dec = fs.readFileSync(new URL('../supabase/sql/2026_10_12_prestazioni_senza_visita_decisione.sql', import.meta.url), 'utf8');
+  assert.ok(/and i\.esito_pagare is distinct from false/.test(dec), 'non si paga: fuori');
+  assert.ok(/when i\.esito_pagare is null\s+then 'la segreteria non ha ancora deciso se pagarla/.test(dec), 'non ancora deciso: la riga resta, con l’avviso');
 });

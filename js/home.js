@@ -795,7 +795,10 @@ export async function render() {
                 <span><strong>inc. ${r.id}</strong> — ${esc(r.impresa || r.comune || '?')} <span class="hint">(${esc(r.tecnico_nome || '')})</span>
                   <br><span class="hint">senza visita, ${esc(ESITO_SENZA_VISITA[r.esito_senza_visita] || 'esito senza verbale')}${r.esito_data ? ` (sul posto il ${dataIt(r.esito_data)})` : ''}: «${esc(String(r.esito_nota || '').slice(0, 120))}»</span>
                   ${(r._foto || []).map((f, k) => ` <a href="${esc(f.drive_url || '#')}" target="_blank" rel="noopener" onclick="event.stopPropagation()">📷 foto ${k + 1}</a>`).join('')}${r._fotoErr ? ' <span class="hint" style="color:#a01f00">foto non lette</span>' : ''}</span>
-                <button class="btn btn-ghost btn-sm" data-chiudi-esito="${r.id}" data-aiuto="Chiude l'incarico: il tecnico è andato ma non c'era da fare la visita. L'uscita gli si paga come una visita nella chiusura del mese.">Chiudi</button></div>`;
+                <span style="display:flex;flex-direction:column;gap:4px">
+                  <button class="btn btn-ghost btn-sm" data-chiudi-esito="${r.id}" data-paga="1" data-aiuto="Chiude l'incarico e l'uscita si paga al tecnico come una visita, nella chiusura del mese in cui è andato.">💶 Chiudi e paga</button>
+                  <button class="btn btn-ghost btn-sm" data-chiudi-esito="${r.id}" data-paga="0" data-aiuto="Chiude l'incarico senza pagare l'uscita: chiede il motivo, che resta scritto sull'incarico. L'uscita non entra nella chiusura del mese.">🚫 Chiudi senza pagare</button>
+                </span></div>`;
               }
               return `<div class="hm-riga" ${pr ? `data-vista="${pr.vista}" data-id="${pr.id}"` : 'data-goto="visite"'}><span>🔧</span>
                 <span><strong>inc. ${r.id}</strong> — ${esc(r.impresa || r.comune || '?')}${r.visita_id ? ` · verbale ${esc(String(r.visita_id))}` : ''} <span class="hint">(${esc(r.tecnico_nome || '')})</span></span>
@@ -1104,10 +1107,20 @@ export async function render() {
     b.addEventListener('click', async (ev) => {
       ev.stopPropagation();
       const id = Number(b.dataset.chiudiEsito);
-      if (!confirm(`Chiudere l'incarico n° ${id}? Il tecnico è andato sul posto ma la visita non c'era da fare: l'uscita gli si paga come una visita nella chiusura del mese.`)) return;
-      const { error } = await sb.rpc('incarichi_set_stato', { p_id: id, p_stato: 'chiuso' });
+      /* (12/10/2026, chiesto dall'utente) se l'uscita senza verbale si paga lo decide la segreteria: «non si paga»
+         chiede il motivo, che resta sull'incarico (incarichi.esito_pagare_motivo) */
+      const paga = b.dataset.paga === '1';
+      let motivo = null;
+      if (paga) {
+        if (!confirm(`Chiudere l'incarico n° ${id} e pagare l'uscita al tecnico? Gli si paga come una visita nella chiusura del mese in cui è andato.`)) return;
+      } else {
+        motivo = prompt(`Incarico n° ${id}: l'uscita NON si paga al tecnico.\nScrivi il motivo (resta sull'incarico):`, '');
+        if (motivo === null) return;
+        if (!motivo.trim()) return toast('Senza motivo non si chiude: scrivi perché l\'uscita non si paga.', 'warn');
+      }
+      const { error } = await sb.rpc('incarico_esito_chiudi', { p_id: id, p_pagare: paga, p_motivo: motivo });
       if (error) return toast('Non chiuso: ' + error.message, 'err');
-      toast(`Incarico n° ${id} chiuso.`, 'ok');
+      toast(paga ? `Incarico n° ${id} chiuso: l'uscita si paga.` : `Incarico n° ${id} chiuso: l'uscita non si paga.`, 'ok');
       render();
     }));
   host.querySelectorAll('[data-riassegna]').forEach((b) =>
