@@ -262,7 +262,7 @@ serve(async (req) => {
             : `le mail con cui sono stati trasmessi ${righe.length} verbali di sopralluogo non sono arrivate a destinazione: gli indirizzi le hanno rifiutate.`,
           elenco,
           '',
-          'È probabile che l’indirizzo sia sbagliato. Se hai modo di verificarlo, correggilo nell’anagrafica del gestionale e ritrasmetti il verbale; se invece era giusto, segnalo come risolto scrivendo che cosa hai visto.',
+          'È probabile che l’indirizzo sia sbagliato. Nel riquadro «Verbali non consegnati» del gestionale premi «✏️ Correggi indirizzo» e scrivi quello giusto: si corregge sul verbale e in anagrafica, e poi puoi ritrasmettere il verbale solo a quell’indirizzo. Se invece l’indirizzo era giusto, segnalo come risolto scrivendo che cosa hai visto.',
           '',
           '>>> Apri il gestionale visite (il riquadro è in Dashboard):',
           APP_TECNICI,
