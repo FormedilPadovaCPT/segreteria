@@ -267,6 +267,14 @@ export async function render() {
       .eq('stato', 'eseguito').order('eseguito_il', { ascending: false }).limit(30);
     if (eEs) nonLetti.add('incarichi');
     eseguiti = data || [];
+    /* (12/10/2026) il numero del verbale, non il codice interno della visita: incarichi.visita_id è un uuid
+       («1a8c54aa-…») o un codice d'importazione («XLS0812», «V2526-0920»), che alla segreteria non dice niente */
+    const conVisita = [...new Set(eseguiti.map((r) => r.visita_id).filter(Boolean))];
+    if (conVisita.length) {
+      const { data: vv, error: eVv } = await sb.from('visite').select('visita_id, nr_verbale').in('visita_id', conVisita);
+      const nr = {}; (vv || []).forEach((v) => { nr[v.visita_id] = v.nr_verbale; });
+      eseguiti.forEach((r) => { if (r.visita_id) { r._nrVerbale = nr[r.visita_id] || null; r._nrErr = !!eVv; } });
+    }
     /* le foto delle uscite senza visita (07/10/2026), su Drive come quelle dei verbali */
     const conEsito = eseguiti.filter((r) => r.esito_senza_visita).map((r) => r.id);
     if (conEsito.length) {
@@ -808,7 +816,7 @@ export async function render() {
                 </span></div>`;
               }
               return `<div class="hm-riga" ${pr ? `data-vista="${pr.vista}" data-id="${pr.id}"` : 'data-goto="visite"'}><span>🔧</span>
-                <span><strong>inc. ${r.id}</strong> — ${esc(r.impresa || r.comune || '?')}${r.visita_id ? ` · verbale ${esc(String(r.visita_id))}` : ''} <span class="hint">(${esc(r.tecnico_nome || '')})</span></span>
+                <span><strong>inc. ${r.id}</strong> — ${esc(r.impresa || r.comune || '?')}${r.visita_id ? ` · ${r._nrVerbale ? `verbale ${esc(String(r._nrVerbale))}` : r._nrErr ? '<span class="hint" style="color:#a01f00">numero del verbale non letto</span>' : 'verbale senza numero'}` : ''} <span class="hint">(${esc(r.tecnico_nome || '')})</span></span>
                 <span class="hint">${r.eseguito_il ? dataIt(String(r.eseguito_il).slice(0, 10)) : ''}</span></div>`;
             }).join('')
           : '<p class="hint">Nessuna visita eseguita in attesa di chiusura.</p>', '', { k: 'eseguite', nonLetto: nonLetti.has('incarichi') })}
