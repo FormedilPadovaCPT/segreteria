@@ -403,8 +403,11 @@ async function componiRiepilogo(inc, prot, d, st) {
    visto = null per il mandato che parte; dopo la presa visione
    dell'Amministrazione (16/09/2026) { nome, data_ora, utente } e la
    firma scansionata, se c'è: si stampano nel riquadro «Per ricevuta
-   Amministrazione». Il documento è lo stesso, rigenerato col visto. */
-export async function pdfMandato(mandato, fatture, visto = null, firmaByte = null) {
+   Amministrazione». Il documento è lo stesso, rigenerato col visto.
+   firme = { segreteria: { nome, byte }, coordinatore: { nome, byte } }
+   (firmeMandato() in amministrazione.js), stampate nei due riquadri di
+   sinistra sia sul mandato che parte sia su quello col visto. */
+export async function pdfMandato(mandato, fatture, visto = null, firmaByte = null, firme = null) {
   const c = await apriCarta();
   c.stato.pagina.drawText(dataIt(mandato.data), { x: DX - 60, y: c.stato.y + 8, size: 9, font: c.font, color: c.grigio });
   c.scrivi('Riepilogo delle visite in cantiere effettuate dai Tecnici di FORMEDIL PADOVA. Per ogni incaricato sono indicati: il numero dei cantieri assegnati per mese di riferimento, il totale dei cantieri effettivamente visitati, la data di ricevimento della fattura e la data di approvazione per il pagamento da parte del Coordinatore.', c.font, 8.5, c.grigio);
@@ -460,13 +463,39 @@ export async function pdfMandato(mandato, fatture, visto = null, firmaByte = nul
   c.stato.pagina.drawText(testoPdf(`Importo totale in lettere: ${euro(totale)} .=(${inLettere(totale)})`), { x: SX + 10, y: y0 + h - 31, size: 8.5, font: c.italic, color: c.nero });
   c.stato.y = y0 - 30;
 
-  c.serve(visto ? 110 : 60);
-  c.stato.pagina.drawText('Il Coordinatore / Il Direttore', { x: SX, y: c.stato.y, size: 9, font: c.font, color: c.grigio });
-  c.stato.pagina.drawText('Per ricevuta Amministrazione', { x: 380, y: c.stato.y, size: 9, font: c.font, color: c.grigio });
+  /* Riquadro firme (12/10/2026, chiesto dall'utente sul mandato n° 12):
+     a sinistra, una sopra l'altra, «Visto e approvato — La Segreteria» e
+     «Il Coordinatore», ciascuno con la sua firma; a destra «Per ricevuta
+     Amministrazione», bianco finché Patrizia non mette la presa visione.
+     Le firme arrivano da firmeMandato() (Drive, s_config): se una manca
+     resta la riga vuota da firmare a mano. */
+  c.serve(150);
+  const LX = SX + 190;
+  const disegnaFirma = async (byte, x0, x1, yBasso, yAlto) => {
+    if (!byte) return;
+    try {
+      let img;
+      try { img = await c.doc.embedPng(byte); } catch { img = await c.doc.embedJpg(byte); }
+      const scala = Math.min((x1 - x0) / img.width, (yAlto - yBasso) / img.height);
+      const w = img.width * scala;
+      c.stato.pagina.drawImage(img, { x: x0 + ((x1 - x0) - w) / 2, y: yBasso, width: w, height: img.height * scala });
+    } catch { /* firma non leggibile: resta la riga da firmare */ }
+  };
+  const bloccoSinistra = async (titolo, yTitolo, f) => {
+    c.stato.pagina.drawText(titolo, { x: SX, y: yTitolo, size: 9, font: c.font, color: c.grigio });
+    const yLinea = yTitolo - 40;
+    await disegnaFirma(f?.byte, SX, LX, yLinea + 2, yTitolo - 5);
+    c.stato.pagina.drawLine({ start: { x: SX, y: yLinea }, end: { x: LX, y: yLinea }, thickness: 0.6, color: c.grigio });
+    if (f?.nome) c.stato.pagina.drawText(taglia(c.font, 8, testoPdf(f.nome), LX - SX), { x: SX, y: yLinea - 10, size: 8, font: c.font, color: c.nero });
+    return yLinea;
+  };
   const yTitoli = c.stato.y;
-  c.stato.y -= visto ? 58 : 26;
-  c.stato.pagina.drawLine({ start: { x: SX, y: c.stato.y }, end: { x: SX + 160, y: c.stato.y }, thickness: 0.6, color: c.grigio });
+  const yLinea1 = await bloccoSinistra('Visto e approvato — La Segreteria', yTitoli, firme?.segreteria);
+  const yLinea2 = await bloccoSinistra('Il Coordinatore', yLinea1 - 28, firme?.coordinatore);
+  c.stato.pagina.drawText('Per ricevuta Amministrazione', { x: 380, y: yTitoli, size: 9, font: c.font, color: c.grigio });
+  c.stato.y = yLinea1;
   c.stato.pagina.drawLine({ start: { x: 380, y: c.stato.y }, end: { x: DX, y: c.stato.y }, thickness: 0.6, color: c.grigio });
+  const yFineSinistra = yLinea2 - 16;
   if (visto) {
     /* la firma sta sopra la linea, fra il titolo e la linea; sotto,
        nome, data-ora e utente: è quello che lega il visto all'accesso
@@ -489,5 +518,6 @@ export async function pdfMandato(mandato, fatture, visto = null, firmaByte = nul
     riga(visto.utente || '', 41, c.font, 6.8, c.grigio);
     c.stato.y -= 48;
   }
+  c.stato.y = Math.min(c.stato.y, yFineSinistra);
   return salva(c.doc);
 }

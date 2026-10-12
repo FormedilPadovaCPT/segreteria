@@ -14,7 +14,7 @@ import { risolviCartella, creaCartella } from './drive.js';
 import { scaricaEml } from './eml.js';
 import { MESI, euro } from './fatture-tecnici-doc.js';
 import { APP_URL } from './config.js';
-import { datiMandato, dettaglioMandato } from './amministrazione.js';
+import { datiMandato, dettaglioMandato, firmeMandato } from './amministrazione.js';
 import { CARTELLA_FATTURE, conf, b64 } from './fatture-tecnici.js';
 
 /* ══════════ scheda MANDATI ══════════ */
@@ -75,7 +75,7 @@ async function emettiMandato(sel, btn) {
     let byte, su, nomeFile;
     try {
       const { pdfMandato } = await import('./fatture-tecnici-doc.js');
-      byte = await pdfMandato(m, fatture);
+      byte = await pdfMandato(m, fatture, null, null, await firmeMandato());
       const esercizio = esercizioDi(oggiIso());
       nomeFile = `${oggiIso().replace(/-/g, '_')}_PAG_Formedil-Padova_mandato-pagamento-tecnici-n${m.id}.pdf`;
       const base = await risolviCartella(CARTELLA_FATTURE);

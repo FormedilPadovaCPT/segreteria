@@ -300,6 +300,27 @@ export async function dettaglioMandato(id) {
   });
 }
 
+/* Le firme della Segreteria e del Coordinatore per il mandato (12/10/2026).
+   Stanno su Drive (_SISTEMA/firme/) con l'id in s_config, come quelle del
+   Direttore: le legge anche l'Amministrazione, che rigenera il PDF col visto
+   e non può leggere il bucket «firme-tecnici». Se una lettura non riesce la
+   firma manca e resta la riga da firmare a mano: il mandato parte lo stesso. */
+export async function firmeMandato() {
+  const chiavi = ['segreteria_firma_id', 'segreteria_firma_nome', 'coordinatore_firma_id', 'coordinatore_nome'];
+  const { data: cfg, error } = await sb.from('s_config').select('chiave, valore').in('chiave', chiavi);
+  if (error) {
+    toast('Non sono riuscito a leggere le firme del mandato: righe da firmare a mano.', 'err');
+    return null;
+  }
+  const v = (k) => (cfg || []).find((r) => r.chiave === k)?.valore || null;
+  const leggi = async (id) => { if (!id) return null; try { return await leggiByte(id); } catch { return null; } };
+  const [bs, bc] = await Promise.all([leggi(v('segreteria_firma_id')), leggi(v('coordinatore_firma_id'))]);
+  return {
+    segreteria: { nome: v('segreteria_firma_nome'), byte: bs },
+    coordinatore: { nome: v('coordinatore_nome'), byte: bc },
+  };
+}
+
 /* Il PDF del mandato col visto: stesso documento, rigenerato con nome,
    data-ora, utente e firma nel riquadro «Per ricevuta Amministrazione»,
    depositato ACCANTO all'originale (che non si tocca). */
@@ -312,7 +333,8 @@ async function documentoVisto(m, idsFatture) {
   let firmaByte = null;
   if (firmaId) { try { firmaByte = await leggiByte(firmaId); } catch { /* senza firma il visto vale lo stesso */ } }
   const { pdfMandato } = await import('./fatture-tecnici-doc.js');
-  const byte = await pdfMandato(m, fatture, { nome: m.visto_nome || m.visto_da, data_ora: oraIt(m.visto_il), utente: m.visto_da }, firmaByte);
+  const firme = await firmeMandato();
+  const byte = await pdfMandato(m, fatture, { nome: m.visto_nome || m.visto_da, data_ora: oraIt(m.visto_il), utente: m.visto_da }, firmaByte, firme);
 
   const esercizio = esercizioDi(m.data);
   const nome = `${String(m.data).replace(/-/g, '_')}_PAG_Formedil-Padova_mandato-pagamento-tecnici-n${m.id}_visto-amministrazione.pdf`;
