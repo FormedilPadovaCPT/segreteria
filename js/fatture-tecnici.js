@@ -184,13 +184,18 @@ async function renderMese(hostArg) {
   host.innerHTML = '<p class="empty">Un istante…</p>';
   const [anno, mese] = cursore.split('-').map(Number);
   const { da, a } = meseRange(anno, mese);
-  const [{ data: inc }, { data: vs }, { data: ff }, avv] = await Promise.all([
+  const [{ data: inc }, { data: vs }, { data: ff }, avv, fp] = await Promise.all([
     sb.from('s_incarichi_mensili').select('*').eq('anno', anno).eq('mese', mese).order('tecnico_nome'),
     sb.from('visite').select('tecnico_id, rlst_sn').gte('data_visita', da).lte('data_visita', a).or('elimina.is.null,elimina.neq.1'),
     sb.from('s_fatture_tecnici').select('id, incarico_mensile_id, numero, stato, importo').not('incarico_mensile_id', 'is', null),
     /* l'avviso di questo mese e l'ultimo prima, da riproporre (07/10/2026) */
     sb.from('s_incarichi_avvisi').select('*').lte('anno', anno).order('anno', { ascending: false }).order('mese', { ascending: false }).limit(24),
+    /* visite fuori procedura del mese, per tecnico (13/10/2026, chiesto dall'utente: «una colonna dopo le visite fatte»).
+       Le approva solo il Coordinatore nel gestionale; qui la segreteria le vede. */
+    sb.rpc('fp_riepilogo', { p_dal: da, p_al: a }),
   ]);
+  const fpDi = {};
+  for (const r of fp.data || []) fpDi[r.tecnico_id] = r;
   incarichiMese = inc || [];
   const avvisoQui = (avv.data || []).find((x) => x.anno === anno && x.mese === mese) || null;
   const avvisoPrima = avvisoQui ? null : (avv.data || []).find((x) => x.anno * 100 + x.mese < anno * 100 + mese) || null;
@@ -225,6 +230,10 @@ async function renderMese(hostArg) {
       <td>${i ? `n° ${i.id} · ${dataIt(i.data_lettera)}${i.lettera_protocollo_id ? ' · 📤' : ''}` : '<span class="hint">—</span>'}</td>
       <td>${i ? `${i.cantieri_assegnati ?? 0}${i.seconde_visite ? ` +${i.seconde_visite} 2ª` : ''}${i.altro ? ` +${i.altro} altro` : ''}` : '—'}</td>
       <td><strong>${v.n}</strong> <span class="hint">RLST ${pct}%</span></td>
+      <td>${fp.error ? '<span class="hint" style="color:var(--rosso,#c0392b)" title="' + esc(fp.error.message) + '">non lette</span>'
+        : (fpDi[t.tecnico_id]?.n_fuori
+          ? `<strong style="color:#b35c00">${fpDi[t.tecnico_id].n_fuori}</strong> <span class="hint">${fpDi[t.tecnico_id].n_attesa} in attesa · ${fpDi[t.tecnico_id].n_approvate} appr. · ${fpDi[t.tecnico_id].n_non_approvate} no</span>`
+          : '<span class="hint">—</span>')}</td>
       <td>${i ? pill(STATI_INC, i.stato) : '<span class="hint">senza incarico</span>'}${i?.totale_lordo ? ` <span class="hint">${euro(i.totale_lordo)}</span>` : ''}${i && fatt.length && aperteDi[i.id] ? ` <span class="dt-cella dt-senzadata" style="padding:0 5px" title="Prestazioni del mese non ancora coperte da una fattura">${aperteDi[i.id]} da fatturare</span>` : ''}</td>
       <td>${fatt.length ? fatt.map((f) => `${esc(f.numero || '?')} ${pill(STATI_FATT, f.stato)}`).join('<br>') : '<span class="hint">—</span>'}</td>
       <td style="white-space:nowrap">
@@ -264,8 +273,8 @@ async function renderMese(hostArg) {
     </div>
     <div class="table-wrap">
       <table class="tbl">
-        <thead><tr><th>Tecnico</th><th>Incarico del mese</th><th>Assegnati</th><th>Visite fatte</th><th>Stato mese</th><th>Fattura</th><th></th></tr></thead>
-        <tbody>${righe || '<tr><td colspan="7" class="empty">Nessun tecnico attivo.</td></tr>'}</tbody>
+        <thead><tr><th>Tecnico</th><th>Incarico del mese</th><th>Assegnati</th><th>Visite fatte</th><th title="Visite ordinarie tornate su un cantiere archiviato dalla procedura prima del tempo adeguato, o più di una settimana prima del rientro dovuto. Le approva solo il Coordinatore, nel gestionale visite.">Fuori procedura</th><th>Stato mese</th><th>Fattura</th><th></th></tr></thead>
+        <tbody>${righe || '<tr><td colspan="8" class="empty">Nessun tecnico attivo.</td></tr>'}</tbody>
       </table>
     </div>
     <p class="hint" style="margin-top:8px">Il numero dell'incarico prosegue la serie Access (929 in poi). Il massimo visite del mese
