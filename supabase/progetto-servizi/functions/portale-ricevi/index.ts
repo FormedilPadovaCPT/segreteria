@@ -46,7 +46,7 @@ const CORS = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
-const TIPI = ['seg', 'not', 'cons', 'vis', 'conf', 'att', 'rlst', 'rls', 'qst', 'qev', 'tst', 'isc', 'dtst']
+const TIPI = ['seg', 'not', 'cons', 'vis', 'conf', 'att', 'rlst', 'rls', 'qst', 'qev', 'tst', 'isc', 'dtst', 'prs']
 /* gli stessi campi obbligatori della tabella MODULI del Gestionale */
 const OBBLIGATORI: Record<string, string[]> = {
   seg: ['indirizzo_cantiere', 'comune_cantiere'], not: ['indirizzo_cantiere', 'comune_cantiere'],
@@ -67,6 +67,10 @@ const OBBLIGATORI: Record<string, string[]> = {
      niente del contenuto: a dire se l'invito vale e se le domande stanno in
      piedi e' il Gestionale, che conosce corso e invito. */
   dtst: [],
+  /* prs: la FIRMA DI PRESENZA dal QR del corso (13/10/2026). Codice del corso,
+     codice personale e ora del telefono: chi e' e se e' entrata o uscita lo
+     decide il Gestionale sull'ora del server, non qui. */
+  prs: [],
 }
 const MAX_CARATTERI = 28 * 1024 * 1024
 const MAX_CARATTERI_MODULO: Record<string, number> = {
@@ -80,6 +84,8 @@ const MAX_CARATTERI_MODULO: Record<string, number> = {
   isc: 256 * 1024,
   /* un test: fino a 40 domande con le risposte proposte, nessun allegato */
   dtst: 256 * 1024,
+  /* una firma di presenza sono tre campi: 16 KB bastano e avanzano */
+  prs: 16 * 1024,
 }
 const MAX_CARATTERI_ALTRI = 256 * 1024
 const MAX_FOTO = 3

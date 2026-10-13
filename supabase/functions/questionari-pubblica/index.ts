@@ -102,13 +102,19 @@ serve(async (req) => {
        di s_test_parti, non di corsi; la tabella di destinazione sul portale e'
        la stessa dei test (il codice della parte e' un altro, quindi
        convivono) e l'esito si scrive sulla parte. */
+    /* «presenza» (13/10/2026, lotto 4 del fascicolo corso): le FIRME DI
+       PRESENZA dal QR. Scendono titolo, giornate con gli orari e, delle
+       persone, impronta del codice personale + iniziali. */
     const parte = corpo.cosa === 'test_parte'
     const test = corpo.cosa === 'test' || parte
     const iscr = corpo.cosa === 'iscrizione'
-    const rpc = iscr ? 'iscr_pubblicazione' : parte ? 'test_pubblicazione_parte'
+    const pres = corpo.cosa === 'presenza'
+    const rpc = pres ? 'pres_pubblicazione' : iscr ? 'iscr_pubblicazione' : parte ? 'test_pubblicazione_parte'
       : test ? 'test_pubblicazione' : 'quest_pubblicazione'
-    const azione = iscr ? 'pubblica_iscr' : test ? 'pubblica_test' : 'pubblica'
-    const colonne = iscr
+    const azione = pres ? 'pubblica_pres' : iscr ? 'pubblica_iscr' : test ? 'pubblica_test' : 'pubblica'
+    const colonne = pres
+      ? { quando: 'pres_pubblicato_il', esito: 'pres_pubblica_esito' }
+      : iscr
       ? { quando: 'iscr_pubblicato_il', esito: 'iscr_pubblica_esito' }
       : test
       ? { quando: 'test_pubblicato_il', esito: 'test_pubblica_esito' }
@@ -120,7 +126,7 @@ serve(async (req) => {
       const { data, error } = await sb.rpc(rpc, parte ? { p_parte_id: id } : { p_corso_id: id })
       if (error) { saltati.push({ corso_id: id, motivo: error.message }); continue }
       const p = data as Pubblicazione | null
-      const nome = iscr ? 'iscrizioni' : parte ? 'la verifica del modulo' : test ? 'test' : 'questionario'
+      const nome = pres ? 'le firme di presenza' : iscr ? 'iscrizioni' : parte ? 'la verifica del modulo' : test ? 'test' : 'questionario'
       if (!p || !p.codice) { saltati.push({ corso_id: id, motivo: `${nome}: non aperta` }); continue }
       if (!p.firma) { saltati.push({ corso_id: id, motivo: 'il codice non è firmato' }); continue }
       const comune = {
@@ -132,7 +138,19 @@ serve(async (req) => {
         chiuso_il: p.chiuso_il,
         domande: p.domande ?? [],
       }
-      if (iscr) {
+      if (pres) {
+        const q = p as unknown as Record<string, unknown>
+        righe.push({
+          codice: p.codice,
+          firma_hash: await sha256(p.firma),
+          titolo: String(p.titolo ?? 'Corso').slice(0, 300),
+          quando: p.quando,
+          sede: p.sede ? String(p.sede).slice(0, 200) : null,
+          chiuso_il: p.chiuso_il,
+          giornate: q.giornate ?? [],
+          persone: q.persone ?? [],
+        })
+      } else if (iscr) {
         /* ⚠️ L'evento aperto alle iscrizioni non condivide la forma degli altri
            due: niente domande, e in più le giornate e i posti liberi. I posti
            liberi sono un numero che invecchia — chi legge il portale vede

@@ -31,6 +31,7 @@ import { serieVerificabile } from './attestati-verifica.js';
 import { datiQuest, sezioneQuest, collegaQuest, cellaSpunta } from './corsi-quest.js';
 import { datiTest, sezioneTest, collegaTest } from './corsi-test.js';
 import { datiIscr, sezioneIscr, collegaIscr } from './corsi-iscrizioni.js';
+import { datiPres, sezionePres, collegaPres } from './corsi-presenze-qr.js';
 /* le regole che decidono un compenso stanno a parte, per essere provabili */
 import { forfait, calcolaCorrispettivo, proponiTariffa, variazioneNote } from './corsi-compensi.js';
 import { orarioGiornata } from './corsi-orari.js';
@@ -467,6 +468,8 @@ export async function apriCorso(id) {
   const quest = await datiQuest(c);
   const test = await datiTest(c);
   const iscr = await datiIscr(c);
+  /* (lotto 4) le firme di presenza dal QR: link del corso e firme arrivate */
+  const presQr = await datiPres(c);
   const prom = await datiProm(c);
 
   const oreTot = c.durata_ore || (giornate || []).reduce((s, g) => s + oreGiornata(g), 0);
@@ -612,6 +615,8 @@ export async function apriCorso(id) {
 
     ${sezioneTest(c, test, iscritti)}
 
+    ${sezionePres(c, presQr, iscritti, giornate || [])}
+
     ${sezioneMateriali(c)}
 
     ${c.tipologia_id ? `<hr style="margin:12px 0;border:0;border-top:1px solid var(--bordo)">
@@ -638,6 +643,7 @@ export async function apriCorso(id) {
   collegaIscr(c, iscr, () => apriCorso(c.id));
   collegaQuest(c, quest, iscritti, () => apriCorso(c.id));
   collegaTest(c, test, iscritti, () => apriCorso(c.id));
+  collegaPres(c, presQr, iscritti, giornate || [], () => apriCorso(c.id));
   collegaProm(c, giornate || [], () => apriCorso(c.id));
   $('#co-dati').addEventListener('click', () => formCorso(c));
   $('#co-stato').addEventListener('change', async (e) => {
@@ -807,11 +813,16 @@ Registro lo stesso una fattura qui?`)) return;
       const { pdfRegistro, scaricaPdf } = await import('./corsi-doc.js');
       /* col questionario aperto, in coda al registro esce il foglio col QR:
          ultima pagina, non numerata e fuori dal conteggio delle pagine */
+      /* (lotto 4) con le firme dal QR aperte: QR in copertina, codice personale
+         accanto a ogni nome e foglio da esporre in coda */
       const byte = await pdfRegistro(c, giornate || [], interventi || [], iscritti || [], conf,
         c.quest_codice ? { ...quest.link, domande: quest.domande } : null,
-        c.test_codice ? { codice: c.test_codice, link: test.link, domande: test.domande } : null);
+        c.test_codice ? { codice: c.test_codice, link: test.link, domande: test.domande } : null,
+        c.pres_codice ? { codice: c.pres_codice, link: presQr.link?.link || '' } : null);
       scaricaPdf(byte, `${(c.data_inizio || oggiIso()).replace(/-/g, '')}_Registro_corso-${c.id}.pdf`);
-      toast(c.quest_codice
+      toast(c.pres_codice
+        ? 'Registro scaricato: QR delle firme in copertina, codici personali accanto ai nomi.'
+        : c.quest_codice
         ? 'Registro scaricato, col foglio del questionario in coda.'
         : 'Registro scaricato: stamparlo per le firme in aula/cantiere.', 'ok');
     } catch (e) { toast(e.message, 'err'); }
@@ -846,7 +857,9 @@ function sezioneFascicolo(c, verbale, firmaProg, firmaVerb, iscritti) {
     ${riga('📋', 'Scheda formativa della tipologia', schedaTxt || 'nessuna', '')}
     ${riga('📝', 'Progetto formativo dell\'edizione (Allegato 3)', progStato + (senzaMansione ? ` · <span style="color:#a01f00">${senzaMansione} iscritt${senzaMansione === 1 ? 'o' : 'i'} senza mansione</span>` : ''),
       `<a href="#" id="fs-prog-pdf">📄 PDF</a>${c.progetto_stato === 'pronto' ? ' · <a href="#" id="fs-prog-firma">✍️ in firma</a>' : ''}`)}
-    ${riga('👥', 'Registro presenze con firme (Allegato 2)', 'si stampa da «Documenti del corso»; le firme digitali degli allievi arrivano col lotto 4', '')}
+    ${riga('👥', 'Registro presenze con firme (Allegato 2)', c.pres_codice
+      ? `si stampa da «Documenti del corso»; firme dal QR aperte (${c.pres_codice}): le confermate scrivono le presenze`
+      : 'si stampa da «Documenti del corso»; le firme dal QR si aprono dalla sezione «📲 Firme di presenza»', '')}
     ${riga('📑', 'Verbale di verifica finale (Allegato 4)', verbStato,
       verbale ? `<a href="#" id="fs-verb-pdf">📄 PDF</a>${verbale.stato === 'pronto' ? ' · <a href="#" id="fs-verb-firma">✍️ in firma</a>' : ''}` : '')}
     ${accordo && !(verbale && verbale.stato === 'firmato') ? '<p class="hint" style="margin:6px 0 0;color:#a01f00">⚠ Corso dell\'Accordo: gli attestati si emettono solo col verbale di verifica firmato (lo rifiuta anche il database).</p>' : ''}`;

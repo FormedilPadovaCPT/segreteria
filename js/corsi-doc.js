@@ -365,7 +365,10 @@ function argomentiTrattati(k, corso, nominativo, nTxt, giornate, interventi) {
 }
 
 /* ── 2. REGISTRO PRESENZE ── */
-export async function pdfRegistro(corso, giornate, interventi, iscritti, conf, quest = null, test = null) {
+/* pres (13/10/2026, lotto 4): { codice, link } delle firme di presenza dal QR —
+   il QR va in copertina, il codice personale accanto a ogni nome, il foglio da
+   esporre in coda */
+export async function pdfRegistro(corso, giornate, interventi, iscritti, conf, quest = null, test = null, pres = null) {
   const k = await apriCiclo();
   const { doc, F, C } = k;
   const H = A4[1], X0 = 70, X1 = 545, Wc = X1 - X0, FONDO = 50, RIGA = 22;
@@ -460,6 +463,18 @@ export async function pdfRegistro(corso, giornate, interventi, iscritti, conf, q
   campoR('Rappresentante legale', legale);
   campoR('Settore', corso.ateco_txt || '—', 9.5);
   campoR('Partecipanti', `Presenti n° ______ su ${partecipanti.length} iscritti`, 11, C.arancio);
+  /* il QR delle firme di presenza, in copertina (deciso nel progetto del
+     13/10/2026): solo se resta spazio sopra la nota delle pagine — altrimenti
+     c'è comunque il foglio da esporre in coda */
+  if (pres && pres.codice && pres.link && yr - 84 > 136) {
+    const qrcode = await qrGen();
+    const lato = 62;
+    disegnaQr(pg, qrcode, pres.link, X1 - lato, yr - lato - 14, lato, C.nero);
+    T(pg, 'FIRME DI PRESENZA', xR, yr, 7.5, F.r, C.tenue, { sp: 1.4 });
+    righe('Inquadra il codice col telefono e scrivi il tuo codice personale, stampato accanto al tuo nome.', F.r, 7.5, X1 - lato - 10 - xR)
+      .forEach((r, i) => T(pg, r, xR, yr - 13 - i * 9.5, 7.5, F.r, C.grigio));
+    T(pg, pres.codice, xR, yr - lato - 8, 8, F.b, C.arancio);
+  }
   const yNota = 108;
   enteBlocco(k, pg, X0, 80, Wc);
 
@@ -529,8 +544,8 @@ export async function pdfRegistro(corso, giornate, interventi, iscritti, conf, q
       if (p.cf) T(pg, p.cf, xs[1] + 4, y - 18, 6.2, F.r, C.tenue);
       /* il codice personale del test, accanto al nome: è così che in aula
          ciascuno dice chi è, senza scegliere da un elenco di nomi */
-      if (test && p.test_codice) {
-        T(pg, 'test ' + p.test_codice, xs[2] - 6, y - 13.5, 7.5, F.b, C.arancio, { al: 'r' });
+      if ((test || pres) && p.test_codice) {
+        T(pg, (pres ? 'codice ' : 'test ') + p.test_codice, xs[2] - 6, y - 13.5, 7.5, F.b, C.arancio, { al: 'r' });
       }
       T(pg, cut(F.r, 7.3, p.impresa_txt || '', cols[2] - 8), xs[2] + 4, y - 13.5, 7.3, F.r, C.grigio);
       y -= RIGA;
@@ -571,7 +586,63 @@ export async function pdfRegistro(corso, giornate, interventi, iscritti, conf, q
      per scelta dell'utente (18/09/2026). */
   if (quest && quest.codice) await foglioQuestionario(k, corso, quest);
   if (test && test.codice) await foglioTest(k, corso, test);
+  if (pres && pres.codice) await foglioPresenze(k, corso, pres);
   return salva(doc);
+}
+
+/* ── 2-quinquies. IL FOGLIO DELLE FIRME DI PRESENZA (13/10/2026) ─────────────
+   Da esporre in aula: il QR grande, il codice del corso per chi non inquadra,
+   e la regola in due righe — entrata o uscita le decide il server sull'ora di
+   arrivo, ci vuole il codice personale. Non numerato, come gli altri fogli. */
+async function foglioPresenze(k, corso, pres) {
+  const { F, C } = k;
+  const H = A4[1], X0 = 70, X1 = 545, Wc = X1 - X0;
+  const pg = k.pagina();
+  const qrcode = await qrGen();
+
+  const lh = altLogo(k, 88);
+  logoIn(k, pg, X1 - 88, H - 30 - lh, 88);
+  T(pg, `FIRME DI PRESENZA · CORSO ${corso.id}`, X0, H - 34, 7, F.r, C.arancio, { sp: 1.4 });
+  T(pg, cut(F.b, 10.5, corso.titolo || '', X1 - X0 - 104), X0, H - 49, 10.5, F.b, C.grigio);
+  linea(pg, X0, H - 62, X1, H - 62, C.linea, 0.8);
+
+  let y = H - 190;
+  T(pg, 'FIRMA DI PRESENZA', X0 + Wc / 2, y, 9, F.b, C.arancio, { sp: 2, al: 'c' });
+  y -= 42;
+  T(pg, 'Si firma col telefono', X0 + Wc / 2, y, 30, F.b, C.grigio, { al: 'c' });
+  y -= 28;
+  righe('Inquadrate il codice all\'entrata e all\'uscita di ogni turno e scrivete il VOSTRO codice personale, '
+      + 'quello stampato accanto al vostro nome nelle pagine del registro.', F.r, 12.5, 380)
+    .forEach((r, i) => T(pg, r, X0 + Wc / 2, y - i * 17, 12.5, F.r, C.tenue, { al: 'c' }));
+  y -= 62;
+
+  const lato = 165, qx = X0 + (Wc - lato) / 2;
+  pg.drawRectangle({ x: qx - 16, y: y - lato - 16, width: lato + 32, height: lato + 32,
+    borderColor: C.linea, borderWidth: 1 });
+  disegnaQr(pg, qrcode, pres.link || '', qx, y - lato, lato, C.nero);
+  y -= lato + 40;
+
+  T(pg, 'oppure ' + (pres.link || '').replace(/^https?:\/\//, '').split('?')[0]
+      + '  ·  codice ' + (pres.codice || ''), X0 + Wc / 2, y, 10, F.r, C.tenue, { al: 'c' });
+  y -= 30;
+
+  const righeInfo = [
+    'Entrata o uscita le riconosce il servizio dall\'ora in cui la firma arriva: non c\'è niente da scegliere.',
+    'Senza rete si firma lo stesso: la firma parte quando torna la connessione. Chi non ha il telefono firma sul registro.',
+    'Le firme le conferma il docente sul registro della giornata.',
+  ];
+  righeInfo.forEach((r, i) => righe(r, i ? F.i : F.b, 9.5, Wc - 40)
+    .forEach((rr, j) => T(pg, rr, X0 + Wc / 2, y - i * 26 - j * 12, 9.5, i ? F.i : F.b, i ? C.tenue : C.grigio, { al: 'c' })));
+
+  enteBlocco(k, pg, X0, 72, Wc);
+  T(pg, 'foglio delle firme · non numerato', X1, 58, 7, F.i, C.tenue, { al: 'r' });
+}
+
+/* il foglio da solo, quando il registro è già stato stampato */
+export async function pdfFoglioPresenze(corso, pres) {
+  const k = await apriCiclo();
+  await foglioPresenze(k, corso, pres);
+  return salva(k.doc);
 }
 
 /* ── 2-bis. IL FOGLIO DEL QUESTIONARIO ──────────────────────────────────────

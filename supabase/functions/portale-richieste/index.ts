@@ -306,6 +306,37 @@ async function agganciaTest(sb: SB, d: Dati): Promise<Dati> {
   }
 }
 
+/* ── la FIRMA DI PRESENZA dal QR del corso (13/10/2026, lotto 4) ──────────
+   Chi firma si e' riconosciuto col codice personale (quello del test, stampato
+   accanto al nome sul registro). ENTRATA O USCITA LO DECIDE IL SERVER del
+   Gestionale sull'ora di adesso (pres_registra → pres_decidi): l'ora del
+   telefono e' indicativa, perche' una firma in coda senza rete arriva dopo.
+   La firma nasce «ricevuta»: la conferma e' del docente o della segreteria.
+   ⚠️ Una firma che non si riconosce NON si butta: entra senza persona, e
+   riferimento_esito dice perche'. */
+async function agganciaPresenza(sb: SB, d: Dati): Promise<Dati> {
+  const rif = String(d.riferimento ?? '').trim()
+  const { data, error } = await sb.rpc('pres_registra', {
+    p_riferimento: rif.slice(0, 200),
+    p_codice_personale: String(d.codice_personale ?? '').slice(0, 20),
+    p_ora_dispositivo: String(d.ora_dispositivo ?? '').slice(0, 40),
+    p_submission_id: String(d.submission_id ?? '').slice(0, 64),
+  })
+  if (error) return { riferimento_esito: 'registrazione non riuscita: ' + error.message }
+  const r = (data ?? {}) as Dati
+  if (r.riferimento_esito !== 'riconosciuta') {
+    return { riferimento_esito: String(r.riferimento_esito ?? 'non riconosciuta'),
+      ...(r.corso_id ? { corso_id: r.corso_id } : {}),
+      ...(r.iscritto_id ? { iscritto_id: r.iscritto_id, nominativo: r.nominativo } : {}) }
+  }
+  return {
+    corso_id: r.corso_id, giornata_id: r.giornata_id, iscritto_id: r.iscritto_id, nominativo: r.nominativo,
+    tipo: r.tipo, turno: r.turno, ora_server: r.ora_server, ora_dispositivo: r.ora_dispositivo,
+    fuori_orario: r.fuori_orario === true, fonte: 'qr', stato: 'ricevuta', note: r.note ?? null,
+    riferimento_esito: 'riconosciuta',
+  }
+}
+
 /* ── il TEST scritto dal DOCENTE (19/09/2026) ──────────────────────────────
    Chiesto dall'utente: il docente del corso deve poter caricare il test, anche
    passando dalla segreteria. Arriva da un LINK TARGATO, come l'iscrizione;
@@ -760,6 +791,20 @@ const MODULI: Record<string, Modulo> = {
     colonne: { risposte: 'json:risposte' },
     extra: agganciaTest,
     campi: [['PROGRESSIVO', '#prog'], ['CODICE', 'codice'], ['RISPOSTE', 'risposte'], ['PRIVACY', 'privacy']],
+  },
+
+  /* la FIRMA DI PRESENZA dal QR (13/10/2026): nominativa, silenziosa (venti
+     firme in cinque minuti non sono venti mail), tutto deciso dal server in
+     agganciaPresenza. Nessuna colonna dal modulo: i campi calcolati bastano. */
+  prs: {
+    tabella: 's_corsi_firme_presenza',
+    obbligatori: [],
+    chi: 'codice',
+    silenzioso: true,
+    colonne: {},
+    extra: agganciaPresenza,
+    campi: [['PROGRESSIVO', '#prog'], ['CODICE', 'codice'], ['RIFERIMENTO', 'riferimento'],
+      ['CODICE PERSONALE', 'codice_personale'], ['ORA DISPOSITIVO', 'ora_dispositivo'], ['PRIVACY', 'privacy']],
   },
 
   /* ISCRIZIONE a un evento (18/09/2026): un corso di un progetto finanziato
