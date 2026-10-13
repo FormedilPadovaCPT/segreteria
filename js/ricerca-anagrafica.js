@@ -41,6 +41,13 @@ function collega(inputSel, boxSel, cerca, disegna, onScelta, vuoto) {
   });
 }
 
+/* cessata nel Registro Imprese a oggi (cessata_il, scritto dalla segreteria nella scheda) */
+export function cessataOggi(r) {
+  const c = String((r && r.cessata_il) || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(c)) return false;
+  return c <= new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Rome' });
+}
+
 /* La riga completa dell'impresa: la RPC di ricerca non porta
    recapiti e indirizzo, che invece servono a riempire la maschera */
 export async function impresaIntera(impresaId) {
@@ -55,11 +62,14 @@ export async function impresaIntera(impresaId) {
 export function collegaRicercaImprese(inputSel, boxSel, onScelta) {
   collega(inputSel, boxSel,
     async (q) => {
-      const { data } = await sb.rpc('s_cerca_imprese', { p_testo: q, p_limite: 8 });
-      return data;
+      const { data, error } = await sb.rpc('s_cerca_imprese', { p_testo: q, p_limite: 12 });
+      if (error) throw error;
+      /* (13/10/2026, deciso dall'utente) la cessata nel Registro Imprese «deve sparire»:
+         non si sceglie per una visita. La cessata in Cassa Edile invece resta. */
+      return (data || []).filter((r) => !cessataOggi(r)).slice(0, 8);
     },
     (r) => `${esc(r.impresa_nome || '(senza nome)')} <span class="hint">${esc(r.impresa_id || '')}`
-      + `${r.comune ? ' · ' + esc(r.comune) : ''}${r.cod_ceiv ? ' · CEIV ' + esc(r.cod_ceiv) : ''}</span>`,
+      + `${r.comune ? ' · ' + esc(r.comune) : ''}${r.cod_ceiv ? ' · CEIV ' + esc(r.cod_ceiv) + (r.stato_cassa ? ' ' + esc(String(r.stato_cassa).toLowerCase()) : '') : ''}</span>`,
     async (r) => onScelta(await impresaIntera(r.impresa_id) || r),
     'Nessuna impresa in anagrafica: scrivi i dati a mano — la pratica si aggancia poi con la partita IVA.');
 }

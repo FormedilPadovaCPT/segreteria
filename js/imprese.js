@@ -153,20 +153,15 @@ async function eseguiRicerca(testo) {
   const { data, error } = await sb.rpc('s_cerca_imprese', { p_testo: testo, p_limite: 60 });
   if (error) { box.innerHTML = `<p class="empty">${esc(error.message)}</p>`; return; }
   if (!data?.length) { box.innerHTML = '<p class="empty">Nessuna impresa trovata.</p>'; return; }
-  /* le cessate in Camera di Commercio (04/10/2026): s_cerca_imprese non le dice */
-  const cessate = new Map();
-  {
-    const { data: ce } = await sb.from('imprese').select('impresa_id, cessata_il')
-      .in('impresa_id', data.map((i) => i.impresa_id)).not('cessata_il', 'is', null);
-    (ce || []).forEach((r) => cessate.set(r.impresa_id, r.cessata_il));
-  }
+  /* (13/10/2026) s_cerca_imprese porta stato in Cassa e cessazione nel Registro Imprese:
+     prima la cessazione si rileggeva a parte, senza guardare l'errore */
 
   box.innerHTML = `
     <div class="table-wrap">
       <table class="tbl">
         <thead><tr>
           <th>Ragione sociale</th><th style="width:130px">P.IVA</th>
-          <th style="width:150px">Codice fiscale</th><th style="width:100px">CEIV</th>
+          <th style="width:150px">Codice fiscale</th><th style="width:120px">CEIV</th>
           <th>Indirizzo</th>
         </tr></thead>
         <tbody>
@@ -181,10 +176,10 @@ async function eseguiRicerca(testo) {
             const luogo = [i.cap, i.comune].filter(Boolean).join(' ') + (i.prov ? ` (${i.prov})` : '') + estero;
             return `
             <tr data-imp="${esc(i.impresa_id)}">
-              <td><strong>${esc(i.impresa_nome)}</strong>${cessate.has(i.impresa_id) ? ` <span class="pill" style="background:#c0392b;color:#fff;font-size:10px">cessata ${esc(dataIt(cessate.get(i.impresa_id)))}</span>` : ''}${i.pec ? `<span class="cell-sub">${esc(i.pec)}</span>` : ''}</td>
+              <td><strong>${esc(i.impresa_nome)}</strong>${i.cessata_il ? ` <span class="pill" style="background:#c0392b;color:#fff;font-size:10px" title="Cessata nel Registro Imprese${i.cessata_fonte ? ' — fonte: ' + esc(i.cessata_fonte) : ''}. Non si sceglie per una visita.">cessata ${esc(dataIt(i.cessata_il))}</span>` : ''}${i.pec ? `<span class="cell-sub">${esc(i.pec)}</span>` : ''}</td>
               <td>${i.piva ? esc(i.piva) : '<span class="cell-sub">non in anagrafica</span>'}</td>
               <td>${esc(cf)}${codiceInterno ? `<span class="cell-sub">codice interno ${esc(codiceInterno)}</span>` : ''}</td>
-              <td>${esc(i.cod_ceiv || '')}</td>
+              <td>${esc(i.cod_ceiv || '')}${pillCassa(i.stato_cassa)}</td>
               <td>${esc(i.indirizzo || '')}${luogo.trim() ? `<span class="cell-sub">${esc(luogo.trim())}</span>` : ''}</td>
             </tr>`;
           }).join('')}
@@ -195,6 +190,16 @@ async function eseguiRicerca(testo) {
 
   box.querySelectorAll('tr[data-imp]').forEach((tr) =>
     tr.addEventListener('click', () => apriScheda(tr.dataset.imp)));
+}
+
+/* (13/10/2026) lo stato nella lista della Cassa Edile, accanto al codice: attiva o sospesa
+   = iscritta (regola del 01/10/2026); cessata o non iscritta = non iscritta */
+function pillCassa(stato, grande) {
+  const s = String(stato || '').trim();
+  if (!s) return '';
+  const iscr = /^(attiva|sospesa)$/i.test(s);
+  const testo = grande ? 'C.E.I.V. ' + s.toLowerCase() : s.toLowerCase();
+  return ` <span class="pill ${iscr ? 'pill-prima' : 'pill-off'}" style="font-size:10px" title="Stato nella lista della Cassa Edile: ${esc(s)}${iscr ? ' (conta come iscritta)' : ' (non conta come iscritta)'}">${esc(testo)}</span>`;
 }
 
 /* ══════════════ SCHEDA ══════════════ */
@@ -296,7 +301,7 @@ function disegnaScheda() {
       <div class="imp-chips">
         ${i.cod_ceiv || /ceiv/i.test(i.cassa_edile || '')
           ? `<span class="chip chip-logo" title="CEIV — ${esc(i.stato_cassa || 'stato non noto')}">
-               <img src="img/ceiv.jpg" alt="CEIV" class="${/attiv/i.test(i.stato_cassa || '') ? '' : 'logo-spento'}"></span>` : ''}
+               <img src="img/ceiv.jpg" alt="CEIV" class="${/^(attiva|sospesa)$/i.test(String(i.stato_cassa || '').trim()) ? '' : 'logo-spento'}"></span>` : ''}
         ${i.ance ? `<span class="chip chip-logo" title="Associata ANCE Padova">
                <img src="img/ance.png" alt="ANCE Padova"></span>` : ''}
         ${i.cassa_edile ? `<span class="chip chip-ce"><b>${esc(i.cassa_edile)}</b><span>Cassa Edile</span></span>` : ''}
@@ -305,7 +310,7 @@ function disegnaScheda() {
         <span class="chip"><b>${esc(i.impresa_id)}</b><span>Codice fiscale</span></span>
         ${i.piva && i.piva !== i.impresa_id ? `<span class="chip"><b>${esc(i.piva)}</b><span>Partita IVA</span></span>` : ''}
         ${i.comune ? `<span class="chip"><b>${esc(i.comune)}${i.prov ? ' (' + esc(i.prov) + ')' : ''}</b><span>Comune</span></span>` : ''}
-        ${i.stato ? `<span class="pill ${/attiv/i.test(i.stato) ? 'pill-prima' : 'pill-off'}">${esc(i.stato)}</span>` : ''}
+        ${/* (13/10/2026) qui c'era «stato», che è la NAZIONE (ITALIA): ora lo stato nella lista della Cassa */ pillCassa(i.stato_cassa, true)}
         ${i.cessata_il ? `<span class="pill" style="background:#c0392b;color:#fff" title="Cessata nel Registro Imprese${i.cessata_fonte ? ' — fonte: ' + esc(i.cessata_fonte) : ''}. Non è lo stato in Cassa Edile.">CESSATA dal ${esc(dataIt(i.cessata_il))}</span>` : ''}
       </div>
     </div>
