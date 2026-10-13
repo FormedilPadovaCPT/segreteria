@@ -23,6 +23,7 @@ import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, codiceP
 import { risolviCartella, caricaByte, leggiByte } from './drive.js';
 import { scaricaEml, FIRMA_SEGRETERIA, collegaDoppioClickMail } from './eml.js';
 import { chiediFirma, scaricaFirmata, firmeDi, etichettaFirma } from './firme.js';
+import { caricaTipologie, tipologieAttive, tipologiaDi, schedaVigenteDi, propostaDaTipologia, vistaTipologie, etichettaTipologia } from './corsi-tipologie.js';
 /* la ricerca in anagrafica sta in un posto solo: la usa anche la
    maschera manuale delle richieste di visita */
 import { collegaRicercaPersone } from './ricerca-anagrafica.js';
@@ -66,6 +67,9 @@ const RUOLI_AZ = ['DIPENDENTE', 'TITOLARE', 'SOCIO', 'PREPOSTO', 'RLS', 'RSPP', 
 export { conf, TIPI_ATT };
 
 async function carica() {
+  /* (13/10/2026) il catalogo delle tipologie e le schede formative: se non si leggono la vista resta usabile, e lo dice */
+  let tipErr = null;
+  try { await caricaTipologie(); } catch (e) { tipErr = e.message; console.warn('tipologie:', e); }
   const [{ data: c }, { data: pr }, { data: cf }, { data: it }] = await Promise.all([
     sb.from('s_corsi').select('*').order('id', { ascending: false }),
     sb.from('s_progetti_formativi').select('*').order('id', { ascending: false }),
@@ -133,6 +137,7 @@ export async function render() {
           `<button class="seg-btn ${filtro === v ? 'is-active' : ''}" data-val="${v}">${l}</button>`).join('')}
       </div>
       <div style="display:flex;gap:6px">
+        <button class="btn btn-ghost btn-sm" id="co-tipologie" title="Il catalogo dei corsi e le schede formative">📋 Tipologie e schede</button>
         <button class="btn btn-ghost btn-sm" id="co-progetti">🎯 Progetti finanziati</button>
         <button class="btn btn-primary btn-sm" id="co-nuovo">+ Nuovo corso</button>
       </div>
@@ -154,6 +159,7 @@ export async function render() {
     if (b) { filtro = b.dataset.val; render(); }
   });
   $('#co-nuovo').addEventListener('click', () => formCorso(null));
+  $('#co-tipologie').addEventListener('click', vistaTipologie);
   $('#co-progetti').addEventListener('click', vistaProgetti);
   host.querySelectorAll('tbody tr[data-id]').forEach((tr) =>
     tr.addEventListener('click', () => apriCorso(Number(tr.dataset.id))));
@@ -166,7 +172,16 @@ function formCorso(c, prefill = {}) {
   const sel = (id, val, opzioni) =>
     `<select id="fc-${id}">${Object.entries(opzioni).map(([k, l]) =>
       `<option value="${k}" ${val === k ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
+  /* (13/10/2026, lotto 2) la TIPOLOGIA: sul nuovo propone ore, soglia, test, questionario, attestato,
+     normativa, validità e congela la scheda formativa vigente; sul corso esistente mostra il valore salvato */
+  const tipOpz = tipologieAttive();
+  const tipCorrente = v.tipologia_id ? tipologiaDi(v.tipologia_id) : null;
+  const tipHtml = `<select id="fc-tipologia"><option value="">— nessuna (corso fuori catalogo) —</option>${tipOpz.map((x) =>
+      `<option value="${x.id}" ${v.tipologia_id === x.id ? 'selected' : ''}>${esc(x.titolo)}${x.ore_minime ? ` (${x.ore_minime} h)` : ''}</option>`).join('')}${
+      v.tipologia_id && !tipOpz.some((x) => x.id === v.tipologia_id) ? `<option value="${v.tipologia_id}" selected>${esc(tipCorrente?.titolo || `tipologia ${v.tipologia_id}`)} (com'è scritto)</option>` : ''}</select>`;
   apriDrawer(c ? `Corso n° ${c.id} — dati` : 'Nuovo corso', '', `
+    <div class="field"><label>Tipologia di corso (catalogo)</label>${tipHtml}
+      <p class="hint" id="fc-tip-nota" style="margin:2px 0 0">${c?.id ? esc(etichettaTipologia(c).replace(/<[^>]+>/g, '')) : 'Scegliendola, i campi qui sotto si propongono dal catalogo e il corso congela la scheda formativa vigente.'}</p></div>
     <div class="field"><label>Titolo *</label><input id="fc-titolo" value="${esc(v.titolo || '')}"></div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
       <div class="field"><label>Tipo</label>${sel('tipo', v.tipo || 'corso', TIPI)}</div>
@@ -188,6 +203,7 @@ function formCorso(c, prefill = {}) {
       <label><input type="checkbox" id="fc-regione" ${v.riconosciuto_regione ? 'checked' : ''}> 🔵 Riconosciuto Regione (logo blu)</label>
       <label><input type="checkbox" id="fc-test" ${v.test_previsto ? 'checked' : ''}> Test finale</label>
       <label><input type="checkbox" id="fc-quest" ${v.questionario_previsto ? 'checked' : ''}> Questionario gradimento</label>
+      <label title="Le firme di presenza degli allievi dal portale, inquadrando il QR del corso (lotto 4)"><input type="checkbox" id="fc-qr" ${v.firme_qr ? 'checked' : ''}> Firme di presenza dal QR</label>
     </div>
     <div class="field"><label>Valido per (testo sull'attestato)</label>
       <textarea id="fc-validita" rows="2">${esc(c?.id ? (v.validita_txt || '') : (v.validita_txt || (v.tipo === 'conferenza_cantiere' ? 'Informazione' : '')))}</textarea></div>
@@ -204,6 +220,24 @@ function formCorso(c, prefill = {}) {
     <button class="btn btn-primary" id="fc-salva" style="margin-top:8px">${c ? 'Salva' : 'Crea il corso'}</button>`);
 
   collegaDoppioClickMail($('#drawer-body'));
+
+  $('#fc-tipologia').addEventListener('change', () => {
+    const tp = tipologiaDi(Number($('#fc-tipologia').value));
+    const nota = $('#fc-tip-nota');
+    if (!tp) { if (nota) nota.textContent = 'Nessuna tipologia: corso fuori catalogo (convegno, seminario, altro).'; return; }
+    const vig = schedaVigenteDi(tp.id);
+    if (nota) nota.textContent = vig ? `Scheda formativa vigente: v${vig.versione} (firmata il ${dataIt(vig.firmata_il)}): il corso la congela.` : 'Questa tipologia non ha ancora una scheda formativa firmata: il corso nasce lo stesso, ma per il fascicolo serve.';
+    /* i predefiniti valgono sul NUOVO; su un corso esistente non si tocca niente (regola del 04/10/2026) */
+    if (c?.id) return;
+    const p = propostaDaTipologia(tp);
+    if (!$('#fc-titolo').value.trim()) $('#fc-titolo').value = tp.titolo;
+    if (p.durata_ore != null) $('#fc-ore').value = p.durata_ore;
+    $('#fc-freqmin').value = p.perc_freq_min;
+    $('#fc-test').checked = p.test_previsto; $('#fc-quest').checked = p.questionario_previsto; $('#fc-qr').checked = p.firme_qr;
+    if (TIPI_ATT[p.tipo_attestato]) $('#fc-tipoatt').value = p.tipo_attestato;
+    if (p.normativa) $('#fc-normativa').value = p.normativa;
+    if (p.validita_txt) $('#fc-validita').value = p.validita_txt;
+  });
 
   $('#fc-salva').addEventListener('click', async (ev) => {
     const btn = ev.currentTarget;
@@ -227,6 +261,8 @@ function formCorso(c, prefill = {}) {
       riconosciuto_regione: $('#fc-regione').checked,
       test_previsto: $('#fc-test').checked,
       questionario_previsto: $('#fc-quest').checked,
+      firme_qr: $('#fc-qr').checked,
+      tipologia_id: $('#fc-tipologia').value ? Number($('#fc-tipologia').value) : null,
       validita_txt: $('#fc-validita').value.trim() || null,
       normativa: $('#fc-normativa').value.trim() || null,
       referente_nome: $('#fc-refnome').value.trim() || null,
@@ -242,6 +278,8 @@ function formCorso(c, prefill = {}) {
       if (error) { attendi(btn, false); return toast(error.message, 'err'); }
     } else {
       Object.assign(dati, {
+        /* la versione vigente della scheda formativa si congela sull'edizione (lotto 2) */
+        scheda_formativa_id: dati.tipologia_id ? (schedaVigenteDi(dati.tipologia_id)?.id || null) : null,
         responsabile_formativo: conf.responsabile_formativo_nome || null,
         rappresentante_legale: conf.presidente_nome || null,
         impresa_id: prefill.impresa_id || null,
@@ -481,6 +519,7 @@ export async function apriCorso(id) {
       ${c.sede ? ` — ${esc(c.sede)}` : ''}
       · attestato: ${esc(TIPI_ATT[c.tipo_attestato])}
       · resp. formativo: ${esc(c.responsabile_formativo || conf.responsabile_formativo_nome || '—')}
+      ${c.tipologia_id ? `<br>📋 tipologia: ${etichettaTipologia(c)}` : ''}
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 4px">
       <button class="btn btn-ghost btn-sm" id="co-dati">✏️ Dati del corso</button>
