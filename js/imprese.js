@@ -669,8 +669,21 @@ const CAMPI_RISERVABILI_IMPRESA = [
    convertono al salvataggio. Una data che non si capisce ferma il
    salvataggio, non passa in silenzio. */
 function dataInput(attr, iso, extra = '') {
-  return `<input type="text" ${attr} value="${esc(dataIt(iso))}" placeholder="gg/mm/aaaa" inputmode="numeric" maxlength="10" style="width:105px" ${extra}>`;
+  return `<input type="text" ${attr} value="${esc(dataIt(iso))}" placeholder="gg/mm/aaaa" inputmode="numeric" maxlength="10" style="width:105px" data-oggi="1" title="Scrivi o incolla la data (gg/mm/aaaa). Doppio clic: la data di oggi." ${extra}>`;
 }
+/* (13/10/2026, chiesto dall'utente al posto del calendario) doppio clic su un campo
+   data della scheda = la data di oggi, ora italiana. Si salva solo con «Salva». */
+export function oggiIt() {
+  return new Date().toLocaleDateString('it-IT', { timeZone: 'Europe/Rome', day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+document.addEventListener('dblclick', (e) => {
+  const el = e.target;
+  if (!(el instanceof HTMLInputElement) || !el.dataset.oggi || el.readOnly || el.disabled) return;
+  e.preventDefault();
+  el.value = oggiIt();
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+});
 /* la conversione testo → ISO è leggiData di comune.js (condivisa con
    l'incolla sui campi «date» di tutta l'app, vedi app.js) */
 

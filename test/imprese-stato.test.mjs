@@ -33,3 +33,12 @@ test('il selettore delle imprese toglie le cessate nel Registro Imprese, non que
   assert.equal(cessataOggi({ stato_cassa: 'Cessata' }), false, 'la cessata in Cassa resta');
   assert.equal(cessataOggi({}), false);
 });
+
+test('doppio clic su un campo data della scheda = la data di oggi (13/10/2026)', () => {
+  assert.match(imp, /data-oggi="1" title="Scrivi o incolla la data \(gg\/mm\/aaaa\)\. Doppio clic: la data di oggi\."/);
+  assert.match(imp, /type="text" \$\{attr\}/, 'resta un campo di testo: le date si incollano come si trovano (08/09/2026)');
+  const corpo = imp.slice(imp.indexOf('export function oggiIt'), imp.indexOf("document.addEventListener('dblclick'"));
+  const oggiIt = new Function(corpo.replace('export ', '') + '\nreturn oggiIt')();
+  assert.match(oggiIt(), /^\d{2}\/\d{2}\/\d{4}$/, 'gg/mm/aaaa, che leggiData capisce al salvataggio');
+  assert.match(imp, /if \(!\(el instanceof HTMLInputElement\) \|\| !el\.dataset\.oggi \|\| el\.readOnly \|\| el\.disabled\) return;/);
+});
