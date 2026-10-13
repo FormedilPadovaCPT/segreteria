@@ -12,7 +12,7 @@
 
 import { sb, $, esc, dataIt, oggiIso, mostraVista, codiceProtocollo, toast } from './core.js';
 import { dividiRespinte } from './mail-respinte-viste.js';
-import { datiCruscotto as datiFirme, cardFirme, collegaFirme } from './firme-presidente.js';
+import { datiCruscotto as datiFirme, cardFirme, collegaFirme } from './firme.js';
 import { datiApprovazioni, quanteApprovazioni, righeApprovazioni, bottoneRicorda, collegaApprovazioni } from './approvazioni-direttore.js';
 
 /* 05/10/2026 — gli incarichi che si chiudono col cantiere, e quelli che restano aperti perché hanno altri
@@ -1023,7 +1023,7 @@ export async function render() {
   host.innerHTML = `
     ${bannerCanale}${bannerFormazione}${striscia()}
     <div class="hm-griglia">${griglia}</div>`;
-  collegaFirme(host, render);
+  collegaFirme(host, render, firme);
   collegaApprovazioni(host, render);
   host.querySelector('[data-tendine-visti]')?.addEventListener('click', async (ev) => {
     const b = ev.currentTarget; b.disabled = true;

@@ -22,7 +22,7 @@
 import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, codiceProtocollo, opzioniTendina } from './core.js';
 import { risolviCartella, caricaByte, leggiByte } from './drive.js';
 import { scaricaEml, FIRMA_SEGRETERIA, collegaDoppioClickMail } from './eml.js';
-import { chiediFirma, scaricaFirmata, firmeDi, etichettaFirma } from './firme-presidente.js';
+import { chiediFirma, scaricaFirmata, firmeDi, etichettaFirma } from './firme.js';
 /* la ricerca in anagrafica sta in un posto solo: la usa anche la
    maschera manuale delle richieste di visita */
 import { collegaRicercaPersone } from './ricerca-anagrafica.js';
@@ -828,10 +828,13 @@ async function letteraIncarico(c, k, interventi, giornate, firma) {
     const esito = {};
     const byte = await pdfLetteraIncarico(c, k, miei, conf, codiceProtocollo(prot), null, anagDoc, esito);
     const nome = `${(k.data_incarico || oggiIso()).replace(/-/g, '_')}_INC_${k.nominativo}_docenza-corso-${c.id}.pdf`;
+    /* (13/10/2026) il registro delle firme è generale: si dice chi firma
+       (il Presidente) e di quale corso è il documento */
     const r = await chiediFirma([{
-      tipo: 'incarico_docenza', rif: `docenza:${k.id}`, protocollo_id: prot.id,
+      tipo: 'incarico_docenza', rif: `docenza:${k.id}`, protocollo_id: prot.id, corso_id: c.id,
       titolo: `Lettera di incarico di docenza a ${k.nominativo} — corso n° ${c.id} «${c.titolo}»`,
-      destinatario: k.nominativo, nome_file: nome, byte, riquadro: esito.riquadro,
+      destinatario: k.nominativo, nome_file: nome, byte,
+      firmatari: [{ ruolo: 'presidente', riquadro: esito.riquadro }],
     }]);
     if (r?.avviso?.inviata) toast(`Lettera ${codiceProtocollo(prot)} mandata al Presidente da firmare: gli è arrivata la mail.`, 'ok');
     else toast(`Lettera ${codiceProtocollo(prot)} in firma, ma la mail al Presidente non è partita: ${r?.avviso?.errore || 'motivo sconosciuto'}. Riprova da «Ricorda al Presidente» nel cruscotto.`, 'err');

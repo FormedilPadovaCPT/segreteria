@@ -23,7 +23,8 @@ for (const f of ['visite', 'segnalazioni', 'consulenze', 'conferenze', 'presenze
 }
 assert.match(leggi('../js/cantieri-critici-doc.js'), /^>>>> ✅ Apri il caso e conferma/m);
 assert.match(leggi('../supabase/functions/approvazione-direttore/index.ts'), /'>>>> ✅ Apri i preventivi e approva/);
-assert.match(leggi('../supabase/functions/firma-presidente/index.ts'), /'>>>> ✍️ Apri i documenti e firma/);
+// (13/10/2026) la riga è un template literal: porta la pagina del firmatario
+for (const f of ['firma-presidente', 'firma-documenti']) assert.match(leggi(`../supabase/functions/${f}/index.ts`), /[`']>>>> ✍️ Apri i documenti e firma/, f);
 
 // il messaggio intero regge (righe entro i 998 caratteri)
 const eml = componiEml({ to: 'x@y.it', oggetto: 'prova', corpo: `>>>> ✅ Apri la pratica e autorizza (nota):\n${L}` });
