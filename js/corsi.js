@@ -23,7 +23,7 @@ import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, codiceP
 import { risolviCartella, caricaByte, leggiByte } from './drive.js';
 import { scaricaEml, FIRMA_SEGRETERIA, collegaDoppioClickMail } from './eml.js';
 import { chiediFirma, scaricaFirmata, firmeDi, etichettaFirma } from './firme.js';
-import { caricaTipologie, tipologieAttive, tipologiaDi, schedaVigenteDi, propostaDaTipologia, vistaTipologie, etichettaTipologia } from './corsi-tipologie.js';
+import { caricaTipologie, tipologieAttive, tipologiaDi, schedaVigenteDi, propostaDaTipologia, vistaTipologie, etichettaTipologia, apriPdfDocumento, mandaInFirmaProgetto, mandaInFirmaVerbale, STATI_SCHEDA } from './corsi-tipologie.js';
 /* la ricerca in anagrafica sta in un posto solo: la usa anche la
    maschera manuale delle richieste di visita */
 import { collegaRicercaPersone } from './ricerca-anagrafica.js';
@@ -61,6 +61,9 @@ const ESITI_ISCR = {
   freq_insufficiente: 'Freq. insufficiente', sostituito: 'Sostituito',
 };
 const QUALITA = { docente: 'Docente', codocente: 'Codocente', relatore: 'Relatore', ospite: 'Ospite', moderatore: 'Moderatore', uditore: 'Uditore' };
+/* (13/10/2026, lotto 3) da dove nasce un corso: l'autorizzazione sta nella pratica a monte, non nell'apertura */
+const ORIGINI = { progetto_finanziato: 'Progetto finanziato', richiesta_impresa: 'Richiesta di un\'impresa (approvata dal Direttore)', conferenza: 'Conferenza di cantiere', ufficio: 'Iniziativa dell\'ufficio / Commissione' };
+const STATI_PROG = { da_fare: 'da fare', pronto: 'pronto per la firma', in_firma: 'in firma', firmato: 'firmato' };
 const RUOLI_AZ = ['DIPENDENTE', 'TITOLARE', 'SOCIO', 'PREPOSTO', 'RLS', 'RSPP', 'DATORE DI LAVORO', 'COLLABORATORE', 'ALTRO'];
 /* li legge corsi-attestati.js. `conf` la riassegna solo carica(), qui:
    di là si vede sempre il valore corrente (binding vivo, sola lettura) */
@@ -214,6 +217,14 @@ function formCorso(c, prefill = {}) {
       <div class="field"><label>Email referente</label><input id="fc-refemail" data-mail="1" data-mail-chi="${esc(v.referente_nome || '')}" value="${esc(v.referente_email || '')}"></div>
       <div class="field"><label>Tel. referente</label><input id="fc-reftel" value="${esc(v.referente_tel || '')}"></div>
     </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+      <div class="field"><label>Da dove nasce (chi lo autorizza)</label>
+        <select id="fc-origine"><option value="">— non indicato —</option>${Object.entries(ORIGINI).map(([k, l]) => `<option value="${k}" ${v.origine_tipo === k ? 'selected' : ''}>${l}</option>`).join('')}${v.origine_tipo && !ORIGINI[v.origine_tipo] ? `<option value="${esc(v.origine_tipo)}" selected>${esc(v.origine_tipo)} (com'è scritto)</option>` : ''}</select></div>
+      <div class="field"><label>Riferimento (pratica, progetto, nota)</label><input id="fc-origine-rif" value="${esc(v.origine_rif || '')}" placeholder="es. consulenza n° 3, progetto SPISAL 2026"></div>
+      <div class="field"><label>Codice Socrate (ufficio corsi)</label><input id="fc-socrate" value="${esc(v.codice_socrate || '')}" placeholder="se inserito anche lì"></div>
+    </div>
+    <div id="fc-formativa-wrap" style="margin:0 0 8px;${(v.tipo || 'corso') === 'conferenza_cantiere' ? '' : 'display:none'}">
+      <label title="Una conferenza formativa vuole il fascicolo pieno e rilascia crediti; altrimenti è come un convegno, solo registro (deciso dall'utente il 13/10/2026)"><input type="checkbox" id="fc-formativa" ${v.formativa ? 'checked' : ''}> Conferenza <strong>formativa</strong> (fascicolo pieno e crediti; altrimenti solo registro)</label></div>
     <div class="field"><label>Note</label><textarea id="fc-note" rows="2">${esc(v.note || '')}</textarea></div>
     <p class="hint" style="margin:6px 0">Responsabile del progetto formativo: <strong>${esc(conf.responsabile_formativo_nome || '—')}</strong>
       · rappresentante legale: <strong>${esc(conf.presidente_nome || '—')}</strong> (si congelano sul corso alla creazione).</p>
@@ -221,6 +232,7 @@ function formCorso(c, prefill = {}) {
 
   collegaDoppioClickMail($('#drawer-body'));
 
+  $('#fc-tipo').addEventListener('change', () => { const w = $('#fc-formativa-wrap'); if (w) w.style.display = $('#fc-tipo').value === 'conferenza_cantiere' ? '' : 'none'; });
   $('#fc-tipologia').addEventListener('change', () => {
     const tp = tipologiaDi(Number($('#fc-tipologia').value));
     const nota = $('#fc-tip-nota');
@@ -263,6 +275,10 @@ function formCorso(c, prefill = {}) {
       questionario_previsto: $('#fc-quest').checked,
       firme_qr: $('#fc-qr').checked,
       tipologia_id: $('#fc-tipologia').value ? Number($('#fc-tipologia').value) : null,
+      origine_tipo: $('#fc-origine').value || null,
+      origine_rif: $('#fc-origine-rif').value.trim() || null,
+      codice_socrate: $('#fc-socrate').value.trim() || null,
+      formativa: $('#fc-tipo').value === 'conferenza_cantiere' ? $('#fc-formativa').checked : null,
       validita_txt: $('#fc-validita').value.trim() || null,
       normativa: $('#fc-normativa').value.trim() || null,
       referente_nome: $('#fc-refnome').value.trim() || null,
@@ -387,6 +403,14 @@ export async function apriCorso(id) {
     sb.from('s_corsi_incarichi').select('*').eq('corso_id', id).order('id'),
   ]);
   /* la firma del Presidente sulle lettere di incarico (04/10/2026) */
+  /* (lotto 3) il verbale di verifica più recente e le firme di progetto e verbale */
+  let verbale = null, firmaProg = null, firmaVerb = null;
+  try {
+    const { data: vv } = await sb.from('s_corsi_verbali_verifica').select('*').eq('corso_id', c.id).order('versione', { ascending: false }).limit(1);
+    verbale = vv?.[0] || null;
+    firmaProg = (await firmeDi('progetto_formativo', [`progetto:${c.id}`])).get(`progetto:${c.id}`) || null;
+    if (verbale) firmaVerb = (await firmeDi('verbale_verifica', [`verbale:${verbale.id}`])).get(`verbale:${verbale.id}`) || null;
+  } catch (e) { console.warn('fascicolo:', e); }
   let firmeInc = new Map(), firmeErr = null;
   try { firmeInc = await firmeDi('incarico_docenza', (incarichi || []).map((k) => `docenza:${k.id}`)); }
   catch (e) { firmeErr = e.message; }
@@ -589,6 +613,10 @@ export async function apriCorso(id) {
     ${sezioneTest(c, test, iscritti)}
 
     ${sezioneMateriali(c)}
+
+    ${c.tipologia_id ? `<hr style="margin:12px 0;border:0;border-top:1px solid var(--bordo)">
+    <h4 style="margin:0 0 6px">📁 Fascicolo del corso <span class="hint">(Accordo CSR 59/2025, parte I punto 7)</span></h4>
+    ${sezioneFascicolo(c, verbale, firmaProg, firmaVerb, iscritti || [])}` : ''}
 
     <hr style="margin:12px 0;border:0;border-top:1px solid var(--bordo)">
     <h4 style="margin:0 0 6px">📄 Documenti del corso</h4>
@@ -793,11 +821,35 @@ Registro lo stesso una fattura qui?`)) return;
     generaAttestati(c, giornate || [], interventi || [], iscritti || [], ev.currentTarget, esitoDati));
   $('#co-invia-att')?.addEventListener('click', () =>
     inviaAttestati(c, giornate || [], interventi || [], iscritti || [], anagDi, impDi));
+  $('#drawer-body').querySelector('#fs-prog-pdf')?.addEventListener('click', (e) => { e.preventDefault(); apriPdfDocumento('progetto_formativo', c.id); });
+  $('#drawer-body').querySelector('#fs-prog-firma')?.addEventListener('click', async (e) => { e.preventDefault(); if (await mandaInFirmaProgetto(c)) apriCorso(c.id); });
+  $('#drawer-body').querySelector('#fs-verb-pdf')?.addEventListener('click', (e) => { e.preventDefault(); if (verbale) apriPdfDocumento('verbale_verifica', verbale.id); });
+  $('#drawer-body').querySelector('#fs-verb-firma')?.addEventListener('click', async (e) => { e.preventDefault(); if (await mandaInFirmaVerbale(c, verbale)) apriCorso(c.id); });
   $('#drawer-body').querySelectorAll('[data-lett-inc]').forEach((a) => a.addEventListener('click', (e) => {
     e.preventDefault();
     const k = (incarichi || []).find((x) => x.id === Number(a.dataset.lettInc));
     if (k) letteraIncarico(c, k, interventi || [], giornate || [], firmeInc.get(`docenza:${k.id}`) || null);
   }));
+}
+
+/* ── (lotto 3) la sezione FASCICOLO della scheda corso: i pezzi dell'Accordo e il loro stato ── */
+function sezioneFascicolo(c, verbale, firmaProg, firmaVerb, iscritti) {
+  const tp = tipologiaDi(c.tipologia_id);
+  const accordo = !!(tp?.accordo_2025 && (c.tipo !== 'conferenza_cantiere' || c.formativa));
+  const riga = (icona, titolo, stato, azioni) => `<div class="dt-doc-riga" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span>${icona}</span><span style="flex:1;min-width:220px"><strong>${titolo}</strong><br><span class="hint">${stato}</span></span><span style="white-space:nowrap">${azioni}</span></div>`;
+  const senzaMansione = iscritti.filter((i) => !['annullato', 'sostituito'].includes(i.esito || '') && !(i.mansione || '').trim()).length;
+  const schedaTxt = etichettaTipologia(c);
+  const progStato = `${STATI_PROG[c.progetto_stato] || c.progetto_stato || 'da fare'}${firmaProg ? ' · ' + etichettaFirma(firmaProg) : ''}${c.progetto_firmato_il ? ' · firmato il ' + dataIt(c.progetto_firmato_il) : ''}`;
+  const verbStato = verbale ? `v${verbale.versione}: ${verbale.stato === 'firmato' ? 'firmato il ' + dataIt(verbale.firmato_il) : verbale.stato}${firmaVerb ? ' · ' + etichettaFirma(firmaVerb) : ''}` : 'non preparato (lo prepara il responsabile del progetto formativo dalla pagina Formazione)';
+  return `
+    ${!accordo ? '<p class="hint" style="margin:0 0 6px">Corso fuori dall\'Accordo (o conferenza non formativa): fascicolo ridotto, basta il registro delle presenze.</p>' : ''}
+    ${riga('📋', 'Scheda formativa della tipologia', schedaTxt || 'nessuna', '')}
+    ${riga('📝', 'Progetto formativo dell\'edizione (Allegato 3)', progStato + (senzaMansione ? ` · <span style="color:#a01f00">${senzaMansione} iscritt${senzaMansione === 1 ? 'o' : 'i'} senza mansione</span>` : ''),
+      `<a href="#" id="fs-prog-pdf">📄 PDF</a>${c.progetto_stato === 'pronto' ? ' · <a href="#" id="fs-prog-firma">✍️ in firma</a>' : ''}`)}
+    ${riga('👥', 'Registro presenze con firme (Allegato 2)', 'si stampa da «Documenti del corso»; le firme digitali degli allievi arrivano col lotto 4', '')}
+    ${riga('📑', 'Verbale di verifica finale (Allegato 4)', verbStato,
+      verbale ? `<a href="#" id="fs-verb-pdf">📄 PDF</a>${verbale.stato === 'pronto' ? ' · <a href="#" id="fs-verb-firma">✍️ in firma</a>' : ''}` : '')}
+    ${accordo && !(verbale && verbale.stato === 'firmato') ? '<p class="hint" style="margin:6px 0 0;color:#a01f00">⚠ Corso dell\'Accordo: gli attestati si emettono solo col verbale di verifica firmato (lo rifiuta anche il database).</p>' : ''}`;
 }
 
 /* ── LETTERA DI INCARICO: protocollo OUT + PDF + firma del Presidente ──

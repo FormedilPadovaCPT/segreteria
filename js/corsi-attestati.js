@@ -134,6 +134,17 @@ async function chiediDatiAttestato(c, incompleti, esitoDati, anagDi, impDi) {
 
 async function generaAttestati(c, giornate, interventi, iscritti, btn, esitoDati = {}) {
   if (!giornate.length) return toast('Un corso ha sempre almeno una giornata: aggiungila prima degli attestati.', 'err');
+  /* (13/10/2026, lotto 3) corso dell'Accordo: prima il verbale di verifica firmato. Il database lo rifiuta
+     comunque (trigger): qui lo si dice prima, con le parole giuste, invece di un errore a metà giro */
+  if (c.tipologia_id) {
+    const { data: acc, error: eA } = await sb.rpc('corso_e_accordo', { p_corso: c.id });
+    if (eA) return toast('Non riesco a verificare se il corso è dell\'Accordo: ' + eA.message, 'err');
+    if (acc) {
+      const { data: vv, error: eV } = await sb.from('s_corsi_verbali_verifica').select('id').eq('corso_id', c.id).eq('stato', 'firmato').limit(1);
+      if (eV) return toast('Non riesco a leggere il verbale di verifica: ' + eV.message, 'err');
+      if (!vv?.length) return toast('Corso dell\'Accordo Stato-Regioni: gli attestati si emettono dopo il verbale di verifica finale firmato (sezione Fascicolo del corso).', 'err');
+    }
+  }
   const anno = (c.data_fine || c.data_inizio || oggiIso()).slice(0, 4);
   const candidati = iscritti.filter((i) =>
     ['presente', 'presente_online'].includes(i.esito) && i.ammesso !== false &&

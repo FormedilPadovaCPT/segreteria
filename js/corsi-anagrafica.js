@@ -47,8 +47,10 @@ export const CAMPI_ATTESTATO = [
     perche: 'va sull’attestato come ragione sociale' },
   { campo: 'ruolo', etichetta: 'In qualità di', dove: 'iscritto', grave: false,
     perche: 'compare sull’attestato' },
-  { campo: 'mansione', etichetta: 'Ruolo aziendale', dove: 'iscritto', grave: false,
-    perche: 'compare sull’attestato' },
+  /* (13/10/2026, lotto 3) per un corso a catalogo la mansione è NECESSARIA: va nell'analisi aula
+     del progetto formativo (Allegato 3) e il verbale non si dichiara pronto senza */
+  { campo: 'mansione', etichetta: 'Mansione (ruolo aziendale)', dove: 'iscritto', grave: 'se_tipologia',
+    perche: 'compare sull’attestato e nell’analisi aula del progetto formativo' },
 ];
 
 const vuoto = (v) => v == null || String(v).trim() === '';
@@ -58,6 +60,7 @@ const vuoto = (v) => v == null || String(v).trim() === '';
    dato che non serve. */
 function grave(campo, corso) {
   if (campo.grave === 'salvo_partecipazione') return (corso?.tipo_attestato || 'frequenza') !== 'partecipazione';
+  if (campo.grave === 'se_tipologia') return !!corso?.tipologia_id;
   return campo.grave === true;
 }
 

@@ -157,7 +157,51 @@ function formTipologia(t) {
   });
 }
 
-/* ── il PDF della scheda: lo disegna la funzione, uguale per le due app ── */
+/* ── i PDF del fascicolo: li disegna la funzione, uguale per le due app ── */
+export async function pdfDocumento(azione, id) {
+  const { data, error } = await sb.functions.invoke('documenti-corso', { body: { azione, id } });
+  if (error || data?.error) {
+    let msg = data?.error; try { msg = msg || (await error.context.json()).error; } catch { /* niente */ }
+    throw new Error(msg || error?.message || 'PDF non generato');
+  }
+  return { ...data, byte: Uint8Array.from(atob(data.pdf_base64), (c) => c.charCodeAt(0)) };
+}
+export async function apriPdfDocumento(azione, id) {
+  const w = window.open('', '_blank');
+  try {
+    const r = await pdfDocumento(azione, id);
+    const url = URL.createObjectURL(new Blob([r.byte], { type: 'application/pdf' }));
+    if (w) w.location.href = url; else window.open(url, '_blank');
+  } catch (e) { if (w) w.close(); toast(e.message, 'err'); }
+}
+/* (lotto 3) il progetto formativo dell'edizione in firma all'RPF, il verbale agli esaminatori e poi all'RPF */
+export async function mandaInFirmaProgetto(c) {
+  if (c.progetto_stato !== 'pronto') return toast('Il progetto formativo non è pronto: lo dichiara pronto il responsabile del progetto formativo dalla pagina Formazione.', 'err');
+  if (!confirm(`Mando in firma il progetto formativo del corso n° ${c.id} al responsabile del progetto formativo? Il PDF si genera adesso e gli arriva la mail. Procedo?`)) return;
+  try {
+    const r = await pdfDocumento('progetto_formativo', c.id);
+    const out = await chiediFirma([{ tipo: 'progetto_formativo', rif: `progetto:${c.id}`, corso_id: c.id, titolo: r.titolo, nome_file: r.nome_file, byte: r.byte, firmatari: r.firmatari }]);
+    const { error } = await sb.rpc('corso_progetto_stato', { p_corso: c.id, p_stato: 'in_firma' });
+    if (error) throw new Error('Firma chiesta, ma il progetto non è segnato «in firma»: ' + error.message);
+    const inviate = (out?.avvisi || []).filter((x) => x.inviata).map((x) => x.a);
+    toast(inviate.length ? `Progetto in firma: mail mandata a ${inviate.join(', ')}.` : `Progetto in firma, ma la mail non è partita: ${out?.avviso?.errore || 'motivo sconosciuto'}.`, inviate.length ? 'ok' : 'err');
+    return true;
+  } catch (e) { toast(e.message, 'err'); }
+}
+export async function mandaInFirmaVerbale(c, v) {
+  if (!v || v.stato !== 'pronto') return toast('Il verbale non è pronto: lo prepara e lo dichiara pronto il responsabile del progetto formativo dalla pagina Formazione.', 'err');
+  const esam = (Array.isArray(v.esaminatori) ? v.esaminatori : []).map((e) => e.nominativo).join(', ');
+  if (!confirm(`Mando in firma il verbale di verifica finale (v${v.versione}) del corso n° ${c.id}: prima agli esaminatori (${esam || 'nessuno'}), poi al responsabile del progetto formativo? Il PDF si genera adesso e a ciascuno arriva la mail. Procedo?`)) return;
+  try {
+    const r = await pdfDocumento('verbale_verifica', v.id);
+    const out = await chiediFirma([{ tipo: 'verbale_verifica', rif: `verbale:${v.id}`, corso_id: c.id, titolo: r.titolo, nome_file: r.nome_file, byte: r.byte, firmatari: r.firmatari }]);
+    const { error } = await sb.rpc('corso_verbale_stato', { p_id: v.id, p_stato: 'in_firma' });
+    if (error) throw new Error('Firma chiesta, ma il verbale non è segnato «in firma»: ' + error.message);
+    const inviate = (out?.avvisi || []).filter((x) => x.inviata).map((x) => x.a);
+    toast(inviate.length ? `Verbale in firma: mail mandata a ${inviate.join(', ')}.` : `Verbale in firma, ma la mail non è partita: ${out?.avviso?.errore || 'motivo sconosciuto'}.`, inviate.length ? 'ok' : 'err');
+    return true;
+  } catch (e) { toast(e.message, 'err'); }
+}
 async function pdfScheda(id) {
   const { data, error } = await sb.functions.invoke('documenti-corso', { body: { azione: 'scheda_formativa', id } });
   if (error || data?.error) {
