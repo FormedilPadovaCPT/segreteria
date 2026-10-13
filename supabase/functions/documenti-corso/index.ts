@@ -441,6 +441,8 @@ export async function disegnaVerbale(v: Riga, c: Riga, t: Riga | null, giornate:
 
 /* ══════════════ 4. L'ACCETTAZIONE DELL'INCARICO (lotto 5) ══════════════ */
 const QUALITA: Record<string, string> = { docente: 'docente', codocente: 'codocente', relatore: 'relatore', tutor: 'tutor' }
+/* il codice del registro unico porta già «Prot_» (Prot_26-27_0031): non si raddoppia; lo storico «1234-out» prende «Prot.» davanti */
+const protTxt = (p: string) => /^prot/i.test(p) ? p : `Prot. ${p}`
 export async function disegnaAccettazione(inc: Riga, c: Riga, docente: { nome: string; email: string }, protocollo: string | null) {
   const k = new Carta()
   await k.apri(`Accettazione dell'incarico di docenza - corso n. ${c.id} - ${c.titolo}`)
@@ -455,10 +457,10 @@ export async function disegnaAccettazione(inc: Riga, c: Riga, docente: { nome: s
     ['Corso', `n. ${c.id} - ${c.titolo}`],
     ['Date e sede', [date, c.sede].filter(Boolean).join(' - ')],
     ['Ore di docenza', inc.ore != null ? `${inc.ore}` : '—'],
-    ['Lettera di incarico', protocollo ? `Prot. ${protocollo}${inc.data_incarico ? ` del ${dataIt(inc.data_incarico)}` : ''}` : (inc.data_incarico ? `del ${dataIt(inc.data_incarico)}` : '—')],
+    ['Lettera di incarico', protocollo ? `${protTxt(protocollo)}${inc.data_incarico ? ` del ${dataIt(inc.data_incarico)}` : ''}` : (inc.data_incarico ? `del ${dataIt(inc.data_incarico)}` : '—')],
   ], [1, 2.4])
   k.titoloSez('Dichiarazione')
-  k.para(`Il sottoscritto ${docente.nome || inc.nominativo || '________________'}, presa visione della lettera di incarico${protocollo ? ` Prot. ${protocollo}` : ''} conferita da ${ENTE.nome} ${ENTE.sotto}, dichiara di accettare l'incarico di docenza per il corso sopra indicato e di possedere i requisiti di docente formatore previsti dal D.I. 06/03/2013 e dall'Accordo Stato-Regioni del 17/04/2025.`, 9.2)
+  k.para(`Il sottoscritto ${docente.nome || inc.nominativo || '________________'}, presa visione della lettera di incarico${protocollo ? ` ${protTxt(protocollo)}` : ''} conferita da ${ENTE.nome} ${ENTE.sotto}, dichiara di accettare l'incarico di docenza per il corso sopra indicato e di possedere i requisiti di docente formatore previsti dal D.I. 06/03/2013 e dall'Accordo Stato-Regioni del 17/04/2025.`, 9.2)
   k.para('Si impegna a compilare e firmare di propria responsabilità il registro delle presenze della giornata e i documenti gestionali e didattici del fascicolo del corso per la parte di competenza, a svolgere gli argomenti previsti dal programma e a segnalare alla segreteria ogni variazione.', 9.2)
   k.dataRiga(`Data: ${inc.accettato_il ? dataIt(inc.accettato_il) : '______________'}`)
   const rq = k.firme([{ etichetta: 'Il docente, per accettazione', nome: docente.nome || inc.nominativo || '—' }])
@@ -496,7 +498,7 @@ export async function disegnaRegistroGiornata(g: Riga, c: Riga, interventi: Riga
   const int = ['N', 'Cognome e nome', 'Codice fiscale', 'Impresa', 'Entrata', 'Uscita', ...(due ? ['Entrata 2', 'Uscita 2'] : [])]
   const righe = iscritti.map((i, n) => [String(n + 1), i.nominativo || '—', i.cf || '—', i.impresa_txt || '—',
     cella(i, 'entrata', 1, 'ingresso1'), cella(i, 'uscita', 1, 'uscita1'), ...(due ? [cella(i, 'entrata', 2, 'ingresso2'), cella(i, 'uscita', 2, 'uscita2')] : [])])
-  if (righe.length) k.tabella(int, righe, [0.3, 1.5, 1.2, 1.3, 0.9, 0.9, ...(due ? [0.9, 0.9] : [])], 7.6)
+  if (righe.length) k.tabella(int, righe, [0.3, 1.4, 1.5, 1.2, 0.85, 0.85, ...(due ? [0.85, 0.85] : [])], 7.6)
   else k.para('Nessun iscritto.', 9, F.i, C.tenue)
   const presenti = iscritti.filter((i) => (i.presenza as Riga | null)?.presente === true).length
   const assenti = iscritti.filter((i) => (i.presenza as Riga | null)?.presente === false).length

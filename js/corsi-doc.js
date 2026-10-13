@@ -635,7 +635,7 @@ async function foglioPresenze(k, corso, pres) {
     .forEach((rr, j) => T(pg, rr, X0 + Wc / 2, y - i * 26 - j * 12, 9.5, i ? F.i : F.b, i ? C.tenue : C.grigio, { al: 'c' })));
 
   enteBlocco(k, pg, X0, 72, Wc);
-  T(pg, 'foglio delle firme · non numerato', X1, 58, 7, F.i, C.tenue, { al: 'r' });
+  T(pg, 'foglio delle firme · non numerato', X1, 44, 7, F.i, C.tenue, { al: 'r' });
 }
 
 /* il foglio da solo, quando il registro è già stato stampato */
@@ -703,7 +703,7 @@ async function foglioQuestionario(k, corso, quest) {
   }
 
   enteBlocco(k, pg, X0, 72, Wc);
-  T(pg, 'foglio del questionario · non numerato', X1, 58, 7, F.i, C.tenue, { al: 'r' });
+  T(pg, 'foglio del questionario · non numerato', X1, 44, 7, F.i, C.tenue, { al: 'r' });
 }
 
 /* ── 2-quater. IL FOGLIO DEL TEST ───────────────────────────────────────────
@@ -757,7 +757,7 @@ async function foglioTest(k, corso, test) {
   righeInfo.forEach((r, i) => T(pg, r, X0 + Wc / 2, y - i * 15, 9.5, i ? F.i : F.b, i ? C.tenue : C.grigio, { al: 'c' }));
 
   enteBlocco(k, pg, X0, 72, Wc);
-  T(pg, 'foglio del test · non numerato', X1, 58, 7, F.i, C.tenue, { al: 'r' });
+  T(pg, 'foglio del test · non numerato', X1, 44, 7, F.i, C.tenue, { al: 'r' });
 }
 
 export async function pdfFoglioTest(corso, test) {
