@@ -20,6 +20,14 @@
 //   { azione: 'verbale_verifica', id }   il verbale di verifica finale
 //        (Allegato 4), id = s_corsi_verbali_verifica (lotto 3). Firme:
 //        esaminatori, poi RPF.
+//   { azione: 'accettazione_incarico', id } l'accettazione dell'incarico di
+//        docenza (lotto 5), id = s_corsi_incarichi. Firma: il docente.
+//   { azione: 'registro_giornata', id }  il registro presenze di UNA giornata
+//        (Allegato 2, lotto 5), id = s_corsi_giornate: docenti con gli
+//        argomenti svolti, allievi con entrate e uscite — «firmato dal
+//        telefono alle 8:31 (XK7P2)» dove la firma dal QR è confermata,
+//        l'orario «su carta» dove la presenza è segnata a mano, «assente».
+//        Firme: i docenti della giornata, chi chiama per primo.
 //   Risposta: PDF in base64, nome del file a convenzione, i RIQUADRI delle
 //   firme (coordinate PDF) e i FIRMATARI pronti per `firma-documenti`.
 //   Chi può: i documenti si leggono COL TOKEN DI CHI CHIAMA, quindi vale
@@ -431,6 +439,80 @@ export async function disegnaVerbale(v: Riga, c: Riga, t: Riga | null, giornate:
   return { byte, nome, firmatari, pagine: k.n, titolo: `Verbale di verifica finale — corso n. ${c.id} «${c.titolo}» v${v.versione}` }
 }
 
+/* ══════════════ 4. L'ACCETTAZIONE DELL'INCARICO (lotto 5) ══════════════ */
+const QUALITA: Record<string, string> = { docente: 'docente', codocente: 'codocente', relatore: 'relatore', tutor: 'tutor' }
+export async function disegnaAccettazione(inc: Riga, c: Riga, docente: { nome: string; email: string }, protocollo: string | null) {
+  const k = new Carta()
+  await k.apri(`Accettazione dell'incarico di docenza - corso n. ${c.id} - ${c.titolo}`)
+  const { F, C } = k
+  k.intestazione('FASCICOLO DEL CORSO', 'Accettazione dell\'incarico di docenza', [c.titolo],
+    [`Corso n. ${c.id}${c.codice_socrate ? ` (Socrate ${c.codice_socrate})` : ''}`], inc.accettato_il ? '' : 'DA FIRMARE')
+  k.titoloSez('L\'incarico')
+  const date = c.data_inizio ? `${dataIt(c.data_inizio)}${c.data_fine && c.data_fine !== c.data_inizio ? ` - ${dataIt(c.data_fine)}` : ''}` : '—'
+  k.tabella(['Elemento', 'Dettaglio'], [
+    ['Docente', docente.nome || inc.nominativo || '—'],
+    ['In qualità di', QUALITA[String(inc.qualita || 'docente')] || String(inc.qualita || 'docente')],
+    ['Corso', `n. ${c.id} - ${c.titolo}`],
+    ['Date e sede', [date, c.sede].filter(Boolean).join(' - ')],
+    ['Ore di docenza', inc.ore != null ? `${inc.ore}` : '—'],
+    ['Lettera di incarico', protocollo ? `Prot. ${protocollo}${inc.data_incarico ? ` del ${dataIt(inc.data_incarico)}` : ''}` : (inc.data_incarico ? `del ${dataIt(inc.data_incarico)}` : '—')],
+  ], [1, 2.4])
+  k.titoloSez('Dichiarazione')
+  k.para(`Il sottoscritto ${docente.nome || inc.nominativo || '________________'}, presa visione della lettera di incarico${protocollo ? ` Prot. ${protocollo}` : ''} conferita da ${ENTE.nome} ${ENTE.sotto}, dichiara di accettare l'incarico di docenza per il corso sopra indicato e di possedere i requisiti di docente formatore previsti dal D.I. 06/03/2013 e dall'Accordo Stato-Regioni del 17/04/2025.`, 9.2)
+  k.para('Si impegna a compilare e firmare di propria responsabilità il registro delle presenze della giornata e i documenti gestionali e didattici del fascicolo del corso per la parte di competenza, a svolgere gli argomenti previsti dal programma e a segnalare alla segreteria ogni variazione.', 9.2)
+  k.dataRiga(`Data: ${inc.accettato_il ? dataIt(inc.accettato_il) : '______________'}`)
+  const rq = k.firme([{ etichetta: 'Il docente, per accettazione', nome: docente.nome || inc.nominativo || '—' }])
+  const byte = await k.doc.save()
+  const nome = `${oggiRoma().replace(/-/g, '_')}_DICH_Formedil-Padova_accettazione-incarico_corso-${c.id}_${pulito(String(docente.nome || inc.nominativo || 'docente')).slice(0, 40)}.pdf`
+  return { byte, nome, firmatari: [{ ruolo: 'docente', email: docente.email || undefined, riquadro: rq[0] }] as Firmatario[], pagine: k.n, titolo: `Accettazione dell'incarico — corso n. ${c.id} «${c.titolo}»` }
+}
+
+/* ══════════════ 5. IL REGISTRO DELLA GIORNATA (lotto 5, Allegato 2) ══════════════ */
+export async function disegnaRegistroGiornata(g: Riga, c: Riga, interventi: Riga[], iscritti: Riga[], docenti: { nominativo: string; persona_id?: string; email?: string }[], firmatoIl: string | null) {
+  const k = new Carta()
+  await k.apri(`Registro presenze - giornata del ${dataIt(g.data)} - corso n. ${c.id} - ${c.titolo}`)
+  const { F, C } = k
+  const fasce = [g.dalle && g.alle ? `${oraHm(g.dalle)}-${oraHm(g.alle)}` : '', g.dalle2 && g.alle2 ? `${oraHm(g.dalle2)}-${oraHm(g.alle2)}` : ''].filter(Boolean).join(' e ')
+  k.intestazione('FASCICOLO DEL CORSO', 'Allegato 2 - Registro presenze della giornata', [c.titolo],
+    [`Corso n. ${c.id}${c.codice_socrate ? ` (Socrate ${c.codice_socrate})` : ''} - giornata del ${dataIt(g.data)}${fasce ? ` - ${fasce}` : ''}${g.aula || g.sede || c.sede ? ` - ${g.aula || g.sede || c.sede}` : ''}`],
+    firmatoIl ? '' : 'DA FIRMARE')
+
+  k.titoloSez('Docenti della giornata e argomenti svolti')
+  if (interventi.length) {
+    k.tabella(['Docente', 'In qualità di', 'Orario', 'Materia e argomenti svolti'],
+      interventi.map((i) => [i.nominativo || '—', QUALITA[String(i.qualita || 'docente')] || String(i.qualita || ''), i.dalle && i.alle ? `${oraHm(i.dalle)}-${oraHm(i.alle)}` : fasce || '—', [i.materia, i.argomenti].filter(Boolean).join(': ') || '—']), [1.2, 0.7, 0.8, 2.3], 8.5)
+  } else k.para('Nessun docente nel programma di questa giornata.', 9, F.i, C.tenue)
+
+  k.titoloSez('Allievi: entrate e uscite')
+  const due = !!(g.dalle2 && g.alle2)
+  const cella = (i: Riga, tipo: string, turno: number, col: string) => {
+    const f = (Array.isArray(i.firme) ? i.firme : []).find((x: Riga) => x.stato === 'confermata' && x.tipo === tipo && Number(x.turno) === turno)
+    const p = i.presenza as Riga | null
+    if (f) return `tel. ${new Date(f.ora_server).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome' })} (${i.test_codice || '—'})`
+    if (p && p.presente === false) return 'assente'
+    if (p && p[col]) return `${oraHm(p[col])} su carta`
+    return ''
+  }
+  const int = ['N', 'Cognome e nome', 'Codice fiscale', 'Impresa', 'Entrata', 'Uscita', ...(due ? ['Entrata 2', 'Uscita 2'] : [])]
+  const righe = iscritti.map((i, n) => [String(n + 1), i.nominativo || '—', i.cf || '—', i.impresa_txt || '—',
+    cella(i, 'entrata', 1, 'ingresso1'), cella(i, 'uscita', 1, 'uscita1'), ...(due ? [cella(i, 'entrata', 2, 'ingresso2'), cella(i, 'uscita', 2, 'uscita2')] : [])])
+  if (righe.length) k.tabella(int, righe, [0.3, 1.5, 1.2, 1.3, 0.9, 0.9, ...(due ? [0.9, 0.9] : [])], 7.6)
+  else k.para('Nessun iscritto.', 9, F.i, C.tenue)
+  const presenti = iscritti.filter((i) => (i.presenza as Riga | null)?.presente === true).length
+  const assenti = iscritti.filter((i) => (i.presenza as Riga | null)?.presente === false).length
+  const tel = iscritti.reduce((a, i) => a + (Array.isArray(i.firme) ? i.firme.filter((x: Riga) => x.stato === 'confermata').length : 0), 0)
+  k.para(`Presenti ${presenti} su ${iscritti.length} iscritti, assenti ${assenti}${iscritti.length - presenti - assenti ? `, senza presenza segnata ${iscritti.length - presenti - assenti}` : ''}. Firme dal telefono confermate dal docente: ${tel}; «su carta» = firma apposta sul registro stampato, conservato nel fascicolo.`, 8.4, F.r, C.grigio)
+  k.para('Le firme dal telefono sono apposte dall\'allievo col proprio codice personale dalla pagina del portale servizi, con l\'ora di arrivo al servizio; valgono come presenza solo dopo la conferma del docente, che le vede nell\'app insieme alle firme fuori orario.', 8.2, F.i, C.tenue)
+
+  k.dataRiga(`Data: ${firmatoIl ? dataIt(firmatoIl) : dataIt(g.data)}`)
+  const voci = docenti.length ? docenti.map((d) => ({ etichetta: 'Il docente della giornata', nome: d.nominativo || '—' })) : [{ etichetta: 'Il docente della giornata', nome: '—' }]
+  const rq = k.firme(voci)
+  const firmatari: Firmatario[] = docenti.map((d, i) => ({ ruolo: 'docente', persona_id: d.persona_id, email: d.email, riquadro: rq[i] }))
+  const byte = await k.doc.save()
+  const nome = `${String(g.data).replace(/-/g, '_')}_REGP_Formedil-Padova_registro-giornata_corso-${c.id}.pdf`
+  return { byte, nome, firmatari, pagine: k.n, titolo: `Registro della giornata del ${dataIt(g.data)} — corso n. ${c.id} «${c.titolo}»` }
+}
+
 /* ══════════════ il servizio ══════════════ */
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
@@ -449,6 +531,18 @@ serve(async (req) => {
     if (!Number.isInteger(id) || id <= 0) return json({ error: 'Documento non indicato' }, 400)
     const { data: cfg } = await sb.from('s_config').select('chiave, valore').in('chiave', ['responsabile_formativo_nome', 'presidente_nome'])
     const conf: Record<string, string> = Object.fromEntries((cfg || []).map((r: Riga) => [r.chiave, r.valore]))
+    /* nome e indirizzo di un docente dalla persona (tecnico o accesso docente), o dall'indirizzo di chi chiama */
+    const docenteDi = async (sbS: any, personaId: string | null, emailRiserva: string): Promise<{ nome: string; email: string }> => {
+      if (personaId) {
+        const { data: t } = await sbS.from('tecnici').select('titolo, tecnico_nome, tecnico_cognome, email').eq('persona_id', personaId).limit(1)
+        if (t?.[0]) return { nome: [t[0].titolo, t[0].tecnico_nome, t[0].tecnico_cognome].filter(Boolean).join(' '), email: String(t[0].email || '').toLowerCase() }
+        const { data: a } = await sbS.from('app_ruoli').select('nome, email').eq('persona_id', personaId).eq('stato', 'attivo').limit(1)
+        if (a?.[0]) return { nome: String(a[0].nome || ''), email: String(a[0].email || '').toLowerCase() }
+        const { data: p } = await sbS.from('persone').select('titolo, nome, cognome').eq('persona_id', personaId).maybeSingle()
+        if (p) return { nome: [p.titolo, p.nome, p.cognome].filter(Boolean).join(' '), email: emailRiserva.toLowerCase() }
+      }
+      return { nome: emailRiserva ? await nomeDi(emailRiserva) : '', email: emailRiserva.toLowerCase() }
+    }
     const nomeDi = async (email: string) => {
       const lett = email.toLowerCase().replace(/[\\%_]/g, (c: string) => '\\' + c)
       const { data: tec } = await sb.from('tecnici').select('titolo, tecnico_nome, tecnico_cognome').ilike('email', lett).limit(1)
@@ -492,6 +586,49 @@ serve(async (req) => {
       if (!k) return json({ error: 'Corso del verbale non trovato.' }, 404)
       /* gli esaminatori senza persona: l'indirizzo lo cerca firma-documenti, qui si lascia il nome */
       out = await disegnaVerbale(v, k.c, k.t, k.giornate, k.interventi, conf)
+    } else if (azione === 'accettazione_incarico') {
+      /* l'incarico si legge col token di chi chiama: la RLS dà al docente solo il suo */
+      const { data: inc, error: eI } = await sbUtente.from('s_corsi_incarichi').select('*').eq('id', id).maybeSingle()
+      if (eI) throw new Error('Non sono riuscito a leggere l\'incarico: ' + eI.message)
+      if (!inc) return json({ error: 'Incarico non trovato, o non è il tuo.' }, 404)
+      const { data: c } = await sb.from('s_corsi').select('*').eq('id', inc.corso_id).maybeSingle()
+      if (!c) throw new Error('Corso dell\'incarico non trovato.')
+      const doc = await docenteDi(sb, inc.persona_id ? String(inc.persona_id) : null, String(u.user.email))
+      let prot: string | null = null
+      if (inc.protocollo_out_id) { const { data: pr } = await sb.from('s_protocollo').select('codice').eq('id', inc.protocollo_out_id).maybeSingle(); prot = pr?.codice ? String(pr.codice) : null }
+      out = await disegnaAccettazione(inc, c, { nome: doc.nome || String(inc.nominativo || ''), email: doc.email }, prot)
+    } else if (azione === 'registro_giornata') {
+      const { data: g, error: eG } = await sbUtente.from('s_corsi_giornate').select('*').eq('id', id).maybeSingle()
+      if (eG) throw new Error('Non sono riuscito a leggere la giornata: ' + eG.message)
+      if (!g) return json({ error: 'Giornata non trovata, o non la puoi vedere.' }, 404)
+      const { data: c } = await sb.from('s_corsi').select('*').eq('id', g.corso_id).maybeSingle()
+      if (!c) throw new Error('Corso della giornata non trovato.')
+      const [{ data: iv }, { data: isc }, { data: pres }, { data: firme }] = await Promise.all([
+        sb.from('s_corsi_interventi').select('*').eq('giornata_id', id).order('ordine').order('dalle').order('id'),
+        sb.from('s_corsi_iscritti').select('id, nominativo, cf, impresa_txt, mansione, esito, test_codice, persona_id').eq('corso_id', g.corso_id).order('nominativo'),
+        sb.from('s_corsi_presenze').select('*').eq('giornata_id', id),
+        sb.from('s_corsi_firme_presenza').select('id, iscritto_id, tipo, turno, ora_server, stato').eq('giornata_id', id).eq('stato', 'confermata'),
+      ])
+      const iscritti = ((isc || []) as Riga[]).filter((x) => !['annullato', 'sostituito'].includes(x.esito || '')).map((x) => ({
+        ...x,
+        presenza: ((pres || []) as Riga[]).find((p) => p.iscritto_id === x.id) || null,
+        firme: ((firme || []) as Riga[]).filter((f) => f.iscritto_id === x.id),
+      }))
+      /* i docenti della giornata firmano: chi chiama per primo, così la catena parte da lui */
+      const io = String(u.user.email).toLowerCase()
+      const visti = new Set<string>()
+      const docenti: { nominativo: string; persona_id?: string; email?: string }[] = []
+      for (const x of (iv || []) as Riga[]) {
+        if (!['docente', 'codocente', 'relatore'].includes(String(x.qualita || 'docente'))) continue
+        const chiave = x.persona_id ? String(x.persona_id) : String(x.nominativo || '').toLowerCase()
+        if (!chiave || visti.has(chiave)) continue
+        visti.add(chiave)
+        const d = await docenteDi(sb, x.persona_id ? String(x.persona_id) : null, '')
+        docenti.push({ nominativo: d.nome || String(x.nominativo || ''), persona_id: x.persona_id ? String(x.persona_id) : undefined, email: d.email || undefined })
+      }
+      docenti.sort((a, b) => Number((b.email || '').toLowerCase() === io) - Number((a.email || '').toLowerCase() === io))
+      const { data: fr } = await sb.from('s_firme').select('firmata_il').eq('tipo', 'registro_giornata').eq('rif', `giornata:${id}`).eq('stato', 'firmata').order('firmata_il').limit(1)
+      out = await disegnaRegistroGiornata(g, c, (iv || []) as Riga[], iscritti, docenti, fr?.[0]?.firmata_il ? String(fr[0].firmata_il) : null)
     } else {
       return json({ error: 'Azione non prevista' }, 400)
     }

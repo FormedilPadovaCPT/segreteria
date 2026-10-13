@@ -609,6 +609,16 @@ export async function apriCorso(id) {
       <br><button class="btn btn-primary btn-sm" id="co-chiedi-dati" style="margin-top:6px">✉️ Prepara la mail per chiedere i dati</button>
       <span class="hint">La mail si scarica in bozza: la mandi tu da Outlook.</span></div>` : ''}
 
+    ${(() => {
+      /* (lotto 5) gli allievi aggiunti in aula dal docente: la segreteria li verifica (anagrafica, impresa agganciata) */
+      const inAula = (iscritti || []).filter((i) => i.aggiunto_in_aula_il && !i.verificato_da_segreteria_il);
+      return inAula.length ? `<div class="dt-doc-riga" style="margin-top:8px;border-left:3px solid var(--out);padding-left:8px">
+        <strong>${inAula.length} ${inAula.length === 1 ? 'allievo aggiunto' : 'allievi aggiunti'} in aula dal docente, da verificare:</strong>
+        ${inAula.map((i) => `${esc(i.nominativo)}${i.impresa_txt && !i.impresa_id ? ' <span class="hint">(impresa scritta a mano: ' + esc(i.impresa_txt) + ')' : ''}`).join(', ')}.
+        <span class="hint">Controlla anagrafica e impresa (un'impresa scritta a mano va agganciata dalla scheda dell'iscritto), poi</span>
+        <button class="btn btn-ghost btn-sm" id="co-verifica-aula" style="margin-left:6px" title="Segna verificati gli allievi aggiunti in aula: l'avviso sparisce">✔ Verificati</button></div>` : '';
+    })()}
+
     ${sezioneIscr(c, iscr)}
 
     ${sezioneQuest(c, quest, iscritti)}
@@ -752,6 +762,17 @@ Registro lo stesso una fattura qui?`)) return;
   });
 
   $('#co-chiedi-dati')?.addEventListener('click', () => chiediDatiAttestato(c, incompleti, esitoDati, anagDi, impDi));
+  $('#co-verifica-aula')?.addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
+    const ids = (iscritti || []).filter((i) => i.aggiunto_in_aula_il && !i.verificato_da_segreteria_il).map((i) => i.id);
+    if (!ids.length) return;
+    attendi(btn, true);
+    const { error } = await sb.from('s_corsi_iscritti').update({ verificato_da_segreteria_il: new Date().toISOString() }).in('id', ids);
+    attendi(btn, false);
+    if (error) return toast('Non segnati: ' + error.message, 'err');
+    toast(`${ids.length} allievi segnati verificati.`, 'ok');
+    apriCorso(c.id);
+  });
 
   $('#drawer-body').querySelectorAll('[data-mod-iscr]').forEach((a) => a.addEventListener('click', (e) => {
     e.preventDefault();

@@ -31,6 +31,16 @@
 //   autografa  (segreteria)  la riga `id` è stata firmata A MANO: la
 //              scansione caricata in autografe/… prende il posto della firma
 //              nell'app, con la data; la catena prosegue.
+//   accetta_incarico (docente, lotto 5, 14/10/2026)  id = s_corsi_incarichi:
+//              il PDF dell'accettazione lo disegna documenti-corso, qui si
+//              carica, si registra la riga (firmatario = chi chiama) e si
+//              firma subito. Serve la lettera già firmata dal Presidente.
+//   firma_registro (docente, lotto 5)  id = s_corsi_giornate: il registro
+//              della giornata, stessa strada; i docenti della giornata in
+//              catena, chi chiama per primo. Rifiutato finché ci sono firme
+//              dal QR da guardare o iscritti senza presenza segnata.
+//   ⚠️ Sono le due sole firme che non chiede la segreteria: il docente
+//   firma ciò che riguarda solo lui e che il database ha già controllato.
 //
 // Mittente della mail: cptpd@did.formedilpadova.it (service account),
 // Reply-To cpt@formedilpadova.it. Secret: GOOGLE_SERVICE_ACCOUNT_JSON.
@@ -108,7 +118,7 @@ serve(async (req) => {
     const sb = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
 
     const corpo = await req.json().catch(() => ({}))
-    const azione = String(corpo?.azione || '')
+    let azione = String(corpo?.azione || '')
 
     const { data: cfg } = await sb.from('s_config').select('chiave, valore').in('chiave', [
       'presidente_email', 'presidente_nome', 'presidente_firma_id',
@@ -125,8 +135,91 @@ serve(async (req) => {
 
     if (['richiedi', 'avvisa', 'ritira', 'autografa'].includes(azione)) {
       if (!(await ruolo('is_segreteria'))) return json({ error: 'Le richieste di firma le gestisce la segreteria.' }, 403)
-    } else if (!['firma', 'rimanda'].includes(azione)) {
+    } else if (!['firma', 'rimanda', 'accetta_incarico', 'firma_registro'].includes(azione)) {
       return json({ error: 'Azione non prevista' }, 400)
+    }
+
+    /* ── il docente firma da sé: accettazione dell'incarico, registro della giornata (lotto 5) ── */
+    if (azione === 'accetta_incarico' || azione === 'firma_registro') {
+      const oggetto = Number(corpo?.id)
+      if (!Number.isInteger(oggetto) || oggetto <= 0) return json({ error: 'Documento non indicato' }, 400)
+      const tipo = azione === 'accetta_incarico' ? 'accettazione_incarico' : 'registro_giornata'
+      const rif = azione === 'accetta_incarico' ? `incarico:${oggetto}` : `giornata:${oggetto}`
+      let corsoId = 0
+      if (azione === 'accetta_incarico') {
+        /* l'incarico si legge col token di chi chiama: la RLS dà al docente solo il suo */
+        const { data: inc, error: eI } = await sbUtente.from('s_corsi_incarichi').select('id, corso_id, persona_id, accettato_il').eq('id', oggetto).maybeSingle()
+        if (eI) throw new Error('Non riesco a leggere l\'incarico: ' + eI.message)
+        if (!inc) return json({ error: 'Incarico non trovato, o non è il tuo.' }, 404)
+        if (inc.accettato_il) return json({ error: 'Questo incarico è già accettato.' }, 409)
+        const { data: mia } = await sbUtente.rpc('mia_persona_id')
+        if (!inc.persona_id || !mia || String(inc.persona_id) !== String(mia)) return json({ error: 'Questo incarico non è il tuo.' }, 403)
+        const { data: lett } = await sb.from('s_firme').select('id').eq('tipo', 'incarico_docenza').eq('rif', `docenza:${oggetto}`).eq('stato', 'firmata').limit(1)
+        if (!lett?.length) return json({ error: 'La lettera di incarico non è ancora firmata dal Presidente: l\'accettazione viene dopo.' }, 409)
+        corsoId = Number(inc.corso_id)
+      } else {
+        const { data: g, error: eG } = await sbUtente.from('s_corsi_giornate').select('id, corso_id').eq('id', oggetto).maybeSingle()
+        if (eG) throw new Error('Non riesco a leggere la giornata: ' + eG.message)
+        if (!g) return json({ error: 'Giornata non trovata, o non la puoi vedere.' }, 404)
+        corsoId = Number(g.corso_id)
+        if (!(await ruolo('is_docente_del_corso', { p_corso: corsoId }))) return json({ error: 'Il registro della giornata lo firma un docente del corso.' }, 403)
+        const { data: pronto, error: eP } = await sbUtente.rpc('corso_docente_registro_pronto', { p_giornata: oggetto })
+        if (eP) throw new Error('Non riesco a controllare la giornata: ' + eP.message)
+        if (!pronto?.ok) return json({ error: `Il registro non si può ancora firmare: ${pronto?.motivo || 'controlla la giornata'}.` }, 409)
+      }
+      /* una catena viva per documento: se c'è già la mia riga in attesa si firma quella */
+      const { data: vive, error: eV } = await sb.from('s_firme').select('id, stato, firmatario_email, ordine')
+        .eq('tipo', tipo).eq('rif', rif).in('stato', ['in_coda', 'in_attesa', 'firmata']).order('ordine')
+      if (eV) throw new Error('Non riesco a leggere le firme esistenti: ' + eV.message)
+      const mia = (vive || []).find((v: Riga) => String(v.firmatario_email).toLowerCase() === io)
+      let idDaFirmare: number | null = null
+      if (mia) {
+        if (mia.stato === 'firmata') return json({ error: 'Hai già firmato questo documento.' }, 409)
+        if (mia.stato === 'in_coda') return json({ error: 'Questo registro aspetta prima la firma di un altro docente della giornata.' }, 409)
+        idDaFirmare = Number(mia.id)
+      } else {
+        if ((vive || []).length) return json({ error: 'Questo documento ha già firme in corso di altri firmatari: avvisa la segreteria.' }, 409)
+        /* il PDF lo disegna documenti-corso, col token di chi chiama (vale la sua RLS) */
+        const rd = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/documenti-corso`, {
+          method: 'POST',
+          headers: { Authorization: auth, apikey: Deno.env.get('SUPABASE_ANON_KEY')!, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ azione: tipo, id: oggetto }),
+        })
+        const dd = await rd.json().catch(() => ({}))
+        if (!rd.ok || dd?.error || !dd?.pdf_base64) throw new Error('PDF non generato: ' + (dd?.error || `risposta ${rd.status}`))
+        const byte = Uint8Array.from(atob(String(dd.pdf_base64)), (ch: string) => ch.charCodeAt(0))
+        const file = `originali/${tipo}_${oggetto}_${Date.now()}_${pulito(String(dd.nome_file || 'documento.pdf'))}`
+        const { error: eU } = await sb.storage.from(BUCKET).upload(file, byte, { contentType: 'application/pdf', upsert: true })
+        if (eU) throw new Error('PDF non salvato: ' + eU.message)
+        const impronta = await sha256(byte)
+        const righe: Riga[] = []
+        for (const f of (Array.isArray(dd.firmatari) ? dd.firmatari : []) as Riga[]) {
+          const email = await emailFirmatario(sb, conf, 'docente', f)
+          /* un docente senza accesso all'app non entra nella catena: firma su carta */
+          if (!MAIL_RE.test(email) || righe.some((r) => r.firmatario_email === email)) continue
+          const rq = f?.riquadro || {}
+          if (![rq.pagina, rq.x, rq.y, rq.w, rq.h].every((n: unknown) => Number.isFinite(Number(n)))) continue
+          righe.push({
+            tipo, rif, titolo: String(dd.titolo || '').slice(0, 300), corso_id: corsoId,
+            nome_file: String(dd.nome_file || '').slice(0, 250), file_originale: file, sha256_originale: impronta,
+            riquadro: { pagina: Number(rq.pagina), x: Number(rq.x), y: Number(rq.y), w: Number(rq.w), h: Number(rq.h) },
+            firmatario_email: email, firmatario_ruolo: 'docente', richiesta_da: io,
+          })
+        }
+        if (!righe.some((r) => r.firmatario_email === io)) {
+          return json({ error: 'Nel documento non c\'è un riquadro di firma per te: controlla di essere fra i docenti della giornata.' }, 409)
+        }
+        /* chi chiama firma per primo; gli altri docenti della giornata seguono in catena */
+        righe.sort((a, b) => Number(b.firmatario_email === io) - Number(a.firmatario_email === io))
+        righe.forEach((r, i) => { r.ordine = i + 1; r.stato = i === 0 ? 'in_attesa' : 'in_coda' })
+        const { data: ins, error: eS } = await sb.from('s_firme').insert(righe).select('id, firmatario_email')
+        if (eS) throw new Error('Richiesta non registrata: ' + eS.message)
+        idDaFirmare = Number(((ins || []) as Riga[]).find((x) => String(x.firmatario_email).toLowerCase() === io)?.id) || null
+      }
+      if (!idDaFirmare) throw new Error('Riga di firma non trovata.')
+      /* da qui in poi è una firma come le altre: la riga è mia, in attesa, col ruolo docente del corso */
+      azione = 'firma'
+      corpo.id = idDaFirmare
     }
 
     /* ── la segreteria registra uno o più documenti da firmare ── */
