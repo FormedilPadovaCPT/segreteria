@@ -14,6 +14,7 @@ import { sb, $, esc, dataIt, oggiIso, mostraVista, codiceProtocollo, toast } fro
 import { dividiRespinte } from './mail-respinte-viste.js';
 import { datiCruscotto as datiFirme, cardFirme, collegaFirme } from './firme.js';
 import { datiApprovazioni, quanteApprovazioni, righeApprovazioni, bottoneRicorda, collegaApprovazioni } from './approvazioni-direttore.js';
+import { datiEfficacia, cardEfficacia, collegaEfficacia } from './efficacia.js';
 
 /* 05/10/2026 — gli incarichi che si chiudono col cantiere, e quelli che restano aperti perché hanno altri
    cantieri aperti (incarichi_del_cantiere, stessa regola di chiudi_cantiere). Lettura fallita = detta, non «nessuno». */
@@ -342,8 +343,11 @@ export async function render() {
   /* i preventivi di asseverazione che aspettano il Direttore (12/10/2026): stessa tessera dei servizi */
   let approv = null;
   const pApprov = (async () => { approv = await datiApprovazioni(); })();
+  /* i promemoria della verifica di efficacia (14/10/2026, lotto 7): una tessera, bozza .eml e «inviata» */
+  let effic = null;
+  const pEffic = (async () => { effic = await datiEfficacia(); })();
 
-  await Promise.all([pBacheca, pFlussi, pForm, pBackup, pTestAuto, pTendine, pProm, pCanale, pCritici, pQuest, pIscr, pEseguiti, pFatture, pFirme, pApprov]);
+  await Promise.all([pBacheca, pFlussi, pForm, pBackup, pTestAuto, pTendine, pProm, pCanale, pCritici, pQuest, pIscr, pEseguiti, pFatture, pFirme, pApprov, pEffic]);
 
   /* documenti dei tecnici: lo stato si calcola come nella loro pagina —
      per ogni tecnico in griglia e ogni requisito conta il documento PIÙ
@@ -688,6 +692,8 @@ export async function render() {
 
       ${cardFirme(card, firme)}
 
+      ${cardEfficacia(card, effic)}
+
       ${card('✋ Incarichi rifiutati dal tecnico', rifiutati.length,
         rifiutati.length
           ? rifiutati.slice(0, 6).map((r) => {
@@ -1025,6 +1031,7 @@ export async function render() {
     <div class="hm-griglia">${griglia}</div>`;
   collegaFirme(host, render, firme);
   collegaApprovazioni(host, render);
+  collegaEfficacia(host, render, effic);
   host.querySelector('[data-tendine-visti]')?.addEventListener('click', async (ev) => {
     const b = ev.currentTarget; b.disabled = true;
     const { error } = await sb.rpc('s_tendine_visti');

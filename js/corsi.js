@@ -32,6 +32,7 @@ import { datiQuest, sezioneQuest, collegaQuest, cellaSpunta } from './corsi-ques
 import { datiTest, sezioneTest, collegaTest } from './corsi-test.js';
 import { datiIscr, sezioneIscr, collegaIscr } from './corsi-iscrizioni.js';
 import { datiPres, sezionePres, collegaPres } from './corsi-presenze-qr.js';
+import { datiFascicolo, sezioneFascicoloDrive, collegaFascicoloDrive } from './corsi-fascicolo.js';
 /* le regole che decidono un compenso stanno a parte, per essere provabili */
 import { forfait, calcolaCorrispettivo, proponiTariffa, variazioneNote } from './corsi-compensi.js';
 import { orarioGiornata } from './corsi-orari.js';
@@ -470,6 +471,8 @@ export async function apriCorso(id) {
   const iscr = await datiIscr(c);
   /* (lotto 4) le firme di presenza dal QR: link del corso e firme arrivate */
   const presQr = await datiPres(c);
+  /* (lotto 6) lo stato del fascicolo, calcolato dal database, e i depositi su Drive */
+  const fasc = await datiFascicolo(c);
   const prom = await datiProm(c);
 
   const oreTot = c.durata_ore || (giornate || []).reduce((s, g) => s + oreGiornata(g), 0);
@@ -632,6 +635,7 @@ export async function apriCorso(id) {
     ${c.tipologia_id ? `<hr style="margin:12px 0;border:0;border-top:1px solid var(--bordo)">
     <h4 style="margin:0 0 6px">📁 Fascicolo del corso <span class="hint">(Accordo CSR 59/2025, parte I punto 7)</span></h4>
     ${sezioneFascicolo(c, verbale, firmaProg, firmaVerb, iscritti || [])}` : ''}
+    ${sezioneFascicoloDrive(c, fasc)}
 
     <hr style="margin:12px 0;border:0;border-top:1px solid var(--bordo)">
     <h4 style="margin:0 0 6px">📄 Documenti del corso</h4>
@@ -654,6 +658,7 @@ export async function apriCorso(id) {
   collegaQuest(c, quest, iscritti, () => apriCorso(c.id));
   collegaTest(c, test, iscritti, () => apriCorso(c.id));
   collegaPres(c, presQr, iscritti, giornate || [], () => apriCorso(c.id));
+  collegaFascicoloDrive(c, fasc, () => apriCorso(c.id), { giornate: giornate || [], interventi: interventi || [], iscritti: iscritti || [], incarichi: incarichi || [] });
   collegaProm(c, giornate || [], () => apriCorso(c.id));
   $('#co-dati').addEventListener('click', () => formCorso(c));
   $('#co-stato').addEventListener('change', async (e) => {
