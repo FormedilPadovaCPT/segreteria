@@ -903,6 +903,9 @@ export async function pdfLetteraIncarico(corso, incarico, mieiInterventi, conf, 
   /* dove va la firma del Presidente (coordinate PDF, pagina contata da 0):
      lo stesso spazio in cui fino al 04/10/2026 si stampava da sola */
   esito.riquadro = { pagina: c.doc.getPages().indexOf(c.stato.pagina), x: 330, y: yF - 16 - 60, w: 130, h: 60 };
+  /* (14/10/2026) e dove firma il docente «per accettazione», dopo il
+     Presidente: sopra la riga che fino a oggi si firmava a mano */
+  esito.riquadroDocente = { pagina: c.doc.getPages().indexOf(c.stato.pagina), x: SX, y: yF - 16 - 60, w: 150, h: 60 };
   if (firmaByte) {
     try {
       let img;

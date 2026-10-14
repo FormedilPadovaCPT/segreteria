@@ -62,9 +62,12 @@ test('la segreteria chiede le firme a firma-documenti, con i firmatari e il cors
   assert.doesNotMatch(src, /from\('s_firme_presidente'\)/);
 });
 
-test('la lettera di docenza dice chi firma (il Presidente) e di quale corso è', () => {
+test('la lettera di docenza dice chi firma (il Presidente, poi il docente per accettazione) e di quale corso è', () => {
   const corsi = leggi('../js/corsi.js');
-  assert.match(corsi, /firmatari: \[\{ ruolo: 'presidente', riquadro: esito\.riquadro \}\]/);
+  assert.match(corsi, /const firmatari = \[\{ ruolo: 'presidente', riquadro: esito\.riquadro \}\];/);
+  /* (14/10/2026) il docente con un accesso alle app firma la lettera stessa, nel suo riquadro */
+  assert.match(corsi, /if \(docenteInApp\) firmatari\.push\(\{ ruolo: 'docente', persona_id: k\.persona_id, riquadro: esito\.riquadroDocente \}\);/);
+  assert.match(leggi('../js/corsi-doc.js'), /esito\.riquadroDocente = \{ pagina: /);
   assert.match(corsi, /tipo: 'incarico_docenza', rif: `docenza:\$\{k\.id\}`, protocollo_id: prot\.id, corso_id: c\.id,/);
   assert.match(corsi, /from '\.\/firme\.js'/);
 });

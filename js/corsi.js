@@ -898,6 +898,10 @@ function sezioneFascicolo(c, verbale, firmaProg, firmaVerb, iscritti) {
    Presidente da firmare nell'app (firme-presidente.js), con la mail che
    lo avvisa. Firmata, lo stesso pulsante deposita la versione firmata
    e prepara la bozza mail al docente, che manda la segreteria.
+   Dal 14/10/2026 (chiesto dall'utente) dopo il Presidente la firma
+   «per accettazione» il DOCENTE, sulla stessa lettera, se ha un accesso
+   alle app (tecnico in servizio o ruolo docente): prima accettava con
+   un foglio a parte. Senza accesso firma su carta, come prima.
    Una lettera già protocollata si rigenera COL SUO NUMERO: prima ogni
    clic ne prendeva uno nuovo. */
 async function letteraIncarico(c, k, interventi, giornate, firma) {
@@ -961,17 +965,33 @@ async function letteraIncarico(c, k, interventi, giornate, firma) {
     const nome = `${(k.data_incarico || oggiIso()).replace(/-/g, '_')}_INC_${k.nominativo}_docenza-corso-${c.id}.pdf`;
     /* (13/10/2026) il registro delle firme è generale: si dice chi firma
        (il Presidente) e di quale corso è il documento */
+    const docenteInApp = await accessoDocente(k.persona_id);
+    const firmatari = [{ ruolo: 'presidente', riquadro: esito.riquadro }];
+    if (docenteInApp) firmatari.push({ ruolo: 'docente', persona_id: k.persona_id, riquadro: esito.riquadroDocente });
     const r = await chiediFirma([{
       tipo: 'incarico_docenza', rif: `docenza:${k.id}`, protocollo_id: prot.id, corso_id: c.id,
       titolo: `Lettera di incarico di docenza a ${k.nominativo} — corso n° ${c.id} «${c.titolo}»`,
-      destinatario: k.nominativo, nome_file: nome, byte,
-      firmatari: [{ ruolo: 'presidente', riquadro: esito.riquadro }],
+      destinatario: k.nominativo, nome_file: nome, byte, firmatari,
     }]);
     toast(...esitoAvvisi(r, `Lettera ${codiceProtocollo(prot)}`));
+    if (!docenteInApp) toast(`${k.nominativo} non ha un accesso alle app: firmerà la lettera per accettazione su carta.`, 'warn');
     apriCorso(c.id);
   } catch (e) {
     toast(e.message, 'err');
   }
+}
+
+/* Il docente può firmare nell'app? Stessa ricerca di firma-documenti
+   (emailFirmatario): un tecnico in servizio o un accesso attivo con
+   quella persona. Se la lettura non riesce si dice «no»: la lettera
+   parte lo stesso col solo Presidente, e il docente firma su carta. */
+async function accessoDocente(personaId) {
+  if (!personaId) return false;
+  const { data: t, error: eT } = await sb.from('tecnici').select('email').eq('persona_id', personaId).eq('attivo', true).limit(1);
+  if (!eT && t?.[0]?.email) return true;
+  const { data: a, error: eA } = await sb.from('app_ruoli').select('email').eq('persona_id', personaId).eq('stato', 'attivo').limit(1);
+  if (eT || eA) console.warn('accesso del docente non letto:', eT?.message || eA?.message);
+  return !eA && !!a?.[0]?.email;
 }
 
 /* La lettera FIRMATA dal Presidente: si deposita su Drive (la prima volta),
