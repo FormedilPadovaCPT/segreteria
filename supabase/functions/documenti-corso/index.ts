@@ -495,15 +495,22 @@ export async function disegnaRegistroGiornata(g: Riga, c: Riga, interventi: Riga
   const cella = (i: Riga, tipo: string, turno: number, col: string) => {
     const f = (Array.isArray(i.firme) ? i.firme : []).find((x: Riga) => x.stato === 'confermata' && x.tipo === tipo && Number(x.turno) === turno)
     const p = i.presenza as Riga | null
-    if (f) return `tel. ${new Date(f.ora_server).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome' })} (${i.test_codice || '—'})`
+    /* il codice personale non si stampa (14/10/2026): sta solo sul biglietto */
+    if (f) return `tel. ${new Date(f.ora_server).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome' })}`
     if (p && p.presente === false) return 'assente'
     if (p && p[col]) return `${oraHm(p[col])} su carta`
     return ''
   }
-  const int = ['N', 'Cognome e nome', 'Codice fiscale', 'Impresa', 'Entrata', 'Uscita', ...(due ? ['Entrata 2', 'Uscita 2'] : [])]
-  const righe = iscritti.map((i, n) => [String(n + 1), i.nominativo || '—', i.cf || '—', i.impresa_txt || '—',
+  /* colonne dell'Allegato 2 dell'Ufficio Corsi (14/10/2026): azienda, cognome
+     e nome, entrata, uscita, in ordine di azienda. Il codice fiscale sta
+     nell'Allegato 1, non sul registro. */
+  const az = (i: Riga) => String(i.impresa_txt || '').trim().toLocaleUpperCase('it') || '\uffff'
+  const ordinati = [...iscritti].sort((a, b) => az(a).localeCompare(az(b), 'it', { numeric: true })
+    || String(a.nominativo || '').localeCompare(String(b.nominativo || ''), 'it', { numeric: true }))
+  const int = ['N', 'Azienda', "Cognome e nome dell'allievo", 'Entrata', 'Uscita', ...(due ? ['Entrata 2', 'Uscita 2'] : [])]
+  const righe = ordinati.map((i, n) => [String(n + 1), i.impresa_txt || '—', i.nominativo || '—',
     cella(i, 'entrata', 1, 'ingresso1'), cella(i, 'uscita', 1, 'uscita1'), ...(due ? [cella(i, 'entrata', 2, 'ingresso2'), cella(i, 'uscita', 2, 'uscita2')] : [])])
-  if (righe.length) k.tabella(int, righe, [0.3, 1.4, 1.5, 1.2, 0.85, 0.85, ...(due ? [0.85, 0.85] : [])], 7.6)
+  if (righe.length) k.tabella(int, righe, [0.3, 1.3, 1.6, 0.85, 0.85, ...(due ? [0.85, 0.85] : [])], 7.6)
   else k.para('Nessun iscritto.', 9, F.i, C.tenue)
   const presenti = iscritti.filter((i) => (i.presenza as Riga | null)?.presente === true).length
   const assenti = iscritti.filter((i) => (i.presenza as Riga | null)?.presente === false).length

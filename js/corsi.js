@@ -641,6 +641,7 @@ export async function apriCorso(id) {
     <h4 style="margin:0 0 6px">📄 Documenti del corso</h4>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn btn-ghost btn-sm" id="co-registro">📋 Registro presenze (PDF)</button>
+      <button class="btn btn-ghost btn-sm" id="co-anagrafiche">👥 Allegato 1 e analisi aula (PDF)</button>
       ${c.rilascio_attestato ? `<button class="btn btn-primary btn-sm" id="co-attestati">🎓 Genera attestati (serie N/${(c.data_fine || c.data_inizio || oggiIso()).slice(0, 4)})</button>` : ''}
       ${c.rilascio_attestato ? '<button class="btn btn-ghost btn-sm" id="co-invia-att">✉️ Invia attestati</button>' : ''}
     </div>
@@ -855,6 +856,19 @@ Registro lo stesso una fattura qui?`)) return;
     } catch (e) { toast(e.message, 'err'); }
     attendi(btn, false);
   });
+  /* (14/10/2026) i codici fiscali stanno qui, non sul registro che gira in aula */
+  $('#co-anagrafiche')?.addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
+    attendi(btn, true, 'Genero…');
+    try {
+      const { pdfAnagrafichePartecipanti, scaricaPdf } = await import('./corsi-doc.js');
+      const byte = await pdfAnagrafichePartecipanti(c, giornate || [], interventi || [], iscritti || [], conf);
+      scaricaPdf(byte, `${(c.data_inizio || oggiIso()).replace(/-/g, '_')}_ELEN_Formedil-Padova_allegato1-anagrafiche-e-analisi-aula_corso-${c.id}.pdf`);
+      const senza = (iscritti || []).filter((i) => !['annullato', 'sostituito'].includes(i.esito || '') && !(i.mansione || '').trim()).length;
+      toast(senza ? `Scaricato. ${senza} partecipant${senza === 1 ? 'e' : 'i'} senza mansione: nell'analisi aula esce «da indicare».` : 'Allegato 1 e analisi aula scaricati.', senza ? 'err' : 'ok');
+    } catch (e) { toast(e.message, 'err'); }
+    attendi(btn, false);
+  });
   $('#co-attestati')?.addEventListener('click', (ev) =>
     generaAttestati(c, giornate || [], interventi || [], iscritti || [], ev.currentTarget, esitoDati));
   $('#co-invia-att')?.addEventListener('click', () =>
@@ -884,10 +898,11 @@ function sezioneFascicolo(c, verbale, firmaProg, firmaVerb, iscritti) {
     ${riga('📋', 'Scheda formativa della tipologia', schedaTxt || 'nessuna', '')}
     ${riga('📝', 'Progetto formativo dell\'edizione (Allegato 3)', progStato + (senzaMansione ? ` · <span style="color:#a01f00">${senzaMansione} iscritt${senzaMansione === 1 ? 'o' : 'i'} senza mansione</span>` : ''),
       `<a href="#" id="fs-prog-pdf">📄 PDF</a>${c.progetto_stato === 'pronto' ? ' · <a href="#" id="fs-prog-firma">✍️ in firma</a>' : ''}`)}
+    ${riga('🪪', 'Dati anagrafici dei partecipanti (Allegato 1)', 'con i codici fiscali, a parte dal registro: «👥 Allegato 1 e analisi aula» in «Documenti del corso»', '')}
     ${riga('👥', 'Registro presenze con firme (Allegato 2)', c.pres_codice
       ? `si stampa da «Documenti del corso»; firme dal QR aperte (${c.pres_codice}): le confermate scrivono le presenze`
       : 'si stampa da «Documenti del corso»; le firme dal QR si aprono dalla sezione «📲 Firme di presenza»', '')}
-    ${riga('📑', 'Verbale di verifica finale (Allegato 4)', verbStato,
+    ${riga('📑', 'Verbale di verifica finale (Allegato 4)', !accordo && !c.test_previsto && !verbale ? 'non previsto: il corso non ha una verifica finale, solo il questionario di gradimento' : verbStato,
       verbale ? `<a href="#" id="fs-verb-pdf">📄 PDF</a>${verbale.stato === 'pronto' ? ' · <a href="#" id="fs-verb-firma">✍️ in firma</a>' : ''}` : '')}
     ${accordo && !(verbale && verbale.stato === 'firmato') ? '<p class="hint" style="margin:6px 0 0;color:#a01f00">⚠ Corso dell\'Accordo: gli attestati si emettono solo col verbale di verifica firmato (lo rifiuta anche il database).</p>' : ''}`;
 }

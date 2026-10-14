@@ -380,8 +380,7 @@ export async function pdfRegistro(corso, giornate, interventi, iscritti, conf, q
   const tipoTxt = tipologia(corso);
   const fine = corso.data_fine || corso.data_inizio;
   const dateTxt = corso.data_inizio === fine ? (dataIt(corso.data_inizio) || '—') : `${dataIt(corso.data_inizio) || '—'} – ${dataIt(fine) || '—'}`;
-  const partecipanti = iscritti.filter((i) => !['annullato', 'sostituito'].includes(i.esito))
-    .sort((a, b) => a.nominativo.localeCompare(b.nominativo, 'it', { numeric: true }));
+  const partecipanti = ordinaPerAzienda(iscritti.filter((i) => !['annullato', 'sostituito'].includes(i.esito)));
   const docentiDi = (g) => interventi.filter((x) => x.giornata_id === g.id && QUALITA_DOCENTE.includes(x.qualita));
   const docentiUnici = [...new Map(interventi.filter((x) => QUALITA_DOCENTE.includes(x.qualita)).map((x) => [nome(x.nominativo), x])).values()];
   /* ⚠️ La qualità si STAMPA, non si dà per scontata (22/09/2026, segnalato
@@ -495,14 +494,22 @@ export async function pdfRegistro(corso, giornate, interventi, iscritti, conf, q
     linea(pg, X0, yt - 22, X1, yt - 22, C.linea, 0.8);
     return yt - 38;
   };
-  const cols = [0.052, 0.33, 0.258, 0.18, 0.18].map((p) => p * Wc);
+  /* ⚠️ Le colonne sono quelle dell'Allegato 2 dell'Ufficio Corsi (14/10/2026,
+     chiesto dall'utente): N°, azienda, cognome e nome, ora e firma di entrata,
+     ora e firma di uscita. Il CODICE FISCALE NON sta sul registro, che gira in
+     aula di mano in mano: sta nell'Allegato 1 (pdfAnagrafichePartecipanti). */
+  const cols = [0.045, 0.2, 0.255, 0.085, 0.165, 0.085, 0.165].map((p) => p * Wc);
   const xs = cols.map((_, i) => X0 + cols.slice(0, i).reduce((s, w) => s + w, 0));
+  const INTESTA = [['N°'], ['Azienda'], ['Cognome e nome', "dell'allievo"], ['Ora', 'entrata'], ['Firma entrata'], ['Ora', 'uscita'], ['Firma uscita']];
   const intesta = (yy) => {
-    pg.drawRectangle({ x: X0, y: yy - 18, width: Wc, height: 18, color: C.grigio });
-    ['N°', 'Partecipante · codice fiscale', 'Impresa', 'Firma entrata', 'Firma uscita'].forEach((t, i) =>
-      T(pg, t.toUpperCase(), i ? xs[i] + 5 : xs[0] + cols[0] / 2, yy - 12, 6.2, F.b, C.bianco, { sp: 0.5, al: i ? undefined : 'c' }));
-    return yy - 18;
+    pg.drawRectangle({ x: X0, y: yy - 24, width: Wc, height: 24, color: C.grigio });
+    INTESTA.forEach((tt, i) => {
+      const cx = xs[i] + cols[i] / 2;
+      tt.forEach((t, j) => T(pg, t.toUpperCase(), cx, yy - (tt.length === 1 ? 14.5 : 10 + j * 8.5), 5.9, F.b, C.bianco, { sp: 0.3, al: 'c' }));
+    });
+    return yy - 24;
   };
+  const turniDi = (g) => [[g.dalle, g.alle], [g.dalle2, g.alle2]].filter(([d, a]) => d && a);
 
   for (const g of giornate) {
     pg = k.pagina();
@@ -535,19 +542,33 @@ export async function pdfRegistro(corso, giornate, interventi, iscritti, conf, q
     }
     y -= 12;
 
-    /* partecipanti */
-    y = intesta(y);
-    partecipanti.forEach((p, n) => {
-      if (y - RIGA < FONDO) { pg = k.pagina(); y = testata(g, true) - 6; y = intesta(y); }
-      if (n % 2) pg.drawRectangle({ x: X0, y: y - RIGA, width: Wc, height: RIGA, color: C.zebra });
-      linea(pg, X0, y - RIGA, X1, y - RIGA, C.linea, 0.5);
-      [3, 4].forEach((i) => linea(pg, xs[i], y, xs[i], y - RIGA, C.linea, 0.5));
-      T(pg, String(n + 1), xs[0] + cols[0] / 2, y - 13.5, 7.5, F.r, C.tenue, { al: 'c' });
-      T(pg, cut(F.b, 8, p.nominativo, cols[1] - 8), xs[1] + 4, y - 9.5, 8, F.b, C.grigio);
-      if (p.cf) T(pg, p.cf, xs[1] + 4, y - 18, 6.2, F.r, C.tenue);
-      /* il codice personale non si stampa qui (14/10/2026): sta sul biglietto */
-      T(pg, cut(F.r, 7.3, p.impresa_txt || '', cols[2] - 8), xs[2] + 4, y - 13.5, 7.3, F.r, C.grigio);
-      y -= RIGA;
+    /* partecipanti: una tabella per turno, come nel modello (ogni turno ha
+       la sua entrata e la sua uscita) */
+    const turni = turniDi(g);
+    const blocchi = turni.length > 1 ? turni : [null];
+    blocchi.forEach((turno, b) => {
+      if (turno) {
+        if (y - 22 - 2 * RIGA < FONDO) { pg = k.pagina(); y = testata(g, true); }
+        if (b) y -= 10;
+        T(pg, `ELENCO ALLIEVI  ·  ${b ? 'SECONDO' : 'PRIMO'} TURNO  ${fascia(turno[0], turno[1])}`, X0, y, 7, F.b, C.arancio, { sp: 1.2 });
+        y -= 8;
+      } else {
+        T(pg, 'ELENCO ALLIEVI', X0, y, 7, F.b, C.arancio, { sp: 1.2 });
+        y -= 8;
+      }
+      y = intesta(y);
+      partecipanti.forEach((p, n) => {
+        if (y - RIGA < FONDO) { pg = k.pagina(); y = testata(g, true) - 6; y = intesta(y); }
+        if (n % 2) pg.drawRectangle({ x: X0, y: y - RIGA, width: Wc, height: RIGA, color: C.zebra });
+        linea(pg, X0, y - RIGA, X1, y - RIGA, C.linea, 0.5);
+        [3, 4, 5, 6].forEach((i) => linea(pg, xs[i], y, xs[i], y - RIGA, C.linea, 0.5));
+        T(pg, String(n + 1), xs[0] + cols[0] / 2, y - 13.5, 7.5, F.r, C.tenue, { al: 'c' });
+        T(pg, cut(F.r, 7.3, p.impresa_txt || '', cols[1] - 8), xs[1] + 4, y - 13.5, 7.3, F.r, C.grigio);
+        T(pg, cut(F.b, 8, p.nominativo, cols[2] - 8), xs[2] + 4, y - 13.5, 8, F.b, C.grigio);
+        /* né codice fiscale né codice personale (14/10/2026): il CF sta
+           nell'Allegato 1, il codice personale sul biglietto */
+        y -= RIGA;
+      });
     });
 
     /* chiusura della giornata */
@@ -586,6 +607,111 @@ export async function pdfRegistro(corso, giornate, interventi, iscritti, conf, q
   if (quest && quest.codice) await foglioQuestionario(k, corso, quest);
   if (test && test.codice) await foglioTest(k, corso, test);
   if (pres && pres.codice) await foglioPresenze(k, corso, pres);
+  return salva(doc);
+}
+
+/* in ordine di azienda, poi di cognome e nome: l'elenco degli allievi del
+   modello dell'Ufficio Corsi (14/10/2026) */
+function ordinaPerAzienda(lista) {
+  const az = (p) => nome(p.impresa_txt || '').toLocaleUpperCase('it') || '\uffff';
+  return [...lista].sort((a, b) => az(a).localeCompare(az(b), 'it', { numeric: true })
+    || nome(a.nominativo).localeCompare(nome(b.nominativo), 'it', { numeric: true }));
+}
+
+/* ── 2-bis. ALLEGATO 1 E ANALISI AULA (14/10/2026) ───────────────────────────
+   Chiesto dall'utente sul modello dell'Ufficio Corsi: il registro che gira in
+   aula NON porta i codici fiscali; li porta un foglio a parte, l'Allegato 1
+   «Dati anagrafici dei partecipanti» (N°, cognome e nome, codice fiscale), con
+   i dati del corso e le firme del docente e del responsabile del progetto
+   formativo. Segue la pagina «Analisi aula discenti» (azienda, cognome e nome,
+   mansione), quella dell'Allegato 3: per i corsi con la tipologia la firma
+   l'RPF nel progetto formativo dell'edizione, qui è il foglio da stampare. */
+export async function pdfAnagrafichePartecipanti(corso, giornate, interventi, iscritti, conf) {
+  const k = await apriCiclo();
+  const { doc, F, C } = k;
+  const H = A4[1], X0 = 70, X1 = 545, Wc = X1 - X0, FONDO = 74, RIGA = 20;
+  const resp = corso.responsabile_formativo || conf.responsabile_formativo_nome || '';
+  const fine = corso.data_fine || corso.data_inizio;
+  const partecipanti = ordinaPerAzienda(iscritti.filter((i) => !['annullato', 'sostituito'].includes(i.esito || '')));
+  const docenti = [...new Map(interventi.filter((x) => QUALITA_DOCENTE.includes(x.qualita)).map((x) => [nome(x.nominativo), x])).values()];
+  const sedeTxt = corso.sede || (giornate[0] && (giornate[0].aula || giornate[0].sede)) || '—';
+
+  let pg;
+  const testata = (sigla, titolo) => {
+    pg = k.pagina();
+    const lh = altLogo(k, 88);
+    logoIn(k, pg, X1 - 88, H - 30 - lh, 88);
+    T(pg, `FASCICOLO DEL CORSO  ·  ${sigla}`, X0, H - 34, 7, F.r, C.arancio, { sp: 1.4 });
+    T(pg, titolo, X0, H - 56, 17, F.b, C.grigio);
+    const tt = righe(corso.titolo || '', F.r, 9, X1 - X0 - 100);
+    tt.slice(0, 3).forEach((r, i) => T(pg, r, X0, H - 72 - i * 11, 9, F.r, C.tenue));
+    const yy = Math.min(H - 30 - Math.max(lh, 28) - 14, H - 72 - (Math.min(tt.length, 3) - 1) * 11 - 14);
+    linea(pg, X0, yy, X1, yy, C.linea, 0.8);
+    return yy - 16;
+  };
+  const tabella = (y, col, intest, rigaDi, ricomincia) => {
+    const xs = col.map((_, i) => X0 + col.slice(0, i).reduce((s, w) => s + w, 0));
+    const testa = (yy) => {
+      pg.drawRectangle({ x: X0, y: yy - 18, width: Wc, height: 18, color: C.grigio });
+      intest.forEach((t, i) => T(pg, t.toUpperCase(), i ? xs[i] + 5 : xs[0] + col[0] / 2, yy - 12, 6.2, F.b, C.bianco, { sp: 0.5, al: i ? undefined : 'c' }));
+      return yy - 18;
+    };
+    y = testa(y);
+    partecipanti.forEach((p, n) => {
+      if (y - RIGA < FONDO) { y = testa(ricomincia()); }
+      if (n % 2) pg.drawRectangle({ x: X0, y: y - RIGA, width: Wc, height: RIGA, color: C.zebra });
+      linea(pg, X0, y - RIGA, X1, y - RIGA, C.linea, 0.5);
+      T(pg, String(n + 1), xs[0] + col[0] / 2, y - 12.5, 7.5, F.r, C.tenue, { al: 'c' });
+      rigaDi(p).forEach(([testo, font, colore], i) => T(pg, cut(font, 8, testo || '—', col[i + 1] - 10), xs[i + 1] + 5, y - 12.5, 8, font, colore));
+      y -= RIGA;
+    });
+    if (!partecipanti.length) { T(pg, 'Nessun iscritto.', X0, y - 14, 9, F.i, C.tenue); y -= 22; }
+    return y;
+  };
+  const firme = (y, voci) => {
+    if (y - 70 < FONDO) { pg = k.pagina(); y = H - 80; }
+    y -= 30;
+    const w = (Wc - 30) / 2;
+    voci.slice(0, 2).forEach(([etichetta, chi], i) => {
+      const x = X0 + i * (w + 30);
+      T(pg, etichetta, x, y, 7, F.r, C.tenue);
+      T(pg, cut(F.b, 9.5, chi || '', w), x, y - 13, 9.5, F.b, C.grigio);
+      linea(pg, x, y - 40, x + w, y - 40, C.grigio, 0.7);
+    });
+    return y - 50;
+  };
+
+  /* ── Allegato 1 ── */
+  let y = testata('ALLEGATO 1', 'Dati anagrafici dei partecipanti');
+  y = griglia(k, pg, X0, Wc, y, [
+    [['Ente attuatore', `${ENTE.nome} ${ENTE.sotto}`, 2], ['Codice corso', `${corso.id}${corso.codice_socrate ? ` · Socrate ${corso.codice_socrate}` : ''}`, 1]],
+    [['Sede di svolgimento', sedeTxt, 2], ['Numero partecipanti', String(partecipanti.length), 1]],
+    [['Data inizio corso', dataIt(corso.data_inizio) || '—', 1], ['Data fine corso', dataIt(fine) || '—', 1], ['Durata', `${corso.durata_ore ?? '—'} ore`, 1]],
+  ], { val: 9.5, verticali: true });
+  y -= 18;
+  y = tabella(y, [0.06, 0.52, 0.42].map((p) => p * Wc), ['N°', 'Cognome e nome partecipante', 'Codice fiscale'],
+    (p) => [[p.nominativo, F.b, C.grigio], [p.cf || '—', F.r, C.grigio]],
+    () => testata('ALLEGATO 1 · segue', 'Dati anagrafici dei partecipanti'));
+  firme(y, [[docenti.length > 1 ? 'I docenti' : 'Il docente', docenti.map((d) => nome(d.nominativo)).join(', ')],
+    ['Il responsabile del progetto formativo', resp]]);
+
+  /* ── Analisi aula discenti ── */
+  y = testata('ANALISI AULA', 'Analisi aula discenti');
+  righe('Per ogni partecipante l\'azienda e la mansione: servono a giudicare la pertinenza del corso al ruolo che ciascuno riveste (Accordo Stato-Regioni del 17/04/2025, parte IV punto 2.6).', F.i, 8, Wc)
+    .forEach((r, i) => T(pg, r, X0, y - i * 10, 8, F.i, C.tenue));
+  y -= 26;
+  y = tabella(y, [0.06, 0.32, 0.32, 0.30].map((p) => p * Wc), ['N°', 'Azienda partecipante', 'Cognome e nome partecipante', 'Mansione partecipante'],
+    (p) => [[p.impresa_txt || '—', F.r, C.grigio], [p.nominativo, F.b, C.grigio], [p.mansione || 'da indicare', F.r, p.mansione ? C.grigio : C.arancio]],
+    () => testata('ANALISI AULA · segue', 'Analisi aula discenti'));
+  firme(y, [['Il responsabile del progetto formativo', resp]]);
+
+  const pagine = doc.getPages();
+  const stampa = dataIt(oggiIso());
+  pagine.forEach((p, i) => {
+    righe(GDPR, F.r, 5.4, Wc).forEach((r, j) => T(p, r, X0, 58 - j * 6.8, 5.4, F.r, C.tenue));
+    T(p, `Allegato 1 e analisi aula · corso ${corso.id} · stampato a Padova il ${stampa}`, X0, 20, 6.8, F.r, C.tenue);
+    T(p, `Pagina ${i + 1} di ${pagine.length}`, X1, 20, 7.5, F.b, C.grigio, { al: 'r' });
+  });
   return salva(doc);
 }
 

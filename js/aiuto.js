@@ -168,6 +168,7 @@ window.AIUTO_TESTI = {
   'iz-chiudi': 'Chiude le iscrizioni: il modulo sul portale non accetta più risposte.',
   'iz-conferma': 'Conferma le iscrizioni selezionate e prepara le mail di conferma.',
   'qz-apri': 'Apre il questionario di gradimento dell\'evento, con il QR da proiettare o stampare.',
+  'co-anagrafiche': 'Scarica l\'Allegato 1 (cognome, nome e codice fiscale dei partecipanti, con dati del corso e firme di docente e responsabile) e la pagina dell\'analisi aula (azienda e mansione). Il registro non porta i codici fiscali.',
   'qz-apre': 'Da quando il questionario risponde (per esempio a fine incontro). Vuoto = da subito. Codice e QR nascono comunque adesso, e si stampano.',
   'qz-apre-cambia': 'Da quando il questionario risponde. Prima di quell’ora chi inquadra il QR legge quando si apre; vuoto = risponde già adesso.',
   'qz-apre-salva': 'Salva la nuova ora di apertura e la manda al portale. Il QR stampato resta buono.',
