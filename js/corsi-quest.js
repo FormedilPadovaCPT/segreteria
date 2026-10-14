@@ -174,7 +174,7 @@ export function sezioneQuest(c, q, iscritti) {
     ${eChiuso ? '' : `<div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-bottom:10px">
       <div class="field" style="margin:0"><label>Risponde dal <span class="hint">(vuoto = già adesso)</span></label>
         <input type="datetime-local" id="qz-apre-cambia" value="${esc(perInput(apre))}"></div>
-      <button class="btn btn-ghost btn-sm" id="qz-apre-salva">🕒 Cambia l'apertura</button>
+      <button class="btn btn-ghost btn-sm" id="qz-apre-salva">🕒 Cambia l’apertura</button>
     </div>`}
 
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
