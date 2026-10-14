@@ -917,8 +917,8 @@ async function letteraIncarico(c, k, interventi, giornate, firma) {
     : `${k.ore ?? '?'} ore a € ${k.tariffa_oraria ?? '?'}/h`;
   const rifare = !!k.protocollo_out_id;
   if (!confirm(rifare
-    ? `La lettera per ${k.nominativo} ha già il suo protocollo: la rigenero con lo stesso numero (${compenso}) e la mando al Presidente da firmare nell'app${firma?.stato === 'in_attesa' ? ', al posto di quella che aspetta già la firma' : ''}. Gli arriva una mail. Procedo?`
-    : `Genero la lettera di incarico per ${k.nominativo} (${compenso}), protocollata in uscita nel registro unico, e la mando al Presidente da firmare nell'app: gli arriva una mail. Procedo?`)) return;
+    ? `La lettera per ${k.nominativo} ha già il suo protocollo: la rigenero con lo stesso numero (${compenso}) e la mando al Presidente da firmare nell'app${firma?.stato === 'in_attesa' ? ', al posto di quella che aspetta già la firma' : ''}. Al Presidente non parte nessuna mail adesso: la lettera aspetta nel suo spazio firme, e il riepilogo glielo mandi tu dal cruscotto («✉️ Avvisa il Presidente») quando hai preparato tutto. Procedo?`
+    : `Genero la lettera di incarico per ${k.nominativo} (${compenso}), protocollata in uscita nel registro unico, e la metto fra le firme del Presidente nell'app. Al Presidente non parte nessuna mail adesso: la lettera aspetta nel suo spazio firme, e il riepilogo glielo mandi tu dal cruscotto («✉️ Avvisa il Presidente») quando hai preparato tutto. Procedo?`)) return;
   try {
     const giornataDi = Object.fromEntries(giornate.map((g) => [g.id, g.data]));
     const miei = interventi
