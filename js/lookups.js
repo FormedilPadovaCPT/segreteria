@@ -34,6 +34,9 @@ export const MEZZI = [
   'Raccomandata',
   'Pony Express',
   'Fax',
+  /* (14/10/2026) la lettera di incarico firmata dal destinatario nell'app:
+     la segna da solo il database (trg_firme_incarico_inviato) */
+  "Firma nell'app",
   'Altro',
 ];
 
@@ -48,6 +51,7 @@ export function normalizzaMezzo(v) {
   if (s.startsWith('raccom')) return 'Raccomandata';
   if (s.startsWith('pony')) return 'Pony Express';
   if (s.startsWith('letter')) return 'Lettera';
+  if (s.startsWith('firma')) return "Firma nell'app";
   return v.trim();
 }
 
