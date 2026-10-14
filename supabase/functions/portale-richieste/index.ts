@@ -321,6 +321,8 @@ async function agganciaPresenza(sb: SB, d: Dati): Promise<Dati> {
     p_codice_personale: String(d.codice_personale ?? '').slice(0, 20),
     p_ora_dispositivo: String(d.ora_dispositivo ?? '').slice(0, 40),
     p_submission_id: String(d.submission_id ?? '').slice(0, 64),
+    /* l'anno di nascita (14/10/2026): si confronta, non si rifiuta */
+    p_anno: String(d.anno_nascita ?? '').slice(0, 8),
   })
   if (error) return { riferimento_esito: 'registrazione non riuscita: ' + error.message }
   const r = (data ?? {}) as Dati
@@ -333,6 +335,7 @@ async function agganciaPresenza(sb: SB, d: Dati): Promise<Dati> {
     corso_id: r.corso_id, giornata_id: r.giornata_id, iscritto_id: r.iscritto_id, nominativo: r.nominativo,
     tipo: r.tipo, turno: r.turno, ora_server: r.ora_server, ora_dispositivo: r.ora_dispositivo,
     fuori_orario: r.fuori_orario === true, fonte: 'qr', stato: 'ricevuta', note: r.note ?? null,
+    anno_dichiarato: r.anno_dichiarato ?? null, anno_corrisponde: r.anno_corrisponde ?? null,
     riferimento_esito: 'riconosciuta',
   }
 }
@@ -804,7 +807,7 @@ const MODULI: Record<string, Modulo> = {
     colonne: {},
     extra: agganciaPresenza,
     campi: [['PROGRESSIVO', '#prog'], ['CODICE', 'codice'], ['RIFERIMENTO', 'riferimento'],
-      ['CODICE PERSONALE', 'codice_personale'], ['ORA DISPOSITIVO', 'ora_dispositivo'], ['PRIVACY', 'privacy']],
+      ['CODICE PERSONALE', 'codice_personale'], ['ANNO DI NASCITA', 'anno_nascita'], ['ORA DISPOSITIVO', 'ora_dispositivo'], ['PRIVACY', 'privacy']],
   },
 
   /* ISCRIZIONE a un evento (18/09/2026): un corso di un progetto finanziato

@@ -78,7 +78,8 @@ test('la pagina del portale: un pulsante solo, niente CF, senza rete si firma lo
   assert.match(portale, /<div class="page" id="page-presenza">/);
   assert.match(portale, /presenza: \['Firma di presenza', ''\],/, 'in PAGE_TITLES');
   assert.match(portale, /_sb\.rpc\('apri_presenza', \{ p_codice: codice, p_firma: firma \}\)/);
-  assert.match(portale, /_sb\.rpc\('pres_che_cosa', \{ p_codice: codice, p_firma: firma, p_personale: v \}\)/);
+  /* dal 14/10/2026 con l'anno di nascita */
+  assert.match(portale, /_sb\.rpc\('pres_che_cosa', \{ p_codice: codice, p_firma: firma, p_personale: v, p_anno: a \}\)/);
   assert.match(portale, /submitForm\('form-presenza', 'prs', async function \(form\)/);
   assert.match(portale, /f\.ora_dispositivo {2}= new Date\(\)\.toISOString\(\);/, 'l\'ora del telefono parte, indicativa');
   assert.match(portale, /senzaRete = true;/, 'senza rete si prosegue');
@@ -87,9 +88,10 @@ test('la pagina del portale: un pulsante solo, niente CF, senza rete si firma lo
   assert.match(portale, /q\.get\('presenza'\)/);
 });
 
-test('il registro: QR in copertina, codice accanto al nome, foglio in coda; la scheda corso ha la sezione', () => {
+test('il registro: QR in copertina, foglio in coda, il codice NON accanto al nome (14/10); la scheda corso ha la sezione', () => {
   assert.match(doc, /export async function pdfRegistro\(corso, giornate, interventi, iscritti, conf, quest = null, test = null, pres = null\)/);
-  assert.match(doc, /if \(\(test \|\| pres\) && p\.test_codice\)/);
+  assert.doesNotMatch(doc, /if \(\(test \|\| pres\) && p\.test_codice\)/, 'il codice personale non si stampa più sul registro');
+  assert.doesNotMatch(doc, /accanto al (tuo|vostro) nome/, 'nessun testo rimanda al registro per il codice');
   assert.match(doc, /if \(pres && pres\.codice\) await foglioPresenze\(k, corso, pres\);/);
   assert.match(doc, /export async function pdfFoglioPresenze\(corso, pres\)/);
   assert.match(doc, /if \(pres && pres\.codice && pres\.link && yr - 84 > 136\)/, 'in copertina solo se c\'è spazio');

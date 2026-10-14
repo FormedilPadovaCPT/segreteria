@@ -18,9 +18,20 @@
    I PDF firmati stanno nel bucket delle firme: si scaricano da lì (la
    segreteria li legge) e si caricano su Drive con la funzione
    allegati-protocollo (drive.js), senza codice di protocollo nel nome.
+
+   (14/10/2026, dalla verifica di legge) Alla chiusura si aggiungono due pezzi
+   GENERATI dal database, non firmati: l'ELENCO DEI DOCENTI CON LE FIRME (FAQ
+   del Ministero n. 43) e la TRACCIA DELLE FIRME DI PRESENZA dal QR. E nasce il
+   PACCHETTO DEL CORSO: un file .zip con tutto — documenti firmati, elenco,
+   traccia, attestati, dati in JSON e CSV, la nota, un LEGGIMI e il manifesto
+   con l'impronta SHA-256 di ogni file — da tenere su Drive e da copiare sul
+   server della scuola. L'impronta del pacchetto resta sul corso nel database.
    ══════════════════════════════════════════════════════════════════════════ */
 import { sb, $, esc, dataIt, oggiIso, toast, attendi } from './core.js';
-import { risolviCartella, creaCartella, caricaByte } from './drive.js';
+import { risolviCartella, creaCartella, caricaByte, leggiByte, cestina } from './drive.js';
+import { pdfDocumento } from './corsi-tipologie.js';
+import { creaZip, sha256 } from './zip.js';
+import { suffissoNumeroFile } from './attestati-verifica.js';
 
 const BUCKET = 'firme-presidente';
 const BASE = '2_AREE/Formazione/edizioni_corsi';
@@ -77,8 +88,10 @@ export function sezioneFascicoloDrive(c, d) {
       ${f.cartella.drive_url ? `<a href="${esc(f.cartella.drive_url)}" target="_blank" rel="noopener">📁 cartella su Drive</a> <span class="hint">(${dep.filter((x) => x.pezzo !== 'indice').length} depositati${indice ? ', con _indice.md' : ''})</span>` : `<span class="hint">cartella non ancora creata: <code>${esc(BASE)}/${esc(nomeCartella(c))}</code></span>`}
       ${!f.chiuso_il ? `<button class="btn btn-ghost btn-sm" id="fs-dep" ${daFare.length || !f.cartella.drive_id ? '' : 'disabled'}>📁 Deposita su Drive${daFare.length ? ` (${daFare.length})` : ''}</button>` : ''}
       ${!f.chiuso_il && f.completo ? '<button class="btn btn-primary btn-sm" id="fs-chiudi">🔒 Chiudi il fascicolo</button>' : ''}
+      <button class="btn btn-ghost btn-sm" id="fs-pacchetto">📦 Scarica il pacchetto</button>
       ${f.chiuso_il ? '<button class="btn btn-ghost btn-sm" id="fs-riapri">↩ Riapri il fascicolo</button>' : ''}
-    </div>`;
+    </div>
+    ${f.pacchetto && f.pacchetto.sha256 ? `<p class="hint" style="margin:6px 0 0">📦 Pacchetto depositato il ${dataIt(f.pacchetto.il)} · impronta <code>${esc(String(f.pacchetto.sha256).slice(0, 16))}…</code> — la copia sul server della scuola deve avere la stessa.</p>` : ''}`;
 }
 
 async function cartellaDelCorso(c, f) {
@@ -115,8 +128,137 @@ export async function deposita(c, f, avanza) {
   return { cartella, depositati: n };
 }
 
+/* i due pezzi GENERATI (non firmati): rifatti alla chiusura; il file vecchio
+   su Drive va nel cestino, così nella cartella ne resta uno solo */
+const GENERATI = [
+  { azione: 'elenco_docenti', pezzo: 'elenco_docenti', titolo: 'Elenco dei docenti con le firme' },
+  { azione: 'traccia_presenze', pezzo: 'traccia_presenze', titolo: 'Traccia delle firme di presenza' },
+];
+export async function depositaGenerati(c, f, avanza) {
+  const cartella = await cartellaDelCorso(c, f);
+  const out = [];
+  for (const g of GENERATI) {
+    if (avanza) avanza(g.titolo);
+    const r = await pdfDocumento(g.azione, c.id);
+    const up = await caricaByte(null, r.nome_file, r.byte, 'application/pdf', cartella);
+    const prima = (f.depositati || []).find((d) => d.pezzo === g.pezzo);
+    const { error } = await sb.rpc('corso_fascicolo_deposita', { p_corso: c.id, p: { pezzo: g.pezzo, rif: '', nome: up.file_name || r.nome_file, drive_id: up.drive_file_id, drive_url: up.drive_url, sha256: await sha256(r.byte) } });
+    if (error) throw new Error(`${g.titolo} caricato ma non registrato: ${error.message}`);
+    if (prima && prima.drive_id && prima.drive_id !== up.drive_file_id) { try { await cestina(prima.drive_id); } catch { /* resta il vecchio: non è un errore del deposito */ } }
+    out.push({ ...g, nome: r.nome_file, byte: r.byte });
+  }
+  return out;
+}
+
+/* la traccia in tabella, per chi apre il pacchetto con un foglio di calcolo */
+export function tracciaCsv(righe) {
+  const q = (v) => { const t = v == null ? '' : String(v); return /[;"\n\r]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+  const col = ['id', 'progressivo', 'giornata', 'nominativo', 'tipo', 'turno', 'ora_server', 'ora_dispositivo', 'fuori_orario', 'anno_corrisponde', 'stato', 'confermata_da', 'confermata_il', 'note', 'riferimento_esito', 'submission_id'];
+  return [col.join(';'), ...(righe || []).map((r) => col.map((k) => q(r[k])).join(';'))].join('\r\n') + '\r\n';
+}
+
+export function nomeAttestato(i) {
+  const data = String(i.attestato_data || '').slice(0, 10) || 'data-non-indicata';
+  return `${data}_Attestato_${slug(i.nominativo, 50)}_${String(i.cf || 'CF-non-indicato').toUpperCase()}${suffissoNumeroFile(i.attestato_numero)}.pdf`;
+}
+
+export function leggimi(c, info) {
+  const periodo = c.data_fine && c.data_fine !== c.data_inizio ? `${dataIt(c.data_inizio)} - ${dataIt(c.data_fine)}` : dataIt(c.data_inizio);
+  return [
+    'PACCHETTO DEL FASCICOLO DEL CORSO',
+    'Formedil Padova - Area Sicurezza e Salute',
+    '',
+    `Corso n. ${c.id} «${c.titolo}»${c.codice_socrate ? ` (Socrate ${c.codice_socrate})` : ''}`,
+    `Periodo: ${periodo || 'non indicato'} - sede: ${c.sede || 'non indicata'}`,
+    `Generato dall'app segreteria il ${info.quando}${info.chi ? ` da ${info.chi}` : ''}.`,
+    '',
+    'CHE COSA CONTIENE',
+    '- documenti/  i documenti firmati nell\'app (scheda formativa, progetto formativo,',
+    '              accettazioni degli incarichi, registri delle giornate, verbale),',
+    '              l\'elenco dei docenti con le firme e la traccia delle firme di presenza.',
+    '- attestati/  gli attestati emessi.',
+    '- dati/dati-corso.json            tutti i dati del corso nel database: iscritti,',
+    '                                  presenze, firme, prove del test, questionario.',
+    '- dati/traccia-firme-presenza.csv la traccia delle firme dal QR, in tabella (separatore ;).',
+    '- _indice.md                      la nota di riepilogo del corso.',
+    '- MANIFESTO-sha256.txt            l\'impronta SHA-256 di ogni file del pacchetto.',
+    '',
+    'COME SI CONTROLLA CHE NIENTE SIA CAMBIATO',
+    '- Linux o Mac, dentro la cartella estratta:  sha256sum -c MANIFESTO-sha256.txt',
+    '- Windows PowerShell:  Get-FileHash -Algorithm SHA256 <file>  e confronto con la riga del manifesto.',
+    '- L\'impronta del pacchetto intero sta nel database sul corso e nella nota _indice.md',
+    '  della cartella del corso su Drive.',
+    '',
+    'CONSERVAZIONE',
+    'Almeno 10 anni (Accordo Stato-Regioni 17/04/2025, parte I punto 7). Gli originali dei',
+    'documenti firmati, con le loro impronte, restano anche nel registro delle firme dell\'app.',
+    ...(info.mancanti && info.mancanti.length ? ['', 'NON ENTRATI NEL PACCHETTO (da aggiungere a mano)', ...info.mancanti.map((m) => `- ${m}`)] : []),
+    '',
+  ].join('\r\n');
+}
+
+/* tutto il fascicolo in un file: si costruisce nel browser, dai dati di adesso */
+export async function costruisciPacchetto(c, f, ctx, avanza, generati = null) {
+  const enc = new TextEncoder();
+  const file = [];
+  const mancanti = [];
+  const metti = (nome, byte) => file.push({ nome, byte });
+  /* 1. i documenti firmati, tutti (anche quelli già su Drive) */
+  for (const p of pezziDaDepositare(c, f)) {
+    if (avanza) avanza(p.titolo);
+    try {
+      const byte = await scaricaFirmato(p.firma.file);
+      const nome = p.firma.nome_file ? p.firma.nome_file.replace(/\.pdf$/i, '') + '_firmato.pdf' : `${p.pezzo}_${p.rif.replace(':', '-')}_firmato.pdf`;
+      metti(`documenti/${nome}`, byte);
+    } catch (e) { mancanti.push(`${p.titolo}: ${e.message}`); }
+  }
+  /* 2. elenco dei docenti e traccia: quelli appena depositati, o generati ora */
+  const gen = generati || [];
+  if (!gen.length) {
+    for (const g of GENERATI) {
+      if (avanza) avanza(g.titolo);
+      try { const r = await pdfDocumento(g.azione, c.id); gen.push({ ...g, nome: r.nome_file, byte: r.byte }); }
+      catch (e) { mancanti.push(`${g.titolo}: ${e.message}`); }
+    }
+  }
+  for (const g of gen) metti(`documenti/${g.nome}`, g.byte);
+  /* 3. gli attestati emessi, letti da Drive */
+  for (const i of (ctx.iscritti || []).filter((x) => x.attestato_numero && !x.attestato_revocato_il)) {
+    if (!i.attestato_drive_id) { mancanti.push(`attestato ${i.attestato_numero} di ${i.nominativo}: non è su Drive`); continue; }
+    if (avanza) avanza(`attestato ${i.attestato_numero}`);
+    try { metti(`attestati/${nomeAttestato(i)}`, await leggiByte(i.attestato_drive_id)); }
+    catch (e) { mancanti.push(`attestato ${i.attestato_numero} di ${i.nominativo}: ${e.message}`); }
+  }
+  /* 4. i dati */
+  if (avanza) avanza('dati del corso');
+  const { data: dati, error: eD } = await sb.rpc('corso_pacchetto_dati', { p_corso: c.id });
+  if (eD) throw new Error('Non sono riuscito a leggere i dati del corso: ' + eD.message);
+  metti('dati/dati-corso.json', enc.encode(JSON.stringify(dati, null, 2)));
+  const { data: tr, error: eT } = await sb.rpc('corso_traccia_presenze', { p_corso: c.id });
+  if (eT) throw new Error('Non sono riuscito a leggere la traccia delle firme: ' + eT.message);
+  metti('dati/traccia-firme-presenza.csv', enc.encode('\uFEFF' + tracciaCsv(tr)));
+  metti('_indice.md', enc.encode(indiceMd(c, f, ctx)));
+  const { data: u } = await sb.auth.getUser();
+  const quando = new Date().toLocaleString('it-IT', { timeZone: 'Europe/Rome' });
+  metti('00_LEGGIMI.txt', enc.encode(leggimi(c, { quando, chi: u?.user?.email || '', mancanti })));
+  /* 5. il manifesto: l'impronta di ogni file, nel formato di sha256sum */
+  const righe = [];
+  for (const x of file) righe.push(`${await sha256(x.byte)}  ${x.nome}`);
+  metti('MANIFESTO-sha256.txt', enc.encode(righe.join('\n') + '\n'));
+  const zip = creaZip(file);
+  const nome = `${(c.data_inizio || oggiIso()).replace(/-/g, '_')}_Corso-${c.id}_${slug(c.titolo)}_pacchetto-fascicolo.zip`;
+  return { zip, nome, sha256: await sha256(zip), file: file.length, mancanti };
+}
+
+export function scaricaZip(byte, nome) {
+  const url = URL.createObjectURL(new Blob([byte], { type: 'application/zip' }));
+  const a = document.createElement('a');
+  a.href = url; a.download = nome; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
 /* la nota della cartella: la regola «nota di riepilogo per eventi con formazione» del CLAUDE.md */
-export function indiceMd(c, f, ctx) {
+export function indiceMd(c, f, ctx, extra = []) {
   const giornate = ctx.giornate || [], interventi = ctx.interventi || [], iscritti = (ctx.iscritti || []).filter((i) => !['annullato', 'sostituito'].includes(i.esito || ''));
   const docenti = [...new Set(interventi.filter((x) => ['docente', 'codocente', 'relatore'].includes(x.qualita || 'docente')).map((x) => x.nominativo).filter(Boolean))];
   const presenti = iscritti.filter((i) => ['presente', 'presente_online'].includes(i.esito));
@@ -161,6 +303,7 @@ export function indiceMd(c, f, ctx) {
     ...(f.depositati || []).filter((d) => d.pezzo !== 'indice').map((d) => `- ${d.nome} — ${d.drive_url ? `[apri](${d.drive_url})` : d.drive_id} (depositato il ${dataIt(d.depositato_il)})`),
     ...(f.attestati.previsti ? [`- Attestati: ${attestati.length} emessi (${attestati.map((i) => i.attestato_numero).join(', ') || 'nessuno'}), in attestati_emessi/${anno}.`] : []),
     `- Prove del test: ${f.test.prove} (${f.test.convalidate} convalidate) · questionario di gradimento: ${f.questionario.risposte} risposte — nel database dell'app.`,
+    ...extra,
     '',
     '## Partecipanti effettivi',
     ...(presenti.length ? presenti.map((i) => `- ${i.nominativo}${i.impresa_txt ? ` (${i.impresa_txt})` : ''}${i.mansione ? ` — ${i.mansione}` : ''}`) : ['- non documentati']),
@@ -189,24 +332,50 @@ export function collegaFascicoloDrive(c, d, ricarica, ctx) {
   });
   body.querySelector('#fs-chiudi')?.addEventListener('click', async (ev) => {
     const btn = ev.currentTarget;
-    if (!confirm('Chiudo il fascicolo del corso? Deposito i firmati che mancano, scrivo la nota _indice.md nella cartella e il corso passa a «chiuso». Si può riaprire.')) return;
+    if (!confirm('Chiudo il fascicolo del corso? Deposito i firmati che mancano, l\'elenco dei docenti e la traccia delle firme, preparo il pacchetto (lo scarichi anche tu, per il server della scuola), scrivo la nota _indice.md e il corso passa a «chiuso». Si può riaprire.')) return;
     attendi(btn, true, 'Chiudo…');
     try {
       await deposita(c, f, (t) => { btn.textContent = `Deposito… ${t}`; });
+      const { data: f1, error: e1 } = await sb.rpc('corso_fascicolo', { p_corso: c.id });
+      if (e1) throw new Error(e1.message);
+      const generati = await depositaGenerati(c, f1, (t) => { btn.textContent = `Genero… ${t}`; });
       const { data: f2, error: e2 } = await sb.rpc('corso_fascicolo', { p_corso: c.id });
       if (e2) throw new Error(e2.message);
-      if (!(f2.depositati || []).some((x) => x.pezzo === 'indice')) {
-        const md = indiceMd(c, { ...f2, chiuso_il: new Date().toISOString() }, ctx);
-        const up = await caricaByte(null, '_indice.md', new TextEncoder().encode(md), 'text/markdown', f2.cartella.drive_id);
-        const { error } = await sb.rpc('corso_fascicolo_deposita', { p_corso: c.id, p: { pezzo: 'indice', rif: '', nome: up.file_name || '_indice.md', drive_id: up.drive_file_id, drive_url: up.drive_url } });
-        if (error) throw new Error('_indice.md caricato ma non registrato: ' + error.message);
-      }
+      const chiuso = { ...f2, chiuso_il: new Date().toISOString() };
+      /* il pacchetto: costruito, scaricato per il server della scuola, depositato su Drive */
+      const pk = await costruisciPacchetto(c, chiuso, ctx, (t) => { btn.textContent = `Pacchetto… ${t}`; }, generati);
+      scaricaZip(pk.zip, pk.nome);
+      let avvisoPk = '';
+      try {
+        const up = await caricaByte(null, pk.nome, pk.zip, 'application/zip', f2.cartella.drive_id);
+        const prima = (f2.depositati || []).find((d) => d.pezzo === 'pacchetto');
+        const { error } = await sb.rpc('corso_fascicolo_deposita', { p_corso: c.id, p: { pezzo: 'pacchetto', rif: '', nome: up.file_name || pk.nome, drive_id: up.drive_file_id, drive_url: up.drive_url, sha256: pk.sha256 } });
+        if (error) throw new Error('caricato ma non registrato: ' + error.message);
+        if (prima && prima.drive_id && prima.drive_id !== up.drive_file_id) { try { await cestina(prima.drive_id); } catch { /* resta il vecchio */ } }
+      } catch (e) { avvisoPk = ` Il pacchetto NON è su Drive (${e.message}): l'hai scaricato, copialo tu nella cartella e sul server della scuola.`; }
+      /* la nota della cartella, con l'impronta del pacchetto (quella dentro lo zip non può averla) */
+      const md = indiceMd(c, chiuso, ctx, [`- Pacchetto: ${pk.nome} · ${pk.file} file · impronta SHA-256 ${pk.sha256}${avvisoPk ? ' (non depositato su Drive)' : ''}`]);
+      const upI = await caricaByte(null, '_indice.md', new TextEncoder().encode(md), 'text/markdown', f2.cartella.drive_id);
+      const primaI = (f2.depositati || []).find((d) => d.pezzo === 'indice');
+      const { error: eI } = await sb.rpc('corso_fascicolo_deposita', { p_corso: c.id, p: { pezzo: 'indice', rif: '', nome: upI.file_name || '_indice.md', drive_id: upI.drive_file_id, drive_url: upI.drive_url } });
+      if (eI) throw new Error('_indice.md caricato ma non registrato: ' + eI.message);
+      if (primaI && primaI.drive_id && primaI.drive_id !== upI.drive_file_id) { try { await cestina(primaI.drive_id); } catch { /* resta il vecchio */ } }
       const { error } = await sb.rpc('corso_fascicolo_chiudi', { p_corso: c.id });
       if (error) throw new Error(error.message);
-      toast('Fascicolo chiuso e depositato su Drive.', 'ok');
+      toast(`Fascicolo chiuso e depositato su Drive; il pacchetto è scaricato.${pk.mancanti.length ? ` ⚠ ${pk.mancanti.length} documenti non entrati: li trovi nel LEGGIMI.` : ''}${avvisoPk}`, avvisoPk || pk.mancanti.length ? 'err' : 'ok');
     } catch (e) { toast('Non chiuso: ' + e.message, 'err'); }
     attendi(btn, false);
     ricarica();
+  });
+  body.querySelector('#fs-pacchetto')?.addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
+    attendi(btn, true, 'Preparo…');
+    try {
+      const pk = await costruisciPacchetto(c, f, ctx, (t) => { btn.textContent = `Pacchetto… ${t}`; });
+      scaricaZip(pk.zip, pk.nome);
+      toast(`Pacchetto scaricato: ${pk.file} file, impronta ${pk.sha256.slice(0, 12)}….${pk.mancanti.length ? ` ⚠ ${pk.mancanti.length} documenti non entrati: li trovi nel LEGGIMI.` : ''}`, pk.mancanti.length ? 'err' : 'ok');
+    } catch (e) { toast('Pacchetto non preparato: ' + e.message, 'err'); }
+    attendi(btn, false);
   });
   body.querySelector('#fs-riapri')?.addEventListener('click', async () => {
     const { error } = await sb.rpc('corso_fascicolo_chiudi', { p_corso: c.id, p_riapri: true });

@@ -3,8 +3,10 @@
    Lotto 4 del fascicolo corso digitale.
 
    La segreteria APRE le firme del corso: nasce il codice P<corso>-XXXX, un
-   codice personale per ogni iscritto che non ce l'ha (lo stesso del test,
-   stampato accanto al nome sul registro) e il link firmato del QR, che va
+   codice personale per ogni iscritto che non ce l'ha (lo stesso del test;
+   dal 14/10/2026 si consegna su un BIGLIETTO personale, non sta più accanto
+   al nome sul registro, e alla firma si chiede anche l'anno di nascita) e il
+   link firmato del QR, che va
    in copertina del registro e sul foglio da esporre in aula. Il corso si
    PUBBLICA sul portale (titolo, giornate con gli orari, impronta dei codici
    e iniziali: niente nomi interi, niente CF).
@@ -140,6 +142,7 @@ export function sezionePres(c, p, iscritti, giornate) {
       <button class="btn btn-ghost btn-sm" id="pq-foglio">📄 Foglio QR da esporre</button>
       <button class="btn btn-ghost btn-sm" id="pq-pubblica">🔁 Ripubblica sul portale</button>
       <button class="btn btn-ghost btn-sm" id="pq-codici">🔑 Codici personali</button>
+      <button class="btn btn-ghost btn-sm" id="pq-biglietti">🎟 Biglietti dei codici</button>
       <button class="btn btn-ghost btn-sm" id="pq-link" ${link.link ? '' : 'disabled'}>🔗 Copia il link</button>
     </div>
     ${firme.length ? blocchi : '<p class="hint">Nessuna firma arrivata finora.</p>'}`;
@@ -195,6 +198,18 @@ export function collegaPres(c, p, iscritti, giornate, ricarica) {
     ricarica();
   });
 
+
+  body.querySelector('#pq-biglietti')?.addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
+    attendi(btn, true);
+    try {
+      const { pdfBigliettiCodici, scaricaPdf } = await import('./corsi-doc.js');
+      const byte = await pdfBigliettiCodici(c, iscritti || [], { pres: !!c.pres_codice, test: !!c.test_codice });
+      scaricaPdf(byte, `${oggiIso().replace(/-/g, '_')}_MOD_Formedil-Padova_biglietti-codici-personali_corso-${c.id}.pdf`);
+    } catch (e) { toast(e.message, 'err'); }
+    attendi(btn, false);
+  });
+
   body.querySelector('#pq-link')?.addEventListener('click', async () => {
     try { await navigator.clipboard.writeText(p.link?.link || ''); toast('Link copiato.', 'ok'); }
     catch { toast('Non riesco a copiare: ' + (p.link?.link || ''), 'err'); }
@@ -204,9 +219,10 @@ export function collegaPres(c, p, iscritti, giornate, ricarica) {
     const righe = (iscritti || []).filter((i) => i.test_codice)
       .map((i) => `<tr><td>${esc(i.nominativo)}</td><td class="num"><strong>${esc(i.test_codice)}</strong></td></tr>`).join('');
     apriDrawer(`Codici personali — corso n° ${c.id}`, '', `
-      <p class="hint" style="margin:0 0 10px">Ogni codice sta già stampato accanto al nome sul registro: questa è solo
-        una copia da consultare. <strong>Non vanno mandati per mail insieme al nome</strong> — chi li avesse tutti
-        potrebbe firmare (o fare il test) al posto di chiunque.</p>
+      <p class="hint" style="margin:0 0 10px">Ogni allievo riceve il suo codice sul <strong>biglietto personale</strong>
+        («🎟 Biglietti dei codici», da ritagliare e dare in mano a ciascuno): questa è solo una copia da consultare,
+        per chi l'ha perso. <strong>Non vanno mandati per mail insieme al nome</strong> né stampati su fogli che
+        girano in aula — chi li avesse tutti potrebbe firmare (o fare il test) al posto di chiunque.</p>
       <div class="table-wrap"><table class="tbl">
         <thead><tr><th>Partecipante</th><th>Codice</th></tr></thead>
         <tbody>${righe || '<tr><td colspan="2" class="empty">Nessun codice: apri le firme.</td></tr>'}</tbody>

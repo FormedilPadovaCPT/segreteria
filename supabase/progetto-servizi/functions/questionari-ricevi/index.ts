@@ -188,8 +188,11 @@ function controllaPres(r: Record<string, unknown>): string | null {
   }
   if (!Array.isArray(r.persone) || r.persone.length > 500) return 'persone: al massimo 500'
   for (const p of r.persone as Record<string, unknown>[]) {
-    for (const k of Object.keys(p)) if (k !== 'h' && k !== 'n') return `campo non previsto in persone: ${k}`
+    /* a (14/10/2026): impronta di codice + anno di nascita, quando l'anno è
+       ricavabile — mai l'anno in chiaro */
+    for (const k of Object.keys(p)) if (k !== 'h' && k !== 'n' && k !== 'a') return `campo non previsto in persone: ${k}`
     if (!(typeof p.h === 'string' && /^[0-9a-f]{64}$/.test(p.h))) return 'impronta del codice personale non valida'
+    if (p.a != null && !(typeof p.a === 'string' && /^[0-9a-f]{64}$/.test(p.a))) return 'impronta dell\'anno non valida'
     if (!(typeof p.n === 'string' && /^([A-ZÀ-Ý]\.\s?){1,4}$/.test(p.n.trim() + ' '))) return `qui vanno le iniziali, non un nome: ${String(p.n).slice(0, 30)}`
   }
   return null

@@ -5,7 +5,7 @@
 
    · il questionario è ANONIMO e misura il gradimento;
    · il test è NOMINATIVO, perché l'esito vale per l'attestato. Ogni iscritto
-     ha un CODICE PERSONALE, stampato accanto al suo nome sul registro: è così
+     ha un CODICE PERSONALE, che dal 14/10/2026 riceve su un biglietto personale (non più accanto al nome sul registro): è così
      che in aula ciascuno dice chi è, senza scegliere da un elenco di nomi da
      cui chiunque potrebbe prendere il posto di un altro.
 
@@ -79,8 +79,8 @@ export function sezioneTest(c, t, iscritti) {
     <hr style="margin:12px 0;border:0;border-top:1px solid var(--bordo)">
     <h4 style="margin:0 0 6px">📝 Test di verifica finale</h4>
     <p class="hint" style="margin:0 0 8px">Aprendolo nascono il <strong>codice del test</strong> e un
-      <strong>codice personale per ciascun iscritto</strong>, che finisce stampato accanto al suo nome sul registro:
-      è così che in aula ognuno dice chi è. Le domande le scrivi qui, con la risposta giusta segnata: il punteggio
+      <strong>codice personale per ciascun iscritto</strong>, che ognuno riceve sul suo biglietto
+      («🎟 Biglietti dei codici»): è così che in aula ognuno dice chi è. Le domande le scrivi qui, con la risposta giusta segnata: il punteggio
       lo calcola l'app, il testo libero e la convalida restano a una persona.</p>
     <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
       <div class="field" style="margin:0;width:120px"><label>Soglia %</label>
@@ -160,6 +160,7 @@ export function sezioneTest(c, t, iscritti) {
       <button class="btn btn-ghost btn-sm" id="tz-foglio">📄 Foglio col QR del test</button>
       <button class="btn btn-ghost btn-sm" id="tz-pubblica">${pubblicato ? '↻ Ripubblica sul portale' : '🌐 Pubblica sul portale'}</button>
       <button class="btn btn-ghost btn-sm" id="tz-codici">🔑 Vedi i codici personali</button>
+      <button class="btn btn-ghost btn-sm" id="tz-biglietti">🎟 Biglietti dei codici</button>
     </div>
 
     ${sezioneModuli(c, t)}
@@ -614,12 +615,24 @@ export function collegaTest(c, t, iscritti, ricarica) {
     attendi(btn, false);
   });
 
+  body.querySelector('#tz-biglietti')?.addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
+    attendi(btn, true);
+    try {
+      const { pdfBigliettiCodici } = await import('./corsi-doc.js');
+      const byte = await pdfBigliettiCodici(c, iscritti || [], { pres: !!c.pres_codice, test: !!c.test_codice });
+      scaricaPdf(byte, `${oggiIso().replace(/-/g, '_')}_MOD_Formedil-Padova_biglietti-codici-personali_corso-${c.id}.pdf`);
+    } catch (e) { toast(e.message, 'err'); }
+    attendi(btn, false);
+  });
+
   body.querySelector('#tz-codici')?.addEventListener('click', () => {
     const righe = (iscritti || []).filter((i) => i.test_codice)
       .map((i) => `<tr><td>${esc(i.nominativo)}</td><td class="num"><strong>${esc(i.test_codice)}</strong></td></tr>`).join('');
     apriDrawer(`Codici personali — corso n° ${c.id}`, '', `
-      <p class="hint" style="margin:0 0 10px">Ogni codice sta già stampato accanto al nome sul registro: questa è solo
-        una copia da consultare. <strong>Non vanno mandati per mail insieme al nome</strong> — chi li avesse tutti
+      <p class="hint" style="margin:0 0 10px">Ogni allievo riceve il suo codice sul <strong>biglietto personale</strong>
+        («🎟 Biglietti dei codici»): questa è solo una copia da consultare, per chi l'ha perso.
+        <strong>Non vanno mandati per mail insieme al nome</strong> — chi li avesse tutti
         potrebbe fare il test al posto di chiunque.</p>
       <div class="table-wrap"><table class="tbl">
         <thead><tr><th>Partecipante</th><th>Codice</th></tr></thead>

@@ -839,15 +839,16 @@ Registro lo stesso una fattura qui?`)) return;
       const { pdfRegistro, scaricaPdf } = await import('./corsi-doc.js');
       /* col questionario aperto, in coda al registro esce il foglio col QR:
          ultima pagina, non numerata e fuori dal conteggio delle pagine */
-      /* (lotto 4) con le firme dal QR aperte: QR in copertina, codice personale
-         accanto a ogni nome e foglio da esporre in coda */
+      /* (lotto 4) con le firme dal QR aperte: QR in copertina e foglio da
+         esporre in coda; i codici personali NON stanno più accanto ai nomi
+         (14/10/2026): vanno sui biglietti, da consegnare a ciascuno */
       const byte = await pdfRegistro(c, giornate || [], interventi || [], iscritti || [], conf,
         c.quest_codice ? { ...quest.link, domande: quest.domande } : null,
         c.test_codice ? { codice: c.test_codice, link: test.link, domande: test.domande } : null,
         c.pres_codice ? { codice: c.pres_codice, link: presQr.link?.link || '' } : null);
       scaricaPdf(byte, `${(c.data_inizio || oggiIso()).replace(/-/g, '')}_Registro_corso-${c.id}.pdf`);
       toast(c.pres_codice
-        ? 'Registro scaricato: QR delle firme in copertina, codici personali accanto ai nomi.'
+        ? 'Registro scaricato: QR delle firme in copertina. I codici personali vanno consegnati con i biglietti («🎟 Biglietti dei codici»).'
         : c.quest_codice
         ? 'Registro scaricato, col foglio del questionario in coda.'
         : 'Registro scaricato: stamparlo per le firme in aula/cantiere.', 'ok');

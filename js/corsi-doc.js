@@ -366,8 +366,11 @@ function argomentiTrattati(k, corso, nominativo, nTxt, giornate, interventi) {
 
 /* ── 2. REGISTRO PRESENZE ── */
 /* pres (13/10/2026, lotto 4): { codice, link } delle firme di presenza dal QR —
-   il QR va in copertina, il codice personale accanto a ogni nome, il foglio da
-   esporre in coda */
+   il QR va in copertina e il foglio da esporre in coda.
+   ⚠️ Dal 14/10/2026 il codice personale NON si stampa più accanto al nome: il
+   registro gira in aula, e chi lo leggeva poteva firmare o fare il test per un
+   collega (verifica di legge del 14/10). Il codice si consegna sul biglietto
+   personale (pdfBigliettiCodici) e alla firma si chiede anche l'anno di nascita. */
 export async function pdfRegistro(corso, giornate, interventi, iscritti, conf, quest = null, test = null, pres = null) {
   const k = await apriCiclo();
   const { doc, F, C } = k;
@@ -471,7 +474,7 @@ export async function pdfRegistro(corso, giornate, interventi, iscritti, conf, q
     const lato = 62;
     disegnaQr(pg, qrcode, pres.link, X1 - lato, yr - lato - 14, lato, C.nero);
     T(pg, 'FIRME DI PRESENZA', xR, yr, 7.5, F.r, C.tenue, { sp: 1.4 });
-    righe('Inquadra il codice col telefono e scrivi il tuo codice personale, stampato accanto al tuo nome.', F.r, 7.5, X1 - lato - 10 - xR)
+    righe('Inquadra il codice col telefono, scrivi il codice personale del tuo biglietto e il tuo anno di nascita.', F.r, 7.5, X1 - lato - 10 - xR)
       .forEach((r, i) => T(pg, r, xR, yr - 13 - i * 9.5, 7.5, F.r, C.grigio));
     T(pg, pres.codice, xR, yr - lato - 8, 8, F.b, C.arancio);
   }
@@ -540,13 +543,9 @@ export async function pdfRegistro(corso, giornate, interventi, iscritti, conf, q
       linea(pg, X0, y - RIGA, X1, y - RIGA, C.linea, 0.5);
       [3, 4].forEach((i) => linea(pg, xs[i], y, xs[i], y - RIGA, C.linea, 0.5));
       T(pg, String(n + 1), xs[0] + cols[0] / 2, y - 13.5, 7.5, F.r, C.tenue, { al: 'c' });
-      T(pg, cut(F.b, 8, p.nominativo, cols[1] - 60), xs[1] + 4, y - 9.5, 8, F.b, C.grigio);
+      T(pg, cut(F.b, 8, p.nominativo, cols[1] - 8), xs[1] + 4, y - 9.5, 8, F.b, C.grigio);
       if (p.cf) T(pg, p.cf, xs[1] + 4, y - 18, 6.2, F.r, C.tenue);
-      /* il codice personale del test, accanto al nome: è così che in aula
-         ciascuno dice chi è, senza scegliere da un elenco di nomi */
-      if ((test || pres) && p.test_codice) {
-        T(pg, (pres ? 'codice ' : 'test ') + p.test_codice, xs[2] - 6, y - 13.5, 7.5, F.b, C.arancio, { al: 'r' });
-      }
+      /* il codice personale non si stampa qui (14/10/2026): sta sul biglietto */
       T(pg, cut(F.r, 7.3, p.impresa_txt || '', cols[2] - 8), xs[2] + 4, y - 13.5, 7.3, F.r, C.grigio);
       y -= RIGA;
     });
@@ -612,7 +611,7 @@ async function foglioPresenze(k, corso, pres) {
   T(pg, 'Si firma col telefono', X0 + Wc / 2, y, 30, F.b, C.grigio, { al: 'c' });
   y -= 28;
   righe('Inquadrate il codice all\'entrata e all\'uscita di ogni turno e scrivete il VOSTRO codice personale, '
-      + 'quello stampato accanto al vostro nome nelle pagine del registro.', F.r, 12.5, 380)
+      + 'quello del biglietto che vi ha dato il docente, e il vostro anno di nascita.', F.r, 12.5, 380)
     .forEach((r, i) => T(pg, r, X0 + Wc / 2, y - i * 17, 12.5, F.r, C.tenue, { al: 'c' }));
   y -= 62;
 
@@ -733,8 +732,8 @@ async function foglioTest(k, corso, test) {
   y -= 42;
   T(pg, 'Il test si fa col telefono', X0 + Wc / 2, y, 30, F.b, C.grigio, { al: 'c' });
   y -= 28;
-  righe('Inquadrate il codice e scrivete il VOSTRO codice personale, quello stampato accanto al vostro nome '
-      + 'nelle pagine di questo registro.', F.r, 12.5, 380)
+  righe('Inquadrate il codice e scrivete il VOSTRO codice personale, quello del biglietto '
+      + 'che vi ha dato il docente.', F.r, 12.5, 380)
     .forEach((r, i) => T(pg, r, X0 + Wc / 2, y - i * 17, 12.5, F.r, C.tenue, { al: 'c' }));
   y -= 62;
 
@@ -945,4 +944,45 @@ export async function pdfLetteraIncarico(corso, incarico, mieiInterventi, conf, 
   c.stato.pagina.drawText('FORMEDIL PADOVA', { x: 320, y: yA, size: 8.5, font: c.font, color: c.grigio });
   c.stato.pagina.drawText(corso.rappresentante_legale || conf.presidente_nome || '', { x: 320, y: yA - 12, size: 9.5, font: c.bold, color: c.nero });
   return salva(c.doc);
+}
+
+/* ── 2-sexies. I BIGLIETTI DEI CODICI PERSONALI (14/10/2026) ─────────────────
+   Dalla verifica di legge del 14/10: il codice personale stampato accanto al
+   nome sul registro lo leggeva chiunque avesse il foglio in mano. Ora si
+   consegna così: un biglietto per persona, da ritagliare e dare in mano a
+   ciascuno il primo giorno. Dieci per pagina, linee tratteggiate per il taglio.
+   Niente codice fiscale sul biglietto: nome, corso, codice e a che cosa serve. */
+export async function pdfBigliettiCodici(corso, iscritti, { pres = false, test = false } = {}) {
+  const k = await apriCiclo();
+  const { doc, F, C } = k;
+  const [W, H] = A4;
+  const lista = (iscritti || []).filter((i) => i.test_codice && !['annullato', 'sostituito'].includes(i.esito || ''))
+    .sort((a, b) => String(a.nominativo).localeCompare(String(b.nominativo), 'it'));
+  const M = 28, COL = 2, RIG = 5;
+  const bw = (W - 2 * M) / COL, bh = (H - 2 * M) / RIG;
+  const usi = [pres ? 'firmare la presenza dal QR' : '', test ? 'fare il test' : ''].filter(Boolean).join(' e ') || 'firmare la presenza e fare il test';
+  let pg = null;
+  lista.forEach((p, n) => {
+    const pos = n % (COL * RIG);
+    if (pos === 0) {
+      pg = doc.addPage(A4);
+      /* le linee di taglio */
+      for (let c = 1; c < COL; c++) linea(pg, M + c * bw, M, M + c * bw, H - M, C.bordo, 0.5, [3, 3]);
+      for (let r = 0; r <= RIG; r++) linea(pg, M, M + r * bh, W - M, M + r * bh, C.bordo, 0.5, [3, 3]);
+      for (const x of [M, W - M]) linea(pg, x, M, x, H - M, C.bordo, 0.5, [3, 3]);
+    }
+    const x = M + (pos % COL) * bw + 14, top = H - M - Math.floor(pos / COL) * bh - 18, larg = bw - 28;
+    T(pg, `CORSO ${corso.id}`, x, top, 6.5, F.b, C.arancio, { sp: 1.2 });
+    T(pg, cut(F.r, 7.5, corso.titolo || '', larg), x, top - 11, 7.5, F.r, C.tenue);
+    T(pg, cut(F.b, 11, p.nominativo, larg), x, top - 28, 11, F.b, C.grigio);
+    T(pg, 'IL TUO CODICE PERSONALE', x, top - 46, 6.3, F.r, C.tenue, { sp: 1.1 });
+    T(pg, String(p.test_codice), x, top - 72, 26, F.b, C.nero, { sp: 4 });
+    righe(`Serve per ${usi}. Alla firma ti chiediamo anche il tuo anno di nascita. È come la tua firma: non darlo a nessuno.`, F.r, 7.2, larg)
+      .slice(0, 3).forEach((r, i) => T(pg, r, x, top - 92 - i * 9, 7.2, F.r, C.grigio));
+  });
+  if (!lista.length) {
+    pg = doc.addPage(A4);
+    T(pg, 'Nessun iscritto con il codice personale: apri le firme dal QR o il test.', 60, H - 80, 11, F.b, C.grigio);
+  }
+  return salva(doc);
 }

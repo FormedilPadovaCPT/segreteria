@@ -28,6 +28,11 @@
 //        telefono alle 8:31 (XK7P2)» dove la firma dal QR è confermata,
 //        l'orario «su carta» dove la presenza è segnata a mano, «assente».
 //        Firme: i docenti della giornata, chi chiama per primo.
+//   { azione: 'elenco_docenti', id }    l'elenco dei docenti con le loro
+//        firme (data e impronta di lettera, accettazione, registri), id =
+//        corso (14/10/2026, FAQ Ministero n. 43). Non si firma.
+//   { azione: 'traccia_presenze', id }  la traccia di tutte le firme dal QR
+//        (ora del server e del telefono, anno, conferma), id = corso. Non si firma.
 //   Risposta: PDF in base64, nome del file a convenzione, i RIQUADRI delle
 //   firme (coordinate PDF) e i FIRMATARI pronti per `firma-documenti`.
 //   Chi può: i documenti si leggono COL TOKEN DI CHI CHIAMA, quindi vale
@@ -515,6 +520,75 @@ export async function disegnaRegistroGiornata(g: Riga, c: Riga, interventi: Riga
   return { byte, nome, firmatari, pagine: k.n, titolo: `Registro della giornata del ${dataIt(g.data)} — corso n. ${c.id} «${c.titolo}»` }
 }
 
+/* ══════════════ 6. L'ELENCO DEI DOCENTI CON LE LORO FIRME (14/10/2026) ══════════════
+   FAQ del Ministero n. 43: l'«elenco dei docenti con firme» è una sezione a sé
+   del fascicolo. Le firme stanno nei documenti firmati nell'app (lettera,
+   accettazione, registri, verbale): qui si elencano, con data e impronta,
+   perché chi controlla le ritrovi. Non si firma: è un riepilogo. */
+const oraRoma = (iso?: string | null) => iso ? new Date(iso).toLocaleString('it-IT', { timeZone: 'Europe/Rome', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''
+const imp = (h?: string | null) => h ? String(h).slice(0, 16) + '…' : '—'
+const TIPO_FIRMA: Record<string, string> = { registro_giornata: 'registro della giornata', verbale_verifica: 'verbale di verifica', scheda_formativa: 'scheda formativa' }
+export async function disegnaElencoDocenti(c: Riga, docenti: Riga[]) {
+  const k = new Carta()
+  await k.apri(`Elenco dei docenti - corso n. ${c.id} - ${c.titolo}`)
+  const { F, C } = k
+  k.intestazione('FASCICOLO DEL CORSO', 'Elenco dei docenti con le loro firme', [c.titolo],
+    [`Corso n. ${c.id}${c.codice_socrate ? ` (Socrate ${c.codice_socrate})` : ''}`], '')
+  k.para('Accordo Stato-Regioni del 17/04/2025, parte I punto 7: il fascicolo del corso contiene l\'elenco dei docenti con firme. Le firme sono apposte nell\'app sui documenti indicati per ciascun docente; per ognuna si riportano data, ora e le prime cifre dell\'impronta SHA-256 del PDF firmato, che si trova nel fascicolo.', 8.6, F.r, C.grigio)
+  if (!docenti.length) k.para('Nessun docente nel programma del corso.', 9, F.i, C.tenue)
+  for (const d of docenti) {
+    k.titoloSez(String(d.nominativo || '—'))
+    const qual = (Array.isArray(d.qualita) ? d.qualita : []).join(', ') || 'docente'
+    const iv = (Array.isArray(d.interventi) ? d.interventi : []) as Riga[]
+    k.tabella(['Elemento', 'Dettaglio'], [
+      ['In qualità di', qual],
+      ['Ore nel programma', d.ore != null ? String(d.ore) : '—'],
+      ['Interventi', iv.map((x) => `${dataIt(x.data)} ${[x.dalle, x.alle].filter(Boolean).join('-')}${x.materia ? ' ' + x.materia : ''}`).join('; ') || '—'],
+    ], [1, 2.4], 8.5)
+    const righe: string[][] = []
+    for (const inc of (Array.isArray(d.incarichi) ? d.incarichi : []) as Riga[]) {
+      for (const f of (Array.isArray(inc.lettera) ? inc.lettera : []) as Riga[]) righe.push([`Lettera di incarico${inc.protocollo ? ' ' + inc.protocollo : ''}`, f.ruolo === 'presidente' ? 'il Presidente' : String(f.ruolo || ''), oraRoma(f.firmata_il), imp(f.sha256)])
+      for (const f of (Array.isArray(inc.accettazione) ? inc.accettazione : []) as Riga[]) righe.push(['Accettazione dell\'incarico', 'il docente', oraRoma(f.firmata_il), imp(f.sha256)])
+    }
+    for (const f of (Array.isArray(d.firme) ? d.firme : []) as Riga[]) righe.push([`${TIPO_FIRMA[String(f.tipo)] || f.tipo}${f.data ? ' del ' + dataIt(f.data) : ''}`, 'il docente', oraRoma(f.firmata_il), imp(f.sha256)])
+    k.sotto('Firme')
+    if (righe.length) k.tabella(['Documento', 'Firmato da', 'Data e ora', 'Impronta'], righe, [1.6, 0.8, 0.9, 1], 8.3)
+    else k.para('Nessuna firma nell\'app: le firme sono sul registro di carta del fascicolo.', 8.6, F.i, C.tenue)
+  }
+  k.dataRiga(`Elenco generato dal database il ${dataIt(oggiRoma())}.`)
+  const byte = await k.doc.save()
+  const nome = `${(c.data_inizio || oggiRoma()).replace(/-/g, '_')}_ELEN_Formedil-Padova_elenco-docenti-con-firme_corso-${c.id}.pdf`
+  return { byte, nome, firmatari: [] as Firmatario[], pagine: k.n, titolo: `Elenco dei docenti — corso n. ${c.id} «${c.titolo}»` }
+}
+
+/* ══════════════ 7. LA TRACCIA DELLE FIRME DI PRESENZA (14/10/2026) ══════════════
+   Tutte le firme arrivate dal QR, anche respinte e non riconosciute: ora del
+   server (quella che vale), ora del telefono, anno di nascita, chi ha
+   confermato e quando. È la prova del processo, e fra dieci anni il database
+   potrebbe non esserci più: per questo entra nel fascicolo. */
+const STATO_FIRMA: Record<string, string> = { ricevuta: 'da guardare', confermata: 'confermata', respinta: 'respinta' }
+export async function disegnaTraccia(c: Riga, righe: Riga[]) {
+  const k = new Carta()
+  await k.apri(`Traccia delle firme di presenza - corso n. ${c.id} - ${c.titolo}`)
+  const { F, C } = k
+  k.intestazione('FASCICOLO DEL CORSO', 'Traccia delle firme di presenza dal QR', [c.titolo],
+    [`Corso n. ${c.id}${c.codice_socrate ? ` (Socrate ${c.codice_socrate})` : ''} - ${righe.length} firme ricevute`], '')
+  k.para('Ogni riga è una firma arrivata dalla pagina del portale servizi. Vale l\'ora del server; l\'ora del telefono è indicativa. «Anno» dice se l\'anno di nascita scritto dall\'allievo coincide con quello della persona. Le firme valgono come presenza solo se confermate dal docente.', 8.4, F.r, C.grigio)
+  const anno = (v: unknown) => v === true ? 'sì' : v === false ? 'NO' : '—'
+  if (righe.length) {
+    k.tabella(['Giornata', 'Allievo', 'Momento', 'Ora server', 'Ora telefono', 'Anno', 'Esito', 'Conferma'],
+      righe.map((r) => [dataIt(r.giornata) || '—', String(r.nominativo || (r.riferimento_esito ? `non riconosciuta (${r.riferimento_esito})` : '—')),
+        `${r.tipo || '—'}${r.turno ? ' ' + r.turno : ''}${r.fuori_orario ? ' fuori orario' : ''}`, oraRoma(r.ora_server), oraRoma(r.ora_dispositivo),
+        anno(r.anno_corrisponde), STATO_FIRMA[String(r.stato)] || String(r.stato || ''),
+        r.confermata_il ? `${oraRoma(r.confermata_il)} ${String(r.confermata_da || '')}`.trim() : (r.note ? String(r.note) : '')]),
+      [0.7, 1.2, 0.8, 0.9, 0.9, 0.4, 0.7, 1.7], 7)
+  } else k.para('Nessuna firma dal QR per questo corso.', 9, F.i, C.tenue)
+  k.dataRiga(`Traccia estratta dal database il ${dataIt(oggiRoma())}.`)
+  const byte = await k.doc.save()
+  const nome = `${(c.data_inizio || oggiRoma()).replace(/-/g, '_')}_REGP_Formedil-Padova_traccia-firme-presenza_corso-${c.id}.pdf`
+  return { byte, nome, firmatari: [] as Firmatario[], pagine: k.n, titolo: `Traccia delle firme di presenza — corso n. ${c.id} «${c.titolo}»` }
+}
+
 /* ══════════════ il servizio ══════════════ */
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
@@ -631,6 +705,20 @@ serve(async (req) => {
       docenti.sort((a, b) => Number((b.email || '').toLowerCase() === io) - Number((a.email || '').toLowerCase() === io))
       const { data: fr } = await sb.from('s_firme').select('firmata_il').eq('tipo', 'registro_giornata').eq('rif', `giornata:${id}`).eq('stato', 'firmata').order('firmata_il').limit(1)
       out = await disegnaRegistroGiornata(g, c, (iv || []) as Riga[], iscritti, docenti, fr?.[0]?.firmata_il ? String(fr[0].firmata_il) : null)
+    } else if (azione === 'elenco_docenti' || azione === 'traccia_presenze') {
+      /* id = corso; le funzioni del database controllano chi chiama (segreteria o RPF) */
+      const { data: c, error: eC } = await sbUtente.from('s_corsi').select('*').eq('id', id).maybeSingle()
+      if (eC) throw new Error('Non sono riuscito a leggere il corso: ' + eC.message)
+      if (!c) return json({ error: 'Corso non trovato o non visibile' }, 404)
+      if (azione === 'elenco_docenti') {
+        const { data, error } = await sbUtente.rpc('corso_elenco_docenti', { p_corso: id })
+        if (error) throw new Error('Non sono riuscito a leggere i docenti: ' + error.message)
+        out = await disegnaElencoDocenti(c, (data || []) as Riga[])
+      } else {
+        const { data, error } = await sbUtente.rpc('corso_traccia_presenze', { p_corso: id })
+        if (error) throw new Error('Non sono riuscito a leggere le firme: ' + error.message)
+        out = await disegnaTraccia(c, (data || []) as Riga[])
+      }
     } else {
       return json({ error: 'Azione non prevista' }, 400)
     }
