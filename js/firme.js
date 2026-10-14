@@ -61,6 +61,23 @@ export async function chiediFirma(docs) {
   return data;
 }
 
+/* (14/10/2026) Che cosa dire dopo una richiesta di firma. Gli avvisi sono
+   di tre specie: mail partita, mail non partita, e «a raccolta» (il
+   Presidente: nessuna mail adesso, il riepilogo lo manda la segreteria dal
+   cruscotto). → [testo, 'ok'|'err'] */
+export function esitoAvvisi(out, cosa) {
+  const avvisi = out?.avvisi?.length ? out.avvisi : (out?.avviso ? [out.avviso] : []);
+  const inviate = avvisi.filter((x) => x.inviata).map((x) => x.a);
+  const raccolti = avvisi.filter((x) => x.raccolto);
+  const fallite = avvisi.filter((x) => !x.inviata && !x.raccolto);
+  const pezzi = [];
+  if (inviate.length) pezzi.push(`mail mandata a ${inviate.join(', ')}`);
+  if (raccolti.length) pezzi.push(`${raccolti.some((x) => x.ruolo === 'presidente') ? 'è nello spazio firme del Presidente' : 'è nello spazio firme di chi deve firmare'}: nessuna mail adesso, il riepilogo lo mandi tu dal cruscotto («✉️ Avvisa»)`);
+  if (fallite.length) pezzi.push(`la mail non è partita: ${fallite[0].errore || 'motivo sconosciuto'} (riprova da «Ricorda» nel cruscotto)`);
+  if (!pezzi.length) pezzi.push('nessun avviso');
+  return [`${cosa} in firma: ${pezzi.join('; ')}.`, fallite.length ? 'err' : 'ok'];
+}
+
 /* l'errore di una edge function porta il messaggio vero nel corpo */
 async function testoErrore(error) {
   try { const j = await error?.context?.json?.(); if (j?.error) return j.error; } catch { /* niente */ }
@@ -142,7 +159,10 @@ export async function datiCruscotto() {
   const { data, error } = await sb.from('s_firme')
     .select('id, tipo, rif, titolo, stato, ordine, firmatario_email, firmatario_ruolo, corso_id, richiesta_il, avviso_il, avviso_esito, firmata_il, rimandata_il, rimandata_motivo, autografo_il, usata_il, file_originale, file_firmato')
     .order('richiesta_il', { ascending: false }).limit(400);
-  if (error) return { errore: error.message, inAttesa: [], rimandate: [], daUsare: [], senzaAutografo: [] };
+  if (error) return { errore: error.message, inAttesa: [], rimandate: [], daUsare: [], senzaAutografo: [], riepiloghi: [] };
+  /* i ruoli «a raccolta» (14/10/2026): non si avvisano a ogni richiesta */
+  const { data: cfg } = await sb.from('s_config').select('valore').eq('chiave', 'firme_avviso_raccolto_ruoli').maybeSingle();
+  const raccolti = new Set(String(cfg ? cfg.valore ?? '' : 'presidente').split(/[\s,;]+/).map((x) => x.trim().toLowerCase()).filter(Boolean));
   /* una catena per documento: le righe vive, altrimenti l'ultima richiesta */
   const perDoc = new Map();
   for (const r of data || []) { const k = `${r.tipo}|${r.rif}`; if (!perDoc.has(k)) perDoc.set(k, []); perDoc.get(k).push(r); }
@@ -151,9 +171,22 @@ export async function datiCruscotto() {
     const vive = righe.filter((r) => ['in_coda', 'in_attesa', 'firmata'].includes(r.stato));
     tutte.push(riassuntoCatena(vive.length ? vive : righe.filter((r) => r.stato === righe[0].stato)));
   }
+  const inAttesa = tutte.filter((r) => r.stato === 'in_attesa');
+  /* per ogni firmatario a raccolta: quanti documenti aspettano e quanti
+     non gli sono ancora stati segnalati (nessun avviso dopo la richiesta) */
+  const perChi = new Map();
+  for (const r of inAttesa) {
+    if (!r.prossimo || !raccolti.has(String(r.prossimo.ruolo))) continue;
+    const k = String(r.prossimo.email || '').toLowerCase();
+    if (!perChi.has(k)) perChi.set(k, { email: k, ruolo: r.prossimo.ruolo, n: 0, nuovi: 0, ultimo: null });
+    const g = perChi.get(k);
+    g.n += 1;
+    if (daSegnalare(r)) g.nuovi += 1;
+    if (r.avviso_il && (!g.ultimo || r.avviso_il > g.ultimo)) g.ultimo = r.avviso_il;
+  }
   return {
-    errore: null,
-    inAttesa: tutte.filter((r) => r.stato === 'in_attesa'),
+    errore: null, raccolti: [...raccolti], riepiloghi: [...perChi.values()],
+    inAttesa,
     rimandate: tutte.filter((r) => r.stato === 'rimandata'),
     daUsare: tutte.filter((r) => r.stato === 'firmata' && !r.usata_il),
     /* l'originale a mano è un'opzione del solo Presidente (le lettere di incarico) */
@@ -161,6 +194,9 @@ export async function datiCruscotto() {
   };
 }
 
+/* la riga in attesa non è ancora stata segnalata a chi deve firmarla */
+export const daSegnalare = (r) => !r.avviso_il || new Date(r.avviso_il) < new Date(r.richiesta_il);
+const nomeRuolo = (ruolo) => ruolo === 'presidente' ? 'il Presidente' : ruolo === 'direttore' ? 'il Direttore' : (RUOLI_FIRMA[ruolo] || ruolo);
 const giorni = (iso) => iso ? Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 864e5)) : null;
 const dove = (r) => r.tipo === 'incarico_docenza' ? 'dalla scheda del corso'
   : r.tipo === 'incarico_assev' ? 'dall\'app asseverazione, «Iter d\'ufficio»'
@@ -180,7 +216,9 @@ export function cardFirme(card, f) {
   const corpo = [
     ...f.inAttesa.map((r) => riga(r,
       `${attesaDi(r)}${r.totale > 1 ? ` (${r.firmate} di ${r.totale} firme)` : ''} dal ${dataIt(r.richiesta_il)}${giorni(r.richiesta_il) ? ` (${giorni(r.richiesta_il)} g)` : ''}`
-        + (String(r.avviso_esito || '').startsWith('non inviato') ? ' · <span style="color:#a01f00">⚠ la mail di avviso non è partita</span>' : ''),
+        + (r.prossimo && (f.raccolti || []).includes(String(r.prossimo.ruolo))
+          ? (daSegnalare(r) ? ' · <span style="color:#8a5a00">✉ non ancora segnalato: parte col riepilogo</span>' : ` · segnalato il ${dataIt(r.avviso_il)}`)
+          : (String(r.avviso_esito || '').startsWith('non inviato') ? ' · <span style="color:#a01f00">⚠ la mail di avviso non è partita</span>' : '')),
       `${apri(r.file_originale)} · <a href="#" data-fp-autografa="${r.id}" title="Ha firmato su carta: carica la scansione">📎 a mano</a> · <a href="#" data-fp-ritira="${r.id}">ritira</a>`)),
     ...f.rimandate.map((r) => riga(r,
       `rimandata il ${dataIt(r.rimandata_il)} da ${esc(chi(r))}: «${esc(r.rimandata_motivo || '')}» — si rifà ${dove(r)}`,
@@ -190,7 +228,9 @@ export function cardFirme(card, f) {
       apri(r.file_firmato, 'apri firmata'))),
   ].join('');
   const azione = `
-    ${f.inAttesa.length ? '<button class="btn btn-sm" type="button" id="hm-fp-ricorda">🔔 Ricorda a chi deve firmare</button>' : ''}
+    ${(f.riepiloghi || []).map((g) => `<button class="btn btn-sm${g.nuovi ? ' btn-primary' : ''}" type="button" data-fp-riepilogo="${esc(g.email)}" data-fp-ruolo="${esc(g.ruolo)}" data-fp-n="${g.n}" data-fp-nuovi="${g.nuovi}">✉️ Avvisa ${esc(nomeRuolo(g.ruolo))} (${g.n === 1 ? '1 documento' : `${g.n} documenti`}${g.nuovi && g.nuovi < g.n ? `, ${g.nuovi} nuovi` : ''})</button>
+      <span class="hint">${g.nuovi ? `${g.nuovi === g.n ? 'nessuno ancora segnalato' : `${g.nuovi} non ancora segnalati`}` : 'tutti già segnalati'}${g.ultimo ? ` · ultimo avviso ${dataIt(g.ultimo)}` : ''}</span><br>`).join('')}
+    ${f.inAttesa.some((r) => r.prossimo && !(f.raccolti || []).includes(String(r.prossimo.ruolo))) ? '<button class="btn btn-sm" type="button" id="hm-fp-ricorda">🔔 Ricorda agli altri firmatari</button>' : ''}
     ${f.senzaAutografo.length ? `<details style="margin-top:8px"><summary class="hint">Originali firmati a mano dal Presidente (facoltativi): ${f.senzaAutografo.length} da segnare</summary>
       ${f.senzaAutografo.map((r) => `<div class="hm-riga" style="cursor:default"><span>📝</span><span>${esc(r.titolo)}</span>
         <span><a href="#" data-fp-autografo="${r.id}">segna l'originale</a></span></div>`).join('')}</details>` : ''}`;
@@ -214,9 +254,23 @@ export function collegaFirme(host, ricarica, firmeDati = null) {
     if (error || data?.error) return toast('Non riuscito: ' + (data?.error || await testoErrore(error)), 'err');
     toast('Richiesta ritirata.', 'ok'); ricarica();
   }));
+  /* (14/10/2026) il riepilogo per un firmatario a raccolta: UNA mail con
+     l'elenco di tutto quello che aspetta la sua firma */
+  host.querySelectorAll('[data-fp-riepilogo]').forEach((b) => b.addEventListener('click', async () => {
+    const n = Number(b.dataset.fpN), nuovi = Number(b.dataset.fpNuovi), chiE = nomeRuolo(b.dataset.fpRuolo);
+    if (!confirm(`Mando a ${chiE} UNA mail con l'elenco ${n === 1 ? 'del documento che aspetta' : `dei ${n} documenti che aspettano`} la sua firma nell'app${nuovi && nuovi < n ? ` (${nuovi} nuovi dall'ultimo avviso, segnati nell'elenco)` : ''}?\n\nSe ha attivato le notifiche, gli arriva anche quella.`)) return;
+    b.disabled = true;
+    const { data, error } = await sb.functions.invoke('firma-documenti', { body: { azione: 'avvisa', email: b.dataset.fpRiepilogo } });
+    b.disabled = false;
+    if (error || data?.error) return toast('Non riuscito: ' + (data?.error || await testoErrore(error)), 'err');
+    const av = data?.avvisi?.[0] || data?.avviso;
+    if (!av?.inviata) return toast('Mail non partita: ' + (av?.errore || 'motivo sconosciuto'), 'err');
+    toast(`Mail mandata a ${chiE} con ${av.documenti === 1 ? '1 documento' : `${av.documenti} documenti`} da firmare.`, 'ok');
+    ricarica();
+  }));
   host.querySelector('#hm-fp-ricorda')?.addEventListener('click', async (ev) => {
     const b = ev.currentTarget;
-    if (!confirm('Rimando la mail a chi ha documenti in attesa della sua firma?')) return;
+    if (!confirm('Rimando la mail a chi ha documenti in attesa della sua firma?\n\nIl Presidente no: a lui va il riepilogo col suo pulsante.')) return;
     b.disabled = true;
     const { data, error } = await sb.functions.invoke('firma-documenti', { body: { azione: 'avvisa' } });
     b.disabled = false;

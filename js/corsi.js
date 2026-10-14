@@ -22,7 +22,7 @@
 import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, codiceProtocollo, opzioniTendina } from './core.js';
 import { risolviCartella, caricaByte, leggiByte } from './drive.js';
 import { scaricaEml, FIRMA_SEGRETERIA, collegaDoppioClickMail } from './eml.js';
-import { chiediFirma, scaricaFirmata, firmeDi, etichettaFirma } from './firme.js';
+import { chiediFirma, scaricaFirmata, firmeDi, etichettaFirma, esitoAvvisi } from './firme.js';
 import { caricaTipologie, tipologieAttive, tipologiaDi, schedaVigenteDi, propostaDaTipologia, vistaTipologie, etichettaTipologia, apriPdfDocumento, mandaInFirmaProgetto, mandaInFirmaVerbale, STATI_SCHEDA } from './corsi-tipologie.js';
 /* la ricerca in anagrafica sta in un posto solo: la usa anche la
    maschera manuale delle richieste di visita */
@@ -967,8 +967,7 @@ async function letteraIncarico(c, k, interventi, giornate, firma) {
       destinatario: k.nominativo, nome_file: nome, byte,
       firmatari: [{ ruolo: 'presidente', riquadro: esito.riquadro }],
     }]);
-    if (r?.avviso?.inviata) toast(`Lettera ${codiceProtocollo(prot)} mandata al Presidente da firmare: gli è arrivata la mail.`, 'ok');
-    else toast(`Lettera ${codiceProtocollo(prot)} in firma, ma la mail al Presidente non è partita: ${r?.avviso?.errore || 'motivo sconosciuto'}. Riprova da «Ricorda al Presidente» nel cruscotto.`, 'err');
+    toast(...esitoAvvisi(r, `Lettera ${codiceProtocollo(prot)}`));
     apriCorso(c.id);
   } catch (e) {
     toast(e.message, 'err');

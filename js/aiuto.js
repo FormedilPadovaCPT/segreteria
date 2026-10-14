@@ -174,6 +174,9 @@ window.AIUTO_TESTI = {
   'tz-apri': 'Apre il test di verifica finale: ogni iscritto ha il suo codice personale.',
   'tz-codici': 'Mostra i codici personali: una copia per chi ha perso il biglietto.',
   'tz-biglietti': 'Scarica i biglietti dei codici personali, dieci per pagina: si ritagliano e se ne dà uno in mano a ciascuno. Il codice non sta più sul registro.',
+  /* firme: il riepilogo al Presidente (14/10/2026) */
+  'p:avvisa il presidente': "Manda al Presidente UNA mail con l'elenco di tutto quello che aspetta la sua firma nell'app, i nuovi segnati. A ogni richiesta di firma non gli parte niente: lo decidi tu da qui.",
+  'p:ricorda agli altri firmatari': "Rimanda la mail a Direttore, docenti e responsabili che hanno documenti da firmare. Il Presidente no: a lui va il riepilogo col suo pulsante.",
   'pq-apri': 'Apre le firme di presenza dal QR: nascono il codice del corso e un codice personale per ogni iscritto. Poi ristampa il registro: il QR è in copertina.',
   'pq-foglio': 'Stampa il foglio col QR delle firme da esporre in aula.',
   'pq-pubblica': 'Assegna il codice a chi non ce l\'ha e rimanda il corso al portale: senza, il QR non apre niente.',

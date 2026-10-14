@@ -23,8 +23,15 @@
 //              destinatario?, firmatari[]: { ruolo, email?, persona_id?,
 //              riquadro {pagina,x,y,w,h} }. Senza firmatari e col solo
 //              `riquadro`: il Presidente (compatibile con l'asseverazione).
-//              Avvisa il primo firmatario: mail + notifica 🔔.
-//   avvisa     (segreteria)  rimanda la mail a chi ha documenti in attesa.
+//              Avvisa il primo firmatario: mail + notifica 🔔 — TRANNE i
+//              ruoli «a raccolta» (s_config.firme_avviso_raccolto_ruoli,
+//              di norma il Presidente: 14/10/2026, chiesto dall'utente per
+//              non disturbarlo a ogni documento). Per loro la richiesta
+//              resta nel suo spazio firme e la mail la decide la segreteria.
+//   avvisa     (segreteria)  { email? } una mail sola con TUTTO quello che
+//              aspetta la firma di quell'indirizzo (il riepilogo). Senza
+//              email: a tutti quelli che hanno documenti in attesa, esclusi
+//              i ruoli a raccolta, che si avvisano solo per nome.
 //   firma      (firmatario)  firma la riga `id`; promuove la riga seguente.
 //   rimanda    (firmatario)  non firma, col motivo; la catena si ferma.
 //   ritira     (segreteria)  tutta la catena del documento esce dagli elenchi.
@@ -124,8 +131,19 @@ serve(async (req) => {
       'presidente_email', 'presidente_nome', 'presidente_firma_id',
       'direttore_email', 'direttore_nome', 'direttore_firma_id',
       'responsabile_formativo_email', 'responsabile_formativo_nome', 'responsabile_formativo_firma_id',
+      'firme_avviso_raccolto_ruoli',
     ])
     const conf: Conf = Object.fromEntries((cfg || []).map((r: Record<string, string>) => [r.chiave, r.valore]))
+    /* (14/10/2026) i ruoli che NON si avvisano a ogni richiesta: si accumula
+       e la segreteria manda un riepilogo quando decide. Chiave assente =
+       il Presidente; chiave vuota = nessuno (si torna alla mail subito). */
+    const raccolti = new Set(String(conf.firme_avviso_raccolto_ruoli ?? 'presidente')
+      .split(/[\s,;]+/).map((x) => x.trim().toLowerCase()).filter(Boolean))
+    const aRaccolta = (ruolo: unknown) => raccolti.has(String(ruolo || '').toLowerCase())
+    const inRaccolta = (a: string, ruolo: string) => ({
+      inviata: false, raccolto: true, a, ruolo,
+      motivo: `nessuna mail adesso: il documento aspetta nello spazio firme ${ruolo === 'presidente' ? 'del Presidente' : `(${descrizioneRuolo(ruolo)})`}, e il riepilogo lo manda la segreteria dal cruscotto`,
+    })
 
     /* chi può fare che cosa: l'errore di lettura vale «no» */
     const ruolo = async (fn: string, args?: Record<string, unknown>) => {
@@ -228,6 +246,7 @@ serve(async (req) => {
       if (!docs.length) return json({ error: 'Nessun documento indicato' }, 400)
       const fatti: Riga[] = []
       const daAvvisare = new Set<string>()
+      const perRiepilogo = new Map<string, string>()   // email → ruolo, i firmatari a raccolta
       for (const d of docs) {
         const tipo = String(d?.tipo || '')
         const rif = String(d?.rif || '').trim()
@@ -289,24 +308,30 @@ serve(async (req) => {
           file_originale: file, sha256_originale: impronta, riquadro: f.riquadro,
           firmatario_email: f.email, firmatario_ruolo: f.ruolo, ordine: i + 1,
           stato: i === 0 ? 'in_attesa' : 'in_coda', richiesta_da: io,
+          ...(i === 0 && aRaccolta(f.ruolo) ? { avviso_esito: ESITO_RACCOLTA } : {}),
         }))
         const { data: ins, error: eS } = await sb.from('s_firme').insert(righe).select('id, rif, ordine, firmatario_email, firmatario_ruolo, stato')
         if (eS) throw new Error('Richiesta non registrata: ' + eS.message)
         fatti.push(...(ins || []))
-        daAvvisare.add(firmatari[0].email)
+        if (aRaccolta(firmatari[0].ruolo)) perRiepilogo.set(firmatari[0].email, firmatari[0].ruolo)
+        else daAvvisare.add(firmatari[0].email)
       }
       const avvisi: Riga[] = []
       for (const email of daAvvisare) avvisi.push(await avvisaFirmatario(sb, conf, email))
+      for (const [email, rl] of perRiepilogo) avvisi.push(inRaccolta(email, rl))
       /* per chi chiama con un documento solo (le lettere), `avviso` è quello del primo firmatario */
       return json({ ok: true, richieste: fatti, avviso: avvisi[0] || { inviata: false, errore: 'nessuno da avvisare' }, avvisi })
     }
 
     if (azione === 'avvisa') {
-      const solo = String(corpo?.email || '').toLowerCase()
-      const { data: att, error } = await sb.from('s_firme').select('firmatario_email').eq('stato', 'in_attesa')
+      const solo = String(corpo?.email || '').trim().toLowerCase()
+      const { data: att, error } = await sb.from('s_firme').select('firmatario_email, firmatario_ruolo').eq('stato', 'in_attesa')
       if (error) return json({ ok: false, avviso: { inviata: false, errore: 'non sono riuscito a leggere l\'elenco: ' + error.message } })
-      const email = [...new Set((att || []).map((x: Riga) => String(x.firmatario_email).toLowerCase()))]
-        .filter((e) => !solo || e === solo)
+      /* senza indirizzo: tutti, ma non i ruoli a raccolta — quelli si avvisano
+         solo chiamandoli per nome (il pulsante «Avvisa il Presidente») */
+      const email = [...new Set(((att || []) as Riga[])
+        .filter((x) => solo ? String(x.firmatario_email).toLowerCase() === solo : !aRaccolta(x.firmatario_ruolo))
+        .map((x) => String(x.firmatario_email).toLowerCase()))]
       if (!email.length) return json({ ok: true, avviso: { inviata: false, errore: 'niente in attesa di firma' }, avvisi: [] })
       const avvisi: Riga[] = []
       for (const e of email) avvisi.push(await avvisaFirmatario(sb, conf, e))
@@ -423,16 +448,20 @@ serve(async (req) => {
     if (!agg?.length) return json({ error: 'Nel frattempo la richiesta è cambiata: ricarica la pagina.' }, 409)
 
     /* la catena: la riga seguente prende il PDF firmato come originale */
-    const { data: next } = await sb.from('s_firme').select('id, firmatario_email')
+    const { data: next } = await sb.from('s_firme').select('id, firmatario_email, firmatario_ruolo')
       .eq('tipo', r.tipo).eq('rif', r.rif).eq('ordine', Number(r.ordine) + 1).eq('stato', 'in_coda').maybeSingle()
     let seguente: Riga | null = null
     if (next) {
+      const raccolta = aRaccolta(next.firmatario_ruolo)
       const { error } = await sb.from('s_firme').update({
         stato: 'in_attesa', file_precedente: percorso, file_originale: percorso, sha256_originale: impronta,
-        richiesta_il: adesso.toISOString(),
+        richiesta_il: adesso.toISOString(), ...(raccolta ? { avviso_esito: ESITO_RACCOLTA } : {}),
       }).eq('id', next.id).eq('stato', 'in_coda')
       if (error) console.warn('catena, riga seguente:', error.message)
-      else seguente = { id: next.id, avviso: await avvisaFirmatario(sb, conf, String(next.firmatario_email).toLowerCase()) }
+      else {
+        const a = String(next.firmatario_email).toLowerCase()
+        seguente = { id: next.id, avviso: raccolta ? inRaccolta(a, String(next.firmatario_ruolo)) : await avvisaFirmatario(sb, conf, a) }
+      }
     }
     await avvisaSegreteria(sb, 'firma_fatta', aMano ? 'Firma a mano registrata' : `${nomeBreve(conf, r)} ha firmato`,
       `«${r.titolo}»${seguente ? ': passa alla firma seguente.' : ' è firmato: la versione firmata è pronta nell\'app.'}`, `firma-${id}`)
@@ -539,9 +568,11 @@ async function avvisaSegreteria(sb: any, evento: string, titolo: string, testo: 
    firma: un elenco solo, così più richieste insieme fanno una mail sola.
    Il testo si legge dal database: è la regola che permette l'invio
    automatico (eccezione 6 del 04/10/2026, estesa a tutti i firmatari). */
+const ESITO_RACCOLTA = 'in attesa del riepilogo: lo manda la segreteria'
+
 async function avvisaFirmatario(sb: any, conf: Conf, a: string) {
   const { data: att, error } = await sb.from('s_firme')
-    .select('id, titolo, destinatario, protocollo_id, richiesta_il, firmatario_ruolo, corso_id')
+    .select('id, titolo, destinatario, protocollo_id, richiesta_il, avviso_il, firmatario_ruolo, corso_id')
     .eq('stato', 'in_attesa').ilike('firmatario_email', a.replace(/[\\%_]/g, (c: string) => '\\' + c)).order('richiesta_il')
   if (error) return { inviata: false, a, errore: 'non sono riuscito a leggere l\'elenco: ' + error.message }
   const righe = (att || []) as Riga[]
@@ -566,6 +597,10 @@ async function avvisaFirmatario(sb: any, conf: Conf, a: string) {
   } catch (e) { console.warn('push firmatario:', (e as Error).message) }
 
   const una = righe.length === 1
+  /* nel riepilogo si segnano i documenti arrivati dopo l'ultimo avviso,
+     solo se ce ne sono anche di già segnalati (altrimenti sono tutti nuovi) */
+  const nuovo = (x: Riga) => !x.avviso_il || new Date(x.avviso_il) < new Date(x.richiesta_il)
+  const segnaNuovi = righe.some(nuovo) && righe.some((x) => !nuovo(x))
   const saluto = rl === 'presidente' ? 'Gentile Presidente,' : rl === 'direttore' ? 'Gentile Direttore,'
     : nome ? `Gentile ${nome},` : 'Gentile docente,'
   const lei = rl === 'presidente' || rl === 'direttore'
@@ -575,7 +610,7 @@ async function avvisaFirmatario(sb: any, conf: Conf, a: string) {
     una
       ? `c'è un documento che aspetta la ${lei ? 'sua' : 'tua'} firma:`
       : `ci sono ${righe.length} documenti che aspettano la ${lei ? 'sua' : 'tua'} firma:`,
-    righe.map((x) => `- ${x.titolo}${x.protocollo_id && codDi[x.protocollo_id] ? ` (Prot. ${codDi[x.protocollo_id]})` : ''}`).join('\n'),
+    righe.map((x) => `- ${x.titolo}${x.protocollo_id && codDi[x.protocollo_id] ? ` (Prot. ${codDi[x.protocollo_id]})` : ''}${segnaNuovi && nuovo(x) ? ' [nuovo]' : ''}`).join('\n'),
     '',
     `>>>> ✍️ Apri i documenti e firma (da firmare: ${DOVE[rl]}):`,
     PAGINA[rl],

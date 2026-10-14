@@ -33,7 +33,7 @@ test('le scritture passano dalle RPC e il PDF dalla funzione documenti-corso', (
 
 test('in firma: i firmatari li dice il PDF (delegato, poi RPF) e il registro delle firme fa il resto', () => {
   assert.match(src, /tipo: 'scheda_formativa', rif: `scheda:\$\{s\.id\}`, titolo: r\.titolo, nome_file: r\.nome_file, byte: r\.byte, firmatari: r\.firmatari,/);
-  assert.match(src, /import \{ chiediFirma \} from '\.\/firme\.js';/);
+  assert.match(src, /import \{ chiediFirma(, esitoAvvisi)? \} from '\.\/firme\.js';/);
 });
 
 test('solo i campi cambiati, e niente da salvare se non si tocca nulla', () => {

@@ -20,7 +20,7 @@
    ============================================================ */
 
 import { sb, $, esc, dataIt, toast, attendi, apriDrawer } from './core.js';
-import { chiediFirma } from './firme.js';
+import { chiediFirma, esitoAvvisi } from './firme.js';
 
 export const STATI_SCHEDA = { bozza: 'bozza', pronta: 'pronta per la firma', in_firma: 'in firma', firmata: 'firmata (vigente)', superata: 'superata' };
 const TIPI_ATT = { partecipazione: 'Partecipazione', frequenza: 'Regolare frequenza', frequenza_verifica: 'Frequenza + verifica finale' };
@@ -183,8 +183,7 @@ export async function mandaInFirmaProgetto(c) {
     const out = await chiediFirma([{ tipo: 'progetto_formativo', rif: `progetto:${c.id}`, corso_id: c.id, titolo: r.titolo, nome_file: r.nome_file, byte: r.byte, firmatari: r.firmatari }]);
     const { error } = await sb.rpc('corso_progetto_stato', { p_corso: c.id, p_stato: 'in_firma' });
     if (error) throw new Error('Firma chiesta, ma il progetto non è segnato «in firma»: ' + error.message);
-    const inviate = (out?.avvisi || []).filter((x) => x.inviata).map((x) => x.a);
-    toast(inviate.length ? `Progetto in firma: mail mandata a ${inviate.join(', ')}.` : `Progetto in firma, ma la mail non è partita: ${out?.avviso?.errore || 'motivo sconosciuto'}.`, inviate.length ? 'ok' : 'err');
+    toast(...esitoAvvisi(out, 'Progetto'));
     return true;
   } catch (e) { toast(e.message, 'err'); }
 }
@@ -197,8 +196,7 @@ export async function mandaInFirmaVerbale(c, v) {
     const out = await chiediFirma([{ tipo: 'verbale_verifica', rif: `verbale:${v.id}`, corso_id: c.id, titolo: r.titolo, nome_file: r.nome_file, byte: r.byte, firmatari: r.firmatari }]);
     const { error } = await sb.rpc('corso_verbale_stato', { p_id: v.id, p_stato: 'in_firma' });
     if (error) throw new Error('Firma chiesta, ma il verbale non è segnato «in firma»: ' + error.message);
-    const inviate = (out?.avvisi || []).filter((x) => x.inviata).map((x) => x.a);
-    toast(inviate.length ? `Verbale in firma: mail mandata a ${inviate.join(', ')}.` : `Verbale in firma, ma la mail non è partita: ${out?.avviso?.errore || 'motivo sconosciuto'}.`, inviate.length ? 'ok' : 'err');
+    toast(...esitoAvvisi(out, 'Verbale'));
     return true;
   } catch (e) { toast(e.message, 'err'); }
 }
@@ -233,8 +231,7 @@ export async function mandaInFirma(id) {
     }]);
     const { error } = await sb.rpc('scheda_stato', { p_id: s.id, p_stato: 'in_firma' });
     if (error) throw new Error('Firma chiesta, ma la scheda non è segnata «in firma»: ' + error.message);
-    const inviate = (out?.avvisi || []).filter((x) => x.inviata).map((x) => x.a);
-    toast(inviate.length ? `Scheda in firma: mail mandata a ${inviate.join(', ')}.` : `Scheda in firma, ma la mail non è partita: ${out?.avviso?.errore || 'motivo sconosciuto'}. Riprova da «Ricorda a chi deve firmare» nel cruscotto.`, inviate.length ? 'ok' : 'err');
+    toast(...esitoAvvisi(out, 'Scheda'));
     vistaTipologie();
   } catch (e) { toast(e.message, 'err'); }
 }
