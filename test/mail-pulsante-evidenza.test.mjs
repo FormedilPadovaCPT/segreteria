@@ -22,7 +22,7 @@ for (const f of ['visite', 'segnalazioni', 'consulenze', 'conferenze', 'presenze
   assert.match(leggi(`../js/${f}.js`), /^>>>> ✅ Apri la (pratica|richiesta) e autorizza/m, f);
 }
 assert.match(leggi('../js/cantieri-critici-doc.js'), /^>>>> ✅ Apri il caso e conferma/m);
-assert.match(leggi('../supabase/functions/approvazione-direttore/index.ts'), /'>>>> ✅ Apri i preventivi e approva/);
+assert.match(leggi('../supabase/functions/approvazione-direttore/index.ts'), /'>>>> ✅ Apri i documenti e approva/);
 // (13/10/2026) la riga è un template literal: porta la pagina del firmatario
 for (const f of ['firma-presidente', 'firma-documenti']) assert.match(leggi(`../supabase/functions/${f}/index.ts`), /[`']>>>> ✍️ Apri i documenti e firma/, f);
 

@@ -687,7 +687,7 @@ export async function render() {
           ? daAutorizzare.slice(0, 8).map(rigaPratica).join('') + (daAutorizzare.length > 8 ? `<p class="hint">…e altre ${daAutorizzare.length - 8}.</p>` : '')
           : quanteApprovazioni(approv) ? '' : '<p class="hint">Nessuna pratica da autorizzare.</p>')
         + righeApprovazioni(approv)
-        + (approv?.errore ? `<p class="hint" style="color:#a01f00">⚠ Non sono riuscito a leggere i preventivi di asseverazione: ${esc(approv.errore)}</p>` : ''),
+        + (approv?.errore ? `<p class="hint" style="color:#a01f00">⚠ Non sono riuscito a leggere i documenti di asseverazione da approvare: ${esc(approv.errore)}</p>` : ''),
         bottoneRicorda(approv), { k: 'direttore', nonLetto: nonLetti.has('servizi'), sempre: !!approv?.errore })}
 
       ${cardFirme(card, firme)}

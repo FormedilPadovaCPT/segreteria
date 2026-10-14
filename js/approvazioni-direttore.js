@@ -1,5 +1,7 @@
 /* ============================================================
    PREVENTIVI DI ASSEVERAZIONE NEL CRUSCOTTO (12/10/2026)
+   Dal 14/10/2026 anche programma 5.D.3 e piano 5.D.4 (tipi programma_assev,
+   piano_assev): stessa tessera, «da protocollare» guarda il documento giusto.
 
    Il preventivo 5.D.2 lo approva il Direttore nella pagina Direzione
    del gestionale, prima di numero, timbro e firma (eccezione 7). La
@@ -28,10 +30,11 @@ export async function datiApprovazioni() {
   /* approvato e non ancora protocollato: il passo dopo è della segreteria */
   let daProtocollare = tutte.filter((r) => r.stato === 'approvata');
   if (daProtocollare.length) {
-    const { data: prot, error: eP } = await sb.from('a_pratica_protocollo').select('pratica_id')
-      .eq('documento', 'preventivo').in('pratica_id', daProtocollare.map((r) => r.rif));
+    const DOC = { preventivo_assev: 'preventivo', programma_assev: 'programma', piano_assev: 'piano' };
+    const { data: prot, error: eP } = await sb.from('a_pratica_protocollo').select('pratica_id, documento')
+      .in('documento', ['preventivo', 'programma', 'piano']).in('pratica_id', daProtocollare.map((r) => r.rif));
     /* se non riesco a leggere i protocolli non li mostro: meglio una riga in meno che un «da protocollare» falso */
-    daProtocollare = eP ? [] : daProtocollare.filter((r) => !(prot || []).some((p) => p.pratica_id === r.rif));
+    daProtocollare = eP ? [] : daProtocollare.filter((r) => !(prot || []).some((p) => p.pratica_id === r.rif && p.documento === DOC[r.tipo]));
   }
   return {
     errore: null,
@@ -75,7 +78,7 @@ export function righeApprovazioni(a) {
 }
 
 export const bottoneRicorda = (a) => a && !a.errore && a.inAttesa.length
-  ? '<button class="btn btn-sm" type="button" id="hm-ad-ricorda">🔔 Ricorda al Direttore i preventivi</button>' : '';
+  ? '<button class="btn btn-sm" type="button" id="hm-ad-ricorda">🔔 Ricorda al Direttore i documenti da approvare</button>' : '';
 
 async function testoErrore(error) {
   try { const j = await error?.context?.json?.(); if (j?.error) return j.error; } catch { /* niente */ }
@@ -91,12 +94,12 @@ export function collegaApprovazioni(host, ricarica) {
   }));
   host.querySelector('#hm-ad-ricorda')?.addEventListener('click', async (ev) => {
     const b = ev.currentTarget;
-    if (!confirm('Rimando al Direttore la mail con tutti i preventivi che aspettano la sua approvazione?')) return;
+    if (!confirm('Rimando al Direttore la mail con tutti i documenti (preventivi, programmi, piani) che aspettano la sua approvazione?')) return;
     b.disabled = true;
     const { data, error } = await sb.functions.invoke('approvazione-direttore', { body: { azione: 'avvisa' } });
     b.disabled = false;
     if (error || data?.error) return toast('Non riuscito: ' + (data?.error || await testoErrore(error)), 'err');
     if (!data?.avviso?.inviata) return toast('La mail non è partita: ' + (data?.avviso?.errore || 'motivo sconosciuto'), 'err');
-    toast(`Mail mandata al Direttore (${data.avviso.documenti} preventivi in attesa).`, 'ok'); ricarica();
+    toast(`Mail mandata al Direttore (${data.avviso.documenti} documenti in attesa).`, 'ok'); ricarica();
   });
 }

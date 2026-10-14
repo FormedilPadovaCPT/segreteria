@@ -21,6 +21,10 @@
 //   rimanda   (Direttore)   non approva, con la nota che dice che cosa
 //             cambiare. Notifica 🔔 alla segreteria.
 //
+// Dal 14/10/2026 (chiesto dall'utente) passano di qui anche il PROGRAMMA 5.D.3
+// e il PIANO 5.D.4, che escono anch'essi a sua firma: tipi `programma_assev`
+// e `piano_assev`, stesso giro. I testi parlano di «documenti».
+//
 // Il PDF con timbro e firma lo genera poi l'app asseverazione quando si
 // protocolla, e solo se l'approvazione è viva e i dati del preventivo sono
 // ancora quelli approvati (impronta_dati). Approva solo il Direttore
@@ -51,7 +55,13 @@ const BUCKET = 'approvazioni-direttore'
 const MITTENTE_UFFICIALE = 'cpt@formedilpadova.it'
 const NOME_MITTENTE = 'Formedil Padova - Area Sicurezza e Salute'
 const PAGINA_DIREZIONE = 'https://formedilpadovacpt.github.io/gestionale-visite/?vista=direzione'
-const TIPI = ['preventivo_assev']
+const TIPI = ['preventivo_assev', 'programma_assev', 'piano_assev']
+/* come si chiama il documento nei testi: l'articolo serve per «il …» */
+const NOME_TIPO: Record<string, string> = {
+  preventivo_assev: 'il preventivo 5.D.2',
+  programma_assev: 'il programma di verifica 5.D.3',
+  piano_assev: 'il piano di verifica 5.D.4',
+}
 const MAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
 const IMPRONTA_RE = /^[0-9a-f]{64}$/
 
@@ -176,7 +186,7 @@ serve(async (req) => {
       }).eq('id', id).eq('stato', 'in_attesa').select('id')
       if (error) throw new Error(error.message)
       if (!agg?.length) return json({ error: 'Nel frattempo la richiesta è cambiata: ricarica la pagina.' }, 409)
-      await avvisaSegreteria(sb, 'approvazione_rimandata', 'Il Direttore ha rimandato un preventivo',
+      await avvisaSegreteria(sb, 'approvazione_rimandata', `Il Direttore ha rimandato ${NOME_TIPO[r.tipo] || 'un documento'}`,
         `«${r.titolo}»: c'è la sua nota nell'app.`, `approvazione-${id}`)
       return json({ ok: true })
     }
@@ -216,7 +226,7 @@ async function avvisaSegreteria(sb: any, evento: string, titolo: string, testo: 
    approvazione: un elenco solo, così più richieste insieme fanno una mail */
 async function avvisaDirettore(sb: any, conf: Record<string, string>, a: string) {
   const { data: att, error } = await sb.from('s_approvazioni_direttore')
-    .select('id, titolo, dettaglio, richiesta_il').eq('stato', 'in_attesa').order('richiesta_il')
+    .select('id, tipo, titolo, dettaglio, richiesta_il').eq('stato', 'in_attesa').order('richiesta_il')
   if (error) return { inviata: false, errore: 'non sono riuscito a leggere l\'elenco: ' + error.message }
   const righe = (att || []) as Riga[]
   if (!righe.length) return { inviata: false, errore: 'niente in attesa di approvazione' }
@@ -226,7 +236,7 @@ async function avvisaDirettore(sb: any, conf: Record<string, string>, a: string)
   try {
     await sb.rpc('push_accoda', {
       p_email: a, p_evento: 'approvazione_direttore',
-      p_titolo: righe.length === 1 ? 'Un preventivo da approvare' : `${righe.length} preventivi da approvare`,
+      p_titolo: righe.length === 1 ? 'Un documento da approvare' : `${righe.length} documenti da approvare`,
       p_testo: 'Li trovi nella pagina Direzione: si leggono e si approvano dall\'app.',
       p_url: './?vista=direzione', p_tag: 'approvazioni-direttore',
     })
@@ -247,19 +257,19 @@ async function avvisaDirettore(sb: any, conf: Record<string, string>, a: string)
     'Gentile Direttore,',
     '',
     una
-      ? 'c\'è un preventivo di asseverazione che aspetta la sua approvazione prima di uscire a sua firma:'
-      : `ci sono ${righe.length} preventivi di asseverazione che aspettano la sua approvazione prima di uscire a sua firma:`,
+      ? 'c\'è un documento di asseverazione che aspetta la sua approvazione prima di uscire a sua firma:'
+      : `ci sono ${righe.length} documenti di asseverazione che aspettano la sua approvazione prima di uscire a sua firma:`,
     righe.map(voce).join('\n'),
     '',
-    '>>>> ✅ Apri i preventivi e approva (da approvare: pagina Direzione del gestionale visite):',
+    '>>>> ✅ Apri i documenti e approva (da approvare: pagina Direzione del gestionale visite):',
     PAGINA_DIREZIONE,
     '',
-    'Si apre la bozza e si preme «Approvo». Se qualcosa non va, «Rimando» con due righe di nota lo riporta alla segreteria. Il preventivo prende il numero di protocollo, il timbro e la sua firma solo dopo l\'approvazione.',
+    'Si apre la bozza e si preme «Approvo». Se qualcosa non va, «Rimando» con due righe di nota lo riporta alla segreteria. Preventivo, programma e piano prendono il numero di protocollo, il timbro e la sua firma solo dopo l\'approvazione.',
     '',
     'Cordiali saluti.',
   ].join('\n')
-  const oggetto = oggettoUfficio(una ? `Un preventivo da approvare - alla c.a. del Direttore${nome ? ` ${nome}` : ''}`
-    : `${righe.length} preventivi da approvare - alla c.a. del Direttore${nome ? ` ${nome}` : ''}`)
+  const oggetto = oggettoUfficio(una ? `Un documento da approvare - alla c.a. del Direttore${nome ? ` ${nome}` : ''}`
+    : `${righe.length} documenti da approvare - alla c.a. del Direttore${nome ? ` ${nome}` : ''}`)
 
   const adesso = new Date().toISOString()
   try {
