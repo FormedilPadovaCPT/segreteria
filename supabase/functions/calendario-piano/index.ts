@@ -63,6 +63,31 @@ serve(async (req) => {
       .eq('pratica_id', praticaId)
   }
   try {
+    /* ── PROVA del permesso, senza toccare il calendario (14/10/2026) ──
+       Con l'intestazione X-Calendario-Prova = s_config.calendario_prova_token
+       (la chiamata dal database, come i giri automatici): si chiede a Google
+       il token con lo scope calendar.events e si legge che diritti ha
+       cptpd@did sul calendario del piano. Nessun evento creato. */
+    const gettoneProva = req.headers.get('X-Calendario-Prova') || ''
+    if (gettoneProva) {
+      const sbS = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
+      const { data: cfgP } = await sbS.from('s_config').select('chiave, valore').in('chiave', ['calendario_prova_token', 'piano_calendario_id'])
+      const c = Object.fromEntries(((cfgP || []) as Riga[]).map((r) => [r.chiave, r.valore]))
+      if (!c.calendario_prova_token || gettoneProva !== c.calendario_prova_token) return json({ error: 'accesso non autorizzato' }, 401)
+      const sa = JSON.parse(Deno.env.get('GOOGLE_SERVICE_ACCOUNT_JSON') || '{}')
+      let tok: string
+      try { tok = await getToken(sa, SCOPE_CALENDAR_EVENTS, SOGGETTO_ENTE) }
+      catch (e) { return json({ ok: false, scope: 'NON concesso', dettaglio: (e as Error).message }) }
+      const r = await fetch(`${API}/calendars/${encodeURIComponent(String(c.piano_calendario_id || ''))}/events?maxResults=1`, { headers: { Authorization: `Bearer ${tok}` } })
+      const j = await r.json().catch(() => ({}))
+      /* i diritti sul calendario si leggono con lo scope di lettura (già concesso per la bacheca) */
+      let tokL = ''
+      try { tokL = await getToken(sa, `${SCOPE_CALENDAR_EVENTS} https://www.googleapis.com/auth/calendar.readonly`, SOGGETTO_ENTE) } catch { /* resta vuoto */ }
+      const rl = tokL ? await fetch(`${API}/users/me/calendarList/${encodeURIComponent(String(c.piano_calendario_id || ''))}`, { headers: { Authorization: `Bearer ${tokL}` } }) : null
+      const jl = rl ? await rl.json().catch(() => ({})) : {}
+      return json({ ok: r.ok, scope: 'concesso', eventi_leggibili: r.ok, calendario: jl?.summary ?? null, diritti: jl?.accessRole ?? null, errore: r.ok ? null : (j?.error?.message ?? r.status) })
+    }
+
     const auth = req.headers.get('Authorization') || ''
     if (!auth.startsWith('Bearer ')) return json({ error: 'accesso non autorizzato' }, 401)
     const sbUtente = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_ANON_KEY')!, {
