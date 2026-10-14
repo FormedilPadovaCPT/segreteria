@@ -5,7 +5,7 @@
 // è provata in tests-db/42_lacune_fascicolo.sql.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 
@@ -21,8 +21,11 @@ const sqlServizi = leggi('../supabase/progetto-servizi/sql/2026_10_14_presenze_a
 const ricevi = leggi('../supabase/progetto-servizi/functions/questionari-ricevi/index.ts');
 const richieste = leggi('../supabase/functions/portale-richieste/index.ts');
 const dc = leggi('../supabase/functions/documenti-corso/index.ts');
-const portale = readFileSync(path.join(qui, '../../servizi/index.html'), 'utf8').replace(/\r\n/g, '\n');
-const docente = readFileSync(path.join(qui, '../../gestionale-visite/formazione-docente.js'), 'utf8').replace(/\r\n/g, '\n');
+// Portale e pagina del docente stanno nei repo servizi e gestionale-visite: ci sono solo dove i repo
+// sono affiancati (sul PC, non su GitHub). Se mancano, quelle prove si saltano.
+const fuori = (f) => { const p = path.join(qui, f); return existsSync(p) ? readFileSync(p, 'utf8').replace(/\r\n/g, '\n') : null; };
+const portale = fuori('../../servizi/index.html');
+const docente = fuori('../../gestionale-visite/formazione-docente.js');
 
 const { creaZip, crc32, sha256 } = await import(pathToFileURL(path.join(qui, '../js/zip.js')).href);
 
@@ -114,8 +117,7 @@ test('i biglietti dei codici: un PDF a sé, raggiungibile da firme e test; il re
   assert.doesNotMatch(pq + tst, /stampato accanto al nome sul registro: questa è solo/, 'i testi vecchi sono andati');
 });
 
-test('l\'anno di nascita: portale, cassetta, database dei due progetti, pagina del docente', () => {
-  /* portale: campo, controllo, chiamata, invio, informativa */
+test('l\'anno di nascita sul portale: campo, controllo, chiamata, invio, informativa', { skip: !portale && 'servizi non è accanto' }, () => {
   const pagina = portale.slice(portale.indexOf('id="page-presenza"'), portale.indexOf('id="page-testdocente"'));
   assert.match(pagina, /id="pz-anno" maxlength="4" inputmode="numeric"/);
   assert.match(pagina, /Informativa privacy \(Reg\. UE 2016\/679\)/, 'l\'informativa sulla pagina delle firme');
@@ -123,6 +125,14 @@ test('l\'anno di nascita: portale, cassetta, database dei due progetti, pagina d
   assert.match(portale, /f\.anno_nascita     = anno;/);
   assert.match(portale, /r\.data && r\.data\.anno_errato/);
   assert.doesNotMatch(pagina, /stampato accanto al tuo nome/);
+});
+
+test('l\'anno di nascita nella pagina del docente: il segno, e la conferma di gruppo lo salta', { skip: !docente && 'gestionale-visite non è accanto' }, () => {
+  assert.match(docente, /f\.anno_corrisponde === false \?/);
+  assert.match(docente, /!f\.fuori_orario && f\.anno_corrisponde !== false/);
+});
+
+test('l\'anno di nascita: cassetta e database dei due progetti', () => {
   /* la cassetta passa l'anno; il ricevitore accetta l'impronta «a» */
   assert.match(richieste, /p_anno: String\(d\.anno_nascita \?\? ''\)\.slice\(0, 8\),/);
   assert.match(richieste, /anno_dichiarato: r\.anno_dichiarato \?\? null, anno_corrisponde: r\.anno_corrisponde \?\? null,/);
@@ -137,9 +147,6 @@ test('l\'anno di nascita: portale, cassetta, database dei due progetti, pagina d
   assert.match(sqlServizi, /return jsonb_build_object\('trovato', false, 'anno_errato', true\);/);
   assert.match(sqlServizi, /drop function if exists public\.pres_che_cosa\(text, text, text\);/);
   assert.match(sqlServizi, /grant execute on function public\.pres_che_cosa\(text, text, text, text\) to anon/);
-  /* il docente vede il segno e la conferma di gruppo lo salta */
-  assert.match(docente, /f\.anno_corrisponde === false \?/);
-  assert.match(docente, /!f\.fuori_orario && f\.anno_corrisponde !== false/);
 });
 
 test('elenco dei docenti e traccia: due azioni di documenti-corso, lette col token di chi chiama', () => {

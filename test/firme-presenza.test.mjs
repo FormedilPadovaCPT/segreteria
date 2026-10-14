@@ -4,7 +4,7 @@
 // database in tests-db/39_firme_presenza.sql.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -20,7 +20,9 @@ const pubblica = leggi('../supabase/functions/questionari-pubblica/index.ts');
 const ricevi = leggi('../supabase/progetto-servizi/functions/questionari-ricevi/index.ts');
 const cassetta = leggi('../supabase/progetto-servizi/functions/portale-ricevi/index.ts');
 const richieste = leggi('../supabase/functions/portale-richieste/index.ts');
-const portale = readFileSync(path.join(qui, '../../servizi/index.html'), 'utf8').replace(/\r\n/g, '\n');
+// La pagina del portale sta nel repo servizi: c'è solo dove i repo sono affiancati (sul PC, non su GitHub).
+const filePortale = path.join(qui, '../../servizi/index.html');
+const portale = existsSync(filePortale) ? readFileSync(filePortale, 'utf8').replace(/\r\n/g, '\n') : null;
 
 test('la segreteria scrive solo attraverso le RPC: mai un update sulla tabella delle firme', () => {
   for (const r of ['pres_apri', 'pres_link', 'pres_conferma', 'pres_conferma_allievo', 'corso_codici_personali']) {
@@ -74,7 +76,7 @@ test('la regola entrata/uscita sta nel database, uguale sui due progetti, e la f
   assert.match(sql, /'pres_firma_qr'/, 'il flusso nel cruscotto «che cosa è stato usato»');
 });
 
-test('la pagina del portale: un pulsante solo, niente CF, senza rete si firma lo stesso', () => {
+test('la pagina del portale: un pulsante solo, niente CF, senza rete si firma lo stesso', { skip: !portale && 'servizi non è accanto' }, () => {
   assert.match(portale, /<div class="page" id="page-presenza">/);
   assert.match(portale, /presenza: \['Firma di presenza', ''\],/, 'in PAGE_TITLES');
   assert.match(portale, /_sb\.rpc\('apri_presenza', \{ p_codice: codice, p_firma: firma \}\)/);
