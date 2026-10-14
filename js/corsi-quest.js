@@ -45,6 +45,37 @@ function quandoChiude(iso) {
 }
 const chiuso = (iso) => !!iso && new Date(iso) <= new Date();
 
+/* «risponde dal» (14/10/2026): data e ora sempre all'italiana, fuso di Roma */
+function quandoRoma(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  const giorno = d.toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
+  const ora = d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Rome' });
+  return `${dataIt(giorno)} alle ${ora.replace(':', '.')}`;
+}
+/* il valore di un <input type="datetime-local"> per un istante, ora di Roma */
+function perInput(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Rome', year: 'numeric',
+    month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+    .formatToParts(d).map((x) => [x.type, x.value]));
+  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
+}
+/* da «2026-10-15T11:30» (ora di Roma) all'istante: il browser potrebbe non essere a Roma */
+function daInput(v) {
+  if (!v) return null;
+  const [g, o] = v.split('T');
+  if (!g || !o) return null;
+  for (const off of ['+02:00', '+01:00']) {
+    const d = new Date(`${g}T${o}:00${off}`);
+    if (perInput(d.toISOString()) === `${g}T${o}`) return d.toISOString();
+  }
+  return new Date(`${g}T${o}:00`).toISOString();
+}
+
 /* ── i dati: domande dell'evento, riepilogo, link ── */
 export async function datiQuest(c) {
   const [{ data: domande }, { data: riep }, { data: link }] = await Promise.all([
@@ -84,14 +115,21 @@ export function sezioneQuest(c, q, iscritti) {
       <div class="field" style="margin:0;min-width:240px"><label>Modello</label>
         <select id="qz-modello">${Object.entries(MODELLI).map(([k, l]) =>
           `<option value="${k}" ${modelloProposto(c) === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+      <div class="field" style="margin:0"><label>Risponde dal <span class="hint">(vuoto = subito)</span></label>
+        <input type="datetime-local" id="qz-apre"></div>
       <button class="btn btn-primary btn-sm" id="qz-apri">⭐ Apri il questionario</button>
-    </div>`;
+    </div>
+    <p class="hint" style="margin:6px 0 0">Con «Risponde dal» il codice e il QR nascono subito e si stampano,
+      ma il questionario si apre da solo a quell'ora (per esempio a fine incontro): prima, chi inquadra il QR
+      legge quando si apre.</p>`;
   }
 
   const r = q.riep || {};
   const l = q.link || {};
   const fine = l.chiuso_il || c.quest_chiuso_il;
   const eChiuso = chiuso(fine);
+  const apre = l.apre_il !== undefined ? l.apre_il : c.quest_apre_il;
+  const nonAncora = !!apre && !chiuso(apre);
   const pubblicato = !!c.quest_pubblicato_il;
 
   const rigaDom = (d) => `<tr>
@@ -107,6 +145,8 @@ export function sezioneQuest(c, q, iscritti) {
 
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
       <span class="dt-cella" style="padding:2px 8px"><strong class="num">${esc(c.quest_codice)}</strong></span>
+      ${nonAncora && !eChiuso ? `<span class="dt-cella" style="padding:2px 8px;background:#fff6f2"
+        title="Prima di quest'ora chi inquadra il QR legge quando si apre">si apre il ${quandoRoma(apre)}</span>` : ''}
       <span class="dt-cella ${eChiuso ? 'dt-scaduto' : 'dt-ok'}" style="padding:2px 8px">
         ${eChiuso ? 'chiuso il' : 'risponde fino al'} ${quandoChiude(fine)}</span>
       <span class="dt-cella" style="padding:2px 8px">tetto ${c.quest_tetto ?? '—'}</span>
@@ -130,6 +170,12 @@ export function sezioneQuest(c, q, iscritti) {
       compilato. La spunta sull'iscritto la metti tu — in blocco o riga per riga — ed è quella che apre la strada
       all'attestato. ⚠️ I due numeri non coincidono quasi mai, e non è un errore: chi compila su carta entra nelle
       risposte solo quando lo trascrivi.</p>
+
+    ${eChiuso ? '' : `<div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-bottom:10px">
+      <div class="field" style="margin:0"><label>Risponde dal <span class="hint">(vuoto = già adesso)</span></label>
+        <input type="datetime-local" id="qz-apre-cambia" value="${esc(perInput(apre))}"></div>
+      <button class="btn btn-ghost btn-sm" id="qz-apre-salva">🕒 Cambia l'apertura</button>
+    </div>`}
 
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
       <button class="btn btn-ghost btn-sm" id="qz-foglio">📄 Foglio col QR (PDF)</button>
@@ -156,18 +202,34 @@ export function collegaQuest(c, q, iscritti, ricarica) {
     apri.addEventListener('click', async (ev) => {
       const btn = ev.currentTarget;
       attendi(btn, true);
+      const apreIl = daInput($('#qz-apre')?.value || '');
       const { data, error } = await sb.rpc('quest_apri', {
-        p_corso_id: c.id, p_modello: $('#qz-modello').value, p_ore: 48, p_tetto: null,
+        p_corso_id: c.id, p_modello: $('#qz-modello').value, p_ore: 48, p_tetto: null, p_apre_il: apreIl,
       });
       attendi(btn, false);
       if (error) return toast(error.message, 'err');
       const r = Array.isArray(data) ? data[0] : data;
-      toast(`Questionario aperto: codice ${r?.codice}.`, 'ok');
+      toast(apreIl ? `Questionario pronto: codice ${r?.codice}, risponde dal ${quandoRoma(apreIl)}.`
+                   : `Questionario aperto: codice ${r?.codice}.`, 'ok');
       await pubblica(c, true);
       ricarica();
     });
     return;   // gli altri bottoni non ci sono ancora
   }
+
+  /* l'ora d'apertura si cambia anche dopo: la si scrive, poi si ripubblica,
+     perché è il portale a decidere se mostrare le domande */
+  body.querySelector('#qz-apre-salva')?.addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
+    const apreIl = daInput(body.querySelector('#qz-apre-cambia')?.value || '');
+    attendi(btn, true);
+    const { error } = await sb.rpc('quest_imposta_apertura', { p_corso_id: c.id, p_apre_il: apreIl });
+    if (error) { attendi(btn, false); return toast(error.message, 'err'); }
+    await pubblica(c, true);
+    attendi(btn, false);
+    toast(apreIl ? `Risponde dal ${quandoRoma(apreIl)}.` : 'Risponde da adesso.', 'ok');
+    ricarica();
+  });
 
   body.querySelector('#qz-pubblica')?.addEventListener('click', async (ev) => {
     const btn = ev.currentTarget;

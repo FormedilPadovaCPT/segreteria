@@ -48,6 +48,7 @@ async function sha256(testo: string): Promise<string> {
 type Pubblicazione = {
   codice: string; firma: string; titolo: string | null; genere: string
   quando: string | null; sede: string | null; chiuso_il: string | null
+  apre_il?: string | null   // solo il questionario: da quando risponde (14/10/2026)
   domande: { id: number; ordine: number; testo: string; tipo: string; opzioni: unknown[]; obbligatoria: boolean; tronco: boolean }[]
 }
 
@@ -182,7 +183,7 @@ serve(async (req) => {
           ? { ...comune, minuti: (p as Record<string, unknown>).minuti ?? null,
               soglia: (p as Record<string, unknown>).soglia ?? null,
               persone: (p as Record<string, unknown>).persone ?? [] }
-          : { ...comune, genere: p.genere })
+          : { ...comune, genere: p.genere, apre_il: p.apre_il ?? null })
       }
     }
     if (!righe.length) return json({ status: 'error', pubblicati: 0, saltati }, 400)

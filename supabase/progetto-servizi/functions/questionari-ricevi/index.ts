@@ -40,7 +40,8 @@ function uguali(a: string, b: string): boolean {
   return diff === 0
 }
 
-const CAMPI = new Set(['codice', 'firma_hash', 'titolo', 'genere', 'quando', 'sede', 'chiuso_il', 'domande'])
+/* apre_il (14/10/2026): da quando il questionario risponde; vuoto = subito */
+const CAMPI = new Set(['codice', 'firma_hash', 'titolo', 'genere', 'quando', 'sede', 'apre_il', 'chiuso_il', 'domande'])
 const CAMPI_TEST = new Set(['codice', 'firma_hash', 'titolo', 'quando', 'sede', 'chiuso_il', 'minuti', 'soglia', 'domande', 'persone'])
 const CAMPI_DOM_TEST = new Set(['id', 'ordine', 'testo', 'tipo', 'opzioni', 'punti'])
 /* le firme di presenza (13/10/2026): giornate con gli orari, persone come
@@ -90,6 +91,7 @@ function controlla(r: Record<string, unknown>): string | null {
   if (typeof r.genere !== 'string' || !GENERI.has(r.genere)) return `genere non previsto: ${String(r.genere)}`
   if (r.quando != null && !(typeof r.quando === 'string' && DATA.test(r.quando))) return 'quando non è una data'
   if (!testoO(r.sede, 200)) return 'sede non valida'
+  if (r.apre_il != null && !(typeof r.apre_il === 'string' && ISTANTE.test(r.apre_il))) return 'apre_il non è un istante'
   if (r.chiuso_il != null && !(typeof r.chiuso_il === 'string' && ISTANTE.test(r.chiuso_il))) return 'chiuso_il non è un istante'
   return controllaDomande(r.domande)
 }
