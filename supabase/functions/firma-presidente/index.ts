@@ -35,6 +35,12 @@
 //   firma      (firmatario)  firma la riga `id`; promuove la riga seguente.
 //   rimanda    (firmatario)  non firma, col motivo; la catena si ferma.
 //   ritira     (segreteria)  tutta la catena del documento esce dagli elenchi.
+//   accoda     (segreteria, 14/10/2026)  id = l'ULTIMA riga firmata di un
+//              documento: si aggiungono firmatari in coda alla catena
+//              (firmatari[] come in richiedi). Il primo firma il PDF già
+//              firmato. Serve alle lettere di incarico firmate dal
+//              Presidente prima che esistesse la firma del tecnico
+//              incaricato «per accettazione» (ruolo `incaricato`).
 //   autografa  (segreteria)  la riga `id` è stata firmata A MANO: la
 //              scansione caricata in autografe/… prende il posto della firma
 //              nell'app, con la data; la catena prosegue.
@@ -77,18 +83,20 @@ const NOME_MITTENTE = 'Formedil Padova - Area Sicurezza e Salute'
 const GESTIONALE = 'https://formedilpadovacpt.github.io/gestionale-visite/'
 const TIPI = ['incarico_assev', 'incarico_docenza', 'accettazione_incarico', 'scheda_formativa',
   'progetto_formativo', 'registro_giornata', 'registro_corso', 'verbale_verifica', 'documento']
-const RUOLI = ['presidente', 'direttore', 'rpf', 'docente']
+const RUOLI = ['presidente', 'direttore', 'rpf', 'docente', 'incaricato']
 const MAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
 
 /* dove ciascuno trova le sue firme, e come lo si chiama nella mail */
 const PAGINA: Record<string, string> = {
   presidente: `${GESTIONALE}?vista=direzione`, direttore: `${GESTIONALE}?vista=direzione`,
   rpf: `${GESTIONALE}?vista=formazione`, docente: `${GESTIONALE}?vista=formazione`,
+  incaricato: `${GESTIONALE}?vista=formazione`,
 }
 const DOVE: Record<string, string> = {
   presidente: 'pagina Presidenza del gestionale visite', direttore: 'pagina Direzione del gestionale visite',
   rpf: 'pagina Formazione del gestionale visite, sezione «Le mie firme»',
   docente: 'pagina Formazione del gestionale visite, sezione «Le mie firme»',
+  incaricato: 'pagina Formazione del gestionale visite, sezione «Le mie firme»',
 }
 
 const toB64Url = (s: string) => {
@@ -151,7 +159,7 @@ serve(async (req) => {
       return !error && data === true
     }
 
-    if (['richiedi', 'avvisa', 'ritira', 'autografa'].includes(azione)) {
+    if (['richiedi', 'avvisa', 'ritira', 'autografa', 'accoda'].includes(azione)) {
       if (!(await ruolo('is_segreteria'))) return json({ error: 'Le richieste di firma le gestisce la segreteria.' }, 403)
     } else if (!['firma', 'rimanda', 'accetta_incarico', 'firma_registro'].includes(azione)) {
       return json({ error: 'Azione non prevista' }, 400)
@@ -344,6 +352,53 @@ serve(async (req) => {
     if (eR) throw new Error('Non sono riuscito a leggere la richiesta: ' + eR.message)
     if (!r) return json({ error: 'Documento non trovato' }, 404)
 
+    /* ── firmatari in coda a una catena già firmata (14/10/2026) ── */
+    if (azione === 'accoda') {
+      if (r.stato !== 'firmata' || !r.file_firmato) return json({ error: 'Si accoda solo a un documento già firmato.' }, 409)
+      const { data: cat, error: eC } = await sb.from('s_firme').select('id, stato, ordine, firmatario_email')
+        .eq('tipo', r.tipo).eq('rif', r.rif).in('stato', ['in_coda', 'in_attesa', 'firmata'])
+      if (eC) throw new Error('Non riesco a leggere la catena: ' + eC.message)
+      if ((cat || []).some((x: Riga) => x.stato !== 'firmata')) return json({ error: 'Il documento ha ancora una firma in attesa.' }, 409)
+      if ((cat || []).some((x: Riga) => Number(x.ordine) > Number(r.ordine))) return json({ error: 'Questa non è l\'ultima firma del documento: ricarica la pagina.' }, 409)
+      const elenco = (Array.isArray(corpo?.firmatari) ? corpo.firmatari : []).slice(0, 4)
+      if (!elenco.length) return json({ error: 'Nessun firmatario da aggiungere.' }, 400)
+      const { data: blob, error: eD } = await sb.storage.from(BUCKET).download(r.file_firmato)
+      if (eD || !blob) throw new Error('Non trovo il documento firmato.')
+      const byte = new Uint8Array(await blob.arrayBuffer())
+      const pdf = await PDFDocument.load(byte)
+      const impronta = await sha256(byte)
+      const gia = new Set((cat || []).map((x: Riga) => String(x.firmatario_email).toLowerCase()))
+      const righe: Riga[] = []
+      for (const [i, f] of elenco.entries()) {
+        const rl = String(f?.ruolo || '')
+        if (!RUOLI.includes(rl)) throw new Error(`Ruolo del firmatario non previsto: «${rl}».`)
+        const q = f?.riquadro || {}
+        const rq = { pagina: Number(q.pagina), x: Number(q.x), y: Number(q.y), w: Number(q.w), h: Number(q.h) }
+        if (!Object.values(rq).every((n) => Number.isFinite(n)) || rq.pagina < 0 || rq.w <= 0 || rq.h <= 0 || rq.pagina >= pdf.getPageCount()) {
+          throw new Error(`Non so dove va la firma (${rl}) su «${r.titolo}».`)
+        }
+        const email = await emailFirmatario(sb, conf, rl, f)
+        if (!MAIL_RE.test(email)) throw new Error(`Non trovo l'indirizzo con cui ${descrizioneRuolo(rl)} entra nell'app.`)
+        if (gia.has(email)) throw new Error(`${email} ha già firmato questo documento.`)
+        gia.add(email)
+        righe.push({
+          tipo: r.tipo, rif: r.rif, titolo: r.titolo, destinatario: r.destinatario, protocollo_id: r.protocollo_id,
+          corso_id: r.corso_id, nome_file: r.nome_file, riquadro: rq, firmatario_email: email, firmatario_ruolo: rl,
+          ordine: Number(r.ordine) + 1 + i, richiesta_da: io,
+          ...(i === 0
+            ? { stato: 'in_attesa', file_originale: r.file_firmato, file_precedente: r.file_firmato, sha256_originale: impronta,
+                ...(aRaccolta(rl) ? { avviso_esito: ESITO_RACCOLTA } : {}) }
+            : { stato: 'in_coda', file_originale: r.file_firmato, sha256_originale: impronta }),
+        })
+      }
+      const { data: ins, error: eI } = await sb.from('s_firme').insert(righe).select('id, ordine, firmatario_email, firmatario_ruolo, stato')
+      if (eI) throw new Error('Firmatari non aggiunti: ' + eI.message)
+      const primo = righe[0]
+      const avviso = aRaccolta(primo.firmatario_ruolo) ? inRaccolta(String(primo.firmatario_email), String(primo.firmatario_ruolo))
+        : await avvisaFirmatario(sb, conf, String(primo.firmatario_email))
+      return json({ ok: true, richieste: ins || [], avviso, avvisi: [avviso] })
+    }
+
     if (azione === 'ritira') {
       /* tutta la catena di quel documento */
       const { data: cat } = await sb.from('s_firme').select('id, stato').eq('tipo', r.tipo).eq('rif', r.rif)
@@ -369,6 +424,8 @@ serve(async (req) => {
       const ok = rl === 'presidente' ? await ruolo('is_presidente')
         : rl === 'direttore' ? await ruolo('is_direttore')
         : rl === 'rpf' ? await ruolo('is_rpf')
+        /* il tecnico incaricato (14/10/2026): basta un accesso del personale, la riga è sua per indirizzo */
+        : rl === 'incaricato' ? await ruolo('is_personale')
         : r.corso_id ? await ruolo('is_docente_del_corso', { p_corso: r.corso_id })
         : (await ruolo('is_docente')) || (await ruolo('is_personale'))
       if (!ok) return json({ error: `Per firmare serve l'accesso di ${descrizioneRuolo(rl)}${r.corso_id ? ' di questo corso' : ''}.` }, 403)
@@ -475,7 +532,8 @@ serve(async (req) => {
 /* ── chi è il firmatario di un ruolo ─────────────────────────── */
 function descrizioneRuolo(rl: string) {
   return rl === 'presidente' ? 'il Presidente' : rl === 'direttore' ? 'il Direttore'
-    : rl === 'rpf' ? 'il responsabile del progetto formativo' : 'il docente'
+    : rl === 'rpf' ? 'il responsabile del progetto formativo'
+    : rl === 'incaricato' ? 'il tecnico incaricato' : 'il docente'
 }
 
 /* l'indirizzo con cui il firmatario entra nell'app */
@@ -524,7 +582,7 @@ async function immagineFirma(sb: any, conf: Conf, r: Riga): Promise<Uint8Array |
   let driveId = rl === 'presidente' ? conf.presidente_firma_id
     : rl === 'direttore' ? conf.direttore_firma_id
     : rl === 'rpf' ? conf.responsabile_formativo_firma_id : ''
-  if (rl === 'docente') {
+  if (rl === 'docente' || rl === 'incaricato') {
     const lett = email.replace(/[\\%_]/g, (c: string) => '\\' + c)
     const { data: t } = await sb.from('tecnici').select('firma_url').ilike('email', lett).limit(1)
     const url = String(t?.[0]?.firma_url || '')
@@ -608,8 +666,8 @@ async function avvisaFirmatario(sb: any, conf: Conf, a: string) {
     saluto,
     '',
     una
-      ? `c'è un documento che aspetta la ${lei ? 'sua' : 'tua'} firma:`
-      : `ci sono ${righe.length} documenti che aspettano la ${lei ? 'sua' : 'tua'} firma:`,
+      ? `c'è un documento che aspetta la ${lei ? 'sua' : 'tua'} firma${rl === 'incaricato' ? ' per accettazione' : ''}:`
+      : `ci sono ${righe.length} documenti che aspettano la ${lei ? 'sua' : 'tua'} firma${rl === 'incaricato' ? ' per accettazione' : ''}:`,
     righe.map((x) => `- ${x.titolo}${x.protocollo_id && codDi[x.protocollo_id] ? ` (Prot. ${codDi[x.protocollo_id]})` : ''}${segnaNuovi && nuovo(x) ? ' [nuovo]' : ''}`).join('\n'),
     '',
     `>>>> ✍️ Apri i documenti e firma (da firmare: ${DOVE[rl]}):`,
