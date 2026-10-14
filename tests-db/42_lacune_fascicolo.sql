@@ -1,5 +1,6 @@
 -- 42 — Le lacune del fascicolo digitale (14/10/2026): anno di nascita alla firma, elenco dei docenti,
--- traccia delle firme, dati e impronta del pacchetto. Dati INVENTATI. Transazione annullata.
+-- traccia delle firme, dati e impronta del pacchetto. Dati INVENTATI. Eseguita sul database il 14/10/2026 dentro una
+-- transazione annullata: tutti gli assert passano, nessun residuo.
 -- (A) la segreteria prepara il corso e pubblica; (B) il servizio registra tre firme come portale-richieste,
 -- con l'anno giusto, sbagliato e mancante; (C) la segreteria conferma in gruppo, legge elenco, traccia e
 -- dati, deposita il pacchetto.
