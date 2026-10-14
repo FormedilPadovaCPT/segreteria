@@ -8,7 +8,7 @@
 -- funzioni dell'impresa, attività), salva, stampa e lo fa firmare
 -- all'impresa in sede. La segreteria lo vede aggiornato, e le date vanno
 -- nel calendario Google «Direzione» di cptpd@did con promemoria, con l'RGV
--- invitato (deciso dall'utente lo stesso giorno: eccezione 10 alla regola
+-- invitato (deciso dall'utente lo stesso giorno: eccezione 11 alla regola
 -- «l'app prepara, la persona manda»).
 --
 -- Gli eventi li scrive la edge function `calendario-piano`, uno per giornata,

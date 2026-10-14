@@ -13,7 +13,7 @@
 //            righe nella descrizione), nel calendario `s_config.piano_calendario_id`
 //            (il «Direzione» di cptpd@did), con promemoria il giorno prima e
 //            un'ora prima. L'RGV è INVITATO: Google gli manda l'invito, e il
-//            ritiro se la giornata sparisce. ⚠️ È la DECIMA eccezione alla
+//            ritiro se la giornata sparisce. ⚠️ È la UNDICESIMA eccezione alla
 //            regola «l'app prepara, la persona manda», decisa dall'utente il
 //            14/10/2026: regge come le altre, il testo si legge tutto dal
 //            database.
