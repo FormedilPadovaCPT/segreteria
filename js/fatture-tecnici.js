@@ -184,7 +184,7 @@ async function renderMese(hostArg) {
   host.innerHTML = '<p class="empty">Un istante…</p>';
   const [anno, mese] = cursore.split('-').map(Number);
   const { da, a } = meseRange(anno, mese);
-  const [{ data: inc }, { data: vs }, { data: ff }, avv, fp] = await Promise.all([
+  const [{ data: inc }, { data: vs }, { data: ff }, avv, fp, aum] = await Promise.all([
     sb.from('s_incarichi_mensili').select('*').eq('anno', anno).eq('mese', mese).order('tecnico_nome'),
     sb.from('visite').select('tecnico_id, rlst_sn').gte('data_visita', da).lte('data_visita', a).or('elimina.is.null,elimina.neq.1'),
     sb.from('s_fatture_tecnici').select('id, incarico_mensile_id, numero, stato, importo').not('incarico_mensile_id', 'is', null),
@@ -193,10 +193,14 @@ async function renderMese(hostArg) {
     /* visite fuori procedura del mese, per tecnico (13/10/2026, chiesto dall'utente: «una colonna dopo le visite fatte»).
        Le approva solo il Coordinatore nel gestionale; qui la segreteria le vede. */
     sb.rpc('fp_riepilogo', { p_dal: da, p_al: a }),
+    /* visite del mese aumentate dal Coordinatore nel gestionale (16/10/2026) */
+    sb.from('s_incarichi_mensili_aumenti').select('incarico_id, da, a, motivo, fatto_il').eq('anno', anno).eq('mese', mese).order('fatto_il'),
   ]);
   const fpDi = {};
   for (const r of fp.data || []) fpDi[r.tecnico_id] = r;
   incarichiMese = inc || [];
+  const aumDi = {};
+  for (const r of aum.data || []) (aumDi[r.incarico_id] = aumDi[r.incarico_id] || []).push(r);
   const avvisoQui = (avv.data || []).find((x) => x.anno === anno && x.mese === mese) || null;
   const avvisoPrima = avvisoQui ? null : (avv.data || []).find((x) => x.anno * 100 + x.mese < anno * 100 + mese) || null;
   /* quante prestazioni del mese sono ancora senza fattura: un mese puo'
@@ -228,7 +232,8 @@ async function renderMese(hostArg) {
     return `<tr data-tec="${t.tecnico_id}">
       <td><strong>${esc(nomeTec(t))}</strong>${t.exTecnico ? ' <span class="hint">non più attivo</span>' : ''}${i?.area_zona ? ` <span class="hint">area ${esc(String(i.area_zona))}</span>` : ''}</td>
       <td>${i ? `n° ${i.id} · ${dataIt(i.data_lettera)}${i.lettera_protocollo_id ? ' · 📤' : ''}` : '<span class="hint">—</span>'}</td>
-      <td>${i ? `${i.cantieri_assegnati ?? 0}${i.seconde_visite ? ` +${i.seconde_visite} 2ª` : ''}${i.altro ? ` +${i.altro} altro` : ''}` : '—'}</td>
+      <td>${i ? `${i.cantieri_assegnati ?? 0}${i.seconde_visite ? ` +${i.seconde_visite} 2ª` : ''}${i.altro ? ` +${i.altro} altro` : ''}` : '—'}${i && aumDi[i.id]
+        ? ` <span class="hint" style="color:#2d7a06" title="${esc(aumDi[i.id].map((r) => `${dataIt(String(r.fatto_il).slice(0, 10))}: da ${r.da} a ${r.a} — ${r.motivo}`).join('\n'))}">↑ dal Coordinatore</span>` : ''}</td>
       <td><strong>${v.n}</strong> <span class="hint">RLST ${pct}%</span></td>
       <td>${fp.error ? '<span class="hint" style="color:var(--rosso,#c0392b)" title="' + esc(fp.error.message) + '">non lette</span>'
         : (fpDi[t.tecnico_id]?.n_fuori
@@ -401,7 +406,11 @@ function formIncarico(t, i) {
     const d = leggi();
     if (!d.data_lettera) return toast('Serve la data della lettera.', 'err');
     attendi(btn, true);
-    const q = i ? sb.from('s_incarichi_mensili').update(d).eq('id', i.id).select('*').single()
+    /* (16/10/2026) si salvano solo i campi cambiati: il Coordinatore può aumentare le visite dal
+       gestionale mentre questa maschera è aperta, e salvarla non deve rimettere il numero di prima */
+    const cambiati = i ? Object.fromEntries(Object.entries(d).filter(([k, v]) => k === 'aggiornato_da' || k === 'updated_at'
+      || JSON.stringify(v ?? null) !== JSON.stringify(i[k] ?? null))) : d;
+    const q = i ? sb.from('s_incarichi_mensili').update(cambiati).eq('id', i.id).select('*').single()
       : sb.from('s_incarichi_mensili').insert({ ...d, creato_da: state.email }).select('*').single();
     const { data: salvato, error } = await q;
     attendi(btn, false);
