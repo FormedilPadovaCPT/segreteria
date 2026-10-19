@@ -1239,3 +1239,15 @@ export function chiusuraRecupero(minutiRecupero, collegateOra) {
 }
 
 export const notaRecupero = (r) => `Richiesta n° ${r.id}${(r.banca_righe || []).length ? ` — recupera ID ${r.banca_righe.map((e) => e.id).join('+')}` : ''}`;
+
+/* ── 7. La riga «di cui» del permesso sindacale a ore (19/10/2026) ──
+   «Genera le righe» scrive nella griglia una riga col nome della causale in
+   maiuscolo. Per il permesso sindacale RSU e la riunione sindacale chiesti A ORE
+   (un giorno solo, ore scritte) quella riga è la quota «di cui» della giornata
+   (regola del 24/09): si mostra e non si somma. Le ore le scriveva poi la
+   segreteria a mano (22/09 e 24/09/2026, mezzo minuto dopo): ora le scrive l'app.
+   Per tutte le altre causali la riga resta a zero: «PERMESSO» o «RECUPERO» con
+   delle ore verrebbero SOMMATE come lavorate. */
+export const CAUSALI_DI_CUI = ['Permesso sindacale RSU', 'Riunione sindacale'];
+export const totaleRigaGenerata = (causale, oreMin, aOre) =>
+  (aOre && CAUSALI_DI_CUI.includes(causale) ? oreMin : 0);

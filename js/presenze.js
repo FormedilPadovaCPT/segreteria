@@ -32,7 +32,7 @@ import { MESI, mm2hm, eRipartizione, totaleOre, famigliaCausale, contaAttivita, 
   festivoDi, oreOrarioGiorno, giorniDaGenerare, causaleDaNota, incongruenzeMese, maturatoMesi, saldoAlMese,
   riscontroBusta, scadenzeFerie, CAUSALI_ASSENZA_GIORNO, CAUSALI_NON_SU_FESTIVO,
   righeDaRecuperare, proponiRighe, saldoPrimaDellaRichiesta, fotografiaBanca, bancaRichiesta, righeTestoBanca,
-  chiusuraRecupero, notaRecupero, minutiRichiesta } from './presenze-doc.js';
+  chiusuraRecupero, notaRecupero, minutiRichiesta, totaleRigaGenerata } from './presenze-doc.js';
 
 const CARTELLA_FOGLI = '2_AREE/Amministrazione/personale/fogli_presenze';
 const CARTELLA_RICHIESTE = '2_AREE/Amministrazione/personale/richieste_ferie_permessi';
@@ -1837,7 +1837,8 @@ async function generaRighe(r, btn) {
     }
   }
   /* un giorno solo con le ore scritte nella richiesta (un permesso di 2 ore): valgono quelle */
-  if (giorni.length === 1 && r.ore) giorni[0].ore_min = Math.round(Number(r.ore) * 60);
+  const aOre = giorni.length === 1 && !!r.ore;
+  if (aOre) giorni[0].ore_min = Math.round(Number(r.ore) * 60);
   const totale = giorni.reduce((t, g) => t + g.ore_min, 0);
   const festivi = tutti.filter((g) => /festivo/.test(g.salta || ''));
   const avvisoOre = r.ore && giorni.length > 1 && Math.round(Number(r.ore) * 60) !== totale
@@ -1849,7 +1850,7 @@ async function generaRighe(r, btn) {
   try {
     const nota = causale.toUpperCase();
     const { error: e1 } = await sb.from('s_presenze').insert(giorni.map((g) => ({
-      dipendente: r.dipendente, data: g.data, datore: 'CPT', tot_min: 0, note: nota, aggiornato_da: state.email,
+      dipendente: r.dipendente, data: g.data, datore: 'CPT', tot_min: totaleRigaGenerata(causale, g.ore_min, aOre), note: nota, aggiornato_da: state.email,
     })));
     if (e1) throw new Error(e1.message);
     /* le assenze nascono chiuse: non sono partite da saldare (prima nascevano aperte) */
