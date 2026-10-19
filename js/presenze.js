@@ -30,7 +30,9 @@ import { MESI, mm2hm, eRipartizione, totaleOre, famigliaCausale, contaAttivita, 
   MONTI_SALDO, CAUSALI_SALDO, godutoPerAnno, saldoMonte, oreInMinuti, oreCentesimi,
   GIORNI_ORARIO, orarioValido, misuraOrario, testoGiorni, totaleSaldi, giorniNumero, settimaneGiorni,
   festivoDi, oreOrarioGiorno, giorniDaGenerare, causaleDaNota, incongruenzeMese, maturatoMesi, saldoAlMese,
-  riscontroBusta, scadenzeFerie, CAUSALI_ASSENZA_GIORNO, CAUSALI_NON_SU_FESTIVO } from './presenze-doc.js';
+  riscontroBusta, scadenzeFerie, CAUSALI_ASSENZA_GIORNO, CAUSALI_NON_SU_FESTIVO,
+  righeDaRecuperare, proponiRighe, saldoPrimaDellaRichiesta, fotografiaBanca, bancaRichiesta, righeTestoBanca,
+  chiusuraRecupero, notaRecupero, minutiRichiesta } from './presenze-doc.js';
 
 const CARTELLA_FOGLI = '2_AREE/Amministrazione/personale/fogli_presenze';
 const CARTELLA_RICHIESTE = '2_AREE/Amministrazione/personale/richieste_ferie_permessi';
@@ -146,7 +148,7 @@ const totDaOrari = (e1, u1, e2, u2) => {
 async function caricaBase() {
   const [{ data: cfg }, { data: dd }] = await Promise.all([
     sb.from('s_config').select('chiave, valore').in('chiave', ['direttore_email', 'direttore_nome', 'direttore_firma_id',
-      'presenze_rsu_ore_mensili_indicative', 'presenze_rsu_nota_monte']),
+      'presenze_rsu_ore_mensili_indicative', 'presenze_rsu_nota_monte', 'amministrazione_email', 'amministrazione_nome']),
     sb.from('s_ferie_richieste').select('dipendente'),
   ]);
   conf = Object.fromEntries((cfg || []).map((r) => [r.chiave, r.valore]));
@@ -1423,6 +1425,95 @@ async function formSpettanze(annoIniz) {
   });
 }
 
+/* ══════════ RECUPERO: le ore da cui si scala (19/10/2026) ══════════
+   Rilievo del Direttore sulla richiesta n° 3: «manca il riferimento a quando
+   sono maturate le ore da scalare, oppure l'ammontare della banca ore». Le
+   righe si scelgono qui e la richiesta ne porta la fotografia (presenze-doc.js,
+   sezione 6), che leggono anche Direttore e Amministrazione. */
+async function leggiAperte(dip) {
+  const { data, error } = await sb.from('s_presenze_extra')
+    .select('id, data, causale, ore_min, pagato, chiuso, note').eq('dipendente', dip).eq('chiuso', false).order('data');
+  if (error) throw new Error(`non sono riuscito a leggere la banca ore (${error.message})`);
+  return data || [];
+}
+
+const idsScelti = (host) => [...host.querySelectorAll('input[data-riga]:checked')].map((i) => Number(i.dataset.riga));
+
+/* il riquadro con le ore supplementari ancora da recuperare, da spuntare.
+   richiesta() = la richiesta com'è adesso (nel modulo nuovo cambia mentre si
+   scrive); preferite = id già scelti, null = si propongono le più vecchie. */
+async function montaScelta(host, richiesta, preferite = null) {
+  host.dataset.ok = '';
+  host._aggiorna = null;
+  host.innerHTML = '<p class="hint">Leggo la banca ore…</p>';
+  const r = richiesta();
+  let aperte;
+  try { aperte = await leggiAperte(r.dipendente); } catch (e) {
+    host.innerHTML = `<p class="hint" style="color:#a01f00">⚠ ${esc(e.message)}: senza, la richiesta non dice da quali ore si recupera. Riprova.</p>`;
+    return;
+  }
+  const righe = righeDaRecuperare(aperte);
+  const scelti = preferite ?? proponiRighe(righe, minutiRichiesta(r));
+  host._banca = { righe, aperte };
+  host.innerHTML = `
+    <p class="hint" style="margin:0 0 4px">Ore supplementari di ${esc(r.dipendente)} ancora da recuperare. Si propone di scalare prima le più vecchie: si possono cambiare le spunte.</p>
+    ${righe.length ? righe.map((e) => `<label style="display:flex;gap:6px;align-items:flex-start;cursor:pointer;margin:2px 0">
+      <input type="checkbox" data-riga="${e.id}" ${scelti.includes(e.id) ? 'checked' : ''} style="width:auto;margin:3px 0 0">
+      <span><strong>${dataIt(e.data)}</strong> · ${mm2hm(e.ore_min)} <span class="hint">(riga ${e.id})${e.note ? ` — ${esc(e.note)}` : ''}</span></span></label>`).join('')
+      : '<p class="hint" style="margin:0">Nessuna ora supplementare da recuperare: sarebbe un recupero anticipato, di ore ancora da fare.</p>'}
+    <div class="dt-doc-riga" data-riepilogo style="margin-top:6px"></div>`;
+  host.dataset.ok = '1';
+  host.dataset.toccato = '';
+  host._aggiorna = () => {
+    const ora = richiesta();
+    /* finché le spunte non si toccano a mano, la proposta segue le ore scritte */
+    if (preferite == null && host.dataset.toccato !== '1') {
+      const proposta = proponiRighe(righe, minutiRichiesta(ora));
+      host.querySelectorAll('input[data-riga]').forEach((i) => { i.checked = proposta.includes(Number(i.dataset.riga)); });
+    }
+    const testo = righeTestoBanca(bancaRichiesta({ ...ora, ...fotoDa(host, ora) }));
+    host.querySelector('[data-riepilogo]').innerHTML = testo.map(esc).join('<br>');
+  };
+  host.querySelectorAll('input[data-riga]').forEach((i) => i.addEventListener('change', () => { host.dataset.toccato = '1'; host._aggiorna(); }));
+  host._aggiorna();
+}
+
+/* la fotografia da salvare sulla richiesta; null se la banca ore non si è letta */
+function fotoDa(host, r) {
+  if (host?.dataset.ok !== '1') return null;
+  return fotografiaBanca(host._banca.righe, idsScelti(host), saldoPrimaDellaRichiesta(host._banca.aperte, r));
+}
+
+/* nessuna riga spuntata, ma ce n'erano: lo si chiede, perché è un recupero anticipato */
+function confermaSenzaRighe(host) {
+  if (host?.dataset.ok !== '1' || idsScelti(host).length || !host._banca.righe.length) return true;
+  return confirm('Non hai spuntato nessuna riga di ore supplementari.\nÈ un recupero anticipato, di ore ancora da fare? (OK = sì, Annulla = torno a scegliere)');
+}
+
+/* dalla richiesta già creata: scegliere o cambiare le ore da scalare */
+function sceltaRigheRichiesta(r) {
+  apriDrawer(`Ore da scalare — richiesta n° ${r.id}`, '', `
+    <div id="sr-banca"></div>
+    ${r.aut_stato === 'richiesta' ? `<p class="hint" style="margin-top:8px">La mail al Direttore è già partita: il PDF allegato non ha queste righe,
+      ma lui le vede aprendo la richiesta nell'app. Se preferisci, rimandagli il modulo.</p>` : ''}
+    <button class="btn btn-primary" id="sr-salva" style="margin-top:10px">Salva le ore da scalare</button>`);
+  const host = $('#sr-banca');
+  montaScelta(host, () => r, r.banca_righe ? r.banca_righe.map((e) => e.id) : null);
+  $('#sr-salva').addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
+    const foto = fotoDa(host, r);
+    if (!foto) return toast('La banca ore non si è letta: niente da salvare. Riprova.', 'err');
+    if (!confermaSenzaRighe(host)) return;
+    attendi(btn, true);
+    const { error } = await sb.from('s_ferie_richieste').update({ ...foto, aggiornato_da: state.email, updated_at: new Date().toISOString() }).eq('id', r.id);
+    attendi(btn, false);
+    if (error) return toast('Salvataggio non riuscito: ' + error.message, 'err');
+    toast('Ore da scalare salvate sulla richiesta.', 'ok');
+    await renderFerie();
+    apriRichiesta(r.id);
+  });
+}
+
 function formRichiesta() {
   apriDrawer('Nuova richiesta ferie / permesso / recupero / ore supplementari', '', `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
@@ -1443,8 +1534,20 @@ function formRichiesta() {
         <input type="radio" name="fr-compenso" value="recupero" style="width:auto;margin:0"> Da recuperare <span class="hint" style="font-weight:400">— alimenta la banca ore</span></label>
       <label style="display:flex;gap:6px;align-items:center;cursor:pointer;font-weight:600;margin-top:3px">
         <input type="radio" name="fr-compenso" value="paga" style="width:auto;margin:0"> Da pagare <span class="hint" style="font-weight:400">— in busta paga</span></label></div>
+    <div class="field hidden" id="fr-banca-box" style="margin-top:8px"><label>Ore da cui si recupera</label><div id="fr-banca"></div></div>
     <div class="field" style="margin-top:8px"><label>Note (facoltative)</label><input id="fr-motivo"></div>
     <button class="btn btn-primary" id="fr-crea" style="margin-top:10px">Crea la richiesta</button>`);
+
+  /* recupero: le ore supplementari da cui si scala (19/10/2026) */
+  const bozza = () => ({ id: null, tipo: $('#fr-tipo').value, dipendente: $('#fr-dip').value,
+    data_inizio: $('#fr-da').value, data_fine: $('#fr-a').value || null, ore: $('#fr-ore').value || null });
+  const eRecupero = () => $('#fr-tipo').value === 'recupero';
+  const rimontaBanca = () => {
+    $('#fr-banca-box').classList.toggle('hidden', !eRecupero());
+    if (eRecupero()) montaScelta($('#fr-banca'), bozza);
+  };
+  ['#fr-tipo', '#fr-dip', '#fr-da', '#fr-a'].forEach((q) => $(q).addEventListener('change', rimontaBanca));
+  const aggiornaBanca = () => $('#fr-banca')._aggiorna?.();
 
   $('#fr-tipo').addEventListener('change', () => {
     /* ogni tipo ha il suo monte: il recupero attinge alla BANCA ORE e le due voci
@@ -1459,10 +1562,11 @@ function formRichiesta() {
   const calcolaOre = () => {
     const a = hm2min($('#fr-dalle').value); const b = hm2min($('#fr-alle').value);
     if (a != null && b != null && b > a && !$('#fr-ore').dataset.mano) $('#fr-ore').value = String(Math.round((b - a) / 30) / 2);
+    aggiornaBanca();
   };
   $('#fr-dalle').addEventListener('change', calcolaOre);
   $('#fr-alle').addEventListener('change', calcolaOre);
-  $('#fr-ore').addEventListener('input', () => { $('#fr-ore').dataset.mano = '1'; });
+  $('#fr-ore').addEventListener('input', () => { $('#fr-ore').dataset.mano = '1'; aggiornaBanca(); });
   $('#fr-crea').addEventListener('click', async (ev) => {
     const btn = ev.currentTarget;
     if (!$('#fr-da').value) return toast('Serve la data di inizio.', 'err');
@@ -1470,6 +1574,13 @@ function formRichiesta() {
     const compenso = document.querySelector('input[name="fr-compenso"]:checked')?.value || null;
     if (suppl && !compenso) return toast('Scegli se le ore saranno da recuperare o da pagare: è la scelta che va al Direttore.', 'err');
     if (suppl && !$('#fr-ore').value) return toast('Scrivi quante ore (o dalle/alle).', 'err');
+    const hostBanca = $('#fr-banca');
+    const foto = eRecupero() ? fotoDa(hostBanca, bozza()) : null;
+    if (eRecupero()) {
+      if (!$('#fr-ore').value) return toast('Scrivi quante ore si recuperano (o dalle/alle): servono per il saldo della banca ore.', 'err');
+      if (!foto && !confirm('La banca ore non si è letta: creo la richiesta senza dire da quali ore si recupera? Le potrai scegliere dopo.')) return;
+      if (foto && !confermaSenzaRighe(hostBanca)) return;
+    }
     attendi(btn, true);
     const { data: nuova, error } = await sb.from('s_ferie_richieste').insert({
       dipendente: $('#fr-dip').value,
@@ -1482,6 +1593,7 @@ function formRichiesta() {
       monte: suppl ? (compenso === 'recupero' ? 'banca_ore' : null) : $('#fr-monte').value,
       compenso: suppl ? compenso : null,
       motivo: $('#fr-motivo').value.trim() || null,
+      ...(foto || {}),
       aggiornato_da: state.email,
     }).select('*').single();
     attendi(btn, false);
@@ -1504,6 +1616,10 @@ export async function apriRichiesta(id) {
     state.email.toLowerCase() === conf.direttore_email.toLowerCase();
   const decisa = ['approvata', 'respinta'].includes(r.aut_stato);
   const saldoTxt = state.soloDirettore ? '' : await saldoRichiesta(r);
+  /* recupero: da quali ore si scala, dalla fotografia sulla richiesta — la
+     vede anche il Direttore, che le tabelle delle presenze non le legge */
+  const banca = bancaRichiesta(r);
+  const oraIt = (ts) => (ts ? new Date(ts).toLocaleString('it-IT', { timeZone: 'Europe/Rome', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '');
 
   apriDrawer(`Richiesta n° ${r.id} — ${etichettaTipo(r.tipo)} — ${r.dipendente}`, '', `
     <div class="dt-quadro-riga">
@@ -1519,7 +1635,14 @@ export async function apriRichiesta(id) {
       : `scalate da: <strong>${esc(etichettaMonte(r.monte))}</strong>`}</div>
     ${r.motivo ? `<div class="dt-doc-riga"><strong>Note:</strong> ${esc(r.motivo)}</div>` : ''}
     ${saldoTxt ? `<div class="dt-doc-riga"><strong>Saldo disponibile:</strong> ${esc(saldoTxt)}</div>` : ''}
+    ${banca ? `<div class="dt-doc-riga"${banca.scelte ? '' : ' style="color:#a01f00"'}><strong>Banca ore:</strong><br>${righeTestoBanca(banca).map(esc).join('<br>')}
+      ${banca.scelte && r.banca_fotografia_il ? `<br><span class="hint">Situazione della banca ore al ${esc(oraIt(r.banca_fotografia_il))}.</span>` : ''}
+      ${!decisa && !state.soloDirettore ? `<div style="margin-top:6px"><button class="btn btn-ghost btn-sm" id="fe-banca">⏱ ${banca.scelte ? 'Cambia' : 'Scegli'} le ore da scalare</button></div>` : ''}</div>` : ''}
     ${r.aut_note ? `<div class="dt-doc-riga"><strong>Note del Direttore:</strong> ${esc(r.aut_note)}</div>` : ''}
+    ${r.aut_stato === 'approvata' && !state.soloDirettore ? `<div class="dt-doc-riga"><strong>Riscontro Amministrazione:</strong> ${r.amm_visto_il
+      ? `<span class="dt-cella dt-ok" style="padding:1px 7px">presa visione</span> ${esc(r.amm_visto_nome || r.amm_visto_da || '')}, ${esc(oraIt(r.amm_visto_il))}`
+      : '<span class="dt-cella dt-senzadata" style="padding:1px 7px">da vedere</span> <span class="hint">la richiesta è nella pagina Amministrazione</span>'}
+      <div style="margin-top:6px"><button class="btn btn-ghost btn-sm" id="fe-amm">📧 Bozza per l'Amministrazione</button></div></div>` : ''}
 
     <hr style="margin:14px 0;border:0;border-top:1px solid var(--bordo)">
     ${decisa ? `
@@ -1561,6 +1684,8 @@ export async function apriRichiesta(id) {
   $('#fe-approva')?.addEventListener('click', (ev) => decidiRichiesta(r, 'approvata', ev.currentTarget));
   $('#fe-respingi')?.addEventListener('click', (ev) => decidiRichiesta(r, 'respinta', ev.currentTarget));
   $('#fe-genera')?.addEventListener('click', (ev) => generaRighe(r, ev.currentTarget));
+  $('#fe-banca')?.addEventListener('click', () => sceltaRigheRichiesta(r));
+  $('#fe-amm')?.addEventListener('click', (ev) => bozzaAmministrazione(r, ev.currentTarget));
   $('#fe-elimina')?.addEventListener('click', async () => {
     if (!confirm('Elimino la richiesta?')) return;
     await sb.from('s_ferie_richieste').delete().eq('id', r.id);
@@ -1573,6 +1698,8 @@ const nomeRichiesta = (r, conVisto) =>
   `${(r.created_at || oggiIso()).slice(0, 10).replace(/-/g, '_')}_RICH_${dipFile(r.dipendente)}_richiesta-${r.tipo}${conVisto ? '_visto' : ''}.pdf`;
 
 async function mandaAlDirettore(r, btn) {
+  const banca = bancaRichiesta(r);
+  if (banca && !banca.scelte && !confirm('La richiesta non dice da quali ore supplementari si recupera: il Direttore lo ha chiesto.\nPrepari lo stesso la mail? (Annulla = scegli prima le ore con «Scegli le ore da scalare»)')) return;
   attendi(btn, true, 'Preparo…');
   try {
     const { pdfRichiestaFerie } = await import('./presenze-doc.js');
@@ -1584,7 +1711,9 @@ async function mandaAlDirettore(r, btn) {
 
 in allegato la richiesta di ${etichettaTipo(r.tipo).toLowerCase()} n. ${r.id} di ${r.dipendente}:
 ${eSuppl(r) ? 'il giorno' : 'periodo'} ${dataIt(r.data_inizio)}${r.data_fine ? ` → ${dataIt(r.data_fine)}` : ''}${r.ora_dalle ? ` dalle ${hm(r.ora_dalle)} alle ${hm(r.ora_alle)}` : ''}${r.ore != null ? `, ${r.ore} ore` : ''}.${eSuppl(r) ? `
-Scelta del lavoratore: ${COMPENSO[r.compenso] || 'non indicata'}.` : ''}
+Scelta del lavoratore: ${COMPENSO[r.compenso] || 'non indicata'}.` : ''}${banca ? `
+
+${righeTestoBanca(banca).join('\n')}` : ''}
 
 >>>> ✅ Apri la richiesta e autorizza (richiesta da autorizzare: si apre direttamente nell'app):
 ${APP_URL}#ferie-${r.id}
@@ -1606,7 +1735,8 @@ ${FIRMA_SEGRETERIA}`,
 }
 
 async function decidiRichiesta(r, esito, btn) {
-  if (!confirm(`${esito === 'approvata' ? 'APPROVI' : 'RESPINGI'} la richiesta di ${r.tipo} n° ${r.id} di ${r.dipendente}? Il visto col tuo nome finisce nel modulo.`)) return;
+  const bancaTxt = righeTestoBanca(bancaRichiesta(r));
+  if (!confirm(`${esito === 'approvata' ? 'APPROVI' : 'RESPINGI'} la richiesta di ${etichettaTipo(r.tipo).toLowerCase()} n° ${r.id} di ${r.dipendente}? Il visto col tuo nome finisce nel modulo.${bancaTxt.length ? `\n\n${bancaTxt.join('\n')}` : ''}`)) return;
   const note = esito === 'respinta' ? (prompt('Motivo (facoltativo):') || null) : null;
   attendi(btn, true, 'Registro il visto…');
   try {
@@ -1690,6 +1820,22 @@ async function generaRighe(r, btn) {
   /* la causale scritta in banca ore è quella del tipo, identica ai valori che
      l'ufficio usa da sempre: è il testo su cui si contano i monti (RSU compreso) */
   const causale = tipoRic(r.tipo).causale;
+  /* RECUPERO GIÀ SCRITTO A MANO (19/10/2026): il recupero n° 3 era stato messo in
+     banca ore a mano prima del nulla osta. Generarlo di nuovo lo conterebbe due
+     volte: si collega quello che c'è. */
+  if (causale === 'Recupero') {
+    const { data: gia, error: errG } = await sb.from('s_presenze_extra').select('id, data, ore_min, note')
+      .eq('dipendente', r.dipendente).ilike('causale', 'recupero')
+      .gte('data', r.data_inizio).lte('data', r.data_fine || r.data_inizio);
+    if (errG) return toast('Non sono riuscito a controllare se il recupero è già in banca ore: righe non create. Riprova.', 'err');
+    const aMano = (gia || []).filter((e) => !/Richiesta n° \d+/.test(e.note || ''));
+    if (aMano.length) {
+      if (!confirm(`In banca ore c'è già un recupero scritto a mano: ${aMano.map((e) => `${dataIt(e.data)} ${mm2hm(e.ore_min)} (riga ${e.id})`).join(', ')}.`
+        + '\nLo collego a questa richiesta invece di crearne un altro?'
+        + '\n(Annulla = non creo niente: se quella riga è un altro recupero, correggila prima nella Banca ore.)')) return;
+      return collegaRecuperoEsistente(r, aMano, btn);
+    }
+  }
   /* un giorno solo con le ore scritte nella richiesta (un permesso di 2 ore): valgono quelle */
   if (giorni.length === 1 && r.ore) giorni[0].ore_min = Math.round(Number(r.ore) * 60);
   const totale = giorni.reduce((t, g) => t + g.ore_min, 0);
@@ -1707,18 +1853,104 @@ async function generaRighe(r, btn) {
     })));
     if (e1) throw new Error(e1.message);
     /* le assenze nascono chiuse: non sono partite da saldare (prima nascevano aperte) */
-    const { error: e2 } = await sb.from('s_presenze_extra').insert(giorni.map((g) => ({
+    const { data: nuove, error: e2 } = await sb.from('s_presenze_extra').insert(giorni.map((g) => ({
       dipendente: r.dipendente, data: g.data, causale, ore_min: g.ore_min,
-      chiuso: famigliaCausale(causale) !== 'banca', note: `Richiesta n° ${r.id}`, aggiornato_da: state.email,
-    })));
+      chiuso: famigliaCausale(causale) !== 'banca', note: causale === 'Recupero' ? notaRecupero(r) : `Richiesta n° ${r.id}`, aggiornato_da: state.email,
+    }))).select('id');
     if (e2) throw new Error(e2.message);
     await sb.from('s_ferie_richieste').update({
       righe_generate: true, aggiornato_da: state.email, updated_at: new Date().toISOString(),
     }).eq('id', r.id);
-    toast(`${giorni.length} giorni creati in presenze e banca ore.`, 'ok');
+    const partite = causale === 'Recupero' ? ' ' + await chiudiPartite(r, totale, (nuove || []).map((x) => x.id)) : '';
+    toast(`${giorni.length} giorni creati in presenze e banca ore.${partite}`, 'ok');
     chiudiDrawer();
     await renderFerie();
   } catch (e) { toast(e.message, 'err'); } finally { attendi(btn, false); }
+}
+
+/* Il recupero era già in banca ore, scritto a mano: gli si aggiunge in nota il
+   riferimento alla richiesta e alle righe scalate (la nota non si riscrive, si
+   allunga) e si chiudono le partite. Nessuna riga nuova in presenze: il giorno
+   ha già la sua. */
+async function collegaRecuperoEsistente(r, righe, btn) {
+  attendi(btn, true, 'Collego…');
+  try {
+    for (const e of righe) {
+      const { error } = await sb.from('s_presenze_extra').update({
+        note: [e.note, notaRecupero(r)].filter(Boolean).join(' — '), aggiornato_da: state.email, updated_at: new Date().toISOString(),
+      }).eq('id', e.id);
+      if (error) throw new Error(error.message);
+    }
+    const { error: eR } = await sb.from('s_ferie_richieste').update({
+      righe_generate: true, aggiornato_da: state.email, updated_at: new Date().toISOString(),
+    }).eq('id', r.id);
+    if (eR) throw new Error(eR.message);
+    const tot = righe.reduce((t, e) => t + (e.ore_min || 0), 0);
+    toast(`Recupero collegato alla richiesta. ${await chiudiPartite(r, tot, righe.map((e) => e.id))}`, 'ok');
+    chiudiDrawer();
+    await renderFerie();
+  } catch (e) { toast(e.message, 'err'); } finally { attendi(btn, false); }
+}
+
+/* Chiude le partite come si faceva in Access («ID 1248+1246»): le ore
+   supplementari scalate diventano «recuperate» con la data del recupero, e il
+   recupero si chiude. Solo se le righe collegate sono ancora aperte e valgono
+   esattamente il recupero; altrimenti resta tutto aperto e si dice perché (il
+   saldo è giusto lo stesso: si calcola sulle righe aperte). */
+async function chiudiPartite(r, minutiRecupero, idsRecupero) {
+  const ids = (r.banca_righe || []).map((e) => e.id);
+  if (!ids.length) return 'Nessuna ora supplementare collegata: il recupero resta aperto in banca ore.';
+  const { data: ora, error } = await sb.from('s_presenze_extra').select('id, ore_min, pagato, chiuso').in('id', ids);
+  if (error) return `Non sono riuscito a rileggere le ore collegate: partite lasciate aperte (${error.message}).`;
+  if ((ora || []).length !== ids.length) return 'Una delle righe collegate non c’è più: partite lasciate aperte, da chiudere a mano.';
+  const esito = chiusuraRecupero(minutiRecupero, ora);
+  if (!esito.chiudi) return `Partite lasciate aperte: ${esito.motivo}. Si chiudono a mano dalla Banca ore.`;
+  const il = r.data_fine || r.data_inizio;
+  const adesso = new Date().toISOString();
+  const { error: e1 } = await sb.from('s_presenze_extra').update({ recuperato: true, recuperato_il: il, chiuso: true, aggiornato_da: state.email, updated_at: adesso }).in('id', ids);
+  if (e1) return `Partite lasciate aperte: ${e1.message}.`;
+  const { error: e2 } = await sb.from('s_presenze_extra').update({ chiuso: true, aggiornato_da: state.email, updated_at: adesso }).in('id', idsRecupero);
+  if (e2) return `Ore supplementari chiuse, ma il recupero è rimasto aperto: ${e2.message}. Chiudilo a mano dalla Banca ore.`;
+  return `Partite chiuse: righe ${ids.join('+')} recuperate il ${dataIt(il)}.`;
+}
+
+/* IL RISCONTRO PER L'AMMINISTRAZIONE (19/10/2026, rilievo del Direttore: «Patrizia
+   non ha alcuna documentazione di riscontro»). La richiesta approvata è nella sua
+   pagina; questa è la bozza che glielo dice, col modulo col visto allegato e il
+   link che apre la richiesta. La manda una persona. */
+async function bozzaAmministrazione(r, btn) {
+  attendi(btn, true, 'Preparo…');
+  try {
+    const allegati = [];
+    if (r.aut_drive_id) allegati.push({ nome: nomeRichiesta(r, true), byte: await leggiByte(r.aut_drive_id) });
+    const banca = bancaRichiesta(r);
+    const nulla = r.aut_modalita === 'cartacea'
+      ? `Il nulla osta del Direttore è stato dato su carta${r.data_autorizzazione ? ` il ${dataIt(r.data_autorizzazione)}` : ''}: l'originale firmato ve lo consegno.`
+      : `Nulla osta del Direttore dall'app${r.data_autorizzazione ? ` il ${dataIt(r.data_autorizzazione)}` : ''}: il modulo col visto è in allegato.`;
+    scaricaEml({
+      to: conf.amministrazione_email || 'amministrazione@formedilpadova.it',
+      oggetto: `Richiesta ${etichettaTipo(r.tipo).toLowerCase()} n. ${r.id} approvata - ${r.dipendente} - alla c.a. ${conf.amministrazione_nome || "dell'Amministrazione"}`,
+      corpo: `Buongiorno,
+
+per il registro presenze: la richiesta di ${etichettaTipo(r.tipo).toLowerCase()} n. ${r.id} di ${r.dipendente} è approvata.
+${eSuppl(r) ? 'Il giorno' : 'Periodo'} ${dataIt(r.data_inizio)}${r.data_fine && r.data_fine !== r.data_inizio ? ` → ${dataIt(r.data_fine)}` : ''}${r.ora_dalle ? ` dalle ${hm(r.ora_dalle)} alle ${hm(r.ora_alle)}` : ''}${r.ore != null ? `, ${r.ore} ore` : ''}.
+${eSuppl(r) ? `Scelta del lavoratore: ${COMPENSO[r.compenso] || 'non indicata'}.` : `Scalate da: ${etichettaMonte(r.monte)}.`}${banca ? `
+
+${righeTestoBanca(banca).join('\n')}` : ''}
+
+${nulla}
+
+>>>> ✍️ Apri la richiesta e prendi visione (si apre nell'app Segreteria, nella vostra pagina):
+${APP_URL}#ferie-${r.id}
+
+Cordiali saluti.
+
+${FIRMA_SEGRETERIA}`,
+      allegati,
+      nomeFile: `richiesta-${r.tipo}-${r.id}-amministrazione.eml`,
+    });
+    toast("Bozza per l'Amministrazione scaricata: aprila da Outlook e premi Invia.", 'ok');
+  } catch (e) { toast('Bozza non preparata: ' + e.message, 'err'); } finally { attendi(btn, false); }
 }
 
 /* ore supplementari approvate: UN movimento in banca ore, con la scelta del lavoratore.

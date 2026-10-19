@@ -238,6 +238,12 @@ window.AIUTO_TESTI = {
   'fe-pdf': 'Scarica il modulo della richiesta in PDF.',
   'fe-manda': 'Prepara modulo e mail per il Direttore, dall\'app.',
   'fe-approva': 'Registra l\'approvazione del Direttore.',
+  'fe-banca': 'Sceglie da quali ore supplementari si recupera: Direttore e Amministrazione le vedono sulla richiesta, col saldo prima e dopo.',
+  'sr-salva': 'Salva sulla richiesta le ore scalate e il saldo della banca ore di adesso.',
+  'fe-amm': 'Prepara la bozza per l\'Amministrazione col modulo col visto e il link alla richiesta: l\'invio resta a te.',
+  'fe-amm-primo': 'Apre la richiesta approvata più vecchia ancora da prendere in visione.',
+  'fa-visto': 'L\'Amministrazione registra di aver visto la richiesta approvata: resta scritto con data e ora.',
+  'fa-pdf': 'Apre il modulo della richiesta col visto del Direttore.',
 
   /* ── documenti tecnici, comunicazione ── */
   'dt-avviso': 'Prepara la bozza mail al tecnico per il documento in scadenza.',

@@ -678,6 +678,15 @@ export async function pdfRichiestaFerie(r, visto, firmaByte, saldoTesto) {
   c.campo('Per totale ore', r.ore != null ? String(r.ore) : '—');
   /* il saldo del monte prima e dopo la richiesta, per il nulla osta (02/10/2026) */
   if (saldoTesto) c.campo('Saldo disponibile', saldoTesto);
+  /* recupero: da quali ore supplementari si scala e il saldo della banca ore
+     (19/10/2026, rilievo del Direttore). I caratteri fuori dal font standard no. */
+  const banca = bancaRichiesta(r);
+  if (banca) {
+    c.stato.y -= 2;
+    c.scrivi('Banca ore', c.bold, 10, c.nero);
+    for (const t of righeTestoBanca(banca)) c.scrivi(t.replace(/⚠\s*/g, 'ATTENZIONE: '), c.font, 9, c.nero);
+    c.stato.y -= 4;
+  }
   if (r.motivo) c.campo('Note', r.motivo);
   c.stato.y -= 4;
   /* il recupero attinge alla BANCA ORE e non scala i monti del contratto
@@ -1123,3 +1132,110 @@ function sezioneSaldi(c, titolo, saldi) {
   c.scrivi('Da confrontare col «RESIDUO TOT.» del riquadro «Riposi» della busta dello stesso mese.', c.italic, 7.5, c.grigio);
 }
 
+
+/* ── 6. RECUPERO: da quali ore si scala (19/10/2026) ──
+   Dai due rilievi del Direttore sulla richiesta n° 3: «manca il riferimento a
+   quando sono maturate le ore da scalare, oppure l'ammontare della banca ore».
+   Il vecchio modulo di carta lo scriveva a mano («ID 1207 un'ora effettuata il
+   16.02.2026»), l'app no. Ora la richiesta porta una FOTOGRAFIA delle righe di
+   ore supplementari da cui si recupera e del saldo (colonne banca_righe e
+   banca_saldo_prima_min): sta sulla richiesta perché il Direttore e
+   l'Amministrazione le tabelle delle presenze non le leggono.
+   banca_righe null = mai scelte; [] = scelto di non collegarne nessuna
+   (recupero anticipato di ore «da effettuarsi», come prevedeva il modulo). */
+
+const eSupplCausale = (c) => /suppl|straord/i.test(String(c || ''));
+const eRecuperoCausale = (c) => /recupero/i.test(String(c || ''));
+export const minutiRichiesta = (r) => (r?.ore != null && r.ore !== '' ? Math.round(Number(r.ore) * 60) : null);
+
+/* le ore supplementari ancora da recuperare, dalla più vecchia: aperte e non pagate */
+export function righeDaRecuperare(aperte) {
+  return (aperte || [])
+    .filter((e) => !e.chiuso && !e.pagato && eSupplCausale(e.causale) && (e.ore_min || 0) > 0)
+    .sort((a, b) => String(a.data).localeCompare(String(b.data)) || (a.id || 0) - (b.id || 0));
+}
+
+/* proposta: le più vecchie, finché coprono le ore chieste (si scala prima ciò che è maturato prima) */
+export function proponiRighe(righe, minuti) {
+  const ids = [];
+  let coperti = 0;
+  for (const e of righe || []) {
+    if (minuti != null && coperti >= minuti) break;
+    ids.push(e.id);
+    coperti += e.ore_min || 0;
+  }
+  return ids;
+}
+
+/* Il saldo della banca ore PRIMA di questa richiesta. Se il recupero è già
+   stato scritto a mano in banca ore (succede: il 19/10/2026 la riga 1283 è
+   nata prima del nulla osta), quella riga non si conta, altrimenti il «prima»
+   sarebbe già il «dopo». Si escludono i recuperi aperti nei giorni della
+   richiesta che non appartengono a un'altra richiesta. */
+export function saldoPrimaDellaRichiesta(aperte, r) {
+  const da = r.data_inizio; const a = r.data_fine || r.data_inizio;
+  let saldo = 0;
+  for (const e of aperte || []) {
+    if (e.chiuso) continue;
+    if (eSupplCausale(e.causale)) { if (!e.pagato) saldo += e.ore_min || 0; continue; }
+    if (!eRecuperoCausale(e.causale)) continue;
+    const altra = String(e.note || '').match(/Richiesta n° (\d+)/);
+    const suoGiorno = e.data >= da && e.data <= a;
+    if (altra ? Number(altra[1]) === Number(r.id) : suoGiorno) continue;
+    saldo -= e.ore_min || 0;
+  }
+  return saldo;
+}
+
+export function fotografiaBanca(righe, ids, saldoPrimaMin) {
+  const scelte = (righe || []).filter((e) => (ids || []).includes(e.id));
+  return {
+    banca_righe: scelte.map((e) => ({ id: e.id, data: e.data, ore_min: e.ore_min || 0, note: e.note || null })),
+    banca_saldo_prima_min: Math.round(saldoPrimaMin || 0),
+    banca_fotografia_il: new Date().toISOString(),
+  };
+}
+
+/* quello che si legge sulla richiesta, nel PDF, nella mail e nella pagina
+   dell'Amministrazione: tutto dalla fotografia, niente letture */
+export function bancaRichiesta(r) {
+  if (!r || r.tipo !== 'recupero') return null;
+  const chiesti = minutiRichiesta(r);
+  if (r.banca_righe == null) return { scelte: false, chiesti, righe: [], coperti: 0, prima: null, dopo: null };
+  const righe = r.banca_righe || [];
+  const coperti = righe.reduce((t, e) => t + (e.ore_min || 0), 0);
+  const prima = r.banca_saldo_prima_min ?? null;
+  return { scelte: true, chiesti, righe, coperti, prima, dopo: prima != null && chiesti != null ? prima - chiesti : null };
+}
+
+const corta = (t, n = 70) => { const s = String(t || '').replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
+
+export function righeTestoBanca(b) {
+  if (!b) return [];
+  if (!b.scelte) return ['⚠ La richiesta non dice da quali ore supplementari si recupera.'];
+  const out = [];
+  if (b.prima != null) out.push(`Banca ore da recuperare: prima di questa richiesta ${mm2hm(b.prima)}${b.dopo != null ? `, dopo ${mm2hm(b.dopo)}` : ''}`);
+  if (!b.righe.length) out.push('Recupero anticipato: nessuna ora supplementare da recuperare collegata (le ore si maturano dopo).');
+  for (const e of b.righe) out.push(`Si scalano le ore supplementari del ${dataIt(e.data)}: ${mm2hm(e.ore_min)} (riga ${e.id})${e.note ? ` — «${corta(e.note)}»` : ''}`);
+  if (b.righe.length && b.chiesti != null && b.coperti !== b.chiesti) {
+    out.push(b.coperti < b.chiesti
+      ? `⚠ Le righe scelte coprono ${mm2hm(b.coperti)} su ${mm2hm(b.chiesti)}: il resto è un recupero anticipato.`
+      : `Le righe scelte valgono ${mm2hm(b.coperti)}, il recupero ${mm2hm(b.chiesti)}: ne resta una parte da recuperare.`);
+  }
+  return out;
+}
+
+/* A recupero registrato si chiudono le partite, come in Access («ID 1248+1246»):
+   solo se le righe collegate sono ancora aperte e coprono esattamente le ore
+   del recupero. Altrimenti si lascia tutto aperto: il saldo resta giusto lo
+   stesso, perché si calcola sulle righe aperte. */
+export function chiusuraRecupero(minutiRecupero, collegateOra) {
+  const righe = collegateOra || [];
+  if (!righe.length) return { chiudi: false, motivo: 'nessuna riga collegata' };
+  if (righe.some((e) => e.chiuso || e.pagato)) return { chiudi: false, motivo: 'una delle righe collegate non è più aperta' };
+  const tot = righe.reduce((t, e) => t + (e.ore_min || 0), 0);
+  if (tot !== minutiRecupero) return { chiudi: false, motivo: `le righe collegate valgono ${mm2hm(tot)}, il recupero ${mm2hm(minutiRecupero)}` };
+  return { chiudi: true, motivo: null };
+}
+
+export const notaRecupero = (r) => `Richiesta n° ${r.id}${(r.banca_righe || []).length ? ` — recupera ID ${r.banca_righe.map((e) => e.id).join('+')}` : ''}`;

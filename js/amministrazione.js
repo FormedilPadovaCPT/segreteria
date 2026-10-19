@@ -22,11 +22,20 @@
    L'Amministrazione vede solo le fatture che stanno in un mandato: le
    fatture in stand-by, e il loro motivo, restano fuori (le policy lo
    impongono, non questa pagina).
+
+   (19/10/2026) Anche le RICHIESTE DI FERIE, PERMESSI E RECUPERI APPROVATE,
+   in sola lettura, con la presa visione (s_ferie_presa_visione). Rilievo del
+   Direttore: «Patrizia non ha alcuna documentazione di riscontro». Prima il
+   modulo col visto andava solo su Drive. La policy sgr_ferie_amm_sel le fa
+   vedere solo approvate; da quali ore si scala un recupero sta sulla
+   richiesta stessa (fotografia), perché le presenze l'Amministrazione non le
+   legge.
    ============================================================ */
 
 import { sb, state, $, esc, dataIt, toast, attendi, apriDrawer, esercizioDi } from './core.js';
 import { risolviCartella, creaCartella, leggiByte } from './drive.js';
 import { MESI, euro } from './fatture-tecnici-doc.js';
+import { bancaRichiesta, righeTestoBanca } from './presenze-doc.js';
 
 const CARTELLA_FATTURE = '2_AREE/Amministrazione/fatture/tecnici';
 
@@ -86,10 +95,11 @@ export async function render() {
   const host = $('#amministrazione-host');
   host.innerHTML = '<p class="empty">Un istante…</p>';
   const amm = await eAmministrazione();
-  const [{ data: mm, error }, { data: ff }] = await Promise.all([
+  const [{ data: mm, error }, { data: ff }, { data: fe, error: errFe }] = await Promise.all([
     sb.from('s_mandati_pagamento').select('*').order('id', { ascending: false }).limit(120),
     sb.from('s_fatture_tecnici').select('id, mandato_id, tecnico_nome, stato, importo, avviso_pagamento_il, pagata_il')
       .not('mandato_id', 'is', null).order('id'),
+    sb.from('s_ferie_richieste').select('*').eq('aut_stato', 'approvata').order('id', { ascending: false }).limit(80),
   ]);
   if (error) { host.innerHTML = `<p class="empty">Non riesco a leggere i mandati: ${esc(error.message)}</p>`; return; }
   const perMandato = {};
@@ -120,6 +130,9 @@ export async function render() {
   /* (12/10/2026, chiesto da Patrizia) il pulsante della presa visione si vedeva poco: in cima alla
      pagina un avviso grande che apre il mandato più vecchio ancora da firmare */
   const primo = daVedere[daVedere.length - 1];
+  const ferie = fe || [];
+  const ferieDaVedere = ferie.filter((r) => !r.amm_visto_il);
+  const primaFerie = ferieDaVedere[ferieDaVedere.length - 1];
   host.innerHTML = `
     ${amm && primo ? `<div class="mp-firma-box">
       <div class="mp-firma-testo"><span class="mp-freccia" aria-hidden="true">👉</span>
@@ -135,9 +148,85 @@ export async function render() {
     <h4 style="margin:14px 0 6px">💰 Da pagare (${daPagare.length})</h4>
     ${tabella(daPagare, 'Nessun mandato da pagare.')}
     <h4 style="margin:14px 0 6px">✅ Pagati (${pagati.length})</h4>
-    ${tabella(pagati.slice(0, 40), 'Nessun mandato pagato.')}`;
+    ${tabella(pagati.slice(0, 40), 'Nessun mandato pagato.')}
+    <h4 style="margin:22px 0 6px">🏖 Ferie, permessi e recuperi approvati</h4>
+    ${amm && primaFerie ? `<div class="mp-firma-box">
+      <div class="mp-firma-testo"><span class="mp-freccia" aria-hidden="true">👉</span>
+        <span>${ferieDaVedere.length === 1 ? 'C’è <strong>1 richiesta approvata</strong>' : `Ci sono <strong>${ferieDaVedere.length} richieste approvate</strong>`} da prendere in visione per il registro presenze.</span></div>
+      <button class="btn btn-primary mp-firma-btn" id="fe-amm-primo">✍️ Apri ${ferieDaVedere.length === 1 ? 'la richiesta' : 'la prima'}</button>
+    </div>` : ''}
+    <p class="hint" style="margin:0 0 6px">Le richieste del personale con il nulla osta del Direttore: modulo col visto e, per i recuperi,
+      da quali ore supplementari si scala e il saldo della banca ore. Sono il riscontro per il registro presenze.</p>
+    ${errFe ? `<p class="empty">⚠ Non sono riuscito a leggere le richieste approvate: ${esc(errFe.message)}. Riprovate.</p>` : tabellaFerie(ferie)}`;
   host.querySelectorAll('tr[data-m]').forEach((tr) => tr.addEventListener('click', () => dettaglioMandato(Number(tr.dataset.m))));
+  host.querySelectorAll('tr[data-fe]').forEach((tr) => tr.addEventListener('click', () => dettaglioFerie(Number(tr.dataset.fe))));
   $('#mp-apri-primo')?.addEventListener('click', () => dettaglioMandato(primo.id));
+  $('#fe-amm-primo')?.addEventListener('click', () => dettaglioFerie(primaFerie.id));
+}
+
+/* ══════════ richieste di ferie, permessi e recuperi approvate ══════════ */
+
+const TIPO_FERIE = {
+  ferie: 'Ferie', permesso: 'Permesso', permesso_rsu: 'Permesso sindacale RSU', riunione_sindacale: 'Riunione sindacale',
+  legge104: 'Permesso legge 104/92', recupero: 'Recupero', supplementari: 'Ore supplementari',
+};
+const MONTE_FERIE = {
+  ferie: 'Ferie', permessi: 'Permessi retribuiti (contratto)', permessi_rsu: 'Permessi sindacali RSU',
+  permessi_sindacali: 'Permessi sindacali', legge104: 'Permessi legge 104/92', banca_ore: 'Banca ore (recupero)',
+};
+const periodoFerie = (r) => `${dataIt(r.data_inizio)}${r.data_fine && r.data_fine !== r.data_inizio ? ' → ' + dataIt(r.data_fine) : ''}`
+  + `${r.ora_dalle ? ` dalle ${String(r.ora_dalle).slice(0, 5)} alle ${String(r.ora_alle || '').slice(0, 5)}` : ''}`;
+
+function tabellaFerie(righe) {
+  return `<div class="table-wrap"><table class="tbl" style="min-width:0">
+    <thead><tr><th>N°</th><th>Dipendente</th><th>Tipo</th><th>Periodo</th><th>Ore</th><th>Nulla osta</th><th>Presa visione</th></tr></thead>
+    <tbody>${righe.map((r) => `<tr data-fe="${r.id}" style="cursor:pointer">
+      <td><strong>${r.id}</strong></td><td>${esc(r.dipendente)}</td><td>${esc(TIPO_FERIE[r.tipo] || r.tipo)}</td>
+      <td>${esc(periodoFerie(r))}</td><td>${r.ore ?? '—'}</td>
+      <td>${r.data_autorizzazione ? dataIt(r.data_autorizzazione) : ''}${r.aut_modalita === 'cartacea' ? ' ✍️ carta' : ''}</td>
+      <td>${r.amm_visto_il ? pill('dt-ok', dataIt(String(r.amm_visto_il).slice(0, 10))) : pill('dt-senzadata', 'da vedere')}</td></tr>`).join('')
+      || '<tr><td colspan="7" class="empty">Nessuna richiesta approvata.</td></tr>'}</tbody></table></div>`;
+}
+
+export async function dettaglioFerie(id) {
+  const amm = await eAmministrazione();
+  const { data: r, error } = await sb.from('s_ferie_richieste').select('*').eq('id', id).eq('aut_stato', 'approvata').maybeSingle();
+  if (error) return toast('Non riesco a leggere la richiesta: ' + error.message, 'err');
+  if (!r) return toast('Richiesta non trovata, o non ancora approvata dal Direttore.', 'err');
+  const banca = bancaRichiesta(r);
+  apriDrawer(`Richiesta n° ${r.id} — ${TIPO_FERIE[r.tipo] || r.tipo} — ${r.dipendente}`, '', `
+    ${amm && !r.amm_visto_il ? `<div class="mp-firma-box">
+      <div class="mp-firma-testo"><span class="mp-freccia" aria-hidden="true">👉</span>
+        <span>Richiesta approvata dal Direttore: guardate i dati e il modulo, poi registrate la <strong>presa visione</strong>.</span></div>
+      <button class="btn btn-primary mp-firma-btn" id="fa-visto">✍️ Prendo visione</button>
+    </div>` : ''}
+    <div class="dt-doc-riga"><strong>Periodo:</strong> ${esc(periodoFerie(r))}</div>
+    <div class="dt-doc-riga"><strong>Ore:</strong> ${r.ore ?? '—'} — ${r.tipo === 'supplementari'
+      ? `scelta del lavoratore: <strong>${r.compenso === 'paga' ? 'da pagare in busta paga' : r.compenso === 'recupero' ? 'da recuperare (banca ore)' : 'non indicata'}</strong>`
+      : `scalate da: <strong>${esc(MONTE_FERIE[r.monte] || r.monte || '—')}</strong>`}</div>
+    ${banca ? `<div class="dt-doc-riga"><strong>Banca ore:</strong><br>${righeTestoBanca(banca).map(esc).join('<br>')}</div>` : ''}
+    ${r.motivo ? `<div class="dt-doc-riga"><strong>Note:</strong> ${esc(r.motivo)}</div>` : ''}
+    <div class="dt-doc-riga"><strong>Nulla osta:</strong> del Direttore${r.data_autorizzazione ? `, il ${dataIt(r.data_autorizzazione)}` : ''}${r.aut_modalita === 'app' ? ' dall’app' : ''}
+      ${r.aut_modalita === 'cartacea' ? ' — <span class="hint">su carta: l’originale firmato lo consegna la segreteria</span>' : ''}</div>
+    <div class="dt-doc-riga"><strong>Presa visione:</strong> ${r.amm_visto_il
+      ? `${pill('dt-ok', 'vista')} ${esc(r.amm_visto_nome || '')}, ${oraIt(r.amm_visto_il)} <span class="hint">(${esc(r.amm_visto_da || '')})</span>`
+      : pill('dt-senzadata', 'da fare')}</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin:10px 0">
+      ${r.aut_drive_id ? '<button class="btn btn-ghost btn-sm" id="fa-pdf">📄 Modulo col visto (PDF)</button>' : ''}
+    </div>
+    ${!amm && !r.amm_visto_il ? '<p class="hint">La presa visione la mette l’Amministrazione dal suo accesso.</p>' : ''}`);
+  $('#fa-pdf')?.addEventListener('click', (ev) => apriPdf(r.aut_drive_id, ev.currentTarget));
+  $('#fa-visto')?.addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
+    if (!confirm(`Confermate la presa visione della richiesta n° ${r.id} di ${r.dipendente}?`)) return;
+    attendi(btn, true, 'Registro…');
+    const { error: e } = await sb.rpc('s_ferie_presa_visione', { p_id: r.id });
+    attendi(btn, false);
+    if (e) return toast('Presa visione: ' + e.message, 'err');
+    toast('Presa visione registrata.', 'ok');
+    dettaglioFerie(r.id);
+    if (state.vistaCorrente === 'amministrazione') render();
+  });
 }
 
 /* ══════════ dettaglio ══════════ */

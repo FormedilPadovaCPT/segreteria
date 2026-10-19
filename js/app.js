@@ -383,7 +383,12 @@ try {
         $$('.nav-item').forEach((b) => { if (b.dataset.view !== 'amministrazione') b.style.display = 'none'; });
         $$('.nav-sep').forEach((s) => { s.style.display = 'none'; });
         if (hashPratica?.[1] === 'mandato') await apriDaHash();
-        else await vaiA('amministrazione');
+        else if (hashPratica?.[1] === 'ferie') {
+          /* la bozza «richiesta approvata» porta #ferie-<id> (19/10/2026): all'Amministrazione
+             si apre nella sua pagina, in sola lettura, con la presa visione */
+          await vaiA('amministrazione');
+          await (await import('./amministrazione.js')).dettaglioFerie(Number(hashPratica[2]));
+        } else await vaiA('amministrazione');
       } else if (soloDirettore) {
         /* il Direttore vede solo le pratiche da autorizzare: le altre
            viste sono comunque chiuse dalle policy del database */
