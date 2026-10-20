@@ -3,7 +3,8 @@
 --   · lo stato è quello della lista valida alla DATA DELLA VISITA; chi non è in lista è «Non in lista», non C.E.I.V.;
 --   · la foto non si riscrive e non si cancella (regola d'oro 7); si sposta solo impresa_id (unioni);
 --   · risalvando un definitivo le imprese già fotografate restano com'erano, quella aggiunta prende la sua foto;
---   · prima della prima lista conservata non si scrive niente (si potrà riempire caricando le liste vecchie);
+--   · senza lista alla data: per il 2025-26 (dal 01/10/2025) la foto prende lo stato attuale, dichiarato
+--     (riferimento 'stato_attuale', decisione dell'utente del 20/10/2026); prima del 2025-26 non si scrive niente;
 --   · un tecnico la legge ma non la scrive e non chiama le funzioni;
 --   · fra due posizioni C.E.I.V. della stessa impresa (unione di schede) vale la migliore;
 --   · eliminando il verbale la foto va via con lui.
@@ -47,7 +48,8 @@ begin
   update public.visite set stato = 'definitivo' where visita_id = 'TEST-CF-1';
   select * into f from public.visite_cassa_foto where visita_id = 'TEST-CF-1' and impresa_id = i_att;
   assert found and f.stato = 'Attiva' and f.iscritta_ceiv and f.fonte = 'lista' and f.modo = 'chiusura'
-         and f.lista_del is not null and f.data_visita = current_date,
+         and f.lista_del is not null and f.data_visita = current_date
+         and f.riferimento = 'data_visita' and f.stato_al = current_date,
     'impresa attiva in lista: foto sbagliata ' || coalesce(row_to_json(f)::text, 'assente');
   select * into f from public.visite_cassa_foto where visita_id = 'TEST-CF-1' and impresa_id = i_non;
   assert found and f.stato = 'Non in lista' and not f.iscritta_ceiv and f.fonte = 'anagrafica',
@@ -96,6 +98,23 @@ begin
   assert c.fonte = 'nessuna' and c.stato is null and c.nota like '%non ricostruibile%', 'prima della lista: ' || row_to_json(c)::text;
   assert (select da_foto from public.v_visite_cassa where visita_id = 'TEST-CF-2') = false, 'vista: senza foto vale lo stato di oggi';
 
+  -- 6b. 2025-26 senza lista alla data: stato attuale, dichiarato, e fermo come le altre
+  insert into public.visite (visita_id, nr_verbale, data_visita, tecnico_id, cantiere_id, impresa_id, stato)
+  values ('TEST-CF-3', 'TEST/CF/3', date '2025-11-15', tid, cid, i_att, 'bozza');
+  perform public.salva_figli_verbale('TEST-CF-3', '[]'::jsonb, '[]'::jsonb,
+    jsonb_build_array(jsonb_build_object('impresa_id', i_att, 'is_principale', true, 'ordine', 0)));
+  update public.visite set stato = 'definitivo' where visita_id = 'TEST-CF-3';
+  select * into f from public.visite_cassa_foto where visita_id = 'TEST-CF-3';
+  assert found and f.riferimento = 'stato_attuale' and f.stato_al = current_date and f.stato = 'Attiva' and f.iscritta_ceiv
+         and f.nota like 'STATO ATTUALE, NON ALLA DATA DELLA VISITA%',
+    '2025-26 senza lista: foto con lo stato attuale dichiarato ' || coalesce(row_to_json(f)::text, 'assente');
+  assert (select alla_data_visita from public.v_visite_cassa where visita_id = 'TEST-CF-3') = false, 'vista: alla_data_visita deve essere falso';
+  ok := false;
+  begin update public.visite_cassa_foto set riferimento = 'data_visita' where visita_id = 'TEST-CF-3';
+  exception when insufficient_privilege then ok := true; end;
+  assert ok, 'il riferimento si è lasciato riscrivere';
+  delete from public.visite where visita_id = 'TEST-CF-3';
+
   -- 7. due posizioni C.E.I.V. della stessa impresa (unione dell'08/10/2026): vale la migliore
   if exists (select 1 from public.imprese_cassa_storico where impresa_id = '01835800267' and stato = 'Cessata')
      and exists (select 1 from public.imprese_cassa_storico where impresa_id = '01835800267' and stato = 'Attiva' and attuale) then
@@ -131,6 +150,10 @@ begin
   begin perform public.cassa_stato_al('X', current_date);
   exception when insufficient_privilege then ok := true; end;
   assert ok, 'un tecnico ha potuto chiamare cassa_stato_al';
+  ok := false;
+  begin perform public.cassa_stato_foto('X', current_date);
+  exception when insufficient_privilege then ok := true; end;
+  assert ok, 'un tecnico ha potuto chiamare cassa_stato_foto';
 end $$;
 
 rollback;
