@@ -75,11 +75,13 @@ begin
   atteso := public.pres_decidi((select data from public.s_corsi_giornate where id = v_g), '08:30', '13:30', '14:30', '17:30', now());
   assert r ->> 'tipo' = atteso ->> 'tipo' and (r ->> 'fuori_orario')::boolean = (atteso ->> 'fuori_orario')::boolean, 'tipo deciso dal server sull''ora di adesso';
 
-  /* la riga come la scrive portale-richieste: campi calcolati + submission_id + progressivo */
+  /* la riga come la scrive portale-richieste: campi calcolati + submission_id + progressivo.
+     (20/10/2026) il progressivo è unico su tutta la tabella e dal 15/10 ci sono firme vere: il test prende il primo
+     libero invece di un 1 fisso, che dal primo uso reale andava in conflitto (giro del 20/10 fallito). */
   insert into public.s_corsi_firme_presenza (corso_id, giornata_id, iscritto_id, nominativo, tipo, turno, ora_server, ora_dispositivo, fuori_orario, fonte, stato, note, riferimento_esito, submission_id, progressivo, timestamp_modulo, portale_esito)
   values ((r ->> 'corso_id')::bigint, (r ->> 'giornata_id')::bigint, (r ->> 'iscritto_id')::bigint, r ->> 'nominativo', r ->> 'tipo', (r ->> 'turno')::int,
           (r ->> 'ora_server')::timestamptz, (r ->> 'ora_dispositivo')::timestamptz, (r ->> 'fuori_orario')::boolean, r ->> 'fonte', r ->> 'stato', r ->> 'note',
-          r ->> 'riferimento_esito', 'prova-sub-0001', 1, now(), '{"strada":"prova"}'::jsonb)
+          r ->> 'riferimento_esito', 'prova-sub-0001', (select coalesce(max(progressivo), 0) + 1 from public.s_corsi_firme_presenza), now(), '{"strada":"prova"}'::jsonb)
   returning id into v_id;
   assert (select stato from public.s_corsi_firme_presenza where id = v_id) = 'ricevuta', 'ricevuta';
   assert not exists (select 1 from public.s_corsi_presenze where iscritto_id = v_i1 and giornata_id = v_g), 'una firma ricevuta NON scrive le presenze';
