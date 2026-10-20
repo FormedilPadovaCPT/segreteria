@@ -28,7 +28,9 @@ begin
   -- l'avviso al coordinatore e i verbali non consegnati (21/09), 41 col
   -- promemoria delle lezioni (28/09: aggiornato qui solo il 04/10).
   select count(*), count(distinct codice) into n_righe, n_codici from public.s_flussi_uso();
-  assert n_righe = 41 and n_codici = 41, format('attese 41 righe e 41 codici, trovate %s e %s — se hai aggiunto un flusso, aggiorna questo numero; se non l''hai aggiunto, ne manca uno dei due punti di s_flussi_uso', n_righe, n_codici);
+  /* 41 → 50 il 20/10/2026: i flussi aggiunti il 13-14/10 (firme di presenza, fascicolo, pagina del docente)
+     non avevano aggiornato questo numero, e il giro programmato è rimasto rosso dal 19/10 */
+  assert n_righe = 50 and n_codici = 50, format('attese 50 righe e 50 codici, trovate %s e %s — se hai aggiunto un flusso, aggiorna questo numero; se non l''hai aggiunto, ne manca uno dei due punti di s_flussi_uso', n_righe, n_codici);
   assert (select count(*) from public.s_flussi_uso() where codice = 'avviso_approvazione') = 1,
     'il flusso «avviso al coordinatore» c''è (21/09/2026)';
   assert (select count(*) from public.s_flussi_uso() where codice = 'mail_respinta') = 1,

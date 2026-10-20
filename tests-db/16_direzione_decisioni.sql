@@ -61,10 +61,11 @@ begin
   assert (select count(*) from public.s_decisioni where id in (v_id, v_id2)) = 2, 'il Direttore vede anche la riservata';
   r := public.s_direzione_in_attesa();
   assert r ? 'autorizzazioni' and r ? 'critici' and not (r ? 'non_autorizzato'), 'l''elenco automatico risponde al Direttore';
-  ok := false;
-  begin insert into public.s_decisioni (questione) values ('x');
-  exception when insufficient_privilege then ok := true; end;
-  assert ok, 'il Direttore non apre questioni';
+  /* (20/10/2026) dal 15/10/2026 il Direttore APRE questioni, verso Presidenza, Commissione, segreteria o
+     coordinatore (regola in CLAUDE.md, policy s_decisioni_ins con is_direttore()). Fino al 15/10 questo
+     punto provava il contrario, e il giro programmato è rimasto rosso dal 19/10. */
+  insert into public.s_decisioni (questione, decisore) values ('TEST: questione aperta dal Direttore', 'presidenza');
+  assert found, 'il Direttore apre questioni (dal 15/10/2026)';
   ok := false;
   begin perform public.s_decisione_rispondi(v_id, 'rinviata', null, current_date);
   exception when raise_exception then ok := true; end;

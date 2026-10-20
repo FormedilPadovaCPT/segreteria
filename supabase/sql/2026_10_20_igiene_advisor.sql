@@ -27,3 +27,10 @@ alter function public.pres_decidi(date, time, time, time, time, timestamptz) set
 alter function public.s_riaggancio_chiave(text) set search_path = public;
 alter function public.decisioni_pagina(text) set search_path = public;
 alter function public.decisioni_vista(text) set search_path = public;
+
+-- 4. (stessa sera) pres_decidi: funzione pura, la chiama solo pres_registra, che è SECURITY DEFINER e
+--    riservata al servizio (portale-richieste). Era l'unica funzione di public ancora eseguibile da anon,
+--    e faceva fallire i test 03 e 21 dal 19/10. Resta agli utenti collegati (il test 39 prova le regole
+--    d'orario con l'accesso della segreteria) e al servizio: è pura, non legge tabelle.
+revoke execute on function public.pres_decidi(date, time, time, time, time, timestamptz) from public, anon;
+grant  execute on function public.pres_decidi(date, time, time, time, time, timestamptz) to authenticated, service_role;
