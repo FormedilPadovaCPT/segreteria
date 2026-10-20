@@ -35,7 +35,7 @@
 import { sb, state, $, esc, dataIt, toast, attendi, apriDrawer, esercizioDi } from './core.js';
 import { risolviCartella, creaCartella, leggiByte } from './drive.js';
 import { MESI, euro } from './fatture-tecnici-doc.js';
-import { bancaRichiesta, righeTestoBanca } from './presenze-doc.js';
+import { bancaRichiesta, righeTestoBanca, testoSaldoRichiesta } from './presenze-doc.js';
 
 const CARTELLA_FATTURE = '2_AREE/Amministrazione/fatture/tecnici';
 
@@ -205,6 +205,7 @@ export async function dettaglioFerie(id) {
       ? `scelta del lavoratore: <strong>${r.compenso === 'paga' ? 'da pagare in busta paga' : r.compenso === 'recupero' ? 'da recuperare (banca ore)' : 'non indicata'}</strong>`
       : `scalate da: <strong>${esc(MONTE_FERIE[r.monte] || r.monte || '—')}</strong>`}</div>
     ${banca ? `<div class="dt-doc-riga"><strong>Banca ore:</strong><br>${righeTestoBanca(banca).map(esc).join('<br>')}</div>` : ''}
+    ${r.saldo_foto ? `<div class="dt-doc-riga"><strong>Saldo:</strong> ${esc(testoSaldoRichiesta(r.saldo_foto))}${r.saldo_foto.al ? ` <span class="hint">(al ${esc(r.saldo_foto.al)})</span>` : ''}</div>` : ''}
     ${r.motivo ? `<div class="dt-doc-riga"><strong>Note:</strong> ${esc(r.motivo)}</div>` : ''}
     <div class="dt-doc-riga"><strong>Nulla osta:</strong> del Direttore${r.data_autorizzazione ? `, il ${dataIt(r.data_autorizzazione)}` : ''}${r.aut_modalita === 'app' ? ' dall’app' : ''}
       ${r.aut_modalita === 'cartacea' ? ' — <span class="hint">su carta: l’originale firmato lo consegna la segreteria</span>' : ''}</div>

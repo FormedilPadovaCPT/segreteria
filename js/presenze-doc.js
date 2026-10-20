@@ -23,7 +23,9 @@
    ============================================================ */
 
 import { apriCarta } from './segnalazioni-doc.js';
-import { dataIt, taglia } from './comune.js';
+import { dataIt, taglia, testoPdf } from './comune.js';
+import { pdfLib } from './cdn.js';
+import { ENTE } from './config.js';
 
 const SX = 57;
 const DX = 538;
@@ -633,120 +635,265 @@ export async function pdfPresenzePeriodo({ dipendente, da, a, presenze, extra })
   return salva(c.doc);
 }
 
-/* ── 2. richiesta di ferie / permessi ──
-   r = riga s_ferie_richieste; visto = null (riquadro vuoto) oppure
-   { esito, nome, data_ora, utente, note }; firmaByte = png/jpg o null. */
-export async function pdfRichiestaFerie(r, visto, firmaByte, saldoTesto) {
-  const c = await apriCarta();
-  c.scrivi(r.tipo === 'supplementari' ? 'Richiesta di ore supplementari del personale dipendente'
-    : 'Richiesta di ferie o permessi del personale dipendente', c.bold, 13, c.nero);
-  c.scrivi('Modulo compilato dall’app Segreteria e sottoposto al Direttore per nulla osta; l’originale resta all’amministrazione per i calcoli a registro presenze.', c.italic, 7.5, c.grigio);
-  c.stato.y -= 8;
-  c.campo('Il dipendente', r.dipendente);
-  c.campo('Pratica', `Richiesta n° ${r.id} del ${dataIt((r.created_at || '').slice(0, 10))}`);
-  c.stato.y -= 6;
+/* ── 2. richiesta di ferie / permessi / recupero ──
+   Veste «Modulo + tessera» (20/10/2026). Scelta dall'utente con le indicazioni di Patrizia, che riceve
+   e gestisce i permessi dopo il Direttore: le sezioni numerate del modulo Word Formedil del 2026, che
+   sono «la più immediata, di facile lettura»; in testa la card col residuo in grande e «ancora
+   disponibili»; il riquadro tutto verde della richiesta approvata. Proposte e banco di prova in
+   proposte_grafiche/2026_10_19_richiesta-ferie-permessi/.
+   r = riga s_ferie_richieste; visto = null (giro di carta: caselle vuote e righe per le firme) oppure
+   { esito, nome, data_ora, utente, note }; firmaByte = png/jpg o null; saldo = saldo del monte di ferie
+   o ex festività (oggetto di saldoRichiestaDati, o la fotografia r.saldo_foto) o null;
+   et = { tipo, monte } etichette leggibili, dalle tabelle di presenze.js. */
 
-  const casella = (spuntata, testo) => {
-    c.serve(18);
-    c.stato.pagina.drawRectangle({ x: SX, y: c.stato.y - 2, width: 11, height: 11, borderColor: c.nero, borderWidth: 0.9 });
-    if (spuntata) c.stato.pagina.drawText('X', { x: SX + 2.4, y: c.stato.y, size: 9, font: c.bold, color: c.nero });
-    c.stato.pagina.drawText(testo, { x: SX + 18, y: c.stato.y, size: 10, font: spuntata ? c.bold : c.font, color: c.nero });
-    c.stato.y -= 16;
+const minHm = (min) => mm2hm(min || 0);
+const giorniTxt = (g) => (g === '' || g == null ? '' : String(g));
+
+/* la card in testa, per ogni tipo di richiesta. Pura: la usa il PDF e la prova il test.
+   ⚠️ Per i permessi sindacali NON si calcola un residuo (regola del 22/09/2026: il monte RSU è del
+   gruppo, non un tetto della persona): la card dice le ore richieste e basta. */
+export function cardRichiesta(r, saldo, et = {}) {
+  const oreRich = minutiRichiesta(r);
+  if (r.tipo === 'recupero') {
+    const b = bancaRichiesta(r);
+    if (b && b.scelte && b.prima != null && b.chiesti != null) {
+      return { titolo: 'BANCA ORE DOPO QUESTA RICHIESTA', grande: minHm(b.dopo),
+        sotto: b.dopo < 0 ? 'ore di recupero anticipato' : 'ore ancora disponibili', sotto2: '',
+        richiesta: `${minHm(b.chiesti)} ore dalla banca ore`, quota: b.prima > 0 ? b.chiesti / b.prima : 1,
+        nota: 'non scala ferie né permessi del contratto' };
+    }
+    return { titolo: 'RECUPERO RICHIESTO', grande: minHm(oreRich), sotto: 'ore dalla banca ore', sotto2: '',
+      richiesta: 'saldo della banca ore non indicato', quota: 0, nota: 'la richiesta non dice da quali ore si recupera' };
+  }
+  if (r.tipo === 'supplementari') {
+    return { titolo: 'ORE SUPPLEMENTARI RICHIESTE', grande: minHm(oreRich), sotto: 'ore da fare', sotto2: '',
+      richiesta: r.compenso === 'paga' ? 'da pagare in busta paga' : r.compenso === 'recupero' ? 'da recuperare: vanno in banca ore' : 'scelta del lavoratore non indicata',
+      quota: 0, nota: 'scelta del lavoratore, concordata col Direttore' };
+  }
+  const conSaldo = saldo && saldo.oggiMin != null && ['ferie', 'ex_festivita'].includes(saldo.monte);
+  if (conSaldo) {
+    const ferie = saldo.monte === 'ferie';
+    return { titolo: ferie ? 'FERIE DOPO QUESTA RICHIESTA' : 'EX FESTIVITÀ E PERMESSI DOPO QUESTA RICHIESTA',
+      grande: giorniTxt(saldo.dopoG) || oreCentesimi(saldo.dopoMin), sotto: saldo.dopoG !== '' && saldo.dopoG != null ? 'giorni ancora disponibili' : 'ore ancora disponibili',
+      sotto2: saldo.dopoG !== '' && saldo.dopoG != null ? `${oreCentesimi(saldo.dopoMin)} ore` : '',
+      richiesta: saldo.registrata ? 'già registrata nei saldi'
+        : ferie ? `${saldo.chiestaG ? `${saldo.chiestaG} giorni di ferie ` : ''}(${oreCentesimi(saldo.chiestaMin)} ore)`
+          : `${minHm(saldo.chiestaMin)} ore di ${String(et.tipo || 'permesso').toLowerCase()}`,
+      quota: saldo.oggiMin > 0 ? saldo.chiestaMin / saldo.oggiMin : 1,
+      nota: ferie ? (r.data_fine && r.data_fine !== r.data_inizio ? `dal ${dataIt(r.data_inizio)} al ${dataIt(r.data_fine)}` : `il ${dataIt(r.data_inizio)}`)
+        : 'scala le ex festività, come in busta paga' };
+  }
+  const sindacale = ['permesso_rsu', 'riunione_sindacale'].includes(r.tipo);
+  return { titolo: String(et.tipo || 'Richiesta').toUpperCase(), grande: oreRich != null ? minHm(oreRich) : '—', sotto: 'ore richieste', sotto2: '',
+    richiesta: et.monte ? `dal monte: ${et.monte}` : '',
+    quota: 0, nota: sindacale ? 'monte del gruppo RSU: non si calcola un residuo personale'
+      : ['ferie', 'permesso'].includes(r.tipo) ? 'saldo non calcolabile: manca la spettanza dalla busta paga' : '' };
+}
+
+export async function pdfRichiestaFerie(r, visto, firmaByte, saldo, et = {}) {
+  const { PDFDocument, StandardFonts, rgb } = await pdfLib();
+  const doc = await PDFDocument.create();
+  const f = await doc.embedFont(StandardFonts.Helvetica);
+  const b = await doc.embedFont(StandardFonts.HelveticaBold);
+  const it = await doc.embedFont(StandardFonts.HelveticaOblique);
+  const W = 595.28, H = 841.89;
+  const pg = doc.addPage([W, H]);
+  const C = {
+    arancio: rgb(0.906, 0.314, 0.059), grigio: rgb(0.337, 0.361, 0.4), tenue: rgb(0.545, 0.569, 0.6),
+    linea: rgb(0.835, 0.847, 0.863), zebra: rgb(0.965, 0.965, 0.97), pietra: rgb(0.953, 0.949, 0.941),
+    bianco: rgb(1, 1, 1), nero: rgb(0.137, 0.153, 0.18), verde: rgb(0.153, 0.588, 0.333), verdeChiaro: rgb(0.906, 0.965, 0.925),
+    rosso: rgb(0.78, 0.16, 0.12), rossoChiaro: rgb(0.99, 0.92, 0.91),
+  };
+  const larg = (s, font, size, sp = 0) => font.widthOfTextAtSize(s, size) + sp * Math.max(0, s.length - 1);
+  const T = (s, x, y, size, font, color, o = {}) => {
+    s = testoPdf(s);
+    const w = larg(s, font, size, o.sp || 0);
+    let xx = o.al === 'r' ? x - w : o.al === 'c' ? x - w / 2 : x;
+    if (!o.sp) { pg.drawText(s, { x: xx, y, size, font, color }); return w; }
+    for (const ch of s) { pg.drawText(ch, { x: xx, y, size, font, color }); xx += font.widthOfTextAtSize(ch, size) + o.sp; }
+    return w;
+  };
+  const P = (s, x, y, size, font, color, maxW) => {
+    let riga = '';
+    for (const w of testoPdf(s).split(/\s+/).filter(Boolean)) {
+      const prova = riga ? riga + ' ' + w : w;
+      if (font.widthOfTextAtSize(prova, size) > maxW && riga) { pg.drawText(riga, { x, y, size, font, color }); y -= size * 1.35; riga = w; } else riga = prova;
+    }
+    if (riga) { pg.drawText(riga, { x, y, size, font, color }); y -= size * 1.35; }
+    return y;
+  };
+  const R_ = (x, y, w, h, o) => pg.drawRectangle({ x, y, width: w, height: h, ...o });
+  const L_ = (x1, y1, x2, y2, color = C.linea, thickness = 0.6) => pg.drawLine({ start: { x: x1, y: y1 }, end: { x: x2, y: y2 }, color, thickness });
+  const casella = (x, y, piena) => {
+    R_(x, y - 1.5, 9, 9, { borderColor: piena ? C.arancio : C.tenue, borderWidth: 0.9, color: piena ? C.arancio : undefined });
+    if (piena) T('X', x + 2.1, y + 0.2, 7.5, b, C.bianco);
   };
 
-  const oraTxt = (t) => (t ? String(t).slice(0, 5) : '—');
-  casella(r.tipo === 'permesso', 'chiede un PERMESSO nel seguente periodo');
-  if (r.tipo === 'permesso') {
-    c.campo('In data', dataIt(r.data_inizio));
-    c.campo('Dalle / alle', `${oraTxt(r.ora_dalle)} — ${oraTxt(r.ora_alle)}`);
-  }
-  casella(r.tipo === 'ferie', 'chiede FERIE nel seguente periodo');
-  if (r.tipo === 'ferie') {
-    c.campo('Data inizio', dataIt(r.data_inizio));
-    c.campo('Data fine', r.data_fine ? dataIt(r.data_fine) : '—');
-  }
-  casella(r.tipo === 'recupero', 'chiede il RECUPERO per ore già effettuate o da effettuarsi');
+  /* testata: logo a sinistra, riquadro arancione a destra */
+  try {
+    const logo = await doc.embedPng(new Uint8Array(await (await fetch('img/logo.png')).arrayBuffer()));
+    const lw = 120, lh = lw * logo.height / logo.width;
+    pg.drawImage(logo, { x: 40, y: H - 38 - lh, width: lw, height: lh });
+  } catch { T(ENTE.nome, 40, H - 60, 12, b, C.arancio); }
+  R_(W - 260, H - 82, 220, 44, { color: C.arancio });
+  T(r.tipo === 'supplementari' ? 'RICHIESTA DI ORE SUPPLEMENTARI' : 'RICHIESTA FERIE / PERMESSI / RECUPERO', W - 150, H - 58, 8.5, b, C.bianco, { al: 'c', sp: 0.4 });
+  T(`Personale dipendente · n° ${r.id} del ${dataIt((r.created_at || '').slice(0, 10))}`, W - 150, H - 72, 8, f, C.bianco, { al: 'c' });
+
+  /* la card */
+  const card = cardRichiesta(r, saldo, et);
+  let y = H - 104;
+  const ch = 84;
+  R_(40, y - ch, W - 80, ch, { color: C.pietra });
+  R_(40, y - 3, W - 80, 3, { color: C.arancio });
+  T(card.titolo, 54, y - 20, 7.5, b, C.tenue, { sp: 1 });
+  T(card.grande, 54, y - 56, 34, b, C.arancio);
+  const xs = 54 + larg(testoPdf(card.grande), b, 34) + 12;
+  T(card.sotto, xs, card.sotto2 ? y - 46 : y - 52, 11, f, C.grigio);
+  if (card.sotto2) T(card.sotto2, xs, y - 60, 8.5, f, C.tenue);
+  const xd = 330, wd = W - 40 - 14 - xd;
+  T('QUESTA RICHIESTA', xd, y - 20, 7, b, C.tenue, { sp: 0.9 });
+  if (card.richiesta) P(card.richiesta, xd, y - 36, 10, b, C.nero, wd);
+  if (card.quota > 0) { R_(xd, y - 54, wd, 8, { color: C.zebra }); R_(xd, y - 54, wd * Math.min(1, card.quota), 8, { color: C.arancio }); }
+  if (card.nota) P(card.nota, xd, y - 70, 7.5, f, C.grigio, wd);
+
+  y -= ch + 22;
+  /* le sezioni si numerano da sole: se una manca (la 4 per i permessi sindacali) non resta il buco */
+  let nSez = 0;
+  const sezione = (_num, titolo) => {
+    nSez += 1;
+    R_(40, y - 4, W - 80, 17, { color: C.pietra });
+    R_(40, y - 4, 22, 17, { color: C.grigio });
+    T(String(nSez), 51, y + 1, 9, b, C.bianco, { al: 'c' });
+    T(titolo, 70, y + 1, 8.5, b, C.grigio, { sp: 0.8 });
+    y -= 26;
+  };
+  const campo = (x, et2, val, w) => {
+    T(et2, x, y + 10, 6.5, b, C.tenue, { sp: 0.6 });
+    T(val || '—', x, y - 3, 10, b, C.nero);
+    L_(x, y - 8, x + w, y - 8, C.linea);
+  };
+  const oreTot = minutiRichiesta(r) ?? (saldo && saldo.chiestaMin) ?? null;
+  const oreTxt = oreTot != null ? minHm(oreTot) : '—';
+  const piuGiorni = r.data_fine && r.data_fine !== r.data_inizio;
+
+  sezione(1, 'DATI DEL RICHIEDENTE');
+  campo(40, 'COGNOME E NOME', r.dipendente, 250);
+  campo(320, 'DATA RICHIESTA', dataIt((r.created_at || '').slice(0, 10)), 100);
+  campo(445, 'ORE', oreTxt, 110);
+  y -= 30;
+
+  sezione(2, 'TIPO DI RICHIESTA');
+  const quattro = [['FERIE', 'ferie'], ['PERMESSO RETRIBUITO', 'permesso'], ['RECUPERO ORE', 'recupero'], ['ORE SUPPLEMENTARI', 'supplementari']];
+  quattro.forEach(([s, t], k) => { const on = r.tipo === t, x = 40 + k * 130; casella(x, y, on); T(s, x + 14, y, 8.5, on ? b : f, on ? C.nero : C.grigio); });
+  if (!quattro.some(([, t]) => t === r.tipo)) { y -= 18; casella(40, y, true); T(`ALTRO: ${String(et.tipo || r.tipo).toUpperCase()}`, 54, y, 8.5, b, C.nero); }
+  y -= 30;
+
+  sezione(3, 'PERIODO RICHIESTO');
+  const hm = (t) => (t ? String(t).slice(0, 5) : '');
+  campo(40, piuGiorni ? 'DAL' : 'DATA', dataIt(r.data_inizio), 110);
+  if (piuGiorni) campo(170, 'AL', dataIt(r.data_fine), 80);
+  else { campo(170, 'DALLE ORE', hm(r.ora_dalle), 80); campo(270, 'ALLE ORE', hm(r.ora_alle), 80); }
+  campo(370, 'N. ORE', oreTxt, 60);
+  campo(450, 'N. GIORNI', piuGiorni && saldo && saldo.chiestaG ? String(saldo.chiestaG) : '', 105);
+  y -= 30;
+
+  /* 4: da dove vengono le ore (recupero), il saldo del monte (ferie e permessi), la scelta (supplementari) */
   if (r.tipo === 'recupero') {
-    c.campo('In data', [dataIt(r.data_inizio), r.data_fine ? `→ ${dataIt(r.data_fine)}` : ''].filter(Boolean).join(' '));
-    if (r.ora_dalle || r.ora_alle) c.campo('Dalle / alle', `${oraTxt(r.ora_dalle)} — ${oraTxt(r.ora_alle)}`);
+    sezione(4, 'DETTAGLIO RECUPERO ORE — DA DOVE VENGONO');
+    const banca = bancaRichiesta(r);
+    if (banca && banca.scelte && banca.righe.length) {
+      R_(40, y - 4, W - 80, 14, { color: C.zebra });
+      [['Maturate il', 48], ['N. ore', 130], ['Riga', 180], ['Riferimento / note', 230]].forEach(([s, x]) => T(s, x, y, 7.5, b, C.grigio));
+      y -= 18;
+      for (const e of banca.righe) {
+        T(dataIt(e.data), 48, y, 9, f, C.nero); T(minHm(e.ore_min), 130, y, 9, b, C.nero); T(String(e.id), 180, y, 9, f, C.grigio);
+        y = P(e.note || '—', 230, y, 8.5, it, C.grigio, W - 275) - 2;
+        L_(40, y + 6, W - 40, y + 6);
+      }
+      T(`TOTALE ORE RECUPERO: ${oreTxt}`, W - 44, y - 8, 8.5, b, C.nero, { al: 'r' });
+      if (banca.prima != null) T(`Banca ore: ${minHm(banca.prima)} disponibili prima di questa richiesta.`, 40, y - 8, 7.5, f, C.tenue);
+      y -= 34;
+    } else {
+      y = P(banca && banca.scelte ? 'Recupero anticipato: nessuna ora supplementare da recuperare collegata (le ore si maturano dopo).'
+        : 'La richiesta non dice da quali ore supplementari si recupera.', 40, y + 2, 9, it, C.grigio, W - 80) - 16;
+    }
+  } else if (card.titolo.endsWith('DOPO QUESTA RICHIESTA') && saldo) {
+    sezione(4, 'SALDO DEL MONTE ORE');
+    const fmt = (min, g) => `${giorniTxt(g) ? `${g} giorni (${oreCentesimi(min)} h)` : `${oreCentesimi(min)} h`}`;
+    R_(40, y - 4, W - 80, 14, { color: C.zebra });
+    [['Monte', 48], ['Disponibili oggi', 210], ['Questa richiesta', 330], ['Dopo la richiesta', 450]].forEach(([s, x]) => T(s, x, y, 7.5, b, C.grigio));
+    y -= 18;
+    T(saldo.nome || '', 48, y, 9, b, C.nero); T(fmt(saldo.oggiMin, saldo.oggiG), 210, y, 9, f, C.nero);
+    T(saldo.registrata ? 'già registrata' : fmt(saldo.chiestaMin, saldo.chiestaG), 330, y, 9, f, C.nero);
+    T(fmt(saldo.dopoMin, saldo.dopoG), 450, y, 9, b, C.arancio);
+    L_(40, y - 8, W - 40, y - 8);
+    T(`Residuo al 1° gennaio dalla busta paga, più il maturato a oggi, meno il goduto; un giorno vale le ore dell’orario.${saldo.al ? ` Saldo al ${saldo.al}.` : ''}`, 40, y - 22, 7.5, f, C.tenue);
+    y -= 48;
+  } else if (r.tipo === 'supplementari') {
+    sezione(4, 'SCELTA DEL LAVORATORE');
+    casella(40, y, r.compenso === 'recupero'); T('le ore saranno RECUPERATE: alimentano la BANCA ORE', 54, y, 8.5, r.compenso === 'recupero' ? b : f, C.nero);
+    y -= 16;
+    casella(40, y, r.compenso === 'paga'); T('chiede che le ore siano PAGATE in busta paga', 54, y, 8.5, r.compenso === 'paga' ? b : f, C.nero);
+    y -= 30;
   }
-  casella(r.tipo === 'supplementari', 'chiede di effettuare ORE SUPPLEMENTARI');
-  if (r.tipo === 'supplementari') {
-    c.campo('In data', dataIt(r.data_inizio));
-    if (r.ora_dalle || r.ora_alle) c.campo('Dalle / alle', `${oraTxt(r.ora_dalle)} — ${oraTxt(r.ora_alle)}`);
-  }
-  c.campo('Per totale ore', r.ore != null ? String(r.ore) : '—');
-  /* il saldo del monte prima e dopo la richiesta, per il nulla osta (02/10/2026) */
-  if (saldoTesto) c.campo('Saldo disponibile', saldoTesto);
-  /* recupero: da quali ore supplementari si scala e il saldo della banca ore
-     (19/10/2026, rilievo del Direttore). I caratteri fuori dal font standard no. */
-  const banca = bancaRichiesta(r);
-  if (banca) {
-    c.stato.y -= 2;
-    c.scrivi('Banca ore', c.bold, 10, c.nero);
-    for (const t of righeTestoBanca(banca)) c.scrivi(t.replace(/⚠\s*/g, 'ATTENZIONE: '), c.font, 9, c.nero);
-    c.stato.y -= 4;
-  }
-  if (r.motivo) c.campo('Note', r.motivo);
-  c.stato.y -= 4;
-  /* il recupero attinge alla BANCA ORE e non scala i monti del contratto
-     (regola dell'utente, 03/09/2026) */
-  if (r.tipo === 'supplementari') {
-    /* la scelta del lavoratore, che il Direttore vede prima di dare il nulla osta */
-    casella(r.compenso === 'recupero', 'le ore saranno RECUPERATE: alimentano la BANCA ORE');
-    casella(r.compenso === 'paga', 'chiede che le ore siano PAGATE in busta paga');
-  } else {
-    const monteEff = r.monte || (r.tipo === 'recupero' ? 'banca_ore' : 'ferie');
-    casella(monteEff === 'permessi', 'chiede di utilizzare il monte ore di PERMESSI retribuiti disponibile');
-    casella(monteEff === 'ferie', 'chiede di utilizzare il monte ore di FERIE disponibile');
-    casella(monteEff === 'banca_ore', 'recupera dalla BANCA ORE (non scala ferie né permessi del contratto)');
-  }
-  c.stato.y -= 8;
 
-  c.scrivi('La Direzione, con il nulla osta della Presidenza FORMEDIL PADOVA', c.font, 9.5, c.grigio);
-  c.stato.y -= 4;
+  sezione(5, 'UTILIZZO MONTE ORE');
+  const monteEff = r.monte || (r.tipo === 'recupero' ? 'banca_ore' : r.tipo === 'ferie' ? 'ferie' : null);
+  const tre = [['Monte ore FERIE', 'ferie'], ['Monte ore PERMESSI RETRIBUITI', 'permessi'], ['Ore di RECUPERO maturate / da maturare', 'banca_ore']];
+  tre.forEach(([s, m], k) => { const on = monteEff === m, x = 40 + k * 165; casella(x, y, on); T(s, x + 14, y, 8, on ? b : f, on ? C.nero : C.grigio); });
+  if (monteEff && !tre.some(([, m]) => m === monteEff)) { y -= 18; casella(40, y, true); T(`ALTRO MONTE: ${et.monte || monteEff}`, 54, y, 8, b, C.nero); }
+  y -= 22;
+  y = P('Note: ' + (r.motivo || '—'), 40, y, 9, f, C.grigio, W - 80) - 18;
 
+  sezione(6, 'ESITO DELLA DIREZIONE');
+  const esito = visto ? visto.esito : null;
+  [['APPROVATA', 'approvata'], ['NON APPROVATA', 'respinta'], ['APPROVATA CON CONDIZIONI', '']].forEach(([s, e], k) => {
+    const on = !!e && esito === e, x = 40 + k * 140; casella(x, y, on);
+    T(s, x + 14, y, 8.5, on ? b : f, on ? (e === 'approvata' ? C.verde : C.rosso) : C.grigio);
+  });
+  y -= 24;
+  T('La Direzione, con il nulla osta della Presidenza FORMEDIL PADOVA', 40, y, 8, f, C.tenue);
   if (visto) {
-    /* il visto registrato dall'app: come le autorizzazioni dei servizi */
-    const ok = visto.esito === 'approvata';
-    c.serve(110);
-    const h = 92;
-    const y0 = c.stato.y - h;
-    c.stato.pagina.drawRectangle({ x: SX, y: y0, width: DX - SX, height: h, borderColor: c.arancio, borderWidth: 1.6 });
-    c.stato.pagina.drawText(ok ? 'RICHIESTA APPROVATA' : 'RICHIESTA NON APPROVATA',
-      { x: SX + 12, y: y0 + h - 20, size: 12, font: c.bold, color: c.arancio });
-    c.stato.pagina.drawText(`${visto.nome} — Direttore`, { x: SX + 12, y: y0 + h - 38, size: 10.5, font: c.bold, color: c.nero });
-    c.stato.pagina.drawText(`Padova, ${visto.data_ora}`, { x: SX + 12, y: y0 + h - 53, size: 9.5, font: c.font, color: c.nero });
-    c.stato.pagina.drawText(`Approvazione registrata dall'app Segreteria — utente: ${visto.utente}`,
-      { x: SX + 12, y: y0 + h - 67, size: 8, font: c.font, color: c.grigio });
-    /* la firma del Direttore sta a destra: la nota si ferma prima di finirci sotto */
-    if (visto.note) c.stato.pagina.drawText(taglia(c.font, 8, `Note: ${visto.note}`, DX - 140 - (SX + 12)), { x: SX + 12, y: y0 + h - 80, size: 8, font: c.font, color: c.grigio });
+    /* il riquadro tutto verde (o rosso se respinta), con la firma a destra */
+    const ok = esito === 'approvata';
+    const hh = 72, y0 = y - 14 - hh;
+    R_(40, y0, W - 80, hh, { borderColor: ok ? C.verde : C.rosso, borderWidth: 1.2, color: ok ? C.verdeChiaro : C.rossoChiaro });
+    T(ok ? 'RICHIESTA APPROVATA' : 'RICHIESTA NON APPROVATA', 54, y0 + hh - 20, 11, b, ok ? C.verde : C.rosso, { sp: 0.8 });
+    T(`${visto.nome} — Direttore`, 54, y0 + hh - 36, 10, b, C.nero);
+    T(`Padova, ${visto.data_ora}`, 54, y0 + hh - 49, 8.5, f, C.grigio);
+    T(`Visto registrato nell’app Segreteria da ${visto.utente}`, 54, y0 + hh - 61, 7, f, C.tenue);
+    if (visto.note) T(taglia(f, 7.5, `Note: ${visto.note}`, W - 80 - 170), 300, y0 + hh - 20, 7.5, f, C.grigio);
     if (firmaByte) {
       try {
-        let img;
-        try { img = await c.doc.embedPng(firmaByte); } catch { img = await c.doc.embedJpg(firmaByte); }
-        const scala = Math.min(110 / img.width, (h - 24) / img.height);
-        c.stato.pagina.drawImage(img, { x: DX - img.width * scala - 16, y: y0 + 12, width: img.width * scala, height: img.height * scala });
+        let img; try { img = await doc.embedPng(firmaByte); } catch { img = await doc.embedJpg(firmaByte); }
+        const sc = Math.min(110 / img.width, (hh - 22) / img.height);
+        pg.drawImage(img, { x: W - 40 - 14 - img.width * sc, y: y0 + 8, width: img.width * sc, height: img.height * sc });
       } catch { /* senza firma grafica il visto vale lo stesso */ }
     }
-    c.stato.y = y0 - 16;
   } else {
-    /* riquadro vuoto per il giro cartaceo, come il modulo Word */
-    casella(false, 'Approva la richiesta');
-    casella(false, 'Non approva la richiesta, con le seguenti motivazioni: ______________________________');
-    casella(false, 'Approva la richiesta con le seguenti condizioni: ____________________________________');
-    c.serve(70);
-    c.stato.y -= 22;
-    c.stato.pagina.drawText(`Padova, lì ${dataIt(new Date().toISOString().slice(0, 10))}`, { x: SX, y: c.stato.y, size: 10, font: c.font, color: c.nero });
-    c.stato.pagina.drawText('Firma del Direttore', { x: 250, y: c.stato.y, size: 9, font: c.font, color: c.grigio });
-    c.stato.pagina.drawText('Firma del dipendente', { x: 420, y: c.stato.y, size: 9, font: c.font, color: c.grigio });
-    c.stato.y -= 26;
-    c.stato.pagina.drawLine({ start: { x: 250, y: c.stato.y }, end: { x: 380, y: c.stato.y }, thickness: 0.6, color: c.grigio });
-    c.stato.pagina.drawLine({ start: { x: 420, y: c.stato.y }, end: { x: DX, y: c.stato.y }, thickness: 0.6, color: c.grigio });
-    c.stato.y -= 16;
+    /* il giro di carta: motivazioni e firme a mano */
+    y -= 22;
+    T('Motivazioni o condizioni', 40, y, 7.5, b, C.tenue);
+    L_(150, y - 2, W - 40, y - 2, C.tenue); y -= 18;
+    L_(40, y - 2, W - 40, y - 2, C.tenue);
+    y -= 44;
+    T('Padova, lì', 40, y + 2, 9, f, C.nero); L_(88, y, 170, y, C.nero, 0.7);
+    L_(200, y, 360, y, C.nero, 0.7); T('Firma del Direttore', 200, y - 12, 7.5, f, C.tenue);
+    L_(390, y, W - 40, y, C.nero, 0.7); T('Firma del dipendente (presa visione)', 390, y - 12, 7.5, f, C.tenue);
   }
-  c.scrivi('Documento interno: non prende numero di protocollo. La pratica è identificata dal numero di richiesta.', c.font, 7.5, c.grigio);
-  return salva(c.doc);
+
+  L_(40, 46, W - 40, 46);
+  T(visto ? 'Documento interno: non prende numero di protocollo. La pratica è identificata dal numero di richiesta.'
+    : 'Documento interno: non prende numero di protocollo. Si firma e si consegna all’Amministrazione, che ne tiene l’originale.', 40, 34, 7, f, C.tenue);
+  T(`${ENTE.nome} · ${ENTE.sotto} · ${ENTE.indirizzo} · tel. ${ENTE.tel} · ${ENTE.email} · ${ENTE.web}`, 40, 24, 6.3, f, C.tenue);
+  return salva(doc);
+}
+
+/* il testo del saldo per la finestra della richiesta (prima era il ritorno di saldoRichiesta) */
+export function testoSaldoRichiesta(s) {
+  if (!s) return '';
+  const fmt = (min, g) => `${g ? `${g} giorni, ` : ''}${oreCentesimi(min)} h`;
+  return `${String(s.nome || '').toLowerCase()} a oggi ${fmt(s.oggiMin, s.oggiG)}${s.registrata ? ' · la richiesta è già registrata' : ` · dopo questa richiesta ${fmt(s.dopoMin, s.dopoG)}`}`;
 }
 
 /* ── 5. SALDI di ferie e permessi (02/10/2026) ──

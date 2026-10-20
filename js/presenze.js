@@ -32,7 +32,7 @@ import { MESI, mm2hm, eRipartizione, totaleOre, famigliaCausale, contaAttivita, 
   festivoDi, oreOrarioGiorno, giorniDaGenerare, causaleDaNota, incongruenzeMese, maturatoMesi, saldoAlMese,
   riscontroBusta, scadenzeFerie, CAUSALI_ASSENZA_GIORNO, CAUSALI_NON_SU_FESTIVO,
   righeDaRecuperare, proponiRighe, saldoPrimaDellaRichiesta, fotografiaBanca, bancaRichiesta, righeTestoBanca,
-  chiusuraRecupero, notaRecupero, minutiRichiesta, totaleRigaGenerata } from './presenze-doc.js';
+  chiusuraRecupero, notaRecupero, minutiRichiesta, totaleRigaGenerata, testoSaldoRichiesta } from './presenze-doc.js';
 
 const CARTELLA_FOGLI = '2_AREE/Amministrazione/personale/fogli_presenze';
 const CARTELLA_RICHIESTE = '2_AREE/Amministrazione/personale/richieste_ferie_permessi';
@@ -1306,31 +1306,41 @@ async function formBusta() {
 }
 
 /* il saldo del monte di una richiesta, a oggi e dopo la richiesta (02/10/2026) */
-async function saldoRichiesta(r) {
+/* il saldo del monte di ferie o ex festività per la richiesta (20/10/2026: un oggetto, non più un
+   testo: serve alla card del modulo). null se non si calcola (monte senza saldo, spettanza non
+   scritta, tabelle non leggibili: il Direttore non le legge). */
+async function saldoRichiestaDati(r) {
   const monte = { ferie: 'ferie', permessi: 'ex_festivita' }[r.monte || (r.tipo === 'ferie' ? 'ferie' : '')];
-  if (!monte) return '';
+  if (!monte) return null;
   try {
     const [{ data: sp, error: e1 }, { data: orari, error: e2 }] = await Promise.all([
       sb.from('s_presenze_spettanze').select('*').eq('dipendente', r.dipendente).eq('monte', monte),
       sb.from('s_presenze_orari').select('*').eq('dipendente', r.dipendente),
     ]);
-    if (e1 || e2) return '';
+    if (e1 || e2) return null;
     const righe = await leggiTutte(() => sb.from('s_presenze_extra').select('data, causale, ore_min')
       .eq('dipendente', r.dipendente).in('causale', MONTI_SALDO.find((m) => m.monte === monte).causali).order('id'));
     const anno = Number(String(r.data_inizio).slice(0, 4));
     const s = saldoMonte(anno, sp || [], godutoPerAnno(righe, monte));
-    if (s.spettanza == null) return '';
+    if (s.spettanza == null) return null;
     const oggi = new Date();
     const mesi = anno < oggi.getFullYear() ? 12 : anno > oggi.getFullYear() ? 0 : oggi.getMonth();
     const aOggi = (s.residuoIniziale ?? 0) + maturatoMesi(s.spettanza, mesi) - s.goduto;
     const orario = orarioValido(orari || [], r.data_inizio);
     const chiesta = r.righe_generate ? 0 : (r.ore ? Math.round(Number(r.ore) * 60)
       : giorniDaGenerare(r.data_inizio, r.data_fine || r.data_inizio, orario).filter((g) => !g.salta).reduce((t, g) => t + g.ore_min, 0));
-    const fmt = (min) => { const g = giorniNumero(min, orario); return `${g ? `${g} giorni, ` : ''}${oreCentesimi(min)} h`; };
-    const nome = MONTI_SALDO.find((m) => m.monte === monte).nome.toLowerCase();
-    return `${nome} a oggi ${fmt(aOggi)}${chiesta ? ` · dopo questa richiesta ${fmt(aOggi - chiesta)}` : ' · la richiesta è già registrata'}`;
-  } catch { return ''; }
+    const g = (min) => giorniNumero(min, orario);
+    const adesso = new Date();
+    return { monte, nome: MONTI_SALDO.find((m) => m.monte === monte).nome, oggiMin: Math.round(aOggi), chiestaMin: chiesta,
+      dopoMin: Math.round(aOggi - chiesta), oggiG: g(aOggi), chiestaG: chiesta ? g(chiesta) : '', dopoG: g(aOggi - chiesta),
+      registrata: !!r.righe_generate,
+      al: `${dataIt(adesso.toISOString().slice(0, 10))} ${String(adesso.getHours()).padStart(2, '0')}:${String(adesso.getMinutes()).padStart(2, '0')}` };
+  } catch { return null; }
 }
+async function saldoRichiesta(r) { return testoSaldoRichiesta(await saldoRichiestaDati(r)); }
+/* per il PDF: la fotografia sulla richiesta se c'è (è ciò che il Direttore ha visto), altrimenti il saldo di adesso */
+async function saldoPerPdf(r) { return r.saldo_foto || await saldoRichiestaDati(r); }
+const etichettePdf = (r) => ({ tipo: etichettaTipo(r.tipo), monte: r.monte ? etichettaMonte(r.monte) : '' });
 
 /* i saldi a fine mese per il foglio presenze e la mail a Patrizia (02/10/2026) */
 async function saldiAFineMese(anno, mese, orario) {
@@ -1582,6 +1592,8 @@ function formRichiesta() {
       if (foto && !confermaSenzaRighe(hostBanca)) return;
     }
     attendi(btn, true);
+    /* ferie e permessi: il saldo del monte fotografato sulla richiesta (20/10/2026) */
+    const saldoFoto = suppl || eRecupero() ? null : await saldoRichiestaDati({ ...bozza(), monte: $('#fr-monte').value, righe_generate: false });
     const { data: nuova, error } = await sb.from('s_ferie_richieste').insert({
       dipendente: $('#fr-dip').value,
       tipo: $('#fr-tipo').value,
@@ -1594,6 +1606,7 @@ function formRichiesta() {
       compenso: suppl ? compenso : null,
       motivo: $('#fr-motivo').value.trim() || null,
       ...(foto || {}),
+      ...(saldoFoto ? { saldo_foto: saldoFoto } : {}),
       aggiornato_da: state.email,
     }).select('*').single();
     attendi(btn, false);
@@ -1615,7 +1628,7 @@ export async function apriRichiesta(id) {
   const sonoDirettore = state.email && conf.direttore_email &&
     state.email.toLowerCase() === conf.direttore_email.toLowerCase();
   const decisa = ['approvata', 'respinta'].includes(r.aut_stato);
-  const saldoTxt = state.soloDirettore ? '' : await saldoRichiesta(r);
+  const saldoTxt = state.soloDirettore ? testoSaldoRichiesta(r.saldo_foto) : await saldoRichiesta(r);
   /* recupero: da quali ore si scala, dalla fotografia sulla richiesta — la
      vede anche il Direttore, che le tabelle delle presenze non le legge */
   const banca = bancaRichiesta(r);
@@ -1672,7 +1685,7 @@ export async function apriRichiesta(id) {
     attendi(btn, true);
     try {
       const { pdfRichiestaFerie } = await import('./presenze-doc.js');
-      const byte = await pdfRichiestaFerie(r, null, null, await saldoRichiesta(r));
+      const byte = await pdfRichiestaFerie(r, null, null, await saldoPerPdf(r), etichettePdf(r));
       const url = URL.createObjectURL(new Blob([byte], { type: 'application/pdf' }));
       const a = document.createElement('a');
       a.href = url; a.download = nomeRichiesta(r, false); a.click();
@@ -1702,8 +1715,14 @@ async function mandaAlDirettore(r, btn) {
   if (banca && !banca.scelte && !confirm('La richiesta non dice da quali ore supplementari si recupera: il Direttore lo ha chiesto.\nPrepari lo stesso la mail? (Annulla = scegli prima le ore con «Scegli le ore da scalare»)')) return;
   attendi(btn, true, 'Preparo…');
   try {
+    /* la fotografia del saldo si rinnova all'invio: è quella che il Direttore vedrà (20/10/2026) */
+    const saldoOra = await saldoRichiestaDati(r);
+    if (saldoOra) {
+      const { error: eS } = await sb.from('s_ferie_richieste').update({ saldo_foto: saldoOra }).eq('id', r.id);
+      if (!eS) r.saldo_foto = saldoOra;
+    }
     const { pdfRichiestaFerie } = await import('./presenze-doc.js');
-    const byte = await pdfRichiestaFerie(r, null, null, await saldoRichiesta(r));
+    const byte = await pdfRichiestaFerie(r, null, null, await saldoPerPdf(r), etichettePdf(r));
     scaricaEml({
       to: conf.direttore_email || 'direzione@formedilpadova.it',
       oggetto: `Formedil Padova - Richiesta ${etichettaTipo(r.tipo).toLowerCase()} - ${r.dipendente} - n. ${r.id}`,
@@ -1753,7 +1772,7 @@ async function decidiRichiesta(r, esito, btn) {
       note,
     };
     const { pdfRichiestaFerie } = await import('./presenze-doc.js');
-    const byte = await pdfRichiestaFerie(r, visto, firmaByte, await saldoRichiesta(r));
+    const byte = await pdfRichiestaFerie(r, visto, firmaByte, await saldoPerPdf(r), etichettePdf(r));
 
     const cart = await risolviCartella(CARTELLA_RICHIESTE);
     if (!cart.id) throw new Error('Cartella richieste_ferie_permessi non trovata su Drive');
@@ -1935,7 +1954,8 @@ async function bozzaAmministrazione(r, btn) {
 
 per il registro presenze: la richiesta di ${etichettaTipo(r.tipo).toLowerCase()} n. ${r.id} di ${r.dipendente} è approvata.
 ${eSuppl(r) ? 'Il giorno' : 'Periodo'} ${dataIt(r.data_inizio)}${r.data_fine && r.data_fine !== r.data_inizio ? ` → ${dataIt(r.data_fine)}` : ''}${r.ora_dalle ? ` dalle ${hm(r.ora_dalle)} alle ${hm(r.ora_alle)}` : ''}${r.ore != null ? `, ${r.ore} ore` : ''}.
-${eSuppl(r) ? `Scelta del lavoratore: ${COMPENSO[r.compenso] || 'non indicata'}.` : `Scalate da: ${etichettaMonte(r.monte)}.`}${banca ? `
+${eSuppl(r) ? `Scelta del lavoratore: ${COMPENSO[r.compenso] || 'non indicata'}.` : `Scalate da: ${etichettaMonte(r.monte)}.`}${r.saldo_foto ? `
+Saldo: ${testoSaldoRichiesta(r.saldo_foto)}.` : ''}${banca ? `
 
 ${righeTestoBanca(banca).join('\n')}` : ''}
 
