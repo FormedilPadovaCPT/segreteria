@@ -38,6 +38,7 @@ begin
   assert (r ->> 'ok')::boolean, 'segnalato';
   qid := (r ->> 'id')::bigint;
   assert (select esito from public.visite_questioni where id = qid) = 'segnalata', 'la questione è aperta';
+  assert exists (select 1 from public.push_coda where tag = 'questione-' || qid and testo like 'Il Coordinatore ti ha segnalato%'), 'la notifica dice che scrive il Coordinatore';
   assert (select stato from public.visite where visita_id = vid) = 'definitivo', 'senza riapertura il verbale resta definitivo';
 
   ok := false; msg := null;
@@ -84,11 +85,16 @@ begin
   select count(*) into n from public.fattura_questioni_aperte(array[fid]);
   assert n = 0, 'una questione fatta passare non blocca';
 
-  /* segnalazione con riapertura */
+  /* segnalazione con riapertura, fatta dalla segreteria (20/10/2026 sera: anche la segreteria segnala e chiude) */
+  perform set_config('request.jwt.claims', json_build_object('email', 'cptpd@did.formedilpadova.it', 'role', 'authenticated')::text, true);
+  assert public.is_segreteria(), 'la casella dell''ufficio è segreteria';
   r := public.vq_segnala(vid2, 'avviso', 'Correggi le osservazioni e richiudi', true);
+  /* la notifica di questa segnalazione può non esserci: push_accoda scarta un secondo avviso uguale allo stesso
+     tecnico entro due minuti (le due segnalazioni restano comunque in Oggi). Il testo si prova sulla funzione. */
+  assert public.vq_chi_scrive() = 'La segreteria', 'la notifica dice che scrive la segreteria';
   qid2 := (r ->> 'id')::bigint;
   assert (select stato from public.visite where visita_id = vid2) = 'bozza', 'con la riapertura torna in bozza';
-  assert exists (select 1 from public.visite_riaperture where visita_id = vid2 and richiuso_il is null and motivo like 'Segnalazione del Coordinatore:%'), 'la riapertura è scritta';
+  assert exists (select 1 from public.visite_riaperture where visita_id = vid2 and richiuso_il is null and motivo like 'Segnalazione sul verbale:%'), 'la riapertura è scritta';
   select count(*) into n from public.fattura_questioni_aperte(array[fid]);
   assert n = 2, 'bloccano sia la questione sia la riapertura, trovate ' || n;
   /* il tecnico richiude (simulato: è ciò che fa chiudi_verbale → riapertura_richiusa) */
@@ -97,7 +103,12 @@ begin
   select count(*) into n from public.fattura_questioni_aperte(array[fid]);
   assert n = 1, 'richiuso il verbale resta la questione, finché il Coordinatore non la chiude';
   r := public.vq_rispondi(qid2, 'sistemo', null);
+  assert exists (select 1 from public.push_coda where tag = 'questione-risp-' || qid2 and email = 'cptpd@did.formedilpadova.it'), 'la risposta avvisa anche la segreteria, che ha aperto la questione';
+  /* il Coordinatore era già stato avvisato della prima risposta: entro due minuti push_accoda non ripete lo stesso avviso */
+  assert exists (select 1 from public.push_coda where tag in ('questione-risp-' || qid, 'questione-risp-' || qid2)
+                   and email = (select lower(valore) from public.s_config where chiave = 'coordinatore_email')), 'e il Coordinatore, che vede tutto';
   r := public.vq_chiudi(qid2, 'risolta', null);
+  assert (select chiusa_da from public.visite_questioni where id = qid2) = 'cptpd@did.formedilpadova.it', 'la chiude la segreteria';
   select count(*) into n from public.fattura_questioni_aperte(array[fid]);
   assert n = 0, 'risolta: niente blocca più';
 
