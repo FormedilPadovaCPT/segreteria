@@ -435,6 +435,18 @@ function formIncarico(t, i) {
 /* Stessa regola dello scadenzario del gestionale visite (calcRientroFormedil):
    e' l'esito dell'ULTIMA visita del cantiere (n. accesso + IPC) a dire se serve
    un rientro e quando. data_ritorno, quando c'e', decide solo il QUANDO. */
+/* (20/10/2026) Dal 1° ottobre 2026 la regola si legge sulla VISITA DEL CICLO: i giorni
+   li ha scritti il database (visite.ciclo_rientro_giorni, null = nessun rientro:
+   archiviazione, ciclo fermo o critico); sullo storico resta la regola per accesso. */
+function rientroVisita(v) {
+  if (v && v.ciclo_visita != null) {
+    const g = +v.ciclo_rientro_giorni || 0;
+    if (!g || !v.data_visita) return null;
+    const d = new Date(v.data_visita); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + g);
+    return d;
+  }
+  return rientroFormedil(v.data_visita, v.acc_cant, v.ipc);
+}
 function rientroFormedil(dataVisita, acc, ipc) {
   const n = +acc || 1;
   const i = ipc || 'NR';
@@ -456,7 +468,7 @@ async function tutteLeVisite() {
   let out = [];
   for (let off = 0; ; off += PAGE) {
     const { data, error } = await sb.from('visite')
-      .select('visita_id, nr_verbale, data_visita, data_ritorno, ipc, acc_cant, tecnico_id, cantiere_id, impresa_id, impresa_rl_nome')
+      .select('visita_id, nr_verbale, data_visita, data_ritorno, ipc, acc_cant, ciclo_visita, ciclo_rientro_giorni, tecnico_id, cantiere_id, impresa_id, impresa_rl_nome')
       .eq('elimina', 0)
       /* a parità di data (due verbali lo stesso giorno sullo stesso cantiere) vale il
          numero di verbale più alto: senza questo spareggio ogni app sceglieva a caso e
@@ -552,7 +564,7 @@ async function datiLettera(t, inc) {
 
   const candidate = [];
   for (const v of suoi) {
-    const calc = rientroFormedil(v.data_visita, v.acc_cant, v.ipc);
+    const calc = rientroVisita(v);   // (20/10/2026) sulla visita del ciclo, se c'è; null = nessun rientro dovuto (archiviazione, ciclo fermo o critico)
     if (!calc) continue; // esito da archiviazione: nessun rientro dovuto
     let dr = calc, calcolata = true;
     if (v.data_ritorno) { dr = new Date(v.data_ritorno); dr.setHours(0, 0, 0, 0); calcolata = false; }
