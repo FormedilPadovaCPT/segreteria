@@ -194,10 +194,12 @@ async function formFattura(f, prefill = {}) {
 export async function dettaglioFattura(id) {
   const { data: f } = await sb.from('s_fatture_tecnici').select('*').eq('id', id).single();
   if (!f) return toast('Fattura non trovata.', 'err');
-  const [{ data: pp }, { data: inc }, { data: prot }] = await Promise.all([
+  const [{ data: pp }, { data: inc }, { data: prot }, blocco] = await Promise.all([
     sb.from('s_prestazioni').select('*').eq('fattura_id', f.id).order('data'),
     f.incarico_mensile_id ? sb.from('s_incarichi_mensili').select('*').eq('id', f.incarico_mensile_id).maybeSingle() : { data: null },
     f.protocollo_in_id ? sb.from('s_protocollo').select('*').eq('id', f.protocollo_in_id).maybeSingle() : { data: null },
+    /* (20/10/2026) i verbali con una questione aperta fermano il pagamento: lo dice il database */
+    sb.rpc('fattura_questioni_aperte', { p_fatture: [f.id] }),
   ]);
   const prest = pp || [];
   const netto = prest.reduce((s, p) => s + Number(p.importo || 0), 0);
@@ -228,6 +230,8 @@ export async function dettaglioFattura(id) {
     ${f.esterno || (!f.tecnico_id && f.corso_incarico_id) ? `<div class="dt-doc-riga"><strong>Soggetto esterno</strong> (non è un tecnico dell'ente): niente riepilogo attività da fatturare, ma la fattura entra nel mandato come le altre.${f.soggetto_email ? ` Avviso di pagamento a ${esc(f.soggetto_email)}.` : ' <span class="hint">Senza indirizzo e-mail l&rsquo;avviso di pagamento non parte.</span>'}</div>` : ''}
     ${f.corso_incarico_id ? `<div class="dt-doc-riga"><strong>Paga l'incarico di docenza</strong> n° ${f.corso_incarico_id}${incDoc ? ` — ${esc(incDoc.nominativo)}, corso n° ${incDoc.corso_id}${incDoc.corrispettivo != null ? `, corrispettivo ${euro(incDoc.corrispettivo)}` : ''}` : ''}</div>` : ''}
     ${f.note ? `<div class="dt-doc-riga"><strong>Note:</strong> ${esc(f.note)}</div>` : ''}
+    ${blocco.error ? `<div class="dt-doc-riga" style="color:#a01f00">Non sono riuscito a leggere i verbali con questioni aperte (${esc(blocco.error.message)}): se ce ne sono, approvazione e mandato vengono rifiutati.</div>`
+      : (blocco.data || []).length ? `<div class="dt-doc-riga" style="color:#a01f00"><strong>⛔ Non può andare in pagamento:</strong> ${(blocco.data || []).map((b) => `<strong>${esc(b.nr_verbale || '')}</strong> (${esc(b.motivo)})`).join(', ')}. La questione la chiude il Coordinatore dal riepilogo «Verbali da sistemare» del gestionale.</div>` : ''}
     <div class="dt-doc-riga"><strong>Controllo:</strong> ${prest.length} prestazioni collegate, netto ${euro(netto)} → atteso ${euro(atteso)}
       ${fisc ? `<span class="hint">(cassa ${fisc.cassa_pct}%${fisc.iva_pct ? ` + IVA ${fisc.iva_pct}%` : ', senza IVA'})</span>` : '<span class="hint">(regime non impostato: 4% + 22%)</span>'}
       ${prest.length ? (Math.abs(scarto) < 0.02 ? '<span class="dt-cella dt-ok" style="padding:0 6px">torna</span>' : `<span class="dt-cella dt-senzadata" style="padding:0 6px">scarto ${euro(scarto)}</span>`) : ''}</div>

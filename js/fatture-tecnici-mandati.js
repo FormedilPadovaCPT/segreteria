@@ -28,6 +28,15 @@ async function renderMandati(hostArg) {
     sb.from('s_fatture_tecnici').select('id, tecnico_nome, numero, importo, data_ricevimento, approvata_il').eq('stato', 'approvata').order('tecnico_nome').order('id'),
   ]);
   const approvate = appr || [];
+  /* (20/10/2026) una fattura approvata prima che si aprisse una questione su un suo verbale non va
+     in mandato: il database lo rifiuterebbe, qui si vede prima (fattura_questioni_aperte) */
+  const bloccate = {};
+  let erroreBlocchi = '';
+  if (approvate.length) {
+    const { data: bb, error: eBB } = await sb.rpc('fattura_questioni_aperte', { p_fatture: approvate.map((f) => f.id) });
+    if (eBB) erroreBlocchi = eBB.message;
+    (bb || []).forEach((b) => (bloccate[b.fattura_id] = bloccate[b.fattura_id] || []).push(b));
+  }
   host.innerHTML = `
     <div class="dt-barra">
       <div><strong>${approvate.length}</strong> fatture approvate in attesa di mandato — totale ${euro(approvate.reduce((s, f) => s + Number(f.importo || 0), 0))}</div>
@@ -35,8 +44,9 @@ async function renderMandati(hostArg) {
     </div>
     ${approvate.length ? `<div class="table-wrap" style="margin-bottom:12px"><table class="tbl" style="min-width:0">
       <thead><tr><th></th><th>Tecnico</th><th>Fattura</th><th>Ricevuta</th><th>Approvata</th><th>Importo</th></tr></thead>
-      <tbody>${approvate.map((f) => `<tr><td><input type="checkbox" data-f="${f.id}" checked></td><td>${esc(f.tecnico_nome || '')}</td><td><strong>${esc(f.numero || '')}</strong> <span class="hint">n° ${f.id}</span></td>
+      <tbody>${approvate.map((f) => `<tr><td><input type="checkbox" data-f="${f.id}" ${bloccate[f.id] ? 'disabled title="Ha verbali con questioni aperte"' : 'checked'}></td><td>${esc(f.tecnico_nome || '')}</td><td><strong>${esc(f.numero || '')}</strong> <span class="hint">n° ${f.id}</span>${bloccate[f.id] ? `<br><span style="color:#a01f00;font-size:12px">⛔ verbali con questioni aperte: ${bloccate[f.id].map((b) => esc(b.nr_verbale || '')).join(', ')}</span>` : ''}</td>
         <td>${f.data_ricevimento ? dataIt(f.data_ricevimento) : '—'}</td><td>${f.approvata_il ? dataIt(f.approvata_il) : '—'}</td><td><strong>${euro(f.importo)}</strong></td></tr>`).join('')}</tbody></table></div>` : ''}
+    ${erroreBlocchi ? `<p class="hint" style="color:#a01f00">Non sono riuscito a leggere i verbali con questioni aperte (${esc(erroreBlocchi)}): se una fattura ne ha, il mandato viene rifiutato prima di prepararlo.</p>` : ''}
     <h4 style="margin:6px 0">Mandati emessi</h4>
     <div class="table-wrap"><table class="tbl" style="min-width:0">
       <thead><tr><th>N°</th><th>Data</th><th>Totale</th><th>Note</th><th>Documento</th><th>Visto Amministrazione</th><th>Pagato</th></tr></thead>
@@ -63,6 +73,10 @@ async function emettiMandato(sel, btn) {
   attendi(btn, true, 'Preparo il mandato…');
   try {
     const ids = sel.map((f) => f.id);
+    /* (20/10/2026) prima di prendere il numero del mandato: nessuna fattura con verbali in questione */
+    const { data: bb, error: eBB } = await sb.rpc('fattura_questioni_aperte', { p_fatture: ids });
+    if (eBB) throw new Error('Non sono riuscito a controllare i verbali delle fatture: ' + eBB.message);
+    if ((bb || []).length) throw new Error(`Queste fatture hanno verbali con questioni aperte e non possono andare in mandato: ${[...new Set(bb.map((b) => b.nr_verbale))].join(', ')}.`);
     /* gli stessi dati servono alla presa visione, che rigenera il PDF
        col visto: si leggono in un posto solo (amministrazione.js) */
     const { fatture, incIds } = await datiMandato(ids);
@@ -92,7 +106,8 @@ async function emettiMandato(sel, btn) {
       await sb.from('s_mandati_pagamento').delete().eq('id', m.id);
       throw e;
     }
-    await sb.from('s_fatture_tecnici').update({ stato: 'mandato', mandato_id: m.id, mandato_data: oggiIso(), aggiornato_da: state.email, updated_at: new Date().toISOString() }).in('id', ids);
+    const { error: eMand } = await sb.from('s_fatture_tecnici').update({ stato: 'mandato', mandato_id: m.id, mandato_data: oggiIso(), aggiornato_da: state.email, updated_at: new Date().toISOString() }).in('id', ids);
+    if (eMand) throw new Error(`Mandato n° ${m.id} creato, ma le fatture non sono passate «in mandato» (${eMand.message}): avvisa chi segue l'app prima di mandarlo.`);
     if (incIds.length) await sb.from('s_incarichi_mensili').update({ stato: 'pagato', aggiornato_da: state.email, updated_at: new Date().toISOString() }).in('id', incIds);
 
     /* La mail porta il LINK AL MANDATO nell'app (16/09/2026): è lì che
