@@ -45,7 +45,7 @@ import { caricaLogo } from './firma-logo.js'
 // ⚠️ anche questo è una COPIA di js/mail-respinte-lettura.js: la lettura di
 // un rapporto di mancata consegna si prova con `node --test`, senza Gmail.
 // @ts-ignore modulo JS senza tipi
-import { falliti, oggettiCandidati, oggettoOriginale, numeroVerbale } from './mail-respinte-lettura.js'
+import { falliti, oggettiCandidati, oggettoOriginale, numeroVerbale, inServizio } from './mail-respinte-lettura.js'
 
 const SCOPE_GMAIL_RO = 'https://www.googleapis.com/auth/gmail.readonly'
 const CORS = {
@@ -179,7 +179,7 @@ serve(async (req) => {
           visita = v || null
           if (visita?.tecnico_id) {
             const { data: t } = await sb.from('tecnici')
-              .select('tecnico_id, tecnico_nome, tecnico_cognome, titolo, email')
+              .select('tecnico_id, tecnico_nome, tecnico_cognome, titolo, email, attivo, elimina')
               .eq('tecnico_id', visita.tecnico_id).maybeSingle()
             tecnico = t || null
           }
@@ -225,8 +225,9 @@ serve(async (req) => {
           const nuova = (ins || [])[0]
           if (!nuova) continue                /* era già registrata */
           esito.nuovi = (esito.nuovi as number) + 1
-          /* ⚠️ solo i rifiuti definitivi avvisano il tecnico */
-          if (nuova.permanente && nuova.tecnico_email) daAvvisare.push({ ...nuova, tecnico })
+          /* ⚠️ solo i rifiuti definitivi avvisano il tecnico, e solo se è in servizio (20/10/2026):
+             per gli altri la riga resta nel cruscotto della segreteria */
+          if (nuova.permanente && nuova.tecnico_email && inServizio(tecnico)) daAvvisare.push({ ...nuova, tecnico })
         }
       } catch (e) { err.push(`${id}: ${(e as Error).message}`) }
     }

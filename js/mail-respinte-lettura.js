@@ -98,3 +98,11 @@ export function numeroVerbale(candidati, testo) {
   const m = (candidati || []).join(' | ').match(VERBALE_RE) || String(testo || '').match(VERBALE_RE);
   return m ? m[0] : null;
 }
+
+/* Il tecnico della visita è in servizio? (20/10/2026, deciso dall'utente: un tecnico messo «non in
+   servizio» — attivo = no, o eliminato — non riceve più avvisi di rimbalzo né inoltri delle risposte.
+   La riga resta registrata e la mail resta nella casella dell'ufficio, dove la vede la segreteria.)
+   Usata da mail-respinte e risposte-verbali. */
+export function inServizio(t) {
+  return !!t && t.attivo !== false && !(Number(t.elimina) > 0);
+}

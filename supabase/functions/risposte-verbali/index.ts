@@ -45,7 +45,7 @@ import { caricaLogo } from './firma-logo.js'
 // @ts-ignore modulo JS senza tipi
 import { classifica, mappaIntestazioni, testoDaHtml, allegatiDaTenere, nomeFileSicuro, testoInoltro, dataOraIt } from './risposte-verbali-lettura.js'
 // @ts-ignore modulo JS senza tipi
-import { decodificaOggetto } from './mail-respinte-lettura.js'
+import { decodificaOggetto, inServizio } from './mail-respinte-lettura.js'
 
 const SCOPE_GMAIL_RO = 'https://www.googleapis.com/auth/gmail.readonly'
 const CORS = {
@@ -187,10 +187,12 @@ serve(async (req) => {
         const visita: any = (vv || []).find((v: { elimina?: number | null }) => Number(v.elimina || 0) !== 1) || (vv || [])[0] || null
         const idTec = [visita?.tecnico_id, visita?.tecnico2_id].filter(Boolean)
         const { data: tt, error: eT } = idTec.length
-          ? await sb.from('tecnici').select('tecnico_id, titolo, tecnico_nome, tecnico_cognome, email').in('tecnico_id', idTec)
+          ? await sb.from('tecnici').select('tecnico_id, titolo, tecnico_nome, tecnico_cognome, email, attivo, elimina').in('tecnico_id', idTec)
           : { data: [], error: null }
         if (eT) throw new Error('tecnico non letto: ' + eT.message)
-        const tecnici = (tt || []).filter((t: Record<string, string>) => MAIL_RE.test(String(t.email || '').trim()))
+        const conMail = (tt || []).filter((t: Record<string, string>) => MAIL_RE.test(String(t.email || '').trim()))
+        /* 20/10/2026: un tecnico non in servizio non riceve più l'inoltro; la risposta resta in cptpd@ */
+        const tecnici = conMail.filter((t: Record<string, unknown>) => inServizio(t))
         let impresa = ''
         if (visita?.impresa_id) {
           const { data: i } = await sb.from('imprese').select('impresa_nome').eq('impresa_id', visita.impresa_id).maybeSingle()
@@ -200,7 +202,8 @@ serve(async (req) => {
         if (!tecnici.length) {
           esito.senza_tecnico = (esito.senza_tecnico as number) + 1
           await registra({ ...conVisita, esito: 'senza_tecnico',
-            motivo: visita ? 'la visita non ha un tecnico con indirizzo' : 'nessuna visita con questo numero di verbale' })
+            motivo: !visita ? 'nessuna visita con questo numero di verbale'
+              : conMail.length ? 'il tecnico della visita non è in servizio' : 'la visita non ha un tecnico con indirizzo' })
           continue
         }
         const a = tecnici.map((t: Record<string, string>) => String(t.email).trim().toLowerCase())

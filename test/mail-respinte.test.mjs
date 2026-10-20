@@ -13,7 +13,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  decodificaOggetto, falliti, oggettiCandidati, oggettoOriginale, numeroVerbale,
+  decodificaOggetto, falliti, oggettiCandidati, oggettoOriginale, numeroVerbale, inServizio,
 } from '../js/mail-respinte-lettura.js';
 
 const OGGETTO_Q = '=?UTF-8?Q?FORMEDIL_Padova_=2DAREA_SICUREZZA_E_SALUTE=2D_Cantiere_?='
@@ -104,4 +104,12 @@ test('se c’è solo l’oggetto del daemon si tiene quello: meglio poco che nie
   assert.equal(oggettoOriginale(['Delivery Status Notification (Failure)']),
     'Delivery Status Notification (Failure)');
   assert.equal(oggettoOriginale([]), null);
+});
+
+test('un tecnico non in servizio non riceve avvisi né inoltri (20/10/2026)', () => {
+  assert.equal(inServizio({ email: 'a@b.it', attivo: true, elimina: 0 }), true);
+  assert.equal(inServizio({ email: 'a@b.it', attivo: null, elimina: null }), true, 'attivo vuoto vale come in servizio, come is_personale');
+  assert.equal(inServizio({ email: 'a@b.it', attivo: false, elimina: 0 }), false);
+  assert.equal(inServizio({ email: 'a@b.it', attivo: true, elimina: 1 }), false);
+  assert.equal(inServizio(null), false);
 });
