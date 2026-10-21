@@ -29,7 +29,7 @@ import { riassuntoCatena } from './firme-regole.js';
 export { riassuntoCatena };
 
 const BUCKET = 'firme-presidente';
-export const RUOLI_FIRMA = { presidente: 'Presidente', direttore: 'Direttore', rpf: 'resp. progetto formativo', docente: 'docente', incaricato: 'tecnico per accettazione' };
+export const RUOLI_FIRMA = { presidente: 'Presidente', direttore: 'Direttore', rpf: 'resp. progetto formativo', docente: 'docente', incaricato: 'tecnico per accettazione', personale: 'destinatario del documento' };
 
 /* Manda in firma uno o più documenti in una chiamata sola (una mail per
    firmatario).
@@ -136,7 +136,7 @@ export async function registraAutografa(riga, byte, dataFirma) {
 
 const chi = (r) => {
   const ruolo = RUOLI_FIRMA[r.firmatario_ruolo] || r.firmatario_ruolo || 'Presidente';
-  return ['docente', 'rpf', 'incaricato'].includes(r.firmatario_ruolo) ? `${ruolo} ${r.firmatario_email || ''}`.trim() : ruolo;
+  return ['docente', 'rpf', 'incaricato', 'personale'].includes(r.firmatario_ruolo) ? `${ruolo} ${r.firmatario_email || ''}`.trim() : ruolo;
 };
 
 /* Una piccola etichetta dello stato, per le tabelle che elencano i documenti */

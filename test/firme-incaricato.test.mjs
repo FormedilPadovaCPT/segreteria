@@ -11,7 +11,7 @@ const leggi = (f) => readFileSync(path.join(qui, f), 'utf8').replace(/\r\n/g, '\
 const fn = leggi('../supabase/functions/firma-documenti/index.ts');
 
 test('il ruolo incaricato esiste in funzione, database e app', () => {
-  assert.match(fn, /const RUOLI = \['presidente', 'direttore', 'rpf', 'docente', 'incaricato'\]/);
+  assert.match(fn, /const RUOLI = \['presidente', 'direttore', 'rpf', 'docente', 'incaricato', 'personale'\]/, 'dal 21/10/2026 anche «personale» (documenti al personale)');
   assert.match(leggi('../supabase/sql/2026_10_14_firme_incaricato.sql'), /'docente', 'incaricato'\)\)/);
   assert.match(leggi('../js/firme.js'), /incaricato: 'tecnico per accettazione'/);
 });
@@ -19,7 +19,7 @@ test('il ruolo incaricato esiste in funzione, database e app', () => {
 test('firma il tecnico incaricato: la riga è sua per indirizzo e basta un accesso del personale', () => {
   assert.match(fn, /if \(String\(r\.firmatario_email\)\.toLowerCase\(\) !== io\) return json/);
   assert.match(fn, /: rl === 'incaricato' \? await ruolo\('is_personale'\)/);
-  assert.match(fn, /if \(rl === 'docente' \|\| rl === 'incaricato'\) \{/, 'la firma scansionata del tecnico');
+  assert.match(fn, /if \(rl === 'docente' \|\| rl === 'incaricato' \|\| rl === 'personale'\) \{/, 'la firma scansionata del tecnico');
 });
 
 test('accoda: solo la segreteria, solo su un documento firmato e senza firme in attesa, sul PDF firmato', () => {

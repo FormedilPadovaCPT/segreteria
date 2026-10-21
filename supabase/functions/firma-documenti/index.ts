@@ -83,7 +83,9 @@ const NOME_MITTENTE = 'Formedil Padova - Area Sicurezza e Salute'
 const GESTIONALE = 'https://formedilpadovacpt.github.io/gestionale-visite/'
 const TIPI = ['incarico_assev', 'incarico_docenza', 'accettazione_incarico', 'scheda_formativa',
   'progetto_formativo', 'registro_giornata', 'registro_corso', 'verbale_verifica', 'documento']
-const RUOLI = ['presidente', 'direttore', 'rpf', 'docente', 'incaricato']
+// (21/10/2026) «personale»: chi riceve un documento al personale che chiede la firma
+// (pagina Documenti del gestionale, funzione documenti-personale); una copia per persona
+const RUOLI = ['presidente', 'direttore', 'rpf', 'docente', 'incaricato', 'personale']
 const MAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
 
 /* dove ciascuno trova le sue firme, e come lo si chiama nella mail */
@@ -91,12 +93,14 @@ const PAGINA: Record<string, string> = {
   presidente: `${GESTIONALE}?vista=direzione`, direttore: `${GESTIONALE}?vista=direzione`,
   rpf: `${GESTIONALE}?vista=formazione`, docente: `${GESTIONALE}?vista=formazione`,
   incaricato: `${GESTIONALE}?vista=formazione`,
+  personale: `${GESTIONALE}?vista=documenti`,
 }
 const DOVE: Record<string, string> = {
   presidente: 'pagina Presidenza del gestionale visite', direttore: 'pagina Direzione del gestionale visite',
   rpf: 'pagina Formazione del gestionale visite, sezione «Le mie firme»',
   docente: 'pagina Formazione del gestionale visite, sezione «Le mie firme»',
   incaricato: 'pagina Formazione del gestionale visite, sezione «Le mie firme»',
+  personale: 'pagina Documenti del gestionale visite, riquadro «Documenti da firmare»',
 }
 
 const toB64Url = (s: string) => {
@@ -426,6 +430,8 @@ serve(async (req) => {
         : rl === 'rpf' ? await ruolo('is_rpf')
         /* il tecnico incaricato (14/10/2026): basta un accesso del personale, la riga è sua per indirizzo */
         : rl === 'incaricato' ? await ruolo('is_personale')
+        /* (21/10/2026) i documenti al personale: come l'incaricato, la riga è sua per indirizzo */
+        : rl === 'personale' ? await ruolo('is_personale')
         : r.corso_id ? await ruolo('is_docente_del_corso', { p_corso: r.corso_id })
         : (await ruolo('is_docente')) || (await ruolo('is_personale'))
       if (!ok) return json({ error: `Per firmare serve l'accesso di ${descrizioneRuolo(rl)}${r.corso_id ? ' di questo corso' : ''}.` }, 403)
@@ -533,7 +539,8 @@ serve(async (req) => {
 function descrizioneRuolo(rl: string) {
   return rl === 'presidente' ? 'il Presidente' : rl === 'direttore' ? 'il Direttore'
     : rl === 'rpf' ? 'il responsabile del progetto formativo'
-    : rl === 'incaricato' ? 'il tecnico incaricato' : 'il docente'
+    : rl === 'incaricato' ? 'il tecnico incaricato'
+    : rl === 'personale' ? 'chi riceve il documento' : 'il docente'
 }
 
 /* l'indirizzo con cui il firmatario entra nell'app */
@@ -582,7 +589,7 @@ async function immagineFirma(sb: any, conf: Conf, r: Riga): Promise<Uint8Array |
   let driveId = rl === 'presidente' ? conf.presidente_firma_id
     : rl === 'direttore' ? conf.direttore_firma_id
     : rl === 'rpf' ? conf.responsabile_formativo_firma_id : ''
-  if (rl === 'docente' || rl === 'incaricato') {
+  if (rl === 'docente' || rl === 'incaricato' || rl === 'personale') {
     const lett = email.replace(/[\\%_]/g, (c: string) => '\\' + c)
     const { data: t } = await sb.from('tecnici').select('firma_url').ilike('email', lett).limit(1)
     const url = String(t?.[0]?.firma_url || '')
