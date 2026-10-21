@@ -68,3 +68,10 @@ test('firma a catena: prima il Direttore, poi il tecnico per accettazione; proto
   assert.ok(/intestazione\(pagina, m\)/.test(pdf) && !/from '\.\/core\.js'/.test(pdf), 'carta intestata delle nomine, PDF senza core.js');
   assert.ok(/scaricaEml\(/.test(mod) && !/send-protocollo|invia\(/.test(mod), 'la mail la manda una persona');
 });
+
+// (21/10/2026, corretto dall'utente) la lettera si firma nell'app, non per mail: il protocollo lo dice
+test('il protocollo della lettera di affiancamento ha il mezzo «Firma nell\'app»', () => {
+  const js = fs.readFileSync(new URL('../js/lettera-affiancamento.js', import.meta.url), 'utf8');
+  assert.match(js, /mezzo: "Firma nell'app"/);
+  assert.doesNotMatch(js, /mezzo: 'e-mail'/);
+});

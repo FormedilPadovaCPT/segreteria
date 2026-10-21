@@ -125,7 +125,8 @@ export async function apriLettera(dopo) {
           oggetto: `Lettera di affiancamento nelle visite in cantiere a fini di formazione — ${nominativo(affiancato)}`,
           sintesi: `Affiancamento ${periodo(dal, al)} con ${tutori.map(nominativo).join(', ')}. Firma del Direttore, poi del tecnico per accettazione nell'app.`,
           note: testoPerProtocollo(testo),
-          ufficio: 'Segreteria Area Sicurezza e Salute', mezzo: 'e-mail',
+          /* (21/10/2026, corretto dall'utente) la lettera la firmano Direttore e tecnico NELL'APP, non per mail */
+          ufficio: 'Segreteria Area Sicurezza e Salute', mezzo: "Firma nell'app",
           tipo_doc_txt: 'Lettera di affiancamento', cartella: cartellaTecnico(affiancato),
         } });
         if (error) throw new Error('Protocollazione non riuscita: ' + error.message);
