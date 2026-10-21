@@ -20,7 +20,7 @@ import { dataIt, oggiIso, taglia } from './comune.js';
 const A4 = [595.28, 841.89];
 const SX = 57, DX = 538;
 
-async function apriDocumento() {
+export async function apriDocumento() {
   const { PDFDocument, StandardFonts, rgb } = await pdfLib();
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
@@ -34,8 +34,9 @@ async function apriDocumento() {
   return { doc, font, bold, italic, logo, rgb };
 }
 
-/* La carta intestata Formedil in testa alla pagina; torna la y utile. */
-function intestazione(pagina, m) {
+/* La carta intestata Formedil in testa alla pagina; torna la y utile.
+   Esportata (21/10/2026) per la lettera di affiancamento. */
+export function intestazione(pagina, m) {
   const { font, bold, logo, rgb } = m;
   const arancio = rgb(...COLORI.arancio);
   const grigio = rgb(...COLORI.grigio);

@@ -248,6 +248,9 @@ window.AIUTO_TESTI = {
   /* ── documenti tecnici, comunicazione ── */
   'dt-avviso': 'Prepara la bozza mail al tecnico per il documento in scadenza.',
   'dt-protocolla': 'Apre un protocollo in uscita già compilato con i dati del documento.',
+  'la-nuova': 'Apre la lettera di affiancamento di un tecnico nuovo: chi è affiancato, da chi e da quando. Firma il Direttore, poi il tecnico per accettazione.',
+  'la-manda': 'Prende un numero di protocollo in uscita (se la lettera ne ha già uno riusa quello), la genera sulla carta intestata e la manda in firma: al Direttore arriva la mail, poi tocca al tecnico.',
+  't:deposita e prepara la mail': 'Mette la lettera firmata da tutti e due nella cartella del tecnico, la collega al protocollo e scarica la bozza mail per il tecnico. La mail la mandi tu.',
   'cm-nuovo': 'Apre un post nuovo in bozza.',
   'cm-linee': 'Le indicazioni per la prossima redazione automatica del lunedì.',
   'cm-materia': 'I numeri con cui la redazione lavora: visite, corsi, eventi del periodo.',

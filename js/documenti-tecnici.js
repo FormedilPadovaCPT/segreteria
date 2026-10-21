@@ -144,6 +144,7 @@ export async function render() {
   }).join('');
 
   host.innerHTML = `
+    <div id="la-host"></div>
     <div class="dt-barra">
       <div class="dt-legenda">
         <span class="dt-dot dt-ok"></span> valido
@@ -172,6 +173,10 @@ export async function render() {
     apriCella(c.dataset.tec, Number(c.dataset.req))));
   host.querySelectorAll('.dt-nome').forEach((c) => c.addEventListener('click', () =>
     apriTecnico(c.dataset.tecnico)));
+  /* (21/10/2026) le lettere di affiancamento dei tecnici nuovi: firma del Direttore, poi del tecnico */
+  import('./lettera-affiancamento.js')
+    .then((m) => m.boxLettere($('#la-host'), render))
+    .catch((e) => { $('#la-host').innerHTML = `<p class="hint" style="color:#c0392b">Le lettere di affiancamento non si sono caricate: ${esc(e.message)}</p>`; });
 }
 
 function trovaRiga(chiave) {
