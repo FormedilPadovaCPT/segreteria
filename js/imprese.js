@@ -283,6 +283,35 @@ export async function apriScheda(impresaId, tab = 'anagrafica') {
   disegnaScheda();
 }
 
+/* (22/10/2026, segnalato dall'utente: «mi dà 6 quando ce ne sono 3») il
+   numero sulla linguetta «Persone» conta le PERSONE, non le righe: chi è
+   dipendente, ha una nomina ed è RLS è una persona sola. Si riconosce dall'id
+   dell'anagrafica, poi dal codice fiscale, poi dal nominativo (cognome e nome
+   in qualunque ordine) per le nomine e gli RLS non agganciati. */
+function personeDistinte(s) {
+  /* i titoli che le nomine scrivono nel nominativo («Longo Sig. Roberto») non contano */
+  const TITOLI = new Set(['sig', 'sigra', 'ra', 'geom', 'ing', 'arch', 'dott', 'dottssa', 'ssa', 'avv', 'rag', 'per', 'ind', 'pi', 'prof', 'arc']);
+  const nome = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/\./g, '').split(/[^a-z']+/).filter((w) => w.length > 1 && !TITOLI.has(w)).sort().join(' ');
+  const cf = (t) => String(t || '').trim().toUpperCase();
+  const viste = [];   // una voce per persona: { id, cf, nome }
+  /* il nominativo unisce solo se id e codice fiscale non dicono il contrario:
+     due omonimi con codici fiscali diversi restano due */
+  const trova = (p) => viste.find((v) => (p.id && v.id === p.id) || (p.cf && v.cf === p.cf)
+    || (p.nome && v.nome === p.nome && !(p.cf && v.cf && p.cf !== v.cf) && !(p.id && v.id && p.id !== v.id)));
+  const aggiungi = (p) => {
+    if (!p.id && !p.cf && !p.nome) return;
+    const v = trova(p);
+    if (!v) { viste.push(p); return; }
+    v.id = v.id || p.id; v.cf = v.cf || p.cf; v.nome = v.nome || p.nome;
+  };
+  (s.persone || []).forEach((p) => aggiungi({ id: p.persona_id || null, cf: cf(p.cf), nome: nome(p.nominativo) }));
+  (s.nomine || []).forEach((x) => aggiungi({ id: x.persona_id || null, cf: '', nome: nome(x.nominativo) }));
+  (s.rls || []).forEach((r) => aggiungi({ id: null, cf: cf(r.rls_cf),
+    nome: nome([r.rls_cognome, r.rls_nome].filter(Boolean).join(' ') || r.rls_nominativo) }));
+  return viste.length;
+}
+
 function disegnaScheda() {
   const i = scheda.impresa;
   const n = (k) => (scheda[k] || []).length;
@@ -318,7 +347,7 @@ function disegnaScheda() {
     <div class="tabs" id="imp-tabs">
       <button class="tab-btn" data-tab="anagrafica">Anagrafica</button>
       <button class="tab-btn" data-tab="cantieri">Cantieri e visite <span class="cnt">${cantieri + n('visite')}</span></button>
-      <button class="tab-btn" data-tab="persone">Persone <span class="cnt">${n('persone') + n('nomine') + n('rls')}</span></button>
+      <button class="tab-btn" data-tab="persone">Persone <span class="cnt">${personeDistinte(scheda)}</span></button>
       <button class="tab-btn" data-tab="attivita">Attività <span class="cnt">${n('richieste') + n('protocolli')}</span></button>
     </div>
 
