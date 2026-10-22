@@ -903,13 +903,13 @@ export async function pdfRichiestaFerie(r, visto, firmaByte, saldo, et = {}, fir
   if (visto) {
     /* il riquadro tutto verde (o rosso se respinta), con la firma a destra */
     const ok = esito === 'approvata';
-    const hh = 72, y0 = y - 14 - hh;
+    const hh = 62, y0 = y - 10 - hh;
     R_(40, y0, W - 80, hh, { borderColor: ok ? C.verde : C.rosso, borderWidth: 1.2, color: ok ? C.verdeChiaro : C.rossoChiaro });
-    T(ok ? 'RICHIESTA APPROVATA' : 'RICHIESTA NON APPROVATA', 54, y0 + hh - 20, 11, b, ok ? C.verde : C.rosso, { sp: 0.8 });
-    T(`${visto.nome} — Direttore`, 54, y0 + hh - 36, 10, b, C.nero);
-    T(`Padova, ${visto.data_ora}`, 54, y0 + hh - 49, 8.5, f, C.grigio);
-    T(`Visto registrato nell’app Segreteria da ${visto.utente}`, 54, y0 + hh - 61, 7, f, C.tenue);
-    if (visto.note) T(taglia(f, 7.5, `Note: ${visto.note}`, W - 80 - 170), 300, y0 + hh - 20, 7.5, f, C.grigio);
+    T(ok ? 'RICHIESTA APPROVATA' : 'RICHIESTA NON APPROVATA', 54, y0 + hh - 16, 11, b, ok ? C.verde : C.rosso, { sp: 0.8 });
+    T(`${visto.nome} — Direttore`, 54, y0 + hh - 30, 10, b, C.nero);
+    T(`Padova, ${visto.data_ora}`, 54, y0 + hh - 42, 8.5, f, C.grigio);
+    T(`Visto registrato nell’app Segreteria da ${visto.utente}`, 54, y0 + hh - 53, 7, f, C.tenue);
+    if (visto.note) T(taglia(f, 7.5, `Note: ${visto.note}`, W - 80 - 170), 300, y0 + hh - 16, 7.5, f, C.grigio);
     if (firmaByte) {
       try {
         let img; try { img = await doc.embedPng(firmaByte); } catch { img = await doc.embedJpg(firmaByte); }
@@ -919,11 +919,11 @@ export async function pdfRichiestaFerie(r, visto, firmaByte, saldo, et = {}, fir
     }
   } else {
     /* il giro di carta: motivazioni e firme a mano */
-    y -= 22;
+    y -= 18;
     T('Motivazioni o condizioni', 40, y, 7.5, b, C.tenue);
     L_(150, y - 2, W - 40, y - 2, C.tenue); y -= 16;
     L_(40, y - 2, W - 40, y - 2, C.tenue);
-    y -= 34;
+    y -= 26;
     T('Padova, lì', 40, y + 2, 9, f, C.nero); L_(88, y, 170, y, C.nero, 0.7);
     T(dataIt((r.created_at || '').slice(0, 10)), 92, y + 3, 9, b, C.nero);   /* la data della richiesta (22/10/2026) */
     L_(200, y, 360, y, C.nero, 0.7); T('Firma del Direttore', 200, y - 12, 7.5, f, C.tenue);
