@@ -669,7 +669,7 @@ export function cardRichiesta(r, saldo, et = {}) {
   if (r.tipo === 'visita_medica') {
     const v = r.visita_foto;
     if (v && v.residuoMin != null && v.chiestaMin != null) {
-      return { titolo: 'VISITE MEDICHE: ORE RIMASTE DOPO', grande: minHm(v.dopoMin), sotto: `ore ancora nelle ${minHm(v.tettoMin ?? VISITE_TETTO_MIN)} del ${v.anno}`, sotto2: `${minHm(v.usateMin)} già usate`,
+      return { titolo: 'VISITE MEDICHE: ORE RIMASTE DOPO', grande: minHm(v.dopoMin), sotto: `ore ancora nelle ${minHm(v.tettoMin ?? VISITE_TETTO_MIN)} del ${v.anno}`, sotto2: '',   /* «già usate» sta nella sezione 4 (correzione dell'Amministrazione, 22/10/2026) */
         richiesta: `${minHm(v.chiestaMin)} ore di visita medica`, quota: v.residuoMin > 0 ? Math.min(1, v.chiestaMin / v.residuoMin) : 1,
         nota: v.oltreMin > 0 ? `${minHm(v.oltreMin)} ore oltre le ${minHm(v.tettoMin ?? VISITE_TETTO_MIN)} annue: da recuperare (art. 45 c.3)` : 'contatore a parte (art. 45 c.4): non scala ferie, permessi né banca ore' };
     }
@@ -857,7 +857,8 @@ export async function pdfRichiestaFerie(r, visto, firmaByte, saldo, et = {}, fir
     });
     y -= 4;
     if (v.usateMin != null) {
-      y = P(`Contatore ${v.anno}: ${minHm(v.usateMin)} già usate su ${testoTetto(v)}, ne restano ${minHm(v.residuoMin)}${v.chiestaMin != null ? `, dopo questa richiesta ${minHm(v.dopoMin)}` : ''}.${v.oltreMin > 0 ? ` ${minHm(v.oltreMin)} ore vanno oltre le ${minHm(v.tettoMin ?? VISITE_TETTO_MIN)} annue e si recuperano come i permessi brevi (art. 45 c.3).` : ''}`, 40, y, 8.5, f, C.nero, W - 80);
+      /* «ne restano» dice le ore DOPO questa richiesta: una cifra sola (correzione dell'Amministrazione, 22/10/2026) */
+      y = P(`Contatore ${v.anno}: ${minHm(v.usateMin)} già usate su ${testoTetto(v)}, ne restano ${minHm(v.chiestaMin != null ? v.dopoMin : v.residuoMin)}.${v.oltreMin > 0 ? ` ${minHm(v.oltreMin)} ore vanno oltre le ${minHm(v.tettoMin ?? VISITE_TETTO_MIN)} annue e si recuperano come i permessi brevi (art. 45 c.3).` : ''}`, 40, y, 8.5, f, C.nero, W - 80);
     }
     y = P('Il tempo comprende il viaggio di andata e ritorno dalla sede. Si conserva l’attestazione di presenza del medico o della struttura; come e a chi consegnarla lo dice l’ufficio personale.', 40, y, 7.5, it, C.grigio, W - 80) - 13;
   } else if (r.tipo === 'supplementari') {
