@@ -165,6 +165,7 @@ const totDaOrari = (e1, u1, e2, u2) => {
 async function caricaBase() {
   const [{ data: cfg }, { data: dd }] = await Promise.all([
     sb.from('s_config').select('chiave, valore').in('chiave', ['direttore_email', 'direttore_nome', 'direttore_firma_id',
+      'segreteria_firma_id', 'segreteria_firma_nome',
       'presenze_rsu_ore_mensili_indicative', 'presenze_rsu_nota_monte', 'amministrazione_email', 'amministrazione_nome']),
     sb.from('s_ferie_richieste').select('dipendente'),
   ]);
@@ -1364,6 +1365,19 @@ async function saldoRichiestaDati(r) {
 async function saldoRichiesta(r) { return testoSaldoRichiesta(await saldoRichiestaDati(r)); }
 /* per il PDF: la fotografia sulla richiesta se c'è (è ciò che il Direttore ha visto), altrimenti il saldo di adesso */
 async function saldoPerPdf(r) { return r.saldo_foto || await saldoRichiestaDati(r); }
+/* LA FIRMA DEL DIPENDENTE SUL MODULO (22/10/2026, chiesto dall'utente): la firma scansionata che c'è
+   è quella della segreteria (s_config.segreteria_firma_id, su Drive in _SISTEMA/firme/, la stessa del
+   mandato), e va SOLO sulle richieste di chi la possiede (segreteria_firma_nome). Per gli altri
+   dipendenti resta la riga da firmare a mano. Se la lettura non riesce, idem: il modulo esce lo stesso. */
+let firmaDipCache = null;
+async function firmaDipendente(r) {
+  if (!conf.segreteria_firma_id || !conf.segreteria_firma_nome) return null;
+  if (String(r.dipendente || '').trim().toLowerCase() !== String(conf.segreteria_firma_nome).trim().toLowerCase()) return null;
+  if (!firmaDipCache) {
+    try { firmaDipCache = await leggiByte(conf.segreteria_firma_id); } catch { return null; }
+  }
+  return firmaDipCache;
+}
 const etichettePdf = (r) => ({ tipo: etichettaTipo(r.tipo), monte: r.monte ? etichettaMonte(r.monte) : '' });
 
 /* i saldi a fine mese per il foglio presenze e la mail a Patrizia (02/10/2026) */
@@ -1748,7 +1762,7 @@ export async function apriRichiesta(id) {
     attendi(btn, true);
     try {
       const { pdfRichiestaFerie } = await import('./presenze-doc.js');
-      const byte = await pdfRichiestaFerie(r, null, null, await saldoPerPdf(r), etichettePdf(r));
+      const byte = await pdfRichiestaFerie(r, null, null, await saldoPerPdf(r), etichettePdf(r), await firmaDipendente(r));
       const url = URL.createObjectURL(new Blob([byte], { type: 'application/pdf' }));
       const a = document.createElement('a');
       a.href = url; a.download = nomeRichiesta(r, false); a.click();
@@ -1794,7 +1808,7 @@ async function mandaAlDirettore(r, btn) {
       }
     }
     const { pdfRichiestaFerie } = await import('./presenze-doc.js');
-    const byte = await pdfRichiestaFerie(r, null, null, await saldoPerPdf(r), etichettePdf(r));
+    const byte = await pdfRichiestaFerie(r, null, null, await saldoPerPdf(r), etichettePdf(r), await firmaDipendente(r));
     scaricaEml({
       to: conf.direttore_email || 'direzione@formedilpadova.it',
       oggetto: `Formedil Padova - Richiesta ${etichettaTipo(r.tipo).toLowerCase()} - ${r.dipendente} - n. ${r.id}`,
@@ -1846,7 +1860,7 @@ async function decidiRichiesta(r, esito, btn) {
       note,
     };
     const { pdfRichiestaFerie } = await import('./presenze-doc.js');
-    const byte = await pdfRichiestaFerie(r, visto, firmaByte, await saldoPerPdf(r), etichettePdf(r));
+    const byte = await pdfRichiestaFerie(r, visto, firmaByte, await saldoPerPdf(r), etichettePdf(r), await firmaDipendente(r));
 
     const cart = await risolviCartella(CARTELLA_RICHIESTE);
     if (!cart.id) throw new Error('Cartella richieste_ferie_permessi non trovata su Drive');

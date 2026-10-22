@@ -644,7 +644,8 @@ export async function pdfPresenzePeriodo({ dipendente, da, a, presenze, extra })
    r = riga s_ferie_richieste; visto = null (giro di carta: caselle vuote e righe per le firme) oppure
    { esito, nome, data_ora, utente, note }; firmaByte = png/jpg o null; saldo = saldo del monte di ferie
    o ex festività (oggetto di saldoRichiestaDati, o la fotografia r.saldo_foto) o null;
-   et = { tipo, monte } etichette leggibili, dalle tabelle di presenze.js. */
+   et = { tipo, monte } etichette leggibili, dalle tabelle di presenze.js;
+   firmaDip = byte png/jpg della firma scansionata del dipendente che chiede, o null (22/10/2026). */
 
 const minHm = (min) => mm2hm(min || 0);
 const giorniTxt = (g) => (g === '' || g == null ? '' : String(g));
@@ -700,7 +701,7 @@ export function cardRichiesta(r, saldo, et = {}) {
       : ['ferie', 'permesso'].includes(r.tipo) ? 'saldo non calcolabile: manca la spettanza dalla busta paga' : '' };
 }
 
-export async function pdfRichiestaFerie(r, visto, firmaByte, saldo, et = {}) {
+export async function pdfRichiestaFerie(r, visto, firmaByte, saldo, et = {}, firmaDip = null) {
   const { PDFDocument, StandardFonts, rgb } = await pdfLib();
   const doc = await PDFDocument.create();
   const f = await doc.embedFont(StandardFonts.Helvetica);
@@ -846,13 +847,13 @@ export async function pdfRichiestaFerie(r, visto, firmaByte, saldo, et = {}) {
       [v.ssn, 'visita specialistica o esame prescritto dal SSN o in struttura convenzionata'],
       [v.fuori_orario_no, 'per comprovati motivi non si può fare fuori dall’orario di lavoro'],
       [v.urgente, 'prescrizione con carattere di urgenza']].forEach(([on, s]) => {
-      casella(40, y, !!on); T(s, 54, y, 8.5, on ? b : f, C.nero); y -= 15;
+      casella(40, y, !!on); T(s, 54, y, 8.5, on ? b : f, C.nero); y -= 13;
     });
     y -= 4;
     if (v.usateMin != null) {
       y = P(`Contatore ${v.anno}: ${minHm(v.usateMin)} già usate su 18:00, ne restano ${minHm(v.residuoMin)}${v.chiestaMin != null ? `, dopo questa richiesta ${minHm(v.dopoMin)}` : ''}.${v.oltreMin > 0 ? ` ${minHm(v.oltreMin)} ore vanno oltre le 18 annue e si recuperano come i permessi brevi (art. 45 c.3).` : ''}`, 40, y, 8.5, f, C.nero, W - 80);
     }
-    y = P('Il tempo comprende il viaggio di andata e ritorno dalla sede. Si conserva l’attestazione di presenza del medico o della struttura; come e a chi consegnarla lo dice l’ufficio personale.', 40, y, 7.5, it, C.grigio, W - 80) - 14;
+    y = P('Il tempo comprende il viaggio di andata e ritorno dalla sede. Si conserva l’attestazione di presenza del medico o della struttura; come e a chi consegnarla lo dice l’ufficio personale.', 40, y, 7.5, it, C.grigio, W - 80) - 8;
   } else if (r.tipo === 'supplementari') {
     sezione(4, 'SCELTA DEL LAVORATORE');
     casella(40, y, r.compenso === 'recupero'); T('le ore saranno RECUPERATE: alimentano la BANCA ORE', 54, y, 8.5, r.compenso === 'recupero' ? b : f, C.nero);
@@ -867,7 +868,23 @@ export async function pdfRichiestaFerie(r, visto, firmaByte, saldo, et = {}) {
   tre.forEach(([s, m], k) => { const on = monteEff === m, x = 40 + k * 165; casella(x, y, on); T(s, x + 14, y, 8, on ? b : f, on ? C.nero : C.grigio); });
   if (monteEff && !tre.some(([, m]) => m === monteEff)) { y -= 18; casella(40, y, true); T(`ALTRO MONTE: ${et.monte || monteEff}`, 54, y, 8, b, C.nero); }
   y -= 22;
-  y = P('Note: ' + (r.motivo || '—'), 40, y, 9, f, C.grigio, W - 80) - 18;
+  /* LA FIRMA DEL DIPENDENTE CHE CHIEDE (22/10/2026, chiesto dall'utente): sul modulo Word era in
+     fondo, «Firma del dipendente» accanto a quella del Direttore. Qui sta a destra delle note, prima
+     dell'esito: è la firma di chi chiede, non la presa visione dell'esito (che resta in fondo, nel giro
+     di carta). Con la firma scansionata la mette l'app, senza resta la riga da firmare a mano. */
+  const yNote = y;
+  const xf = W - 40 - 170, yl = yNote - 30;
+  const dopoNote = P('Note: ' + (r.motivo || '—'), 40, y, 9, f, C.grigio, xf - 20 - 40);
+  if (firmaDip) {
+    try {
+      let img; try { img = await doc.embedPng(firmaDip); } catch { img = await doc.embedJpg(firmaDip); }
+      const sc = Math.min(150 / img.width, 34 / img.height);
+      pg.drawImage(img, { x: xf + 6, y: yl + 1, width: img.width * sc, height: img.height * sc });
+    } catch { /* senza firma grafica resta la riga da firmare */ }
+  }
+  L_(xf, yl, W - 40, yl, C.nero, 0.7);
+  T('Firma del dipendente', xf, yl - 11, 7.5, f, C.tenue);
+  y = Math.min(dopoNote, yl - 11) - 22;
 
   sezione(6, 'ESITO DELLA DIREZIONE');
   const esito = visto ? visto.esito : null;
@@ -898,9 +915,9 @@ export async function pdfRichiestaFerie(r, visto, firmaByte, saldo, et = {}) {
     /* il giro di carta: motivazioni e firme a mano */
     y -= 22;
     T('Motivazioni o condizioni', 40, y, 7.5, b, C.tenue);
-    L_(150, y - 2, W - 40, y - 2, C.tenue); y -= 18;
+    L_(150, y - 2, W - 40, y - 2, C.tenue); y -= 16;
     L_(40, y - 2, W - 40, y - 2, C.tenue);
-    y -= 44;
+    y -= 34;
     T('Padova, lì', 40, y + 2, 9, f, C.nero); L_(88, y, 170, y, C.nero, 0.7);
     L_(200, y, 360, y, C.nero, 0.7); T('Firma del Direttore', 200, y - 12, 7.5, f, C.tenue);
     L_(390, y, W - 40, y, C.nero, 0.7); T('Firma del dipendente (presa visione)', 390, y - 12, 7.5, f, C.tenue);
