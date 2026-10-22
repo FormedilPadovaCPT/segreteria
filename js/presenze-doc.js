@@ -803,16 +803,18 @@ export async function pdfRichiestaFerie(r, visto, firmaByte, saldo, et = {}, fir
   else { campo(150, 'DALLE ORE', hm(r.ora_dalle), 60); campo(225, 'ALLE ORE', hm(r.ora_alle), 60); }
   campo(300, 'N. ORE', oreTxt, 50);
   campo(365, 'N. GIORNI', piuGiorni && saldo && saldo.chiestaG ? String(saldo.chiestaG) : '', 60);
-  if (cardSaldo) {
-    /* il saldo dopo la richiesta, dove la scansione lo ha portato */
+  /* il riquadro arancione del saldo dopo la richiesta; yy = riga di base, alto da yy+20 a yy-36 */
+  const riquadroSaldo = (yy) => {
     const xb = 440, wb = W - 40 - xb;
-    R_(xb, y - 36, wb, 56, { color: C.pietra });
-    R_(xb, y + 17, wb, 3, { color: C.arancio });
-    T('DOPO LA RICHIESTA', xb + 8, y + 8, 6.5, b, C.tenue, { sp: 0.6 });
-    T(card.grande, xb + 8, y - 11, 19, b, C.arancio);
-    P(card.sotto + (card.sotto2 ? ` · ${card.sotto2}` : ''), xb + 8, y - 21, 6.5, f, C.grigio, wb - 14);
-    y -= 56;
-  } else y -= 30;
+    R_(xb, yy - 36, wb, 56, { color: C.pietra });
+    R_(xb, yy + 17, wb, 3, { color: C.arancio });
+    T('DOPO LA RICHIESTA', xb + 8, yy + 8, 6.5, b, C.tenue, { sp: 0.6 });
+    T(card.grande, xb + 8, yy - 11, 19, b, C.arancio);
+    P(card.sotto + (card.sotto2 ? ` · ${card.sotto2}` : ''), xb + 8, yy - 21, 6.5, f, C.grigio, wb - 14);
+  };
+  /* nella riga del periodo, dove l'ha portato la prima scansione; per la visita medica sta al punto 4,
+     accanto alle dichiarazioni (seconda scansione, 22/10/2026) */
+  if (cardSaldo && r.tipo !== 'visita_medica') { riquadroSaldo(y); y -= 56; } else y -= 30;
 
   /* 4: da dove vengono le ore (recupero), il saldo del monte (ferie e permessi), la scelta (supplementari) */
   if (r.tipo === 'recupero') {
@@ -849,6 +851,7 @@ export async function pdfRichiestaFerie(r, visto, firmaByte, saldo, et = {}, fir
   } else if (r.tipo === 'visita_medica') {
     sezione(4, 'VISITA MEDICA — DICHIARAZIONE (ART. 45 C.4 CCNL)');
     const v = r.visita_foto || {};
+    if (cardSaldo) riquadroSaldo(y - 6);   /* a destra delle quattro caselle */
     [[v.per_se, 'la visita è per me (non per un familiare)'],
       [v.ssn, 'visita specialistica o esame prescritto dal SSN o in struttura convenzionata'],
       [v.fuori_orario_no, 'per comprovati motivi non si può fare fuori dall’orario di lavoro'],

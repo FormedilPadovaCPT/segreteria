@@ -14,9 +14,12 @@ test('in alto solo «Questa richiesta», senza il numero grande', () => {
   assert.doesNotMatch(testa, /T\(card\.grande/);
 });
 
-test('il saldo sta nella sezione 3, solo quando la card dice un saldo', () => {
+test('il saldo sta nella sezione 3, e per la visita medica al punto 4 (seconda scansione)', () => {
   const sez3 = pdf.slice(pdf.indexOf("sezione(3, 'PERIODO RICHIESTO')"), pdf.indexOf('/* 4: da dove vengono le ore'));
-  assert.match(sez3, /if \(cardSaldo\) \{[\s\S]*T\('DOPO LA RICHIESTA'[\s\S]*T\(card\.grande/);
+  assert.match(sez3, /const riquadroSaldo = \(yy\) => \{[\s\S]*T\('DOPO LA RICHIESTA'[\s\S]*T\(card\.grande/);
+  assert.match(sez3, /if \(cardSaldo && r\.tipo !== 'visita_medica'\) \{ riquadroSaldo\(y\);/);
+  const sez4v = pdf.slice(pdf.indexOf("sezione(4, 'VISITA MEDICA"), pdf.indexOf("sezione(4, 'VISITA MEDICA") + 300);
+  assert.match(sez4v, /if \(cardSaldo\) riquadroSaldo\(y - 6\)/);
 });
 
 test('sezione 1 col solo nome, la data della richiesta dopo «Padova, lì»', () => {
