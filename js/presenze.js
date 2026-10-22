@@ -1847,6 +1847,17 @@ async function decidiRichiesta(r, esito, btn) {
   const note = esito === 'respinta' ? (prompt('Motivo (facoltativo):') || null) : null;
   attendi(btn, true, 'Registro il visto…');
   try {
+    /* GIÀ DECISA? (22/10/2026) La richiesta n° 17 è stata approvata tre volte dal telefono in due
+       minuti, e ogni volta un modulo col visto in più è finito su Drive. Prima di depositare si
+       rilegge lo stato: se è già decisa ci si ferma e si mostra com'è. */
+    const { data: ora, error: errOra } = await sb.from('s_ferie_richieste').select('aut_stato').eq('id', r.id).maybeSingle();
+    if (errOra) throw new Error('Non sono riuscito a rileggere la richiesta: visto non registrato. Riprova.');
+    if (ora && ['approvata', 'respinta'].includes(ora.aut_stato)) {
+      toast(`La richiesta n° ${r.id} è già ${ora.aut_stato}: non registro un secondo visto.`, 'ok');
+      await renderFerie();
+      apriRichiesta(r.id);
+      return;
+    }
     let firmaByte = null;
     if (conf.direttore_firma_id) {
       try { firmaByte = await leggiByte(conf.direttore_firma_id); } catch { /* senza firma il visto vale lo stesso */ }
