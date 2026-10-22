@@ -750,22 +750,20 @@ export async function pdfRichiestaFerie(r, visto, firmaByte, saldo, et = {}, fir
   T(r.tipo === 'supplementari' ? 'RICHIESTA DI ORE SUPPLEMENTARI' : 'RICHIESTA FERIE / PERMESSI / RECUPERO', W - 150, H - 58, 8.5, b, C.bianco, { al: 'c', sp: 0.4 });
   T(`Personale dipendente · n° ${r.id} del ${dataIt((r.created_at || '').slice(0, 10))}`, W - 150, H - 72, 8, f, C.bianco, { al: 'c' });
 
-  /* la card */
+  /* la card. RIORDINATA IL 22/10/2026 dalla scansione corretta a mano dall'utente (richiesta n° 17):
+     in alto resta solo «Questa richiesta», al posto dove c'era il numero grande; il saldo dopo la
+     richiesta scende nella riga del periodo (sezione 3), accanto alle ore. */
   const card = cardRichiesta(r, saldo, et);
+  const cardSaldo = /DOPO/.test(card.titolo);   /* la card dice un saldo (ferie, ex festività, banca ore, visite) */
   let y = H - 104;
-  const ch = 84;
+  const ch = 62;
   R_(40, y - ch, W - 80, ch, { color: C.pietra });
   R_(40, y - 3, W - 80, 3, { color: C.arancio });
-  T(card.titolo, 54, y - 20, 7.5, b, C.tenue, { sp: 1 });
-  T(card.grande, 54, y - 56, 34, b, C.arancio);
-  const xs = 54 + larg(testoPdf(card.grande), b, 34) + 12;
-  T(card.sotto, xs, card.sotto2 ? y - 46 : y - 52, 11, f, C.grigio);
-  if (card.sotto2) T(card.sotto2, xs, y - 60, 8.5, f, C.tenue);
-  const xd = 330, wd = W - 40 - 14 - xd;
-  T('QUESTA RICHIESTA', xd, y - 20, 7, b, C.tenue, { sp: 0.9 });
-  if (card.richiesta) P(card.richiesta, xd, y - 36, 10, b, C.nero, wd);
-  if (card.quota > 0) { R_(xd, y - 54, wd, 8, { color: C.zebra }); R_(xd, y - 54, wd * Math.min(1, card.quota), 8, { color: C.arancio }); }
-  if (card.nota) P(card.nota, xd, y - 70, 7.5, f, C.grigio, wd);
+  const xd = 54, wd = W - 80 - 28;
+  T('QUESTA RICHIESTA', xd, y - 18, 7, b, C.tenue, { sp: 0.9 });
+  if (card.richiesta) P(card.richiesta, xd, y - 33, 11, b, C.nero, wd);
+  if (card.quota > 0) { R_(xd, y - 45, wd, 6, { color: C.zebra }); R_(xd, y - 45, wd * Math.min(1, card.quota), 6, { color: C.arancio }); }
+  if (card.nota) P(card.nota, xd, y - 56, 7.5, f, C.grigio, wd);
 
   y -= ch + 22;
   /* le sezioni si numerano da sole: se una manca (la 4 per i permessi sindacali) non resta il buco */
@@ -788,9 +786,8 @@ export async function pdfRichiestaFerie(r, visto, firmaByte, saldo, et = {}, fir
   const piuGiorni = r.data_fine && r.data_fine !== r.data_inizio;
 
   sezione(1, 'DATI DEL RICHIEDENTE');
+  /* solo il nome: le ore sono quelle del periodo, la data della richiesta va dopo «Padova, lì» (22/10/2026) */
   campo(40, 'COGNOME E NOME', r.dipendente, 250);
-  campo(320, 'DATA RICHIESTA', dataIt((r.created_at || '').slice(0, 10)), 100);
-  campo(445, 'ORE', oreTxt, 110);
   y -= 30;
 
   sezione(2, 'TIPO DI RICHIESTA');
@@ -801,12 +798,21 @@ export async function pdfRichiestaFerie(r, visto, firmaByte, saldo, et = {}, fir
 
   sezione(3, 'PERIODO RICHIESTO');
   const hm = (t) => (t ? String(t).slice(0, 5) : '');
-  campo(40, piuGiorni ? 'DAL' : 'DATA', dataIt(r.data_inizio), 110);
-  if (piuGiorni) campo(170, 'AL', dataIt(r.data_fine), 80);
-  else { campo(170, 'DALLE ORE', hm(r.ora_dalle), 80); campo(270, 'ALLE ORE', hm(r.ora_alle), 80); }
-  campo(370, 'N. ORE', oreTxt, 60);
-  campo(450, 'N. GIORNI', piuGiorni && saldo && saldo.chiestaG ? String(saldo.chiestaG) : '', 105);
-  y -= 30;
+  campo(40, piuGiorni ? 'DAL' : 'DATA', dataIt(r.data_inizio), 95);
+  if (piuGiorni) campo(150, 'AL', dataIt(r.data_fine), 135);
+  else { campo(150, 'DALLE ORE', hm(r.ora_dalle), 60); campo(225, 'ALLE ORE', hm(r.ora_alle), 60); }
+  campo(300, 'N. ORE', oreTxt, 50);
+  campo(365, 'N. GIORNI', piuGiorni && saldo && saldo.chiestaG ? String(saldo.chiestaG) : '', 60);
+  if (cardSaldo) {
+    /* il saldo dopo la richiesta, dove la scansione lo ha portato */
+    const xb = 440, wb = W - 40 - xb;
+    R_(xb, y - 36, wb, 56, { color: C.pietra });
+    R_(xb, y + 17, wb, 3, { color: C.arancio });
+    T('DOPO LA RICHIESTA', xb + 8, y + 8, 6.5, b, C.tenue, { sp: 0.6 });
+    T(card.grande, xb + 8, y - 11, 19, b, C.arancio);
+    P(card.sotto + (card.sotto2 ? ` · ${card.sotto2}` : ''), xb + 8, y - 21, 6.5, f, C.grigio, wb - 14);
+    y -= 56;
+  } else y -= 30;
 
   /* 4: da dove vengono le ore (recupero), il saldo del monte (ferie e permessi), la scelta (supplementari) */
   if (r.tipo === 'recupero') {
@@ -919,6 +925,7 @@ export async function pdfRichiestaFerie(r, visto, firmaByte, saldo, et = {}, fir
     L_(40, y - 2, W - 40, y - 2, C.tenue);
     y -= 34;
     T('Padova, lì', 40, y + 2, 9, f, C.nero); L_(88, y, 170, y, C.nero, 0.7);
+    T(dataIt((r.created_at || '').slice(0, 10)), 92, y + 3, 9, b, C.nero);   /* la data della richiesta (22/10/2026) */
     L_(200, y, 360, y, C.nero, 0.7); T('Firma del Direttore', 200, y - 12, 7.5, f, C.tenue);
     L_(390, y, W - 40, y, C.nero, 0.7); T('Firma del dipendente (presa visione)', 390, y - 12, 7.5, f, C.tenue);
   }
