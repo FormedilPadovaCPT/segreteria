@@ -16,3 +16,9 @@ test('decidiRichiesta rilegge lo stato PRIMA di depositare il modulo su Drive', 
   assert.match(corpo, /\['approvata', 'respinta'\]\.includes\(ora\.aut_stato\)[\s\S]*?return;/);
   assert.match(corpo, /if \(errOra\) throw/, 'se non si rilegge, non si deposita');
 });
+
+test('per il Direttore la lista si ridisegna in #presenze-host, senza «host is null» (foto del 22/10/2026)', () => {
+  const corpo = src.slice(src.indexOf('async function renderFerie'), src.indexOf('async function renderFerie') + 900);
+  assert.match(corpo, /\|\| \$\('#pz-corpo'\) \|\| \(state\.soloDirettore \? \$\('#presenze-host'\) : null\)/);
+  assert.match(corpo, /if \(!host\) return;/);
+});

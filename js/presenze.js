@@ -1015,7 +1015,12 @@ async function formMovimento(e, causaleProposta, proposta) {
 let richieste = [];
 
 async function renderFerie(hostArg) {
-  const host = hostArg || $('#pz-corpo');
+  /* IL DIRETTORE NON HA LE SCHEDE (22/10/2026): per lui la lista sta direttamente in #presenze-host,
+     e ogni ridisegno senza argomento (dopo Approva, Respingi, il filtro) cercava #pz-corpo, non lo
+     trovava e si fermava con «host is null». Il visto era già salvato, il Direttore vedeva l'errore
+     coi pulsanti ancora attivi e premeva di nuovo: tre moduli col visto per la richiesta n° 17. */
+  const host = hostArg || $('#pz-corpo') || (state.soloDirettore ? $('#presenze-host') : null);
+  if (!host) return;
   host.innerHTML = '<p class="empty">Un istante…</p>';
   const { data, error: errFer } = await sb.from('s_ferie_richieste').select('*').order('id', { ascending: false });
   if (errFer) { host.innerHTML = '<p class="empty">⚠ Non sono riuscito a leggere le richieste di ferie e permessi. Riprova.</p>'; return; }
