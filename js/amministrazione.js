@@ -35,7 +35,7 @@
 import { sb, state, $, esc, dataIt, toast, attendi, apriDrawer, esercizioDi } from './core.js';
 import { risolviCartella, creaCartella, leggiByte } from './drive.js';
 import { MESI, euro } from './fatture-tecnici-doc.js';
-import { bancaRichiesta, righeTestoBanca, testoSaldoRichiesta } from './presenze-doc.js';
+import { bancaRichiesta, righeTestoBanca, testoSaldoRichiesta, righeTestoVisita } from './presenze-doc.js';
 
 const CARTELLA_FATTURE = '2_AREE/Amministrazione/fatture/tecnici';
 
@@ -169,10 +169,12 @@ export async function render() {
 const TIPO_FERIE = {
   ferie: 'Ferie', permesso: 'Permesso', permesso_rsu: 'Permesso sindacale RSU', riunione_sindacale: 'Riunione sindacale',
   legge104: 'Permesso legge 104/92', recupero: 'Recupero', supplementari: 'Ore supplementari',
+  visita_medica: 'Permesso per visita medica',
 };
 const MONTE_FERIE = {
   ferie: 'Ferie', permessi: 'Permessi retribuiti (contratto)', permessi_rsu: 'Permessi sindacali RSU',
   permessi_sindacali: 'Permessi sindacali', legge104: 'Permessi legge 104/92', banca_ore: 'Banca ore (recupero)',
+  visite_mediche: 'Visite mediche (18 ore l’anno, art. 45 c.4)',
 };
 const periodoFerie = (r) => `${dataIt(r.data_inizio)}${r.data_fine && r.data_fine !== r.data_inizio ? ' → ' + dataIt(r.data_fine) : ''}`
   + `${r.ora_dalle ? ` dalle ${String(r.ora_dalle).slice(0, 5)} alle ${String(r.ora_alle || '').slice(0, 5)}` : ''}`;
@@ -205,6 +207,7 @@ export async function dettaglioFerie(id) {
       ? `scelta del lavoratore: <strong>${r.compenso === 'paga' ? 'da pagare in busta paga' : r.compenso === 'recupero' ? 'da recuperare (banca ore)' : 'non indicata'}</strong>`
       : `scalate da: <strong>${esc(MONTE_FERIE[r.monte] || r.monte || '—')}</strong>`}</div>
     ${banca ? `<div class="dt-doc-riga"><strong>Banca ore:</strong><br>${righeTestoBanca(banca).map(esc).join('<br>')}</div>` : ''}
+    ${r.visita_foto ? `<div class="dt-doc-riga"><strong>Visita medica:</strong><br>${righeTestoVisita(r.visita_foto).map(esc).join('<br>')}</div>` : ''}
     ${r.saldo_foto ? `<div class="dt-doc-riga"><strong>Saldo:</strong> ${esc(testoSaldoRichiesta(r.saldo_foto))}${r.saldo_foto.al ? ` <span class="hint">(al ${esc(r.saldo_foto.al)})</span>` : ''}</div>` : ''}
     ${r.motivo ? `<div class="dt-doc-riga"><strong>Note:</strong> ${esc(r.motivo)}</div>` : ''}
     <div class="dt-doc-riga"><strong>Nulla osta:</strong> del Direttore${r.data_autorizzazione ? `, il ${dataIt(r.data_autorizzazione)}` : ''}${r.aut_modalita === 'app' ? ' dall’app' : ''}

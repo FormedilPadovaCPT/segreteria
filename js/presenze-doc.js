@@ -268,7 +268,7 @@ function sezioneCausali(c, titolo, sottotitolo, righeTutte, etichettaTotale, eDe
 
 const BANCA = /suppl|straord/i;
 const BANCA_ESATTE = /^(recupero|pagato)$/i;
-const ASSENZE = /^(ferie|permesso|malattia|festivit[aà]|ex[ -]?festivit[aà]|rol|permessi legge 104\/92|permesso sindacale rsu|riunione sindacale)$/i;
+const ASSENZE = /^(ferie|permesso|malattia|festivit[aà]|ex[ -]?festivit[aà]|rol|permessi legge 104\/92|permesso sindacale rsu|riunione sindacale|visita medica)$/i;
 
 /* 'banca' | 'assenza' | 'dettaglio' */
 export function famigliaCausale(causale) {
@@ -665,6 +665,16 @@ export function cardRichiesta(r, saldo, et = {}) {
     return { titolo: 'RECUPERO RICHIESTO', grande: minHm(oreRich), sotto: 'ore dalla banca ore', sotto2: '',
       richiesta: 'saldo della banca ore non indicato', quota: 0, nota: 'la richiesta non dice da quali ore si recupera' };
   }
+  if (r.tipo === 'visita_medica') {
+    const v = r.visita_foto;
+    if (v && v.residuoMin != null && v.chiestaMin != null) {
+      return { titolo: 'VISITE MEDICHE: ORE RIMASTE DOPO', grande: minHm(v.dopoMin), sotto: `ore ancora nelle 18 del ${v.anno}`, sotto2: `${minHm(v.usateMin)} già usate`,
+        richiesta: `${minHm(v.chiestaMin)} ore di visita medica`, quota: v.residuoMin > 0 ? Math.min(1, v.chiestaMin / v.residuoMin) : 1,
+        nota: v.oltreMin > 0 ? `${minHm(v.oltreMin)} ore oltre le 18 annue: da recuperare (art. 45 c.3)` : 'contatore a parte (art. 45 c.4): non scala ferie, permessi né banca ore' };
+    }
+    return { titolo: 'PERMESSO PER VISITA MEDICA', grande: oreRich != null ? minHm(oreRich) : '—', sotto: 'ore richieste', sotto2: '',
+      richiesta: 'contatore delle 18 ore non letto', quota: 0, nota: 'art. 45 c.4 del CCNL' };
+  }
   if (r.tipo === 'supplementari') {
     return { titolo: 'ORE SUPPLEMENTARI RICHIESTE', grande: minHm(oreRich), sotto: 'ore da fare', sotto2: '',
       richiesta: r.compenso === 'paga' ? 'da pagare in busta paga' : r.compenso === 'recupero' ? 'da recuperare: vanno in banca ore' : 'scelta del lavoratore non indicata',
@@ -829,6 +839,20 @@ export async function pdfRichiestaFerie(r, visto, firmaByte, saldo, et = {}) {
     L_(40, y - 8, W - 40, y - 8);
     T(`Residuo al 1° gennaio dalla busta paga, più il maturato a oggi, meno il goduto; un giorno vale le ore dell’orario.${saldo.al ? ` Saldo al ${saldo.al}.` : ''}`, 40, y - 22, 7.5, f, C.tenue);
     y -= 48;
+  } else if (r.tipo === 'visita_medica') {
+    sezione(4, 'VISITA MEDICA — DICHIARAZIONE (ART. 45 C.4 CCNL)');
+    const v = r.visita_foto || {};
+    [[v.per_se, 'la visita è per me (non per un familiare)'],
+      [v.ssn, 'visita specialistica o esame prescritto dal SSN o in struttura convenzionata'],
+      [v.fuori_orario_no, 'per comprovati motivi non si può fare fuori dall’orario di lavoro'],
+      [v.urgente, 'prescrizione con carattere di urgenza']].forEach(([on, s]) => {
+      casella(40, y, !!on); T(s, 54, y, 8.5, on ? b : f, C.nero); y -= 15;
+    });
+    y -= 4;
+    if (v.usateMin != null) {
+      y = P(`Contatore ${v.anno}: ${minHm(v.usateMin)} già usate su 18:00, ne restano ${minHm(v.residuoMin)}${v.chiestaMin != null ? `, dopo questa richiesta ${minHm(v.dopoMin)}` : ''}.${v.oltreMin > 0 ? ` ${minHm(v.oltreMin)} ore vanno oltre le 18 annue e si recuperano come i permessi brevi (art. 45 c.3).` : ''}`, 40, y, 8.5, f, C.nero, W - 80);
+    }
+    y = P('Il tempo comprende il viaggio di andata e ritorno dalla sede. Si conserva l’attestazione di presenza del medico o della struttura; come e a chi consegnarla lo dice l’ufficio personale.', 40, y, 7.5, it, C.grigio, W - 80) - 14;
   } else if (r.tipo === 'supplementari') {
     sezione(4, 'SCELTA DEL LAVORATORE');
     casella(40, y, r.compenso === 'recupero'); T('le ore saranno RECUPERATE: alimentano la BANCA ORE', 54, y, 8.5, r.compenso === 'recupero' ? b : f, C.nero);
@@ -1142,6 +1166,7 @@ export function causaleDaNota(nota) {
   if (/^ferie\b.*ex[ -]?festivit/.test(n) || /^ex[ -]?festivit/.test(n)) return 'Ex festività';
   if (/^ferie\b/.test(n)) return 'Ferie';
   if (/^festivit/.test(n)) return 'Festività';
+  if (/^visit[ae] medic/.test(n)) return 'Visita medica';
   if (/^permess/.test(n)) return 'Permesso';
   if (/^malattia\b/.test(n)) return 'Malattia';
   if (/^recupero\b/.test(n)) return 'Recupero';
@@ -1152,8 +1177,8 @@ export function causaleDaNota(nota) {
 /* le causali che scalano un saldo (un monte o la banca ore) e quindi vanno sia
    nella griglia sia in banca ore. Malattia e festività stanno nella sola griglia:
    non scalano niente, e pretenderle in banca ore darebbe solo falsi allarmi. */
-export const CAUSALI_ASSENZA_GIORNO = ['Ferie', 'Ex festività', 'Permesso', 'ROL', 'Recupero'];
-export const CAUSALI_NON_SU_FESTIVO = ['Ferie', 'Ex festività', 'Permesso', 'ROL'];
+export const CAUSALI_ASSENZA_GIORNO = ['Ferie', 'Ex festività', 'Permesso', 'ROL', 'Recupero', 'Visita medica'];
+export const CAUSALI_NON_SU_FESTIVO = ['Ferie', 'Ex festività', 'Permesso', 'ROL', 'Visita medica'];
 
 /* Le incongruenze di un mese fra griglia presenze e banca ore.
    'manca-movimento'  la griglia dice un'assenza, la banca ore no (con le ore
@@ -1398,3 +1423,58 @@ export const notaRecupero = (r) => `Richiesta n° ${r.id}${(r.banca_righe || [])
 export const CAUSALI_DI_CUI = ['Permesso sindacale RSU', 'Riunione sindacale'];
 export const totaleRigaGenerata = (causale, oreMin, aOre) =>
   (aOre && CAUSALI_DI_CUI.includes(causale) ? oreMin : 0);
+
+/* ── 8. Il permesso per VISITA MEDICA (22/10/2026, chiesto dall'utente dopo la ricerca RSU) ──
+   CCNL Formazione Professionale 2024-2027, art. 45 c.4 (pag. 52 del testo ufficiale in
+   3_RISORSE/Normativa): le visite specialistiche e gli esami clinici e di controllo prescritti
+   dal SSN o in strutture convenzionate che, per comprovati motivi, non si possono fare fuori
+   orario hanno un permesso retribuito per il tempo necessario e il viaggio di andata e ritorno
+   dalla sede; «per le ore eventualmente impiegate oltre le 18 annuali» si usa il recupero del
+   comma 3 (entro il mese successivo, altrimenti trattenuta o banca ore), e questi permessi non
+   stanno nel tetto di 36 ore del comma 1. Quindi è un CONTATORE A PARTE: non scala ferie, ex
+   festività, permessi né banca ore. Si conta per anno solare dalle righe vere di banca ore con
+   la causale «Visita medica». Superate le 18 ore non si blocca niente: le ore in più diventano
+   un «Recupero» in banca ore, che la segreteria può poi trattare diversamente. */
+export const CAUSALE_VISITA = 'Visita medica';
+export const VISITE_TETTO_MIN = 18 * 60;
+
+/* righe = s_presenze_extra del dipendente (si filtrano qui causale e anno); chiestaMin = minuti della richiesta */
+export function contatoreVisite(righe, anno, chiestaMin) {
+  const usate = (righe || [])
+    .filter((e) => String(e.causale || '').trim().toLowerCase() === CAUSALE_VISITA.toLowerCase()
+      && Number(String(e.data || '').slice(0, 4)) === Number(anno))
+    .reduce((t, e) => t + (e.ore_min || 0), 0);
+  const residuo = Math.max(0, VISITE_TETTO_MIN - usate);
+  const chiesta = chiestaMin != null ? Math.max(0, Math.round(chiestaMin)) : null;
+  const dentro = chiesta != null ? Math.min(chiesta, residuo) : null;
+  return { anno: Number(anno), tettoMin: VISITE_TETTO_MIN, usateMin: usate, residuoMin: residuo,
+    chiestaMin: chiesta, dentroMin: dentro, oltreMin: chiesta != null ? chiesta - dentro : null,
+    dopoMin: dentro != null ? residuo - dentro : null };
+}
+
+/* le righe di banca ore dei giorni: prima le ore che stanno nelle 18, il resto «Recupero» */
+export function ripartisciVisita(giorni, dentroMin) {
+  let resta = Math.max(0, dentroMin || 0);
+  const out = [];
+  for (const g of giorni || []) {
+    const dentro = Math.min(g.ore_min || 0, resta);
+    resta -= dentro;
+    if (dentro > 0) out.push({ data: g.data, causale: CAUSALE_VISITA, ore_min: dentro });
+    if ((g.ore_min || 0) - dentro > 0) out.push({ data: g.data, causale: 'Recupero', ore_min: (g.ore_min || 0) - dentro });
+  }
+  return out;
+}
+
+/* quello che si legge sulla richiesta, nel PDF, nella mail e nella pagina dell'Amministrazione:
+   tutto dalla fotografia r.visita_foto, niente letture */
+export function righeTestoVisita(v) {
+  if (!v) return [];
+  const out = [];
+  out.push(`Dichiara che la visita è per sé: ${v.per_se ? 'sì' : 'NO'}; prescritta dal SSN o in struttura convenzionata: ${v.ssn ? 'sì' : 'NO'}; non si può fare fuori orario: ${v.fuori_orario_no ? 'sì' : 'NO'}${v.urgente ? '; prescrizione urgente' : ''}.`);
+  if (v.usateMin != null) {
+    out.push(`Visite mediche nel ${v.anno}: ${mm2hm(v.usateMin)} già usate su 18:00, ne restano ${mm2hm(v.residuoMin)}${v.chiestaMin != null ? `; dopo questa richiesta ${mm2hm(v.dopoMin)}` : ''}.`);
+    if (v.oltreMin > 0) out.push(`⚠ ${mm2hm(v.oltreMin)} ore vanno oltre le 18 annue: si recuperano come i permessi brevi (art. 45 c.3, entro il mese successivo), in banca ore come «Recupero».`);
+    if (v.oltreMin > 0 && v.urgente) out.push('La prescrizione è urgente: il CCNL dice che le prescrizioni urgenti «non sono soggette a limitazioni». Come si contano lo dice l’ufficio personale.');
+  } else out.push('⚠ Il contatore delle 18 ore non si è letto: va ricontrollato prima di generare le righe.');
+  return out;
+}
