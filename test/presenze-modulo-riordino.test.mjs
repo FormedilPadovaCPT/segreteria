@@ -14,12 +14,24 @@ test('in alto solo «Questa richiesta», senza il numero grande', () => {
   assert.doesNotMatch(testa, /T\(card\.grande/);
 });
 
-test('il saldo sta nella sezione 3, e per la visita medica al punto 4 (seconda scansione)', () => {
+test('il riquadro del saldo sta al punto 4 per tutti i tipi, mai nella riga del periodo (terza scansione)', () => {
   const sez3 = pdf.slice(pdf.indexOf("sezione(3, 'PERIODO RICHIESTO')"), pdf.indexOf('/* 4: da dove vengono le ore'));
   assert.match(sez3, /const riquadroSaldo = \(yy\) => \{[\s\S]*T\('DOPO LA RICHIESTA'[\s\S]*T\(card\.grande/);
-  assert.match(sez3, /if \(cardSaldo && r\.tipo !== 'visita_medica'\) \{ riquadroSaldo\(y\);/);
-  const sez4v = pdf.slice(pdf.indexOf("sezione(4, 'VISITA MEDICA"), pdf.indexOf("sezione(4, 'VISITA MEDICA") + 300);
-  assert.match(sez4v, /if \(cardSaldo\) riquadroSaldo\(y - 6\)/);
+  assert.doesNotMatch(sez3, /riquadroSaldo\(y\)/);
+  for (const titolo of ["'DETTAGLIO RECUPERO ORE", "'SALDO DEL MONTE ORE'", "'VISITA MEDICA"]) {
+    const i = pdf.indexOf(`sezione(4, ${titolo}`);
+    assert.ok(i > 0, titolo);
+    assert.match(pdf.slice(i, i + 300), /if \(cardSaldo\) riquadroSaldo\(y - 6\)/, titolo);
+  }
+  assert.doesNotMatch(pdf, /\['Dopo la richiesta', 450\]/, 'la colonna «Dopo la richiesta» delle ferie è sparita');
+});
+
+test('la firma di chi chiede anche sulla presa visione, e il riquadro verde per ogni richiesta decisa', () => {
+  assert.match(pdf, /T\('Firma del dipendente \(presa visione\)'[\s\S]{0,300}if \(firmaDip\)/);
+  const src = readFileSync(new URL('../js/presenze.js', import.meta.url), 'utf8');
+  assert.match(src, /function vistoDaRichiesta\(r\) \{\s*if \(!\['approvata', 'respinta'\]\.includes\(r\.aut_stato\)\) return null;/);
+  assert.match(src, /pdfRichiestaFerie\(r, vistoDaRichiesta\(r\), await firmaDirettoreSe\(r\)/);
+  assert.match(src, /if \(r\.aut_modalita !== 'app' \|\| !conf\.direttore_firma_id\) return null;/, 'firma del Direttore solo se ha deciso dall’app');
 });
 
 test('sezione 1 col solo nome, la data della richiesta dopo «Padova, lì»', () => {

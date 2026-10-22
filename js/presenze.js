@@ -1381,6 +1381,30 @@ async function saldoRichiestaDati(r) {
 async function saldoRichiesta(r) { return testoSaldoRichiesta(await saldoRichiestaDati(r)); }
 /* per il PDF: la fotografia sulla richiesta se c'è (è ciò che il Direttore ha visto), altrimenti il saldo di adesso */
 async function saldoPerPdf(r) { return r.saldo_foto || await saldoRichiestaDati(r); }
+/* IL RIQUADRO VERDE PER OGNI RICHIESTA DECISA (22/10/2026, «tieni per tutte il quadrato verde se approvata
+   dal Direttore»): prima usciva solo nel modulo che il Direttore genera approvando dall'app; scaricando una
+   richiesta decisa in un altro modo (giro di carta, o segnata dalla segreteria come la n° 3) usciva il modulo
+   da firmare. Il visto si costruisce dai dati della richiesta, e la riga piccola dice da dove viene. La firma
+   del Direttore si mette solo se ha deciso dall'app. */
+function vistoDaRichiesta(r) {
+  if (!['approvata', 'respinta'].includes(r.aut_stato)) return null;
+  const chi = String(r.autorizzata_da || conf.direttore_nome || 'Il Direttore');
+  const utente = (chi.match(/\(([^)]+@[^)]+)\)/) || [])[1] || '';
+  return {
+    esito: r.aut_stato,
+    nome: chi.replace(/\s*\([^)]*\)\s*$/, ''),
+    data_ora: r.data_autorizzazione ? dataIt(r.data_autorizzazione) : '',
+    utente,
+    riga: r.aut_modalita === 'app' ? `Visto registrato nell’app Segreteria${utente ? ` da ${utente}` : ''}`
+      : r.aut_modalita === 'cartacea' ? 'Nulla osta firmato su carta, registrato dalla segreteria: l’originale lo tiene l’Amministrazione.'
+        : 'Approvazione registrata dalla segreteria: il visto del Direttore non è nell’app.',
+    note: r.aut_modalita === 'app' ? (r.aut_note || null) : null,
+  };
+}
+async function firmaDirettoreSe(r) {
+  if (r.aut_modalita !== 'app' || !conf.direttore_firma_id) return null;
+  try { return await leggiByte(conf.direttore_firma_id); } catch { return null; }
+}
 /* LA FIRMA DEL DIPENDENTE SUL MODULO (22/10/2026, chiesto dall'utente): la firma scansionata che c'è
    è quella della segreteria (s_config.segreteria_firma_id, su Drive in _SISTEMA/firme/, la stessa del
    mandato), e va SOLO sulle richieste di chi la possiede (segreteria_firma_nome). Per gli altri
@@ -1759,7 +1783,8 @@ export async function apriRichiesta(id) {
       <button class="btn btn-primary" id="fe-genera">⏱ Registra in banca ore</button>` : `<p class="hint" style="margin:0 0 8px">Richiesta approvata: posso creare le righe dei giorni
         (presenze con la nota e movimenti in banca ore), da correggere poi se serve.</p>
       <button class="btn btn-primary" id="fe-genera">📅 Genera le righe dei giorni</button>`}` :
-      r.righe_generate ? `<p class="hint">${eSuppl(r) ? 'Movimento già registrato in banca ore.' : 'Righe di presenza e banca ore già generate.'}</p>` : ''}` : `
+      r.righe_generate ? `<p class="hint">${eSuppl(r) ? 'Movimento già registrato in banca ore.' : 'Righe di presenza e banca ore già generate.'}</p>` : ''}
+      <div style="margin-top:8px"><button class="btn btn-ghost btn-sm" id="fe-pdf">📄 Scarica il modulo con l’esito (PDF)</button></div>` : `
       <h4 style="margin:0 0 6px">Nulla osta</h4>
       <p class="hint" style="margin:0 0 10px">Scegli la strada: dall'app (mail al Direttore col link) o giro cartaceo.</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -1778,7 +1803,7 @@ export async function apriRichiesta(id) {
     attendi(btn, true);
     try {
       const { pdfRichiestaFerie } = await import('./presenze-doc.js');
-      const byte = await pdfRichiestaFerie(r, null, null, await saldoPerPdf(r), etichettePdf(r), await firmaDipendente(r));
+      const byte = await pdfRichiestaFerie(r, vistoDaRichiesta(r), await firmaDirettoreSe(r), await saldoPerPdf(r), etichettePdf(r), await firmaDipendente(r));
       const url = URL.createObjectURL(new Blob([byte], { type: 'application/pdf' }));
       const a = document.createElement('a');
       a.href = url; a.download = nomeRichiesta(r, false); a.click();

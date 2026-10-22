@@ -812,45 +812,54 @@ export async function pdfRichiestaFerie(r, visto, firmaByte, saldo, et = {}, fir
     T(card.grande, xb + 8, yy - 11, 19, b, C.arancio);
     P(card.sotto + (card.sotto2 ? ` · ${card.sotto2}` : ''), xb + 8, yy - 21, 6.5, f, C.grigio, wb - 14);
   };
-  /* nella riga del periodo, dove l'ha portato la prima scansione; per la visita medica sta al punto 4,
-     accanto alle dichiarazioni (seconda scansione, 22/10/2026) */
-  if (cardSaldo && r.tipo !== 'visita_medica') { riquadroSaldo(y); y -= 56; } else y -= 30;
+  /* IL RIQUADRO DEL SALDO STA AL PUNTO 4, PER TUTTI I TIPI (terza scansione dell'utente, 22/10/2026):
+     a destra del dettaglio, che si stringe a XMAX; la riga del periodo resta una riga sola. Il punto 4
+     è alto almeno quanto il riquadro. */
+  const XMAX = cardSaldo ? 430 : W - 40;
+  const chiudiSez4 = (y4) => { if (cardSaldo) y = Math.min(y, y4 - 58); };
+  y -= 30;
 
   /* 4: da dove vengono le ore (recupero), il saldo del monte (ferie e permessi), la scelta (supplementari) */
   if (r.tipo === 'recupero') {
     sezione(4, 'DETTAGLIO RECUPERO ORE — DA DOVE VENGONO');
+    const y4 = y;
+    if (cardSaldo) riquadroSaldo(y - 6);
     const banca = bancaRichiesta(r);
     if (banca && banca.scelte && banca.righe.length) {
-      R_(40, y - 4, W - 80, 14, { color: C.zebra });
-      [['Maturate il', 48], ['N. ore', 130], ['Riga', 180], ['Riferimento / note', 230]].forEach(([s, x]) => T(s, x, y, 7.5, b, C.grigio));
+      R_(40, y - 4, XMAX - 40, 14, { color: C.zebra });
+      [['Maturate il', 48], ['N. ore', 120], ['Riga', 165], ['Riferimento / note', 205]].forEach(([s, x]) => T(s, x, y, 7.5, b, C.grigio));
       y -= 18;
       for (const e of banca.righe) {
-        T(dataIt(e.data), 48, y, 9, f, C.nero); T(minHm(e.ore_min), 130, y, 9, b, C.nero); T(String(e.id), 180, y, 9, f, C.grigio);
-        y = P(e.note || '—', 230, y, 8.5, it, C.grigio, W - 275) - 2;
-        L_(40, y + 6, W - 40, y + 6);
+        T(dataIt(e.data), 48, y, 9, f, C.nero); T(minHm(e.ore_min), 120, y, 9, b, C.nero); T(String(e.id), 165, y, 9, f, C.grigio);
+        y = P(e.note || '—', 205, y, 8.5, it, C.grigio, XMAX - 210) - 2;
+        L_(40, y + 6, XMAX, y + 6);
       }
-      T(`TOTALE ORE RECUPERO: ${oreTxt}`, W - 44, y - 8, 8.5, b, C.nero, { al: 'r' });
-      if (banca.prima != null) T(`Banca ore: ${minHm(banca.prima)} disponibili prima di questa richiesta.`, 40, y - 8, 7.5, f, C.tenue);
+      T(`TOTALE ORE RECUPERO: ${oreTxt}`, XMAX - 4, y - 8, 8.5, b, C.nero, { al: 'r' });
+      if (banca.prima != null) T(`Banca ore: ${minHm(banca.prima)} prima della richiesta.`, 40, y - 8, 7.5, f, C.tenue);
       y -= 34;
     } else {
       y = P(banca && banca.scelte ? 'Recupero anticipato: nessuna ora supplementare da recuperare collegata (le ore si maturano dopo).'
-        : 'La richiesta non dice da quali ore supplementari si recupera.', 40, y + 2, 9, it, C.grigio, W - 80) - 16;
+        : 'La richiesta non dice da quali ore supplementari si recupera.', 40, y + 2, 9, it, C.grigio, XMAX - 40) - 16;
     }
+    chiudiSez4(y4);
   } else if (card.titolo.endsWith('DOPO QUESTA RICHIESTA') && saldo) {
     sezione(4, 'SALDO DEL MONTE ORE');
+    const y4 = y;
+    /* «Dopo la richiesta» non è più una colonna: è il riquadro arancione a destra (terza scansione) */
+    if (cardSaldo) riquadroSaldo(y - 6);
     const fmt = (min, g) => `${giorniTxt(g) ? `${g} giorni (${oreCentesimi(min)} h)` : `${oreCentesimi(min)} h`}`;
-    R_(40, y - 4, W - 80, 14, { color: C.zebra });
-    [['Monte', 48], ['Disponibili oggi', 210], ['Questa richiesta', 330], ['Dopo la richiesta', 450]].forEach(([s, x]) => T(s, x, y, 7.5, b, C.grigio));
+    R_(40, y - 4, XMAX - 40, 14, { color: C.zebra });
+    [['Monte', 48], ['Disponibili oggi', 160], ['Questa richiesta', 300]].forEach(([s, x]) => T(s, x, y, 7.5, b, C.grigio));
     y -= 18;
-    T(saldo.nome || '', 48, y, 9, b, C.nero); T(fmt(saldo.oggiMin, saldo.oggiG), 210, y, 9, f, C.nero);
-    T(saldo.registrata ? 'già registrata' : fmt(saldo.chiestaMin, saldo.chiestaG), 330, y, 9, f, C.nero);
-    T(fmt(saldo.dopoMin, saldo.dopoG), 450, y, 9, b, C.arancio);
-    L_(40, y - 8, W - 40, y - 8);
-    T(`Residuo al 1° gennaio dalla busta paga, più il maturato a oggi, meno il goduto; un giorno vale le ore dell’orario.${saldo.al ? ` Saldo al ${saldo.al}.` : ''}`, 40, y - 22, 7.5, f, C.tenue);
-    y -= 48;
+    T(saldo.nome || '', 48, y, 9, b, C.nero); T(fmt(saldo.oggiMin, saldo.oggiG), 160, y, 9, f, C.nero);
+    T(saldo.registrata ? 'già registrata' : fmt(saldo.chiestaMin, saldo.chiestaG), 300, y, 9, f, C.nero);
+    L_(40, y - 8, XMAX, y - 8);
+    y = P(`Residuo al 1° gennaio dalla busta paga, più il maturato a oggi, meno il goduto; un giorno vale le ore dell’orario.${saldo.al ? ` Saldo al ${saldo.al}.` : ''}`, 40, y - 22, 7.5, f, C.tenue, XMAX - 40) - 14;
+    chiudiSez4(y4);
   } else if (r.tipo === 'visita_medica') {
     sezione(4, 'VISITA MEDICA — DICHIARAZIONE (ART. 45 C.4 CCNL)');
     const v = r.visita_foto || {};
+    const y4 = y;
     if (cardSaldo) riquadroSaldo(y - 6);   /* a destra delle quattro caselle */
     [[v.per_se, 'la visita è per me (non per un familiare)'],
       [v.ssn, 'visita specialistica o esame prescritto dal SSN o in struttura convenzionata'],
@@ -864,6 +873,7 @@ export async function pdfRichiestaFerie(r, visto, firmaByte, saldo, et = {}, fir
       y = P(`Contatore ${v.anno}: ${minHm(v.usateMin)} già usate su ${testoTetto(v)}, ne restano ${minHm(v.chiestaMin != null ? v.dopoMin : v.residuoMin)}.${v.oltreMin > 0 ? ` ${minHm(v.oltreMin)} ore vanno oltre le ${minHm(v.tettoMin ?? VISITE_TETTO_MIN)} annue e si recuperano come i permessi brevi (art. 45 c.3).` : ''}`, 40, y, 8.5, f, C.nero, W - 80);
     }
     y = P('Il tempo comprende il viaggio di andata e ritorno dalla sede. Si conserva l’attestazione di presenza del medico o della struttura; come e a chi consegnarla lo dice l’ufficio personale.', 40, y, 7.5, it, C.grigio, W - 80) - 13;
+    chiudiSez4(y4);
   } else if (r.tipo === 'supplementari') {
     sezione(4, 'SCELTA DEL LAVORATORE');
     casella(40, y, r.compenso === 'recupero'); T('le ore saranno RECUPERATE: alimentano la BANCA ORE', 54, y, 8.5, r.compenso === 'recupero' ? b : f, C.nero);
@@ -911,8 +921,8 @@ export async function pdfRichiestaFerie(r, visto, firmaByte, saldo, et = {}, fir
     R_(40, y0, W - 80, hh, { borderColor: ok ? C.verde : C.rosso, borderWidth: 1.2, color: ok ? C.verdeChiaro : C.rossoChiaro });
     T(ok ? 'RICHIESTA APPROVATA' : 'RICHIESTA NON APPROVATA', 54, y0 + hh - 16, 11, b, ok ? C.verde : C.rosso, { sp: 0.8 });
     T(`${visto.nome} — Direttore`, 54, y0 + hh - 30, 10, b, C.nero);
-    T(`Padova, ${visto.data_ora}`, 54, y0 + hh - 42, 8.5, f, C.grigio);
-    T(`Visto registrato nell’app Segreteria da ${visto.utente}`, 54, y0 + hh - 53, 7, f, C.tenue);
+    if (visto.data_ora) T(`Padova, ${visto.data_ora}`, 54, y0 + hh - 42, 8.5, f, C.grigio);
+    T(visto.riga || `Visto registrato nell’app Segreteria da ${visto.utente}`, 54, y0 + hh - 53, 7, f, C.tenue);
     if (visto.note) T(taglia(f, 7.5, `Note: ${visto.note}`, W - 80 - 170), 300, y0 + hh - 16, 7.5, f, C.grigio);
     if (firmaByte) {
       try {
@@ -932,6 +942,14 @@ export async function pdfRichiestaFerie(r, visto, firmaByte, saldo, et = {}, fir
     T(dataIt((r.created_at || '').slice(0, 10)), 92, y + 3, 9, b, C.nero);   /* la data della richiesta (22/10/2026) */
     L_(200, y, 360, y, C.nero, 0.7); T('Firma del Direttore', 200, y - 12, 7.5, f, C.tenue);
     L_(390, y, W - 40, y, C.nero, 0.7); T('Firma del dipendente (presa visione)', 390, y - 12, 7.5, f, C.tenue);
+    /* «sempre la mia che richiedo» (terza scansione, 22/10/2026): anche qui la firma di chi chiede, in automatico */
+    if (firmaDip) {
+      try {
+        let img; try { img = await doc.embedPng(firmaDip); } catch { img = await doc.embedJpg(firmaDip); }
+        const sc = Math.min(130 / img.width, 30 / img.height);
+        pg.drawImage(img, { x: 396, y: y + 1, width: img.width * sc, height: img.height * sc });
+      } catch { /* resta la riga */ }
+    }
   }
 
   L_(40, 46, W - 40, 46);
