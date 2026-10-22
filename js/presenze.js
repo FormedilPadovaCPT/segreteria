@@ -33,7 +33,7 @@ import { MESI, mm2hm, eRipartizione, totaleOre, famigliaCausale, contaAttivita, 
   riscontroBusta, scadenzeFerie, CAUSALI_ASSENZA_GIORNO, CAUSALI_NON_SU_FESTIVO,
   righeDaRecuperare, proponiRighe, saldoPrimaDellaRichiesta, fotografiaBanca, bancaRichiesta, righeTestoBanca,
   chiusuraRecupero, notaRecupero, minutiRichiesta, totaleRigaGenerata, testoSaldoRichiesta,
-  CAUSALE_VISITA, contatoreVisite, ripartisciVisita, righeTestoVisita } from './presenze-doc.js';
+  CAUSALE_VISITA, contatoreVisite, ripartisciVisita, righeTestoVisita, tettoVisite, testoTetto } from './presenze-doc.js';
 
 const CARTELLA_FOGLI = '2_AREE/Amministrazione/personale/fogli_presenze';
 const CARTELLA_RICHIESTE = '2_AREE/Amministrazione/personale/richieste_ferie_permessi';
@@ -56,8 +56,9 @@ const TIPI_RICHIESTA = [
   { tipo: 'riunione_sindacale', etichetta: 'Riunione sindacale', monte: 'permessi_sindacali', causale: 'Riunione sindacale' },
   { tipo: 'legge104', etichetta: 'Permesso legge 104/92', monte: 'legge104', causale: 'Permessi legge 104/92' },
   { tipo: 'recupero', etichetta: 'Recupero', monte: 'banca_ore', causale: 'Recupero' },
-  /* VISITA MEDICA (22/10/2026, art. 45 c.4 del CCNL): 18 ore l'anno su un contatore suo, che non
-     scala i permessi brevi né la banca ore; oltre le 18 le ore si recuperano (vedi presenze-doc.js §8) */
+  /* VISITA MEDICA (22/10/2026, art. 45 c.4 del CCNL): 18 ore l'anno, in proporzione all'orario per il
+     part-time, su un contatore suo che non scala i permessi brevi né la banca ore; oltre il tetto le ore
+     si recuperano (vedi presenze-doc.js §8) */
   { tipo: 'visita_medica', etichetta: 'Permesso per visita medica', monte: 'visite_mediche', causale: 'Visita medica' },
   /* ORE SUPPLEMENTARI da fare (24/09/2026, chiesto dall'utente): il lavoratore chiede
      di fermarsi e dichiara PRIMA se le recupererà (alimentano la banca ore) o se le
@@ -75,18 +76,23 @@ const MONTI = [
   { monte: 'permessi_sindacali', etichetta: 'Permessi sindacali' },
   { monte: 'legge104', etichetta: 'Permessi legge 104/92' },
   { monte: 'banca_ore', etichetta: 'Banca ore (recupero)' },
-  { monte: 'visite_mediche', etichetta: 'Visite mediche (18 ore l’anno, art. 45 c.4)' },
+  { monte: 'visite_mediche', etichetta: 'Visite mediche (art. 45 c.4: 18 ore l’anno, in proporzione al part-time)' },
 ];
 const eVisita = (r) => r?.tipo === 'visita_medica';
 /* il contatore delle visite mediche di un dipendente per l'anno della data (null se non si legge).
    Le righe già generate da questa stessa richiesta non si contano due volte. */
 async function leggiVisite(dip, data, chiestaMin, escludiRichiesta = null) {
   const anno = Number(String(data || oggiIso()).slice(0, 4));
-  const { data: righe, error } = await sb.from('s_presenze_extra').select('data, causale, ore_min, note')
-    .eq('dipendente', dip).eq('causale', CAUSALE_VISITA).gte('data', `${anno}-01-01`).lte('data', `${anno}-12-31`);
-  if (error) return null;
+  const [{ data: righe, error }, { data: orari, error: errO }] = await Promise.all([
+    sb.from('s_presenze_extra').select('data, causale, ore_min, note')
+      .eq('dipendente', dip).eq('causale', CAUSALE_VISITA).gte('data', `${anno}-01-01`).lte('data', `${anno}-12-31`),
+    sb.from('s_presenze_orari').select('*').eq('dipendente', dip),
+  ]);
+  if (error || errO) return null;
   const sua = new RegExp(`Richiesta n° ${escludiRichiesta}\\b`);
-  return contatoreVisite((righe || []).filter((e) => !escludiRichiesta || !sua.test(e.note || '')), anno, chiestaMin);
+  /* il tetto sull'orario della persona alla data della richiesta: 30 ore su 36 → 15 ore (22/10/2026) */
+  const tetto = tettoVisite(orarioValido(orari || [], data || oggiIso()));
+  return contatoreVisite((righe || []).filter((e) => !escludiRichiesta || !sua.test(e.note || '')), anno, chiestaMin, tetto);
 }
 const tipoRic = (t) => TIPI_RICHIESTA.find((x) => x.tipo === t) || TIPI_RICHIESTA[0];
 const etichettaMonte = (m) => (MONTI.find((x) => x.monte === m)?.etichetta || m || 'ferie');
@@ -1050,8 +1056,12 @@ async function renderFerie(hostArg) {
     for (const x of righe) dettaglio[x.causale] = (dettaglio[x.causale] || 0) + (x.ore_min || 0);
     return { monte: m, tot: righe.reduce((s, x) => s + (x.ore_min || 0), 0), dettaglio };
   }).filter((x) => x.tot > 0);
-  /* le visite mediche: un contatore suo di 18 ore l'anno (art. 45 c.4, 22/10/2026) */
-  const visite = errSind || state.soloDirettore ? null : contatoreVisite(righeSind, annoOra, null);
+  /* le visite mediche: un contatore suo di 18 ore l'anno, in proporzione al part-time (art. 45 c.4, 22/10/2026) */
+  let visite = null;
+  if (!errSind && !state.soloDirettore) {
+    const { data: orari, error: errO } = await sb.from('s_presenze_orari').select('*').eq('dipendente', dipendente);
+    if (!errO) visite = contatoreVisite(righeSind, annoOra, null, tettoVisite(orarioValido(orari || [], oggiIso())));
+  }
 
   /* i SALDI (02/10/2026): solo per la segreteria — il Direttore qui vede le
      richieste da autorizzare, e le tabelle delle presenze non le legge */
@@ -1078,9 +1088,10 @@ async function renderFerie(hostArg) {
     </div>` : ''}
     ${visite ? `<div class="dt-quadro" style="margin-bottom:10px"><div class="dt-quadro-riga">
         <span class="dt-quadro-req">Visite mediche nel ${annoOra} (art. 45 c.4)</span>
-        <span class="dt-cella ${visite.residuoMin ? '' : 'dt-scaduto'}"><strong>${mm2hm(visite.usateMin)}</strong> usate su 18:00 · ne restano <strong>${mm2hm(visite.residuoMin)}</strong></span></div>
+        <span class="dt-cella ${visite.residuoMin ? '' : 'dt-scaduto'}"><strong>${mm2hm(visite.usateMin)}</strong> usate su ${mm2hm(visite.tettoMin)} · ne restano <strong>${mm2hm(visite.residuoMin)}</strong></span></div>
       <p class="hint" style="margin:2px 0 0">Ore di ${esc(dipendente)} con la causale «${CAUSALE_VISITA}» in banca ore. Contatore a parte:
-        non scala ferie, permessi né banca ore. Oltre le 18 ore la richiesta passa lo stesso, e le ore in più vanno a recupero.</p></div>` : ''}
+        non scala ferie, permessi né banca ore. Tetto dell'anno: ${esc(testoTetto(visite))}. Oltre il tetto la richiesta passa lo stesso,
+        e le ore in più vanno a recupero.</p></div>` : ''}
     <div class="dt-barra">
       <div class="seg" id="fe-f">
         ${[['aperte', 'In attesa'], ['tutte', 'Tutte']].map(([v, l]) =>
@@ -1611,7 +1622,7 @@ function formRichiesta() {
     if (eRecupero()) montaScelta($('#fr-banca'), bozza);
   };
   ['#fr-tipo', '#fr-dip', '#fr-da', '#fr-a'].forEach((q) => $(q).addEventListener('change', rimontaBanca));
-  /* visita medica: il contatore delle 18 ore si rilegge a ogni cambio (22/10/2026) */
+  /* visita medica: il contatore delle ore dell'anno si rilegge a ogni cambio (22/10/2026) */
   const minutiBozza = () => ($('#fr-ore').value ? Math.round(Number($('#fr-ore').value) * 60) : null);
   const contaVisita = async () => {
     const box = $('#fr-visita-box');
@@ -1620,8 +1631,8 @@ function formRichiesta() {
     if ($('#fr-tipo').value !== 'visita_medica') return;
     const v = await leggiVisite($('#fr-dip').value, $('#fr-da').value, minutiBozza());
     $('#fr-vm-conta').innerHTML = v
-      ? `Nel ${v.anno} ${esc($('#fr-dip').value)} ha usato <strong>${mm2hm(v.usateMin)}</strong> delle 18:00 ore, ne restano <strong>${mm2hm(v.residuoMin)}</strong>.${v.oltreMin > 0
-        ? ` <span style="color:#a01f00">⚠ ${mm2hm(v.oltreMin)} ore di questa richiesta vanno oltre le 18: la richiesta passa lo stesso, e quelle ore si recuperano come i permessi brevi (art. 45 c.3), in banca ore come «Recupero».</span>` : ''}`
+      ? `Nel ${v.anno} ${esc($('#fr-dip').value)} ha usato <strong>${mm2hm(v.usateMin)}</strong> su ${esc(testoTetto(v))}, ne restano <strong>${mm2hm(v.residuoMin)}</strong>.${v.oltreMin > 0
+        ? ` <span style="color:#a01f00">⚠ ${mm2hm(v.oltreMin)} ore di questa richiesta vanno oltre le ${mm2hm(v.tettoMin)} dell'anno: la richiesta passa lo stesso, e quelle ore si recuperano come i permessi brevi (art. 45 c.3), in banca ore come «Recupero».</span>` : ''}`
       : '⚠ Non sono riuscito a leggere le ore di visita già usate: il contatore non c’è.';
   };
   ['#fr-tipo', '#fr-dip', '#fr-da'].forEach((q) => $(q).addEventListener('change', contaVisita));
@@ -1655,7 +1666,7 @@ function formRichiesta() {
     const visita = $('#fr-tipo').value === 'visita_medica';
     let visitaFoto = null;
     if (visita) {
-      if (!$('#fr-ore').value) return toast('Scrivi quante ore (o dalle/alle), viaggio compreso: servono al contatore delle 18 ore.', 'err');
+      if (!$('#fr-ore').value) return toast('Scrivi quante ore (o dalle/alle), viaggio compreso: servono al contatore delle ore di visita dell’anno.', 'err');
       if (!$('#fr-vm-perse').checked || !$('#fr-vm-ssn').checked || !$('#fr-vm-orario').checked)
         return toast('Per il permesso di visita medica servono le tre dichiarazioni: visita per sé, prescritta dal SSN, non fattibile fuori orario (art. 45 c.4). Altrimenti è un permesso normale.', 'err');
       const v = await leggiVisite($('#fr-dip').value, $('#fr-da').value, minutiBozza());
@@ -1803,7 +1814,7 @@ async function mandaAlDirettore(r, btn) {
       const { error: eS } = await sb.from('s_ferie_richieste').update({ saldo_foto: saldoOra }).eq('id', r.id);
       if (!eS) r.saldo_foto = saldoOra;
     }
-    /* visita medica: anche il contatore delle 18 ore si rinnova all'invio, le dichiarazioni restano */
+    /* visita medica: anche il contatore delle ore dell'anno si rinnova all'invio, le dichiarazioni restano */
     if (eVisita(r)) {
       const v = await leggiVisite(r.dipendente, r.data_inizio, minutiRichiesta(r), r.id);
       if (v) {
@@ -1964,7 +1975,7 @@ async function generaRighe(r, btn) {
   if (aOre) giorni[0].ore_min = Math.round(Number(r.ore) * 60);
   const totale = giorni.reduce((t, g) => t + g.ore_min, 0);
   const festivi = tutti.filter((g) => /festivo/.test(g.salta || ''));
-  /* VISITA MEDICA (22/10/2026): le ore che stanno nelle 18 dell'anno con la causale «Visita medica»,
+  /* VISITA MEDICA (22/10/2026): le ore che stanno nel tetto dell'anno con la causale «Visita medica»,
      le altre «Recupero» aperto in banca ore (art. 45 c.4 → c.3). Il contatore si rilegge adesso. */
   let righeExtra = giorni.map((g) => ({ data: g.data, causale, ore_min: g.ore_min }));
   let avvisoVisita = '';
@@ -1972,7 +1983,7 @@ async function generaRighe(r, btn) {
     const v = await leggiVisite(r.dipendente, r.data_inizio, totale, r.id);
     if (!v) return toast('Non sono riuscito a leggere le ore di visita già usate: righe non create. Riprova.', 'err');
     righeExtra = ripartisciVisita(giorni, v.dentroMin);
-    if (v.oltreMin > 0) avvisoVisita = `\nVisite mediche: ${mm2hm(v.usateMin)} già usate nel ${v.anno}. ${mm2hm(v.dentroMin)} ore vanno nelle 18 annue, ${mm2hm(v.oltreMin)} oltre: quelle le scrivo in banca ore come «Recupero» (art. 45 c.3).`;
+    if (v.oltreMin > 0) avvisoVisita = `\nVisite mediche: ${mm2hm(v.usateMin)} già usate nel ${v.anno}. ${mm2hm(v.dentroMin)} ore vanno nelle ${mm2hm(v.tettoMin)} annue, ${mm2hm(v.oltreMin)} oltre: quelle le scrivo in banca ore come «Recupero» (art. 45 c.3).`;
   }
   const avvisoOre = r.ore && giorni.length > 1 && Math.round(Number(r.ore) * 60) !== totale
     ? `\nLa richiesta dice ${r.ore} ore, l'orario ne fa ${mm2hm(totale)}: uso l'orario.` : '';
@@ -1990,7 +2001,7 @@ async function generaRighe(r, btn) {
     const { data: nuove, error: e2 } = await sb.from('s_presenze_extra').insert(righeExtra.map((g) => ({
       dipendente: r.dipendente, data: g.data, causale: g.causale, ore_min: g.ore_min,
       chiuso: famigliaCausale(g.causale) !== 'banca',
-      note: g.causale === 'Recupero' ? (eVisita(r) ? `Richiesta n° ${r.id} — visita medica oltre le 18 ore annue (art. 45 c.3-4)` : notaRecupero(r)) : `Richiesta n° ${r.id}`,
+      note: g.causale === 'Recupero' ? (eVisita(r) ? `Richiesta n° ${r.id} — visita medica oltre il tetto di ore annue (art. 45 c.3-4)` : notaRecupero(r)) : `Richiesta n° ${r.id}`,
       aggiornato_da: state.email,
     }))).select('id');
     if (e2) throw new Error(e2.message);

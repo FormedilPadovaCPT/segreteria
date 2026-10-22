@@ -234,7 +234,7 @@ window.AIUTO_TESTI = {
   'sp-salva': 'Salva le spettanze dell\'anno: il saldo si ricalcola subito nella scheda Ferie e permessi.',
   'ct-nuovo': 'Registra le ore di una riunione, formazione o progetto: sono già dentro le ore lavorate e non si sommano.',
   'fe-nuova': 'Apre una richiesta di ferie, permesso, recupero, visita medica o ore supplementari.',
-  'fe-genera': 'Genera le righe dei giorni richiesti, una per giorno. Per la visita medica le ore oltre le 18 dell\'anno vanno in banca ore come «Recupero».',
+  'fe-genera': 'Genera le righe dei giorni richiesti, una per giorno. Per la visita medica le ore oltre il tetto dell\'anno (18, in proporzione al part-time) vanno in banca ore come «Recupero».',
   'fr-vm-perse-et': 'Il permesso per visita medica (art. 45 c.4) vale solo per sé: per i figli ci sono altre regole.',
   'fr-vm-ssn-et': 'Vale per visite specialistiche ed esami prescritti dal SSN o in struttura convenzionata.',
   'fr-vm-orario-et': 'Se la visita si può fare fuori orario il permesso non spetta: si dichiara che per comprovati motivi non si può.',

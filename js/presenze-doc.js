@@ -669,12 +669,12 @@ export function cardRichiesta(r, saldo, et = {}) {
   if (r.tipo === 'visita_medica') {
     const v = r.visita_foto;
     if (v && v.residuoMin != null && v.chiestaMin != null) {
-      return { titolo: 'VISITE MEDICHE: ORE RIMASTE DOPO', grande: minHm(v.dopoMin), sotto: `ore ancora nelle 18 del ${v.anno}`, sotto2: `${minHm(v.usateMin)} già usate`,
+      return { titolo: 'VISITE MEDICHE: ORE RIMASTE DOPO', grande: minHm(v.dopoMin), sotto: `ore ancora nelle ${minHm(v.tettoMin ?? VISITE_TETTO_MIN)} del ${v.anno}`, sotto2: `${minHm(v.usateMin)} già usate`,
         richiesta: `${minHm(v.chiestaMin)} ore di visita medica`, quota: v.residuoMin > 0 ? Math.min(1, v.chiestaMin / v.residuoMin) : 1,
-        nota: v.oltreMin > 0 ? `${minHm(v.oltreMin)} ore oltre le 18 annue: da recuperare (art. 45 c.3)` : 'contatore a parte (art. 45 c.4): non scala ferie, permessi né banca ore' };
+        nota: v.oltreMin > 0 ? `${minHm(v.oltreMin)} ore oltre le ${minHm(v.tettoMin ?? VISITE_TETTO_MIN)} annue: da recuperare (art. 45 c.3)` : 'contatore a parte (art. 45 c.4): non scala ferie, permessi né banca ore' };
     }
     return { titolo: 'PERMESSO PER VISITA MEDICA', grande: oreRich != null ? minHm(oreRich) : '—', sotto: 'ore richieste', sotto2: '',
-      richiesta: 'contatore delle 18 ore non letto', quota: 0, nota: 'art. 45 c.4 del CCNL' };
+      richiesta: 'contatore delle ore di visita non letto', quota: 0, nota: 'art. 45 c.4 del CCNL' };
   }
   if (r.tipo === 'supplementari') {
     return { titolo: 'ORE SUPPLEMENTARI RICHIESTE', grande: minHm(oreRich), sotto: 'ore da fare', sotto2: '',
@@ -857,9 +857,9 @@ export async function pdfRichiestaFerie(r, visto, firmaByte, saldo, et = {}, fir
     });
     y -= 4;
     if (v.usateMin != null) {
-      y = P(`Contatore ${v.anno}: ${minHm(v.usateMin)} già usate su 18:00, ne restano ${minHm(v.residuoMin)}${v.chiestaMin != null ? `, dopo questa richiesta ${minHm(v.dopoMin)}` : ''}.${v.oltreMin > 0 ? ` ${minHm(v.oltreMin)} ore vanno oltre le 18 annue e si recuperano come i permessi brevi (art. 45 c.3).` : ''}`, 40, y, 8.5, f, C.nero, W - 80);
+      y = P(`Contatore ${v.anno}: ${minHm(v.usateMin)} già usate su ${testoTetto(v)}, ne restano ${minHm(v.residuoMin)}${v.chiestaMin != null ? `, dopo questa richiesta ${minHm(v.dopoMin)}` : ''}.${v.oltreMin > 0 ? ` ${minHm(v.oltreMin)} ore vanno oltre le ${minHm(v.tettoMin ?? VISITE_TETTO_MIN)} annue e si recuperano come i permessi brevi (art. 45 c.3).` : ''}`, 40, y, 8.5, f, C.nero, W - 80);
     }
-    y = P('Il tempo comprende il viaggio di andata e ritorno dalla sede. Si conserva l’attestazione di presenza del medico o della struttura; come e a chi consegnarla lo dice l’ufficio personale.', 40, y, 7.5, it, C.grigio, W - 80) - 8;
+    y = P('Il tempo comprende il viaggio di andata e ritorno dalla sede. Si conserva l’attestazione di presenza del medico o della struttura; come e a chi consegnarla lo dice l’ufficio personale.', 40, y, 7.5, it, C.grigio, W - 80) - 13;
   } else if (r.tipo === 'supplementari') {
     sezione(4, 'SCELTA DEL LAVORATORE');
     casella(40, y, r.compenso === 'recupero'); T('le ore saranno RECUPERATE: alimentano la BANCA ORE', 54, y, 8.5, r.compenso === 'recupero' ? b : f, C.nero);
@@ -1461,22 +1461,41 @@ export const totaleRigaGenerata = (causale, oreMin, aOre) =>
    un «Recupero» in banca ore, che la segreteria può poi trattare diversamente. */
 export const CAUSALE_VISITA = 'Visita medica';
 export const VISITE_TETTO_MIN = 18 * 60;
+/* IL PART-TIME (22/10/2026, deciso dall'utente: «deve essere riproporzionato al part-time»): il tetto è
+   18 ore per chi fa il tempo pieno, che per il CCNL è di 36 ore settimanali (Titolo «Orario», premessa).
+   Per il part-time si riproporziona sull'orario settimanale: 30 ore su 36 → 15 ore l'anno. L'art. 45 non
+   lo dice per le visite; il principio è quello dell'art. 23 c.10 («fatto salvo il rapporto proporzionale»).
+   L'orario è quello della persona alla data (s_presenze_orari); senza orario vale il tetto pieno. */
+export const SETTIMANA_PIENA_MIN = 36 * 60;
+export function tettoVisite(orario) {
+  const m = misuraOrario(orario);
+  if (!m) return { tettoMin: VISITE_TETTO_MIN, settimanaMin: null };
+  return { tettoMin: Math.round(VISITE_TETTO_MIN * Math.min(1, m.settimana / SETTIMANA_PIENA_MIN)), settimanaMin: m.settimana };
+}
+/* «15:00 (18 ore in proporzione all'orario di 30:00 su 36:00 settimanali)», oppure «18:00» */
+export function testoTetto(v) {
+  const t = mm2hm(v?.tettoMin ?? VISITE_TETTO_MIN);
+  return v?.settimanaMin && v.settimanaMin < SETTIMANA_PIENA_MIN
+    ? `${t} (18 ore in proporzione all’orario di ${mm2hm(v.settimanaMin)} su 36:00 settimanali)` : t;
+}
 
-/* righe = s_presenze_extra del dipendente (si filtrano qui causale e anno); chiestaMin = minuti della richiesta */
-export function contatoreVisite(righe, anno, chiestaMin) {
+/* righe = s_presenze_extra del dipendente (si filtrano qui causale e anno); chiestaMin = minuti della richiesta;
+   tetto = il risultato di tettoVisite (vuoto = tempo pieno) */
+export function contatoreVisite(righe, anno, chiestaMin, tetto = {}) {
+  const tettoMin = tetto.tettoMin ?? VISITE_TETTO_MIN;
   const usate = (righe || [])
     .filter((e) => String(e.causale || '').trim().toLowerCase() === CAUSALE_VISITA.toLowerCase()
       && Number(String(e.data || '').slice(0, 4)) === Number(anno))
     .reduce((t, e) => t + (e.ore_min || 0), 0);
-  const residuo = Math.max(0, VISITE_TETTO_MIN - usate);
+  const residuo = Math.max(0, tettoMin - usate);
   const chiesta = chiestaMin != null ? Math.max(0, Math.round(chiestaMin)) : null;
   const dentro = chiesta != null ? Math.min(chiesta, residuo) : null;
-  return { anno: Number(anno), tettoMin: VISITE_TETTO_MIN, usateMin: usate, residuoMin: residuo,
+  return { anno: Number(anno), tettoMin, settimanaMin: tetto.settimanaMin ?? null, usateMin: usate, residuoMin: residuo,
     chiestaMin: chiesta, dentroMin: dentro, oltreMin: chiesta != null ? chiesta - dentro : null,
     dopoMin: dentro != null ? residuo - dentro : null };
 }
 
-/* le righe di banca ore dei giorni: prima le ore che stanno nelle 18, il resto «Recupero» */
+/* le righe di banca ore dei giorni: prima le ore che stanno nel tetto dell'anno, il resto «Recupero» */
 export function ripartisciVisita(giorni, dentroMin) {
   let resta = Math.max(0, dentroMin || 0);
   const out = [];
@@ -1496,9 +1515,9 @@ export function righeTestoVisita(v) {
   const out = [];
   out.push(`Dichiara che la visita è per sé: ${v.per_se ? 'sì' : 'NO'}; prescritta dal SSN o in struttura convenzionata: ${v.ssn ? 'sì' : 'NO'}; non si può fare fuori orario: ${v.fuori_orario_no ? 'sì' : 'NO'}${v.urgente ? '; prescrizione urgente' : ''}.`);
   if (v.usateMin != null) {
-    out.push(`Visite mediche nel ${v.anno}: ${mm2hm(v.usateMin)} già usate su 18:00, ne restano ${mm2hm(v.residuoMin)}${v.chiestaMin != null ? `; dopo questa richiesta ${mm2hm(v.dopoMin)}` : ''}.`);
-    if (v.oltreMin > 0) out.push(`⚠ ${mm2hm(v.oltreMin)} ore vanno oltre le 18 annue: si recuperano come i permessi brevi (art. 45 c.3, entro il mese successivo), in banca ore come «Recupero».`);
+    out.push(`Visite mediche nel ${v.anno}: ${mm2hm(v.usateMin)} già usate su ${testoTetto(v)}, ne restano ${mm2hm(v.residuoMin)}${v.chiestaMin != null ? `; dopo questa richiesta ${mm2hm(v.dopoMin)}` : ''}.`);
+    if (v.oltreMin > 0) out.push(`⚠ ${mm2hm(v.oltreMin)} ore vanno oltre le ${mm2hm(v.tettoMin ?? VISITE_TETTO_MIN)} annue: si recuperano come i permessi brevi (art. 45 c.3, entro il mese successivo), in banca ore come «Recupero».`);
     if (v.oltreMin > 0 && v.urgente) out.push('La prescrizione è urgente: il CCNL dice che le prescrizioni urgenti «non sono soggette a limitazioni». Come si contano lo dice l’ufficio personale.');
-  } else out.push('⚠ Il contatore delle 18 ore non si è letto: va ricontrollato prima di generare le righe.');
+  } else out.push('⚠ Il contatore delle ore di visita non si è letto: va ricontrollato prima di generare le righe.');
   return out;
 }

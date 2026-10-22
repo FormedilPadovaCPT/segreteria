@@ -174,7 +174,7 @@ const TIPO_FERIE = {
 const MONTE_FERIE = {
   ferie: 'Ferie', permessi: 'Permessi retribuiti (contratto)', permessi_rsu: 'Permessi sindacali RSU',
   permessi_sindacali: 'Permessi sindacali', legge104: 'Permessi legge 104/92', banca_ore: 'Banca ore (recupero)',
-  visite_mediche: 'Visite mediche (18 ore l’anno, art. 45 c.4)',
+  visite_mediche: 'Visite mediche (art. 45 c.4: 18 ore l’anno, in proporzione al part-time)',
 };
 const periodoFerie = (r) => `${dataIt(r.data_inizio)}${r.data_fine && r.data_fine !== r.data_inizio ? ' → ' + dataIt(r.data_fine) : ''}`
   + `${r.ora_dalle ? ` dalle ${String(r.ora_dalle).slice(0, 5)} alle ${String(r.ora_alle || '').slice(0, 5)}` : ''}`;
