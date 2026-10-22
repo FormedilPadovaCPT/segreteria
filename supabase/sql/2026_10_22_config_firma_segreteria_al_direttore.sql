@@ -1,4 +1,4 @@
--- DA CONFERMARE, NON APPLICATA (22/10/2026).
+-- APPLICATA il 22/10/2026 su conferma dell'utente (migrazione config_firma_segreteria_al_direttore_2026_10_22).
 -- La firma del dipendente sul modulo delle richieste di ferie e permessi: quando il Direttore approva
 -- dall'app, il modulo col visto lo rigenera LUI. Per mettere la firma scansionata della segreteria
 -- (sulle richieste di Renato Squizzato) deve leggere segreteria_firma_id e segreteria_firma_nome di
