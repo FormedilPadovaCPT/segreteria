@@ -557,7 +557,7 @@ export async function render() {
   let propChius = [], propChiusErr = null;
   try {
     const { data, error } = await sb.from('cantieri_proposte_chiusura')
-      .select('id, cantiere_id, proposta_da, proposta_nome, proposta_il, motivo, cantieri(cantiere_etichetta, cantiere_indirizzo, cantiere_civico, comune_nome)')
+      .select('id, cantiere_id, proposta_da, proposta_nome, proposta_il, motivo, fine_constatata_il, cantieri(cantiere_etichetta, cantiere_indirizzo, cantiere_civico, comune_nome)')
       .is('esito', null).order('proposta_il').limit(200);
     if (error) propChiusErr = error.message;
     propChius = data || [];
@@ -716,7 +716,7 @@ export async function render() {
             ? propChius.slice(0, 8).map((p) => `<div class="hm-riga">
                 <span>📨</span>
                 <span><strong>${esc(lblCant(p))}</strong>${p.cantieri?.comune_nome ? ` <span class="hint">· ${esc(p.cantieri.comune_nome)}</span>` : ''}
-                  <span class="hint">(${esc(p.proposta_nome || p.proposta_da || '')}, ${dataIt(String(p.proposta_il).slice(0, 10))})</span>
+                  <span class="hint">(${esc(p.proposta_nome || p.proposta_da || '')}, ${dataIt(String(p.proposta_il).slice(0, 10))}${p.fine_constatata_il ? ` · finito il ${dataIt(p.fine_constatata_il)}` : ''})</span>
                   <br><span class="hint">«${esc(p.motivo || '')}»</span></span>
                 <span style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end">
                   <button class="btn btn-sm" data-pc-chiudi="${p.id}">🔒 Chiudi cantiere</button>
@@ -1098,7 +1098,8 @@ export async function render() {
     /* 05/10/2026: con il cantiere si chiudono i suoi incarichi (chiudi_cantiere): la conferma dice quali */
     const inc = await incarichiDelCantiere(p.cantiere_id);
     if (!confirm(`Chiudere il cantiere «${lblCant(p)}» per fine lavori?\nTutte le visite collegate verranno chiuse.${inc}\n\nProposta di ${p.proposta_nome || p.proposta_da}: «${p.motivo}»`)) return;
-    const note = prompt('Note sulla chiusura (facoltative). Annulla per interrompere.', p.motivo || '');
+    /* (23/10/2026) il giorno in cui il tecnico ha visto il cantiere finito va nella nota della chiusura */
+    const note = prompt('Note sulla chiusura (facoltative). Annulla per interrompere.', (p.fine_constatata_il ? `Finito il ${dataIt(p.fine_constatata_il)} (visto da ${p.proposta_nome || p.proposta_da || ''}). ` : '') + (p.motivo || ''));
     if (note === null) return;
     const { data, error } = await sb.rpc('chiudi_cantiere', { p_cantiere_id: p.cantiere_id, p_motivo: 'termini_lavori', p_note: note.trim() || null });
     if (error) return toast('Chiusura non riuscita: ' + error.message, 'err');

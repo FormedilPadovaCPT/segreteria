@@ -583,8 +583,17 @@ async function datiLettera(t, inc) {
   ]);
   const cant = Object.fromEntries((cc || []).map((c) => [c.cantiere_id, c]));
   const imp = Object.fromEntries((ii || []).map((c) => [c.impresa_id, c.impresa_nome]));
+  /* (23/10/2026) il cantiere che un tecnico ha proposto di chiudere perché finito non è un rientro da
+     assegnare, finché non si decide: come nella pagina Scadenze e nel promemoria del lunedì (le tre
+     liste coincidono). Se non si legge, la lettera non si fa: altrimenti uscirebbe con quei cantieri */
+  const proposti = new Set();
+  if (ids.length) {
+    const { data: pc, error: ePc } = await sb.from('cantieri_proposte_chiusura').select('cantiere_id').is('esito', null).in('cantiere_id', ids);
+    if (ePc) throw new Error('non sono riuscito a leggere le proposte di chiusura dei cantieri: ' + ePc.message);
+    for (const r of pc || []) proposti.add(r.cantiere_id);
+  }
   const ncAperte = candidate
-    .filter((v) => !cant[v.cantiere_id]?.cantiere_chiuso)
+    .filter((v) => !cant[v.cantiere_id]?.cantiere_chiuso && !proposti.has(v.cantiere_id))
     .map((v) => ({ nr_verbale: (v.nr_verbale || '').replace(/^CPT\//, ''), data_visita: v.data_visita, ritorno: isoData(v.dr),
       calcolata: v.calcolata, scaduto: v.scaduto, ipc: v.ipc,
       impresa: imp[v.impresa_id] || v.impresa_rl_nome || cant[v.cantiere_id]?.cantiere_etichetta || '', comune: cant[v.cantiere_id]?.comune_nome || '' }))
