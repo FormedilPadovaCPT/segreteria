@@ -34,6 +34,14 @@
 //              i ruoli a raccolta, che si avvisano solo per nome.
 //   firma      (firmatario)  firma la riga `id`; promuove la riga seguente.
 //   rimanda    (firmatario)  non firma, col motivo; la catena si ferma.
+//   ho_firma   (firmatario, 23/10/2026)  id = la sua riga: dice se la firma
+//              scansionata c'è (ok / manca / illeggibile), per avvisare
+//              PRIMA di premere «Firmo». Non scrive niente.
+//   BLOCCO (23/10/2026, chiesto dall'utente dopo il documento firmato da un
+//   tecnico senza scansione): «firma», «accetta_incarico» e «firma_registro»
+//   si rifiutano se la firma scansionata del firmatario non c'è o non si
+//   legge. Il testo da solo non basta più; la firma a mano («autografa»)
+//   resta com'era. Il controllo sta qui e non solo nel pulsante.
 //   ritira     (segreteria)  tutta la catena del documento esce dagli elenchi.
 //   accoda     (segreteria, 14/10/2026)  id = l'ULTIMA riga firmata di un
 //              documento: si aggiungono firmatari in coda alla catena
@@ -165,7 +173,7 @@ serve(async (req) => {
 
     if (['richiedi', 'avvisa', 'ritira', 'autografa', 'accoda'].includes(azione)) {
       if (!(await ruolo('is_segreteria'))) return json({ error: 'Le richieste di firma le gestisce la segreteria.' }, 403)
-    } else if (!['firma', 'rimanda', 'accetta_incarico', 'firma_registro'].includes(azione)) {
+    } else if (!['firma', 'rimanda', 'ho_firma', 'accetta_incarico', 'firma_registro'].includes(azione)) {
       return json({ error: 'Azione non prevista' }, 400)
     }
 
@@ -175,6 +183,9 @@ serve(async (req) => {
       if (!Number.isInteger(oggetto) || oggetto <= 0) return json({ error: 'Documento non indicato' }, 400)
       const tipo = azione === 'accetta_incarico' ? 'accettazione_incarico' : 'registro_giornata'
       const rif = azione === 'accetta_incarico' ? `incarico:${oggetto}` : `giornata:${oggetto}`
+      /* niente firma scansionata, niente PDF né riga: ci si ferma prima di creare qualcosa */
+      const fd = await immagineFirma(sb, conf, 'docente', io)
+      if (fd.stato !== 'ok') return json({ error: messaggioFirma(fd, 'docente') }, 409)
       let corsoId = 0
       if (azione === 'accetta_incarico') {
         /* l'incarico si legge col token di chi chiama: la RLS dà al docente solo il suo */
@@ -422,7 +433,7 @@ serve(async (req) => {
     }
 
     /* ── chi firma dev'essere il firmatario della riga, col ruolo vero ── */
-    if (azione === 'firma' || azione === 'rimanda') {
+    if (azione === 'firma' || azione === 'rimanda' || azione === 'ho_firma') {
       if (String(r.firmatario_email).toLowerCase() !== io) return json({ error: 'Questo documento non aspetta la tua firma.' }, 403)
       const rl = String(r.firmatario_ruolo)
       const ok = rl === 'presidente' ? await ruolo('is_presidente')
@@ -439,6 +450,11 @@ serve(async (req) => {
     /* il nome del firmatario, per il testo sul PDF e per gli avvisi */
     _nomi.set(String(r.firmatario_email).toLowerCase(),
       await nomeFirmatario(sb, conf, String(r.firmatario_ruolo), String(r.firmatario_email).toLowerCase()))
+
+    if (azione === 'ho_firma') {
+      const f = await immagineFirma(sb, conf, String(r.firmatario_ruolo), String(r.firmatario_email))
+      return json({ ok: true, ha: f.stato === 'ok', stato: f.stato, fonte: f.fonte, messaggio: f.stato === 'ok' ? '' : messaggioFirma(f, String(r.firmatario_ruolo)) })
+    }
 
     if (azione === 'rimanda') {
       const motivo = String(corpo?.motivo || '').trim()
@@ -474,13 +490,19 @@ serve(async (req) => {
       if ((await sha256(originale)) !== r.sha256_originale) {
         throw new Error('Il documento non è più quello che è stato chiesto di firmare: avvisa la segreteria.')
       }
-      const firmaByte = await immagineFirma(sb, conf, r)
+      const fr = await immagineFirma(sb, conf, String(r.firmatario_ruolo), String(r.firmatario_email))
+      if (fr.stato !== 'ok' || !fr.byte) return json({ error: messaggioFirma(fr, String(r.firmatario_ruolo)) }, 409)
+      const firmaByte = fr.byte
       const pdf = await PDFDocument.load(originale)
       const rq = r.riquadro as { pagina: number; x: number; y: number; w: number; h: number }
       const pg = pdf.getPage(rq.pagina)
-      if (firmaByte) {
-        let img
-        try { img = await pdf.embedPng(firmaByte) } catch { img = await pdf.embedJpg(firmaByte) }
+      let img
+      try { img = await pdf.embedPng(firmaByte) } catch {
+        try { img = await pdf.embedJpg(firmaByte) } catch {
+          return json({ error: messaggioFirma({ stato: 'formato', fonte: fr.fonte }, String(r.firmatario_ruolo)) }, 409)
+        }
+      }
+      {
         const k = Math.min(rq.w / img.width, rq.h / img.height)
         const w = img.width * k, h = img.height * k
         pg.drawImage(img, { x: rq.x, y: rq.y + (rq.h - h) / 2, width: w, height: h })
@@ -488,10 +510,8 @@ serve(async (req) => {
       const { data: g, ora } = oraRoma(adesso)
       const font = await pdf.embedFont(StandardFonts.Helvetica)
       const nome = nomeBreve(conf, r)
-      /* senza immagine il testo sta nel riquadro, non sotto: è lui la firma */
       pg.drawText(`Firmato nell'app il ${g} alle ${ora}${nome ? ` - ${nome}` : ''}`, {
-        x: rq.x, y: firmaByte ? rq.y - 7 : rq.y + rq.h / 2 - 3, size: firmaByte ? 6 : 8, font,
-        color: firmaByte ? rgb(0.45, 0.47, 0.5) : rgb(0.2, 0.2, 0.2),
+        x: rq.x, y: rq.y - 7, size: 6, font, color: rgb(0.45, 0.47, 0.5),
       })
       pdf.setModificationDate(adesso)
       firmato = await pdf.save()
@@ -578,32 +598,43 @@ function nomeBreve(conf: Conf, r: Riga) {
   return _nomi.get(String(r.firmatario_email).toLowerCase()) || descrizioneRuolo(rl)
 }
 
-/* la firma scansionata del firmatario, se c'è: Drive per le cariche
-   (s_config), il bucket firme-tecnici per i tecnici (tecnici.firma_url),
-   Drive per un docente esterno (app_ruoli.firma_drive_id). Senza, null:
-   vale il solo testo. */
-async function immagineFirma(sb: any, conf: Conf, r: Riga): Promise<Uint8Array | null> {
-  const rl = String(r.firmatario_ruolo)
-  const email = String(r.firmatario_email).toLowerCase()
+/* la firma scansionata del firmatario: Drive per le cariche (s_config), il
+   bucket firme-tecnici per i tecnici (tecnici.firma_url), Drive per un
+   docente esterno (app_ruoli.firma_drive_id). Dal 23/10/2026 senza firma
+   NON si firma: l'esito dice se manca (`manca`) o se c'è ma non si legge
+   (`illeggibile`), perché «non l'hai caricata» e «riprova fra poco» sono
+   due messaggi diversi (un errore di lettura non è un'assenza).
+   `fonte` serve al messaggio: il tecnico la carica da sé, gli altri la
+   fa caricare alla segreteria. */
+type EsitoFirma = { stato: 'ok' | 'manca' | 'illeggibile' | 'formato'; byte?: Uint8Array; fonte: 'carica' | 'tecnico' | 'esterno'; dettaglio?: string }
+async function immagineFirma(sb: any, conf: Conf, rl: string, emailIn: string): Promise<EsitoFirma> {
+  const email = String(emailIn).toLowerCase()
   _nomi.set(email, await nomeFirmatario(sb, conf, rl, email))
+  let fonte: EsitoFirma['fonte'] = 'carica'
   let driveId = rl === 'presidente' ? conf.presidente_firma_id
     : rl === 'direttore' ? conf.direttore_firma_id
     : rl === 'rpf' ? conf.responsabile_formativo_firma_id : ''
+  let erroreLettura = ''
   if (rl === 'docente' || rl === 'incaricato' || rl === 'personale') {
+    fonte = 'esterno'
     const lett = email.replace(/[\\%_]/g, (c: string) => '\\' + c)
-    const { data: t } = await sb.from('tecnici').select('firma_url').ilike('email', lett).limit(1)
+    const { data: t, error: eT } = await sb.from('tecnici').select('firma_url').ilike('email', lett).limit(1)
+    if (eT) return { stato: 'illeggibile', fonte, dettaglio: eT.message }
+    if (t?.length) fonte = 'tecnico'
     const url = String(t?.[0]?.firma_url || '')
     const marker = `/${BUCKET_TECNICI}/`
     if (url.includes(marker)) {
       const path = decodeURIComponent(url.split(marker)[1].split('?')[0])
       const { data: blob, error } = await sb.storage.from(BUCKET_TECNICI).download(path)
-      if (!error && blob) return new Uint8Array(await blob.arrayBuffer())
-      console.warn('firma del tecnico non letta:', error?.message)
+      if (!error && blob) return { stato: 'ok', byte: new Uint8Array(await blob.arrayBuffer()), fonte }
+      erroreLettura = error?.message || 'file non leggibile'
+      console.warn('firma del tecnico non letta:', erroreLettura)
     }
-    const { data: a } = await sb.from('app_ruoli').select('firma_drive_id').ilike('email', lett).limit(1)
+    const { data: a, error: eA } = await sb.from('app_ruoli').select('firma_drive_id').ilike('email', lett).limit(1)
+    if (eA) return { stato: 'illeggibile', fonte, dettaglio: eA.message }
     driveId = String(a?.[0]?.firma_drive_id || '')
   }
-  if (!driveId) return null
+  if (!driveId) return erroreLettura ? { stato: 'illeggibile', fonte, dettaglio: erroreLettura } : { stato: 'manca', fonte }
   try {
     const sa = JSON.parse(Deno.env.get('GOOGLE_SERVICE_ACCOUNT_JSON') || '{}')
     const tokD = await getToken(sa, SCOPE_DRIVE)
@@ -611,12 +642,28 @@ async function immagineFirma(sb: any, conf: Conf, r: Riga): Promise<Uint8Array |
       headers: { Authorization: `Bearer ${tokD}` },
     })
     if (!rf.ok) throw new Error(`Drive ha risposto ${rf.status}`)
-    return new Uint8Array(await rf.arrayBuffer())
+    return { stato: 'ok', byte: new Uint8Array(await rf.arrayBuffer()), fonte }
   } catch (e) {
-    /* la firma vale per l'autenticazione: senza immagine si firma col solo testo, e si dice nel log */
     console.warn('firma scansionata non letta da Drive:', (e as Error).message)
-    return null
+    return { stato: 'illeggibile', fonte, dettaglio: (e as Error).message }
   }
+}
+
+/* il messaggio che il firmatario legge quando non può firmare */
+function messaggioFirma(e: Pick<EsitoFirma, 'stato' | 'fonte' | 'dettaglio'>, rl: string): string {
+  if (e.stato === 'illeggibile') {
+    return `Non sono riuscito a leggere la firma scansionata${e.dettaglio ? ` (${e.dettaglio})` : ''}: riprova fra poco; se resta così avvisa la segreteria.`
+  }
+  if (e.stato === 'formato') {
+    return e.fonte === 'tecnico'
+      ? 'La firma scansionata che hai caricato non è un\'immagine leggibile (servono PNG o JPG, il WEBP non va): caricala di nuovo con il pulsante «🖊 Firme» in alto e riprova.'
+      : 'La firma scansionata caricata non è un\'immagine leggibile (servono PNG o JPG): avvisa la segreteria, che la ricarica.'
+  }
+  if (e.fonte === 'tecnico') {
+    return 'Non hai caricato la tua firma scansionata, quindi non puoi firmare. Caricala dal gestionale con il pulsante «🖊 Firme» in alto (PNG o JPG) e poi torna qui.'
+  }
+  if (e.fonte === 'esterno') return 'Non risulta la tua firma scansionata, quindi non puoi firmare. Avvisa la segreteria: la carica e poi puoi firmare.'
+  return `Per ${descrizioneRuolo(rl)} non è caricata la firma scansionata, quindi non si può firmare. Avvisa la segreteria: la carica e poi si firma.`
 }
 
 /* la notifica alla segreteria: a ogni accesso di segreteria attivo */

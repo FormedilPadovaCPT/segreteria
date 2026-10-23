@@ -82,7 +82,12 @@ test('la funzione firma-documenti: catena, ruoli, firmatario', () => {
   assert.match(fn, /\.eq\('ordine', Number\(r\.ordine\) \+ 1\)\.eq\('stato', 'in_coda'\)/, 'firmata la N, si promuove la N+1');
   assert.match(fn, /if \(String\(r\.firmatario_email\)\.toLowerCase\(\) !== io\) return json\(\{ error: 'Questo documento non aspetta la tua firma\.' \}, 403\)/, 'firma solo il firmatario della riga');
   assert.match(fn, /await ruolo\('is_docente_del_corso', \{ p_corso: r\.corso_id \}\)/, 'il docente firma solo i documenti dei suoi corsi');
-  assert.match(fn, /if \(!firmaByte\) return null|return null\n  \}/, 'senza immagine la firma è il solo testo: non si blocca');
+  /* (23/10/2026) senza la firma scansionata NON si firma: il solo testo non basta più */
+  assert.match(fn, /if \(fr\.stato !== 'ok' \|\| !fr\.byte\) return json\(\{ error: messaggioFirma\(fr, String\(r\.firmatario_ruolo\)\) \}, 409\)/, 'senza immagine la firma è rifiutata');
+  assert.doesNotMatch(fn, /senza immagine il testo sta nel riquadro/, 'il ramo «solo testo» non esiste più');
+  assert.match(fn, /const fd = await immagineFirma\(sb, conf, 'docente', io\)\n\s+if \(fd\.stato !== 'ok'\) return json/, 'accettazione e registro si fermano prima di creare PDF e riga');
+  assert.match(fn, /if \(azione === 'ho_firma'\)/, 'la schermata può chiedere se la firma c\'è');
+  assert.match(fn, /stato: 'illeggibile'/, 'un errore di lettura non è un\'assenza: messaggio diverso');
   assert.match(fn, /const TIPI = \['incarico_assev', 'incarico_docenza', 'accettazione_incarico', 'scheda_formativa'/);
   assert.equal(fn, leggi('../supabase/functions/firma-presidente/index.ts'), 'firma-presidente (nome vecchio, usato dall\'asseverazione) ha lo stesso codice');
 });
