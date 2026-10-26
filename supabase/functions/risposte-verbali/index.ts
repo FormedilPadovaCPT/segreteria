@@ -9,6 +9,12 @@
 // l'ha fatto chiedere: il CSE del cantiere di Limena (verbale CPT/26_27/0029)
 // che riferiva le correzioni fatte dopo la visita.
 //
+// DAL 26/10/2026 i RINGRAZIAMENTI (ringraziamento() in risposte-verbali-lettura.js)
+// restano anche come gradimento della visita in s_questionari_sopralluogo,
+// fonte 'mail', col testo e senza voto: prima la segreteria compilava il
+// questionario al posto dell'impresa per non perderli. A chi ha scritto non
+// si risponde (decisione dell'utente): ci pensa il tecnico, che riceve la mail.
+//
 // COSA FA. Ogni ora, in orario d'ufficio, legge (in sola lettura) le mail
 // arrivate con un numero di verbale nell'oggetto, scarta quelle scritte da
 // dentro l'ente e le risposte automatiche (regole in
@@ -43,7 +49,7 @@ import { componiEml, paginaHtml, corpoInHtml, LOGO_FIRMA_CID } from './firma.js'
 // @ts-ignore modulo JS senza tipi
 import { caricaLogo } from './firma-logo.js'
 // @ts-ignore modulo JS senza tipi
-import { classifica, mappaIntestazioni, testoDaHtml, allegatiDaTenere, nomeFileSicuro, testoInoltro, dataOraIt } from './risposte-verbali-lettura.js'
+import { classifica, mappaIntestazioni, testoDaHtml, allegatiDaTenere, nomeFileSicuro, testoInoltro, dataOraIt, ringraziamento, rigaGradimento } from './risposte-verbali-lettura.js'
 // @ts-ignore modulo JS senza tipi
 import { decodificaOggetto, inServizio } from './mail-respinte-lettura.js'
 
@@ -119,7 +125,7 @@ serve(async (req) => {
 
     const dryRun = new URL(req.url).searchParams.get('dryRun') === '1'
     const sa = JSON.parse(Deno.env.get('GOOGLE_SERVICE_ACCOUNT_JSON') || '{}')
-    const esito: Record<string, unknown> = { chi, dryRun, esaminati: 0, inoltrate: 0, escluse: 0, senza_tecnico: 0, errori: [] as string[], righe: [] as unknown[] }
+    const esito: Record<string, unknown> = { chi, dryRun, esaminati: 0, inoltrate: 0, escluse: 0, senza_tecnico: 0, ringraziamenti: 0, errori: [] as string[], righe: [] as unknown[] }
     const err = esito.errori as string[]
     const coord = String(conf.coordinatore_email || '').trim().toLowerCase()
 
@@ -226,6 +232,28 @@ serve(async (req) => {
         let corpo = parti.plain.length ? await leggiCorpo(parti.plain[0]) : ''
         if (!corpo.trim() && parti.html.length) corpo = testoDaHtml(await leggiCorpo(parti.html[0]))
 
+        /* (26/10/2026, chiesto dall'utente) un ringraziamento resta come gradimento
+           della visita: riga in s_questionari_sopralluogo, fonte 'mail', col testo e
+           senza voto. A chi ha scritto non si risponde; la mail va al tecnico qui
+           sotto come ogni altra risposta. submission_id = mail:<id Gmail>, quindi un
+           giro ripetuto (errore d'inoltro, nuovo tentativo) non la registra due volte. */
+        let gradimentoId: number | null = null
+        if (ringraziamento(corpo)) {
+          esito.ringraziamenti = (Number(esito.ringraziamenti) || 0) + 1
+          if (!dryRun) {
+            const riga = rigaGradimento({ gmailId: id, ricevutaIl: ricevuta, mittente: c.mittente, da: c.da, corpo,
+              nr: c.nr, visita, tecnico: nomeTecnico })
+            const { data: g, error: eG } = await sb.from('s_questionari_sopralluogo')
+              .upsert(riga, { onConflict: 'submission_id', ignoreDuplicates: true }).select('id')
+            if (eG) err.push(`${id}: ringraziamento non registrato: ${eG.message}`)
+            gradimentoId = g?.[0]?.id ?? null
+            if (!eG && gradimentoId == null) {
+              const { data: gg } = await sb.from('s_questionari_sopralluogo').select('id').eq('submission_id', riga.submission_id).maybeSingle()
+              gradimentoId = gg?.id ?? null
+            }
+          }
+        }
+
         const tenere = allegatiDaTenere(parti.allegati) as Allegato[]
         const allegati: { nome: string; mime: string; byte: Uint8Array }[] = []
         const omessi: string[] = []
@@ -253,7 +281,7 @@ serve(async (req) => {
         })
         const chiScrive = c.mittente && c.mittente !== c.da ? c.mittente : c.da
         const oggetto = `Risposta al verbale ${c.nr}${impresa ? ` - ${impresa}` : ''} - da ${chiScrive}`
-        const riga = { ...conVisita, tecnico_email: a.join(', '), inoltro_a: [...a, ...cc].join(', '),
+        const riga = { ...conVisita, questionario_id: gradimentoId, tecnico_email: a.join(', '), inoltro_a: [...a, ...cc].join(', '),
           allegati: allegati.length, allegati_omessi: omessi.length ? omessi.join(', ') : null }
         if (dryRun) { await registra({ ...riga, esito: 'inoltrata', motivo: '(prova: non inviata)' }); continue }
 
@@ -290,7 +318,7 @@ serve(async (req) => {
        «nessuna risposta» non si confonde con «il giro non è partito» */
     if (!dryRun) {
       await sb.from('s_config').update({ valore: JSON.stringify({
-        il: new Date().toISOString(), chi, esaminati: esito.esaminati, inoltrate: esito.inoltrate,
+        il: new Date().toISOString(), chi, esaminati: esito.esaminati, inoltrate: esito.inoltrate, ringraziamenti: esito.ringraziamenti,
         escluse: esito.escluse, senza_tecnico: esito.senza_tecnico, errori: err.length,
       }) }).eq('chiave', 'risposte_verbali_ultimo_giro')
     }

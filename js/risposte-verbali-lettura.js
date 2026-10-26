@@ -166,3 +166,70 @@ export function testoInoltro({ nomeTecnico = '', nr = '', impresa = '', dataVisi
     'Questa mail è automatica: le risposte ai verbali tornano alla casella da cui i verbali partono, e da lì non le vedresti.',
   ].filter((r) => r !== null).join('\n').replace(/\n{3,}/g, '\n\n');
 }
+
+/* ============================================================
+   I RINGRAZIAMENTI DIVENTANO GRADIMENTO (26/10/2026).
+
+   Chiesto dall'utente: a cptpd@did arrivano ringraziamenti per le visite
+   («Ringrazio per il prezioso lavoro svolto») da chi non passa dal
+   questionario. Fin qui la segreteria apriva il pulsante «Valuta la visita»
+   della mail e compilava il questionario al posto dell'impresa, per non
+   perdere l'apprezzamento. Ora il giro orario lo registra da solo in
+   s_questionari_sopralluogo, fonte 'mail', agganciato alla visita, col testo
+   di chi ha scritto e SENZA VOTO: il voto non l'ha dato nessuno, e non si
+   inventa. A chi ha scritto non si risponde (decisione dell'utente): la mail
+   va comunque al tecnico, come ogni risposta al verbale, e ci pensa lui.
+
+   Nel dubbio si preferisce registrare: un ringraziamento perso non si
+   recupera, una riga di troppo la segreteria la segna «Scartato».
+   ============================================================ */
+
+/* la parte che ha scritto chi risponde, senza la mail citata sotto */
+const CITAZIONE_RE = new RegExp('^\\s*(?:'
+  + '>|-{2,}\\s*(?:original|messaggio|forwarded|inoltrato)|_{5,}|'
+  + '(?:da|from|inviato|sent|data|date|oggetto|subject)\\s*:|'
+  + 'il (?:giorno )?.{0,80}ha scritto\\s*:?\\s*$|on .{0,120}wrote\\s*:?\\s*$|'
+  + 'inviato da (?:outlook|il mio|iphone|android|libero|yahoo)|sent from (?:my|outlook))', 'i');
+export function testoNuovo(corpo) {
+  const righe = String(corpo || '').replace(/\r/g, '').split('\n');
+  const fine = righe.findIndex((r) => CITAZIONE_RE.test(r));
+  return (fine === -1 ? righe : righe.slice(0, fine)).join('\n').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+const GRAZIE_RE = /\b(?:grazie|ringrazi\w*|apprezz\w*|complimenti|gentilissim\w*)\b/i;
+/* chi contesta o segnala un errore nel verbale non sta ringraziando, anche se
+   comincia con «grazie». Le richieste invece non escludono: nel dubbio si
+   registra, e la segreteria scarta la riga di troppo */
+const NON_GRAZIE_RE = /\b(?:errat\w*|sbagliat\w*|errore|errori|contest\w*|reclam\w*|non (?:siamo|sono) d'accordo|rettific\w*|annullare)\b/i;
+
+/* è un ringraziamento da registrare? Il grazie deve stare all'inizio del
+   testo nuovo (nei primi 300 caratteri): un «grazie» in fondo a una mail
+   lunga è cortesia, non apprezzamento */
+export function ringraziamento(corpo) {
+  const t = testoNuovo(corpo);
+  if (!t) return false;
+  const m = GRAZIE_RE.exec(t);
+  if (!m || m.index > 300) return false;
+  return !NON_GRAZIE_RE.test(t);
+}
+
+/* la riga per s_questionari_sopralluogo: niente voto, niente motivi, niente
+   azione dopo — solo quello che c'è scritto, e da dove viene */
+export function rigaGradimento({ gmailId, ricevutaIl, mittente = '', da = '', corpo = '', nr = '', visita = null, tecnico = '' }) {
+  const testo = testoNuovo(corpo).slice(0, 4000);
+  const chi = mittente && mittente !== da ? `${mittente} <${da}>` : da;
+  return {
+    fonte: 'mail',
+    submission_id: `mail:${gmailId}`,
+    timestamp_modulo: ricevutaIl,
+    stato: 'ricevuto',
+    visita_id: visita?.visita_id || null,
+    nr_verbale: nr || null,
+    data_visita: visita?.data_visita || null,
+    tecnico: tecnico || null,
+    commento: testo || null,
+    riferimento_esito: visita?.visita_id ? 'agganciato' : 'verbale non trovato',
+    note_ufficio: `Ringraziamento arrivato per mail a cptpd@did${chi ? ` da ${chi}` : ''}, registrato dal giro delle risposte ai verbali. Nessun voto: chi ha scritto non ha compilato il questionario. La mail è stata girata al tecnico; a chi ha scritto non si risponde.`,
+    aggiornato_da: 'risposte-verbali',
+  };
+}

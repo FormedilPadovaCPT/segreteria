@@ -52,7 +52,11 @@ const voto = (q) => (Number.isFinite(q.utilita) ? q.utilita : mediaVecchia(q));
 /* niente faccine qui: in colonna serve un numero confrontabile, e una parola
    che dica subito com'è andata senza dover ricordare la scala */
 const PAROLA = { 1: 'per niente', 2: 'poco', 3: 'così così', 4: 'utile', 5: 'molto utile' };
+/* (26/10/2026) un ringraziamento arrivato per mail e registrato dal giro
+   risposte-verbali: ha il testo e nessun voto, perché non l'ha dato nessuno */
+const daMail = (q) => q.fonte === 'mail';
 const votoCella = (q) => {
+  if (daMail(q)) return '<span title="Ringraziamento arrivato per mail: nessun voto, solo il testo" style="color:#4f6b12;font-weight:600;white-space:nowrap">✉️ ringraziamento</span>';
   const v = voto(q);
   if (v === null) return '—';
   const arrotondato = Math.round(v);
@@ -69,7 +73,7 @@ const AGITO = /^(sì|si), subito|programma/i;
    Il cruscotto non tiene una lista sua: conta queste righe e ci porta sopra. */
 export async function daLavorare() {
   const { data, error } = await sb.from('s_questionari_sopralluogo')
-    .select('id, progressivo, timestamp_modulo, tecnico, data_visita, nr_verbale, utilita, motivi, commento, azione_dopo, contatto_richiesto, recapito_contatto, stato, scala_aspettative, scala_professionale, scala_facilita, proposte_miglioramento')
+    .select('id, fonte, progressivo, timestamp_modulo, tecnico, data_visita, nr_verbale, utilita, motivi, commento, azione_dopo, contatto_richiesto, recapito_contatto, stato, scala_aspettative, scala_professionale, scala_facilita, proposte_miglioramento')
     .not('stato', 'in', '(archiviato,scartato)')
     .order('id', { ascending: false }).limit(60);
   if (error) throw error;
@@ -133,6 +137,7 @@ export async function render() {
       <span class="dt-cella ${contatti.length ? 'dt-senzadata' : 'dt-ok'}" style="padding:4px 10px">📞 ${contatti.length} chiedono di essere contattati</span>
       <span class="dt-cella dt-ok" style="padding:4px 10px">📊 utilità media ${mediaVoti}${voti.length ? ` su ${voti.length}` : ''}</span>
       <span class="dt-cella dt-ok" style="padding:4px 10px">🔧 ${agito.length}${conAzione.length ? ' su ' + conAzione.length : ''} hanno fatto qualcosa dopo</span>
+      <span class="dt-cella dt-ok" style="padding:4px 10px">✉️ ${righe.filter(daMail).length} ringraziamenti per mail</span>
       <span class="dt-cella dt-ok" style="padding:4px 10px">🗂 ${righe.length} in tutto</span>
     </div>
     <div class="dt-barra">
@@ -151,7 +156,9 @@ export async function render() {
       Arrivano dal portale servizi, quasi sempre dal pulsante «Valuta la visita» della mail che trasmette il verbale:
       per questo la riga sa a quale sopralluogo si riferisce. Dove il verbale manca, il questionario è stato aperto
       dal menu del portale. Il voto è «quanto vi è stata utile» (1-5); per le risposte raccolte prima del
-      18/09/2026 è la media delle tre scale di allora.
+      18/09/2026 è la media delle tre scale di allora. Le righe «✉️ ringraziamento» sono le risposte al verbale
+      che ringraziano, registrate da sole dal giro orario della casella cptpd@did (dal 26/10/2026): hanno il testo
+      e nessun voto, e a chi ha scritto non si risponde. Se una non è un ringraziamento, segnala «Scartato».
     </p>`;
 
   $('#qs-f').addEventListener('click', (e) => {
@@ -209,6 +216,7 @@ export async function apriPratica(id) {
     ${campo('Visita del', q.data_visita ? giorno(q.data_visita) : null)}
     ${campo('Tecnico', q.tecnico)}
     ${senzaVerbale}
+    ${daMail(q) ? `<p class="hint" style="margin:6px 0 0">✉️ <strong>Ringraziamento arrivato per mail</strong>, registrato dal giro orario delle risposte ai verbali: c'è solo il testo, il voto non l'ha dato nessuno. La mail è stata girata al tecnico; a chi ha scritto non si risponde.</p>` : ''}
     ${riga()}
     ${v === null ? '' : `<div class="dt-doc-riga"><strong>Utilità della visita:</strong> ${votoCella(q)}${
         Number.isFinite(q.utilita) ? '' : ' <span class="dt-tenue">(media delle scale del questionario precedente)</span>'}</div>`}
