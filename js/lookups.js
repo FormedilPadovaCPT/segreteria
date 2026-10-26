@@ -66,6 +66,10 @@ export const RUBRICA_INTERNA = [
   { nome: 'Presidenza', email: 'presidente@formedilpadova.it' },
   { nome: 'Vicepresidenza', email: 'vicepresidente@formedilpadova.it' },
   { nome: 'Amministrazione', email: 'amministrazione@formedilpadova.it' },
+  /* (26/10/2026, chiesti dall'utente) Balladore, asseveratore, e l'Ufficio
+     corsi (Friso e Zoggia usano corsi@) fra i pulsantini «Aggiungi dall'ufficio» */
+  { nome: 'Balladore Ing. Paolo — Asseveratore', email: 'paolo.balladore@did.formedilpadova.it' },
+  { nome: 'Ufficio corsi sicurezza', email: 'corsi@formedilpadova.it' },
   { nome: 'Squizzato Sig. Renato — Segreteria', email: 'cptpd@did.formedilpadova.it' },
 ];
 
