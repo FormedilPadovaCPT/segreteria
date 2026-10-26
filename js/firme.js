@@ -198,12 +198,17 @@ export async function datiCruscotto() {
 export const daSegnalare = (r) => !r.avviso_il || new Date(r.avviso_il) < new Date(r.richiesta_il);
 const nomeRuolo = (ruolo) => ruolo === 'presidente' ? 'il Presidente' : ruolo === 'direttore' ? 'il Direttore' : (RUOLI_FIRMA[ruolo] || ruolo);
 const giorni = (iso) => iso ? Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 864e5)) : null;
-const dove = (r) => r.tipo === 'incarico_docenza' ? 'dalla scheda del corso'
+/* (26/10/2026) i PDF caricati con «Documento alla firma»: rif «libero:…» */
+const libero = (r) => String(r?.rif || '').startsWith('libero:');
+const dove = (r) => libero(r) ? 'protocollala in uscita e mandala dal protocollo, poi «✓ fatto»'
+  : r.tipo === 'incarico_docenza' ? 'dalla scheda del corso'
   : r.tipo === 'incarico_assev' ? 'dall\'app asseverazione, «Iter d\'ufficio»'
   : r.corso_id ? `dalla scheda del corso n° ${r.corso_id}` : 'da dove è stato chiesto';
 
 export function cardFirme(card, f) {
   if (f.errore) return card('✍️ Firme in attesa', 0, '', '', { k: 'firme', nonLetto: true });
+  /* (26/10/2026) senza niente in firma la tessera è una pastiglia di «A posto»:
+     premendola si manda un PDF alla firma */
   const n = f.inAttesa.length + f.rimandate.length + f.daUsare.length;
   const riga = (r, testo, azioni) => `
     <div class="hm-riga" style="cursor:default">
@@ -224,10 +229,11 @@ export function cardFirme(card, f) {
       `rimandata il ${dataIt(r.rimandata_il)} da ${esc(chi(r))}: «${esc(r.rimandata_motivo || '')}» — si rifà ${dove(r)}`,
       apri(r.file_originale))),
     ...f.daUsare.map((r) => riga(r,
-      `firmata il ${dataIt(r.firmata_il)}${r.totale > 1 ? ` (${r.totale} firme)` : ''} — mail e dossier ${dove(r)}`,
-      apri(r.file_firmato, 'apri firmata'))),
+      `firmata il ${dataIt(r.firmata_il)}${r.totale > 1 ? ` (${r.totale} firme)` : ''} — ${libero(r) ? '' : 'mail e dossier '}${dove(r)}`,
+      apri(r.file_firmato, 'apri firmata') + (libero(r) ? ` · <a href="#" data-fp-fatto="${r.id}" data-aiuto="Il documento firmato è stato protocollato e mandato: esce dalla tessera, resta nel registro delle firme.">✓ fatto</a>` : ''))),
   ].join('');
   const azione = `
+    <button class="btn btn-sm" type="button" id="hm-fp-documento">✍️ Documento alla firma</button><br>
     ${(f.riepiloghi || []).map((g) => `<button class="btn btn-sm${g.nuovi ? ' btn-primary' : ''}" type="button" data-fp-riepilogo="${esc(g.email)}" data-fp-ruolo="${esc(g.ruolo)}" data-fp-n="${g.n}" data-fp-nuovi="${g.nuovi}">✉️ Avvisa ${esc(nomeRuolo(g.ruolo))} (${g.n === 1 ? '1 documento' : `${g.n} documenti`}${g.nuovi && g.nuovi < g.n ? `, ${g.nuovi} nuovi` : ''})</button>
       <span class="hint">${g.nuovi ? `${g.nuovi === g.n ? 'nessuno ancora segnalato' : `${g.nuovi} non ancora segnalati`}` : 'tutti già segnalati'}${g.ultimo ? ` · ultimo avviso ${dataIt(g.ultimo)}` : ''}</span><br>`).join('')}
     ${f.inAttesa.some((r) => r.prossimo && !(f.raccolti || []).includes(String(r.prossimo.ruolo))) ? '<button class="btn btn-sm" type="button" id="hm-fp-ricorda">🔔 Ricorda agli altri firmatari</button>' : ''}
@@ -235,7 +241,8 @@ export function cardFirme(card, f) {
       ${f.senzaAutografo.map((r) => `<div class="hm-riga" style="cursor:default"><span>📝</span><span>${esc(r.titolo)}</span>
         <span><a href="#" data-fp-autografo="${r.id}">segna l'originale</a></span></div>`).join('')}</details>` : ''}`;
   return card('✍️ Firme in attesa', n, corpo || '<p class="hint">Niente da firmare né da spedire.</p>', azione,
-    { k: 'firme', sempre: f.senzaAutografo.length > 0 });
+    { k: 'firme', sempre: f.senzaAutografo.length > 0, id: 'hm-fp-documento-zero',
+      aiuto: 'Niente da firmare né da spedire. Premi per mandare un PDF alla firma del Direttore o del Presidente nell’app.' });
 }
 
 const leggiData = (testo) => {
@@ -244,6 +251,18 @@ const leggiData = (testo) => {
 };
 
 export function collegaFirme(host, ricarica, firmeDati = null) {
+  /* (26/10/2026) un PDF qualsiasi alla firma del Direttore o del Presidente */
+  host.querySelectorAll('#hm-fp-documento, #hm-fp-documento-zero').forEach((b) => b.addEventListener('click', async (ev) => {
+    ev.preventDefault();
+    try { (await import('./documento-firma.js')).apriDocumentoFirma(ricarica); } catch (e) { toast('Non riesco ad aprire la maschera: ' + e.message, 'err'); }
+  }));
+  host.querySelectorAll('[data-fp-fatto]').forEach((a) => a.addEventListener('click', async (ev) => {
+    ev.preventDefault();
+    if (!confirm('Il documento firmato è stato protocollato e mandato? Esce da questo elenco (resta nel registro delle firme).')) return;
+    const { error } = await sb.rpc('s_firma_usata', { p_id: Number(a.dataset.fpFatto) });
+    if (error) return toast('Non registrato: ' + error.message, 'err');
+    toast('Fatto.', 'ok'); ricarica();
+  }));
   host.querySelectorAll('[data-fp-apri]').forEach((a) => a.addEventListener('click', (ev) => {
     ev.preventDefault(); apriPdf(a.dataset.fpApri);
   }));
