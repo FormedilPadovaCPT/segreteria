@@ -67,7 +67,7 @@ export function apriDocumentoFirma(dopo) {
     try {
       const ruolo = document.querySelector('#df-ruolo').value;
       const rq = riquadroFirma(righeDaTesto(letto.pezzi), ruolo, letto.pagine);
-      esito(`✅ La firma va a pagina ${rq.pagina + 1} di ${letto.pagine.length}, sotto «${esc(CARICHE[ruolo])}» (riquadro ${Math.round(rq.w)} × ${Math.round(rq.h)} punti).`);
+      esito(`✅ La firma va a pagina ${rq.pagina + 1} di ${letto.pagine.length}, ${rq.sopraTesto ? `sopra «${esc(CARICHE[ruolo])}», a misura piena: sotto la scritta lo spazio è poco, quindi si appoggia sul testo come un timbro, che resta leggibile` : `sotto «${esc(CARICHE[ruolo])}»`} (riquadro ${Math.round(rq.w)} × ${Math.round(rq.h)} punti).`);
       btn.disabled = false;
       return rq;
     } catch (e) { esito('⚠ ' + esc(e.message), true); return null; }

@@ -49,9 +49,16 @@ export function righeDaTesto(pezzi) {
 }
 
 /* Il riquadro della firma sotto l'ULTIMA scritta della carica.
-   pagine: [{w, h}] in punti. → {pagina, x, y, w, h}
+   pagine: [{w, h}] in punti. → {pagina, x, y, w, h, sopraTesto}
+   (27/10/2026, chiesto dall'utente) La firma ha SEMPRE la misura piena
+   (hMax): con poco spazio sotto la scritta non si rimpicciolisce più
+   (sulla dichiarazione Carron era uscita alta 40 punti su 60), ma
+   sale e si appoggia sopra il testo della carica, come un timbro
+   messo a mano. Il server la disegna «in moltiplicazione», così il
+   bianco della scansione non copre le parole. Il pavimento resta: la
+   riga «Firmato nell'app» non tocca mai il piè di pagina.
    Lancia un errore che si può mostrare così com'è quando la scritta
-   non c'è o sotto non c'è abbastanza spazio. */
+   non c'è o la firma non sta nemmeno salendo. */
 export function riquadroFirma(righe, ruolo, pagine) {
   const carica = CARICHE[ruolo];
   if (!carica) throw new Error(`Firmatario non previsto: «${ruolo}».`);
@@ -68,17 +75,18 @@ export function riquadroFirma(righe, ruolo, pagine) {
      pagina, di solito), oppure il margine della pagina */
   const sotto = righe.filter((r) => r.pagina === riga.pagina && r.y < riga.y - 1);
   const pavimento = sotto.length ? Math.max(...sotto.map((r) => r.y + 0.8 * (r.h || 10))) : MISURE.margine;
-  const spazio = sottoScritta - MISURE.stacco - (pavimento + MISURE.stacco + MISURE.timbro);
-  if (spazio < MISURE.hMin) {
-    throw new Error(`Sotto «${carica}» c'è poco spazio per la firma (${Math.max(0, Math.round(spazio))} punti, ne servono almeno ${MISURE.hMin}): aggiungi spazio sotto la scritta, oppure alza il blocco della firma, e ricarica il PDF.`);
+  const h = MISURE.hMax;
+  const yVoluto = sottoScritta - MISURE.stacco - h;
+  const yMinimo = pavimento + MISURE.stacco + MISURE.timbro;
+  const y = Math.max(yVoluto, yMinimo);
+  if (y + h > pg.h - MISURE.margine) {
+    throw new Error(`La firma di «${carica}» non sta nella pagina: la scritta è troppo vicina al bordo. Spostala più in alto e ricarica il PDF.`);
   }
-  const h = Math.min(MISURE.hMax, spazio);
   const w = MISURE.w;
   const centro = (riga.x0 + riga.x1) / 2;
   const x = Math.max(MISURE.lato, Math.min(pg.w - MISURE.lato - w, centro - w / 2));
-  const y = sottoScritta - MISURE.stacco - h;
   const tondo = (n) => Math.round(n * 10) / 10;
-  return { pagina: riga.pagina, x: tondo(x), y: tondo(y), w, h: tondo(h) };
+  return { pagina: riga.pagina, x: tondo(x), y: tondo(y), w, h, sopraTesto: y > yVoluto + 0.05 };
 }
 
 /* Il riferimento della richiesta: unico per documento, leggibile */

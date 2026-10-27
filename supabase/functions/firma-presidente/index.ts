@@ -68,7 +68,7 @@
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
-import { PDFDocument, rgb, StandardFonts } from 'https://esm.sh/pdf-lib@1.17.1'
+import { PDFDocument, rgb, StandardFonts, BlendMode } from 'https://esm.sh/pdf-lib@1.17.1'
 import { getToken, SOGGETTO_ENTE, SCOPE_GMAIL, SCOPE_DRIVE } from '../_shared/google.ts'
 // ⚠️ firma.js è una COPIA di js/firma.js (npm run firma-sync), firma-logo.js
 // è la versione che scarica il logo dal sito — come in avviso-approvazione.
@@ -505,7 +505,10 @@ serve(async (req) => {
       {
         const k = Math.min(rq.w / img.width, rq.h / img.height)
         const w = img.width * k, h = img.height * k
-        pg.drawImage(img, { x: rq.x, y: rq.y + (rq.h - h) / 2, width: w, height: h })
+        /* (27/10/2026) «in moltiplicazione»: il bianco della scansione non copre il
+           testo, così la firma a misura piena si può appoggiare sulla scritta della
+           carica quando sotto lo spazio è poco (documento-firma-regole.js) */
+        pg.drawImage(img, { x: rq.x, y: rq.y + (rq.h - h) / 2, width: w, height: h, blendMode: BlendMode.Multiply })
       }
       const { data: g, ora } = oraRoma(adesso)
       const font = await pdf.embedFont(StandardFonts.Helvetica)

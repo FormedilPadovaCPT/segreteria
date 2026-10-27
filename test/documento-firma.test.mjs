@@ -33,10 +33,25 @@ test('la firma va sotto l\'ultima scritta, centrata, sopra al piè di pagina', (
   assert.ok(Math.abs(rq.x + rq.w / 2 - 405) < 1, 'centrata sulla scritta');
 });
 
-test('poco spazio sotto la scritta: lo dice, non schiaccia la firma sul piè di pagina', () => {
-  // il caso vero della dichiarazione Carron del 26/10/2026, prima di fare spazio
+test('poco spazio sotto la scritta: firma a misura piena, sale sopra il testo, non tocca il piè di pagina', () => {
+  // (27/10/2026) il caso vero della dichiarazione Carron: con ~40 punti liberi
+  // la firma era uscita rimpicciolita; ora resta alta hMax e sale sulla scritta
   const righe = righeDaTesto([pezzo(1, 'Il Direttore', 379, 91, 50), pezzo(1, 'Formedil Padova – Scuola…', 75, 40, 450, 8), pezzo(1, 'Salute: cpt@…', 260, 31, 80, 8)]);
-  assert.throws(() => riquadroFirma(righe, 'direttore', A4), /poco spazio per la firma/);
+  const rq = riquadroFirma(righe, 'direttore', A4);
+  assert.equal(rq.h, MISURE.hMax, 'misura piena');
+  assert.equal(rq.sopraTesto, true);
+  assert.ok(rq.y + rq.h > 91, 'si appoggia sulla scritta');
+  assert.ok(rq.y - MISURE.timbro >= 40 + 8 * 0.8 + MISURE.stacco - 0.1, 'la riga «Firmato nell\'app» resta sopra il piè di pagina');
+});
+
+test('con spazio sotto la scritta la firma non sale', () => {
+  const righe = righeDaTesto([pezzo(1, 'Il Direttore', 380, 145, 50), pezzo(1, 'piè di pagina', 60, 40, 470, 8)]);
+  assert.equal(riquadroFirma(righe, 'direttore', A4).sopraTesto, false);
+});
+
+test('scritta attaccata al bordo alto: la firma non sta e lo dice', () => {
+  const righe = righeDaTesto([pezzo(0, 'Il Direttore', 380, 830, 50), pezzo(0, 'testo', 60, 800, 470, 30)]);
+  assert.throws(() => riquadroFirma(righe, 'direttore', A4), /non sta nella pagina/);
 });
 
 test('se la carica non è scritta nel PDF lo dice', () => {
