@@ -31,7 +31,8 @@ test('accoda: solo la segreteria, solo su un documento firmato e senza firme in 
   assert.match(a, /Number\(x\.ordine\) > Number\(r\.ordine\)/, 'si accoda solo all\'ultima firma');
   assert.match(a, /file_originale: r\.file_firmato, file_precedente: r\.file_firmato, sha256_originale: impronta/);
   assert.match(a, /ordine: Number\(r\.ordine\) \+ 1 \+ i/);
-  assert.match(a, /rq\.pagina >= pdf\.getPageCount\(\)/);
+  /* (28/10/2026) il controllo vale per ogni riquadro, anche quelli in `altri` */
+  assert.match(a, /tuttiRiquadri\(rq\)\.some\(\(q\) => q\.pagina >= pdf\.getPageCount\(\)\)/);
 });
 
 test('la mail al tecnico dice «per accettazione»', () => {

@@ -1066,12 +1066,27 @@ export async function pdfLetteraIncarico(corso, incarico, mieiInterventi, conf, 
     ['2.2', 'Qualsiasi controversia sul presente contratto sarà oggetto, ad istanza della parte più diligente, di un tentativo preliminare di conciliazione secondo il regolamento dell\'organismo di mediazione della CCIAA di Padova, con gli effetti del D.Lgs 28/2010.'],
   ]) c.scrivi(`${n}  ${t}`, c.font, 8.5, c.nero);
   c.stato.y -= 14;
-  c.serve(50);
+  /* (28/10/2026) anche sotto l'accordo le firme si mettono nell'app: fino a
+     oggi qui restavano vuote, perché il riquadro c'era solo sotto la lettera.
+     Stessa impaginazione del blocco di sopra; i riquadri vanno in `altri`. */
+  c.serve(90);
   const yA = c.stato.y;
   c.stato.pagina.drawText('PER ACCETTAZIONE — il Docente', { x: SX, y: yA, size: 8.5, font: c.font, color: c.grigio });
-  c.stato.pagina.drawLine({ start: { x: SX, y: yA - 28 }, end: { x: SX + 180, y: yA - 28 }, thickness: 0.7, color: c.grigio });
-  c.stato.pagina.drawText('FORMEDIL PADOVA', { x: 320, y: yA, size: 8.5, font: c.font, color: c.grigio });
+  c.stato.pagina.drawText(incarico.nominativo, { x: SX, y: yA - 12, size: 9.5, font: c.bold, color: c.nero });
+  c.stato.pagina.drawLine({ start: { x: SX, y: yA - 40 }, end: { x: SX + 180, y: yA - 40 }, thickness: 0.7, color: c.grigio });
+  c.stato.pagina.drawText('FORMEDIL PADOVA — il Legale Rappresentante', { x: 320, y: yA, size: 8.5, font: c.font, color: c.grigio });
   c.stato.pagina.drawText(corso.rappresentante_legale || conf.presidente_nome || '', { x: 320, y: yA - 12, size: 9.5, font: c.bold, color: c.nero });
+  const pagA = c.doc.getPages().indexOf(c.stato.pagina);
+  esito.riquadro.altri = [{ pagina: pagA, x: 330, y: yA - 16 - 60, w: 130, h: 60 }];
+  esito.riquadroDocente.altri = [{ pagina: pagA, x: SX, y: yA - 16 - 60, w: 150, h: 60 }];
+  if (firmaByte) {
+    try {
+      let img;
+      try { img = await c.doc.embedPng(firmaByte); } catch { img = await c.doc.embedJpg(firmaByte); }
+      const { width, height } = adatta(img, 130, 60);
+      c.stato.pagina.drawImage(img, { x: 330, y: yA - 16 - height, width, height });
+    } catch { /* firma a mano */ }
+  }
   return salva(c.doc);
 }
 

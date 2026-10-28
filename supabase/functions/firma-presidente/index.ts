@@ -21,7 +21,8 @@
 //   richiedi   (segreteria)  documenti[]: tipo, rif, titolo, nome_file,
 //              file_originale (originali/…), corso_id?, protocollo_id?,
 //              destinatario?, firmatari[]: { ruolo, email?, persona_id?,
-//              riquadro {pagina,x,y,w,h} }. Senza firmatari e col solo
+//              riquadro {pagina,x,y,w,h, altri?: [{pagina,x,y,w,h}]} } —
+//              `altri` (28/10/2026): la stessa firma in più punti. Senza firmatari e col solo
 //              `riquadro`: il Presidente (compatibile con l'asseverazione).
 //              Avvisa il primo firmatario: mail + notifica 🔔 — TRANNE i
 //              ruoli «a raccolta» (s_config.firme_avviso_raccolto_ruoli,
@@ -127,6 +128,24 @@ const oraRoma = (d: Date) => {
   return { data: `${v('day')}/${v('month')}/${v('year')}`, ora: `${v('hour')}:${v('minute')}` }
 }
 const pulito = (s: string) => String(s || '').replace(/[^\w.\-]+/g, '_')
+
+/* (28/10/2026) un firmatario può firmare in più punti dello stesso documento:
+   la lettera di docenza ha le firme sotto la lettera E sotto l'accordo, e fino
+   a oggi la seconda restava vuota. `altri` sono i riquadri in più, stessa forma;
+   la firma e la riga «Firmato nell'app…» vanno in tutti. Senza `altri` è come prima. */
+type Riquadro = { pagina: number; x: number; y: number; w: number; h: number; altri?: Riquadro[] }
+function unRiquadro(r: any): Riquadro | null {
+  const q = { pagina: Number(r?.pagina), x: Number(r?.x), y: Number(r?.y), w: Number(r?.w), h: Number(r?.h) }
+  return Object.values(q).every((n) => Number.isFinite(n)) && q.pagina >= 0 && q.w > 0 && q.h > 0 ? q : null
+}
+function leggiRiquadro(r: any): Riquadro | null {
+  const q = unRiquadro(r)
+  if (!q) return null
+  const altri = (Array.isArray(r?.altri) ? r.altri : []).slice(0, 4).map(unRiquadro)
+  if (altri.some((a: Riquadro | null) => !a)) return null
+  return altri.length ? { ...q, altri: altri as Riquadro[] } : q
+}
+const tuttiRiquadri = (r: Riquadro) => [r, ...(r.altri || [])]
 
 type Riga = Record<string, any>
 type Conf = Record<string, string>
@@ -238,12 +257,12 @@ serve(async (req) => {
           const email = await emailFirmatario(sb, conf, 'docente', f)
           /* un docente senza accesso all'app non entra nella catena: firma su carta */
           if (!MAIL_RE.test(email) || righe.some((r) => r.firmatario_email === email)) continue
-          const rq = f?.riquadro || {}
-          if (![rq.pagina, rq.x, rq.y, rq.w, rq.h].every((n: unknown) => Number.isFinite(Number(n)))) continue
+          const rq = leggiRiquadro(f?.riquadro)
+          if (!rq) continue
           righe.push({
             tipo, rif, titolo: String(dd.titolo || '').slice(0, 300), corso_id: corsoId,
             nome_file: String(dd.nome_file || '').slice(0, 250), file_originale: file, sha256_originale: impronta,
-            riquadro: { pagina: Number(rq.pagina), x: Number(rq.x), y: Number(rq.y), w: Number(rq.w), h: Number(rq.h) },
+            riquadro: rq,
             firmatario_email: email, firmatario_ruolo: 'docente', richiesta_da: io,
           })
         }
@@ -285,11 +304,8 @@ serve(async (req) => {
         for (const f of elenco) {
           const rl = String(f?.ruolo || '')
           if (!RUOLI.includes(rl)) throw new Error(`Ruolo del firmatario non previsto: «${rl}».`)
-          const r = f?.riquadro || {}
-          const rq = { pagina: Number(r.pagina), x: Number(r.x), y: Number(r.y), w: Number(r.w), h: Number(r.h) }
-          if (!Object.values(rq).every((n) => Number.isFinite(n)) || rq.pagina < 0 || rq.w <= 0 || rq.h <= 0) {
-            throw new Error(`Non so dove va la firma (${rl}) su «${d.titolo}»: riquadro mancante.`)
-          }
+          const rq = leggiRiquadro(f?.riquadro)
+          if (!rq) throw new Error(`Non so dove va la firma (${rl}) su «${d.titolo}»: riquadro mancante.`)
           const email = await emailFirmatario(sb, conf, rl, f)
           if (!MAIL_RE.test(email)) throw new Error(`Non trovo l'indirizzo con cui ${descrizioneRuolo(rl)} entra nell'app.`)
           if (firmatari.some((x) => x.email === email)) throw new Error(`${email} compare due volte fra i firmatari.`)
@@ -302,7 +318,7 @@ serve(async (req) => {
         const byte = new Uint8Array(await blob.arrayBuffer())
         const pdf = await PDFDocument.load(byte)
         for (const f of firmatari) {
-          if (f.riquadro.pagina >= pdf.getPageCount()) throw new Error('Il riquadro di una firma cade fuori dal documento.')
+          if (tuttiRiquadri(f.riquadro).some((q) => q.pagina >= pdf.getPageCount())) throw new Error('Il riquadro di una firma cade fuori dal documento.')
         }
         const impronta = await sha256(byte)
         const corsoId = Number.isInteger(Number(d?.corso_id)) && Number(d?.corso_id) > 0 ? Number(d.corso_id) : null
@@ -387,9 +403,8 @@ serve(async (req) => {
       for (const [i, f] of elenco.entries()) {
         const rl = String(f?.ruolo || '')
         if (!RUOLI.includes(rl)) throw new Error(`Ruolo del firmatario non previsto: «${rl}».`)
-        const q = f?.riquadro || {}
-        const rq = { pagina: Number(q.pagina), x: Number(q.x), y: Number(q.y), w: Number(q.w), h: Number(q.h) }
-        if (!Object.values(rq).every((n) => Number.isFinite(n)) || rq.pagina < 0 || rq.w <= 0 || rq.h <= 0 || rq.pagina >= pdf.getPageCount()) {
+        const rq = leggiRiquadro(f?.riquadro)
+        if (!rq || tuttiRiquadri(rq).some((q) => q.pagina >= pdf.getPageCount())) {
           throw new Error(`Non so dove va la firma (${rl}) su «${r.titolo}».`)
         }
         const email = await emailFirmatario(sb, conf, rl, f)
@@ -494,28 +509,29 @@ serve(async (req) => {
       if (fr.stato !== 'ok' || !fr.byte) return json({ error: messaggioFirma(fr, String(r.firmatario_ruolo)) }, 409)
       const firmaByte = fr.byte
       const pdf = await PDFDocument.load(originale)
-      const rq = r.riquadro as { pagina: number; x: number; y: number; w: number; h: number }
-      const pg = pdf.getPage(rq.pagina)
+      const rq = leggiRiquadro(r.riquadro)
+      if (!rq || tuttiRiquadri(rq).some((q) => q.pagina >= pdf.getPageCount())) throw new Error('Non so dove va la firma: riquadro non valido.')
       let img
       try { img = await pdf.embedPng(firmaByte) } catch {
         try { img = await pdf.embedJpg(firmaByte) } catch {
           return json({ error: messaggioFirma({ stato: 'formato', fonte: fr.fonte }, String(r.firmatario_ruolo)) }, 409)
         }
       }
-      {
-        const k = Math.min(rq.w / img.width, rq.h / img.height)
+      const { data: g, ora } = oraRoma(adesso)
+      const font = await pdf.embedFont(StandardFonts.Helvetica)
+      const nome = nomeBreve(conf, r)
+      for (const q of tuttiRiquadri(rq)) {
+        const pg = pdf.getPage(q.pagina)
+        const k = Math.min(q.w / img.width, q.h / img.height)
         const w = img.width * k, h = img.height * k
         /* (27/10/2026) «in moltiplicazione»: il bianco della scansione non copre il
            testo, così la firma a misura piena si può appoggiare sulla scritta della
            carica quando sotto lo spazio è poco (documento-firma-regole.js) */
-        pg.drawImage(img, { x: rq.x, y: rq.y + (rq.h - h) / 2, width: w, height: h, blendMode: BlendMode.Multiply })
+        pg.drawImage(img, { x: q.x, y: q.y + (q.h - h) / 2, width: w, height: h, blendMode: BlendMode.Multiply })
+        pg.drawText(`Firmato nell'app il ${g} alle ${ora}${nome ? ` - ${nome}` : ''}`, {
+          x: q.x, y: q.y - 7, size: 6, font, color: rgb(0.45, 0.47, 0.5),
+        })
       }
-      const { data: g, ora } = oraRoma(adesso)
-      const font = await pdf.embedFont(StandardFonts.Helvetica)
-      const nome = nomeBreve(conf, r)
-      pg.drawText(`Firmato nell'app il ${g} alle ${ora}${nome ? ` - ${nome}` : ''}`, {
-        x: rq.x, y: rq.y - 7, size: 6, font, color: rgb(0.45, 0.47, 0.5),
-      })
       pdf.setModificationDate(adesso)
       firmato = await pdf.save()
       percorso = `firmate/${id}_${pulito(r.nome_file)}`

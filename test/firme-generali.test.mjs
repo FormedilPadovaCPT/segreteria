@@ -72,6 +72,19 @@ test('la lettera di docenza dice chi firma (il Presidente, poi il docente per ac
   assert.match(corsi, /from '\.\/firme\.js'/);
 });
 
+test('(28/10/2026) la lettera di docenza si firma anche sotto l\'accordo: la stessa firma in tutti i riquadri', () => {
+  const doc = leggi('../js/corsi-doc.js');
+  assert.match(doc, /esito\.riquadro\.altri = \[\{ pagina: pagA, x: 330, y: yA - 16 - 60, w: 130, h: 60 \}\];/);
+  assert.match(doc, /esito\.riquadroDocente\.altri = \[\{ pagina: pagA, x: SX, y: yA - 16 - 60, w: 150, h: 60 \}\];/);
+  for (const f of ['firma-documenti', 'firma-presidente']) {
+    const fn = leggi(`../supabase/functions/${f}/index.ts`);
+    assert.match(fn, /for \(const q of tuttiRiquadri\(rq\)\) \{/, `${f}: la firma va in ogni riquadro`);
+    /* `altri` non si perde quando la richiesta si registra */
+    assert.match(fn, /const rq = leggiRiquadro\(f\?\.riquadro\)\n\s+if \(!rq\) throw/);
+    assert.doesNotMatch(fn, /const rq = \{ pagina: Number\(r\.pagina\)/, `${f}: il riquadro non si ricostruisce a mano`);
+  }
+});
+
 test('il nome vecchio del modulo resta un rimando', () => {
   assert.match(leggi('../js/firme-presidente.js'), /export \* from '\.\/firme\.js';/);
 });
