@@ -717,10 +717,11 @@ export async function render() {
                 <span>📨</span>
                 <span><strong>${esc(lblCant(p))}</strong>${p.cantieri?.comune_nome ? ` <span class="hint">· ${esc(p.cantieri.comune_nome)}</span>` : ''}
                   <span class="hint">(${esc(p.proposta_nome || p.proposta_da || '')}, ${dataIt(String(p.proposta_il).slice(0, 10))}${p.fine_constatata_il ? ` · finito il ${dataIt(p.fine_constatata_il)}` : ''})</span>
-                  <br><span class="hint">«${esc(p.motivo || '')}»</span></span>
-                <span style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end">
-                  <button class="btn btn-sm" data-pc-chiudi="${p.id}">🔒 Chiudi cantiere</button>
-                  <button class="btn btn-ghost btn-sm" data-pc-respingi="${p.id}">✖ Respingi proposta</button></span>
+                  <br><span class="hint">«${esc(p.motivo || '')}»</span>
+                  <!-- i pulsanti stanno sotto il testo: in una terza colonna schiacciavano la descrizione in una striscia (28/10/2026) -->
+                  <span style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px">
+                    <button class="btn btn-sm" data-pc-chiudi="${p.id}">🔒 Chiudi cantiere</button>
+                    <button class="btn btn-ghost btn-sm" data-pc-respingi="${p.id}">✖ Respingi proposta</button></span></span>
               </div>`).join('') + (propChius.length > 8 ? `<p class="hint">…e altre ${propChius.length - 8}.</p>` : '')
             : '<p class="hint">Nessuna proposta da decidere.</p>', '', { k: 'proposte', sempre: !!propChiusErr })}
 
