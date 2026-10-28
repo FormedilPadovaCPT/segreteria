@@ -67,6 +67,32 @@ test('il riquadro non esce dalla pagina quando la scritta è sul bordo', () => {
   assert.ok(rq.x + rq.w <= A4[0].w - MISURE.lato + 0.1);
 });
 
+test('(28/10/2026) più blocchi firma: la firma va sotto ogni scritta della carica, non solo l\'ultima', () => {
+  const righe = righeDaTesto([
+    pezzo(0, 'Il Direttore della Scuola ha scritto…', 60, 600, 300), // frase del testo: non è un posto di firma
+    pezzo(0, 'Il Direttore', 380, 400, 50),
+    pezzo(1, 'Il Direttore', 380, 500, 50),
+    pezzo(1, 'Il Direttore.', 380, 200, 50),
+    pezzo(1, 'piè di pagina', 60, 40, 470, 8),
+  ]);
+  const rq = riquadroFirma(righe, 'direttore', A4);
+  assert.equal(rq.pagina, 1, 'il riquadro principale resta sotto l\'ultima');
+  assert.ok(rq.y + rq.h < 200);
+  assert.equal(rq.altri.length, 2, 'le altre due scritte da sole; la frase no');
+  assert.deepEqual(rq.altri.map((q) => q.pagina), [0, 1], 'nell\'ordine del documento');
+  assert.ok(rq.altri[0].y + rq.altri[0].h < 400 && rq.altri[1].y + rq.altri[1].h < 500);
+});
+
+test('una scritta sola: niente `altri`, come prima', () => {
+  const righe = righeDaTesto([pezzo(1, 'Il Direttore', 380, 145, 50), pezzo(1, 'piè di pagina', 60, 40, 470, 8)]);
+  assert.equal(riquadroFirma(righe, 'direttore', A4).altri, undefined);
+});
+
+test('più di 5 posti di firma: lo dice invece di firmarne solo una parte', () => {
+  const righe = righeDaTesto([0, 1, 2, 3, 4, 5].map((i) => pezzo(i % 2, 'Il Presidente', 380, 700 - i * 100, 50)));
+  assert.throws(() => riquadroFirma(righe, 'presidente', A4), /compare 6 volte: si firma al massimo in 5 punti/);
+});
+
 test('riferimento, titolo e nome del file', () => {
   const nome = '2026_10_26_DICH_Formedil-Padova_attivita-svolte-per-Carron-Cav-Angelo_bozza.pdf';
   const rif = rifDocumento(nome, new Date(0));

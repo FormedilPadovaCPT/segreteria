@@ -56,7 +56,7 @@ export function apriDocumentoFirma(dopo) {
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
       <button class="btn btn-primary" id="df-manda" disabled>✍️ Manda in firma</button>
     </div>
-    <p class="hint" style="margin-top:8px">La firma va sotto la scritta «Il Direttore» o «Il Presidente», l'ultima del documento. Il numero di protocollo si prende dopo la firma, quando il documento esce.</p>`);
+    <p class="hint" style="margin-top:8px">La firma va sotto l'ultima scritta «Il Direttore» o «Il Presidente» del documento, e anche sotto ogni altra che sta da sola su una riga (fino a 5 punti in tutto). Il numero di protocollo si prende dopo la firma, quando il documento esce.</p>`);
 
   let letto = null; // { byte, nome, pezzi, pagine }
   const esito = (html, ko = false) => { const el = document.querySelector('#df-esito'); el.innerHTML = html; el.style.color = ko ? '#a01f00' : ''; };
@@ -67,7 +67,12 @@ export function apriDocumentoFirma(dopo) {
     try {
       const ruolo = document.querySelector('#df-ruolo').value;
       const rq = riquadroFirma(righeDaTesto(letto.pezzi), ruolo, letto.pagine);
-      esito(`✅ La firma va a pagina ${rq.pagina + 1} di ${letto.pagine.length}, ${rq.sopraTesto ? `sopra «${esc(CARICHE[ruolo])}», a misura piena: sotto la scritta lo spazio è poco, quindi si appoggia sul testo come un timbro, che resta leggibile` : `sotto «${esc(CARICHE[ruolo])}»`} (riquadro ${Math.round(rq.w)} × ${Math.round(rq.h)} punti).`);
+      /* (28/10/2026) la firma va sotto ogni scritta della carica: si dice dove */
+      const posti = [...(rq.altri || []), rq];
+      const dove = posti.length > 1
+        ? `in ${posti.length} punti, sotto ogni «${esc(CARICHE[ruolo])}»: pagine ${posti.map((q) => q.pagina + 1).join(', ')} di ${letto.pagine.length}`
+        : `a pagina ${rq.pagina + 1} di ${letto.pagine.length}`;
+      esito(`✅ La firma va ${dove}${posti.some((q) => q.sopraTesto) ? `. ${posti.length > 1 ? 'Dove' : 'Qui'} sotto la scritta lo spazio è poco, quindi sale sopra «${esc(CARICHE[ruolo])}» a misura piena, come un timbro, e il testo resta leggibile` : ''} (riquadro ${Math.round(rq.w)} × ${Math.round(rq.h)} punti).`);
       btn.disabled = false;
       return rq;
     } catch (e) { esito('⚠ ' + esc(e.message), true); return null; }

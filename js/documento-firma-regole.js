@@ -48,8 +48,9 @@ export function righeDaTesto(pezzi) {
   return righe;
 }
 
-/* Il riquadro della firma sotto l'ULTIMA scritta della carica.
-   pagine: [{w, h}] in punti. → {pagina, x, y, w, h, sopraTesto}
+/* Il riquadro della firma sotto l'ULTIMA scritta della carica, e in
+   `altri` quelli sotto le altre (28/10/2026).
+   pagine: [{w, h}] in punti. → {pagina, x, y, w, h, sopraTesto, altri?}
    (27/10/2026, chiesto dall'utente) La firma ha SEMPRE la misura piena
    (hMax): con poco spazio sotto la scritta non si rimpicciolisce più
    (sulla dichiarazione Carron era uscita alta 40 punti su 60), ma
@@ -68,7 +69,23 @@ export function riquadroFirma(righe, ruolo, pagine) {
     throw new Error(`Nel PDF non trovo la scritta «${carica}»: scrivila dove va la firma e ricarica il documento.`);
   }
   /* l'ultima: pagina più avanti, poi più in basso */
-  const riga = trovate.sort((a, b) => b.pagina - a.pagina || a.y - b.y)[0];
+  trovate.sort((a, b) => b.pagina - a.pagina || a.y - b.y);
+  const principale = posto(trovate[0], righe, pagine, carica);
+  /* (28/10/2026, chiesto dall'utente) la firma va sotto OGNI scritta della
+     carica, non solo l'ultima: un documento in Word può avere più blocchi
+     firma. Le altre però contano solo se la riga è la carica e basta
+     («Il Direttore»): una frase del testo che comincia con «Il Direttore…»
+     non è un posto di firma. Il server ne accetta al massimo 4 in più. */
+  const altre = trovate.slice(1).filter((r) => norma(r.testo).replace(/[.:,;]+$/, '') === cerca)
+    .sort((a, b) => a.pagina - b.pagina || b.y - a.y);
+  if (altre.length > 4) {
+    throw new Error(`Nel PDF la scritta «${carica}» compare ${altre.length + 1} volte: si firma al massimo in 5 punti. Togli quelle che non sono posti di firma e ricarica il documento.`);
+  }
+  return altre.length ? { ...principale, altri: altre.map((r) => posto(r, righe, pagine, carica)) } : principale;
+}
+
+/* il riquadro sotto una scritta della carica */
+function posto(riga, righe, pagine, carica) {
   const pg = pagine[riga.pagina] || pagine[pagine.length - 1];
   const sottoScritta = riga.y - 0.25 * (riga.h || 10);
   /* il pavimento: la riga più alta fra quelle sotto la scritta (il piè di
