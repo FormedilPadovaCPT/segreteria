@@ -30,7 +30,7 @@ import { RUBRICA_INTERNA } from './lookups.js';
    Chi passa ancora il solo `tipologia` (vecchia forma) lo vede scritto come tipo. */
 export async function creaIncaricoDaPratica({ tabella, pratica, tipo, tipologia, tecnicoEmail, tecnicoNome,
   richiedente, testo, impresa, impresaId, indirizzo, comune, oggetto, referente, cellReferente,
-  mezzo, visitePreviste, cantiereId }) {
+  mezzo, visitePreviste, cantiereId, tuttiLotti, serveCantiere }) {
   if (pratica.incarico_id) return pratica.incarico_id;   /* già creato */
   /* il Direttore approva con un account di sola consultazione: il database gli
      rifiuta gli incarichi, e l'errore lo vedeva solo lui (consulenza n. 1 del
@@ -40,6 +40,11 @@ export async function creaIncaricoDaPratica({ tabella, pratica, tipo, tipologia,
     return null;
   }
   if (!tecnicoEmail) { toast('Incarico non creato: manca il tecnico assegnato.', 'err'); return null; }
+  /* (29/10/2026) l'incarico di una richiesta di visita vale per un cantiere: senza, non nasce */
+  if (serveCantiere && !(cantiereId || pratica.cantiere_id)) {
+    toast('Incarico non creato: manca il cantiere. Sceglilo nel riquadro «Cantiere dell\'incarico» della pratica, poi premi «Crea l\'incarico al tecnico».', 'err');
+    return null;
+  }
 
   /* prosegue il contatore interno (max + 1) guardando ANCHE il
      registro storico: la serie vecchia arriva a numeri che in
@@ -70,6 +75,7 @@ export async function creaIncaricoDaPratica({ tabella, pratica, tipo, tipologia,
        hanno cantiere_id), il tecnico non deve ricercarlo: accettando
        l'incarico se lo ritrova nella visita — chiesto il 04/09/2026 */
     cantiere_id: cantiereId || pratica.cantiere_id || null,
+    tutti_i_lotti: !!(tuttiLotti ?? pratica.tutti_i_lotti),
     oggetto: oggetto || null,
     referente: referente || null,
     cell_referente: cellReferente || null,

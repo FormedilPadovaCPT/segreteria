@@ -26,6 +26,7 @@ import { scaricaEml, FIRMA_SEGRETERIA } from './eml.js';
 import { RUBRICA_INTERNA } from './lookups.js';
 import { caricaPassi, passoHtml } from './passo-tecnico.js';
 import { collegaRicercaImprese, collegaRicercaPersone, nomePersona } from './ricerca-anagrafica.js';
+import { sezioneHtml as cantiereIncaricoHtml, collega as collegaCantiereIncarico } from './cantiere-incarico.js';
 
 let pratiche = [];
 let passi = null;              // il passo del tecnico sugli incarichi delle pratiche aperte (30/09/2026)
@@ -111,10 +112,13 @@ function campiIncarico(p, email) {
     testo: p.note_modulo,
     impresa: p.ragione_sociale, impresaId: p.impresa_id,
     indirizzo: cc[0]?.indirizzo || null, comune: cc[0]?.comune || null,
-    oggetto: p.tipo_richiesta === 'serie' ? `Serie di visite (${cc.length || '?'} cantieri)` : `Visita richiesta dall'impresa`,
+    oggetto: p.tipo_richiesta === 'serie' ? 'Serie di visite' : `Visita richiesta dall'impresa`,
     referente: [p.ref_titolo, p.ref_nome, p.ref_cognome].filter(Boolean).join(' ') || null,
     cellReferente: p.ref_tel || null,
-    mezzo: p.fonte, visitePreviste: cc.length > 1 ? cc.length : null,
+    /* (29/10/2026) una richiesta, un cantiere: il cantiere (o il lotto, o tutti i lotti) lo sceglie la segreteria
+       nella pratica, e senza non si crea l'incarico; le visite previste le mette il database (serie = 10) */
+    mezzo: p.fonte, visitePreviste: null,
+    cantiereId: p.cantiere_id || null, tuttiLotti: !!p.tutti_i_lotti, serveCantiere: true,
   };
 }
 
@@ -480,6 +484,7 @@ export async function apriPratica(id) {
     ${campo('Referente sopralluogo', [[p.ref_titolo, p.ref_nome, p.ref_cognome].filter(Boolean).join(' '), p.ref_tel].filter(Boolean).join(' — '))}
     ${cc.map((c, i) => `<div class="dt-doc-riga"><strong>Cantiere ${cc.length > 1 ? i + 1 : ''}:</strong> ${esc([c.indirizzo, c.comune].filter(Boolean).join(', ') || '—')}${c.committente ? ` — comm. ${esc(c.committente)}` : ''}${c.importo ? ` — € ${esc(c.importo)}` : ''}${c.durata ? ` — ${esc(c.durata)}` : ''}</div>`).join('')}
     ${p.note_modulo ? `<div class="dt-doc-riga"><strong>Note del modulo:</strong><br>${esc(p.note_modulo)}</div>` : ''}
+    ${state.soloDirettore ? '' : cantiereIncaricoHtml()}
 
     <hr style="margin:14px 0;border:0;border-top:1px solid var(--bordo)">
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
@@ -605,6 +610,8 @@ export async function apriPratica(id) {
     apriPratica(p.id);
   });
   $('#vs-protin')?.addEventListener('click', () => protocollaIn(p));
+  if (!state.soloDirettore) collegaCantiereIncarico(p, { dopo: async () => { await render(); apriPratica(p.id); } })
+    .catch((e) => toast('Riquadro del cantiere non caricato: ' + (e.message || e), 'err'));
 }
 
 /* La pratica con i campi come sono A VIDEO nella maschera, anche se non
