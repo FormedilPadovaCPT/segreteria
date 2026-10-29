@@ -76,7 +76,18 @@ export async function pdfFoglioPresenze({ dipendente, anno, mese, presenze, extr
 
   /* colonne: confini verticali della griglia */
   const B = [SX, 148, 194, 240, 286, 332, 380, DX];   /* giorno|e1|u1|e2|u2|tot|note */
-  const RH = 13.6;                                     /* altezza riga */
+  /* altezza riga (29/10/2026): griglia, totale e saldi devono stare nella pagina 1.
+     Con 13,6 fissi i saldi di un mese da 31 giorni scivolavano da soli su una pagina
+     quasi vuota, e i movimenti su una terza. Si stringe fino a 11, non oltre. */
+  const nRighe = (() => {
+    const per = {};
+    for (const p of presenze) per[p.data.slice(8, 10)] = (per[p.data.slice(8, 10)] || 0) + 1;
+    let n = 0;
+    for (let g = 1; g <= new Date(anno, mese, 0).getDate(); g++) n += Math.max(1, per[String(g).padStart(2, '0')] || 0);
+    return n;
+  })();
+  const riservaSaldi = (saldi || []).length ? 40 + saldi.length * 14 : 0;
+  const RH = Math.max(11, Math.min(13.6, (c.stato.y - 3 - 37.5 - riservaSaldi - 72) / nRighe));
   const biancoSporco = { r: 0.965, g: 0.965, b: 0.965 };
   const rgbOf = (o) => o; /* leggibilità */
 
@@ -180,7 +191,10 @@ function paginaMovimenti(c, sottotitolo, extra, etichettaTotale) {
   const movimenti = (extra || []).filter((e) => famigliaCausale(e.causale) !== 'dettaglio');
   const dettaglio = (extra || []).filter((e) => famigliaCausale(e.causale) === 'dettaglio');
   if (!movimenti.length && !dettaglio.length) return;
-  c.nuovaPagina();
+  /* pagina nuova solo se qui non c'è posto per titolo e prima causale (29/10/2026):
+     prima saltava sempre, lasciando bianco mezzo foglio del prospetto */
+  if (c.stato.y - 100 < 70) c.nuovaPagina();
+  else c.stato.y -= 14;
   if (movimenti.length) sezioneCausali(c, 'STRAORDINARI, PERMESSI E RECUPERI', sottotitolo, movimenti, etichettaTotale, false);
   if (dettaglio.length) {
     if (movimenti.length) c.stato.y -= 10;
