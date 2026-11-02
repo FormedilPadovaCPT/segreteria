@@ -15,9 +15,11 @@ do $$
 declare mid text; oid text; altro text; r jsonb; o public.cantieri; m public.cantieri; ok boolean; msg text;
         n int; nvis int; vid text; vstato text; vacc text; nid text; tot int;
 begin
-  -- il principale: CNCE senza lotto con almeno 2 visite
+  -- il principale: CNCE senza lotto con almeno 2 visite, e che non sia già dentro un complesso né ne abbia uno sotto
+  -- (02/11/2026: la scheda 10062 è lotto del complesso 2375 col campo lotto vuoto, e il test la sceglieva come radice)
   select k.cantiere_id into mid from public.cantieri k
    where coalesce(k.elimina,0)=0 and k.cantiere_cnce ilike 'CNCE%' and coalesce(btrim(k.lotto),'')=''
+     and k.lotto_di is null and not exists (select 1 from public.cantieri x where x.lotto_di=k.cantiere_id)
      and (select count(*) from public.visite v where v.cantiere_id=k.cantiere_id and v.elimina=0) >= 2
    order by k.cantiere_id limit 1;
   assert mid is not null, 'serve un cantiere CNCE senza lotto con almeno 2 visite';
