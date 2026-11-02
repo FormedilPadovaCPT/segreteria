@@ -210,7 +210,7 @@ export async function dettaglioFerie(id) {
     ${r.visita_foto ? `<div class="dt-doc-riga"><strong>Visita medica:</strong><br>${righeTestoVisita(r.visita_foto).map(esc).join('<br>')}</div>` : ''}
     ${r.saldo_foto ? `<div class="dt-doc-riga"><strong>Saldo:</strong> ${esc(testoSaldoRichiesta(r.saldo_foto))}${r.saldo_foto.al ? ` <span class="hint">(al ${esc(r.saldo_foto.al)})</span>` : ''}</div>` : ''}
     ${r.motivo ? `<div class="dt-doc-riga"><strong>Note:</strong> ${esc(r.motivo)}</div>` : ''}
-    <div class="dt-doc-riga"><strong>Nulla osta:</strong> del Direttore${r.data_autorizzazione ? `, il ${dataIt(r.data_autorizzazione)}` : ''}${r.aut_modalita === 'app' ? ' dall’app' : ''}
+    <div class="dt-doc-riga"><strong>Nulla osta:</strong> ${r.aut_modalita === 'assemblea' ? 'non serve — assemblea sindacale indetta, il lavoratore ha comunicato la partecipazione' : 'del Direttore'}${r.data_autorizzazione ? `, il ${dataIt(r.data_autorizzazione)}` : ''}${r.aut_modalita === 'app' ? ' dall’app' : ''}
       ${r.aut_modalita === 'cartacea' ? ' — <span class="hint">su carta: l’originale firmato lo consegna la segreteria</span>' : ''}</div>
     <div class="dt-doc-riga"><strong>Presa visione:</strong> ${r.amm_visto_il
       ? `${pill('dt-ok', 'vista')} ${esc(r.amm_visto_nome || '')}, ${oraIt(r.amm_visto_il)} <span class="hint">(${esc(r.amm_visto_da || '')})</span>`

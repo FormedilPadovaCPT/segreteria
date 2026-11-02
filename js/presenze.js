@@ -53,7 +53,11 @@ const TIPI_RICHIESTA = [
   { tipo: 'ferie', etichetta: 'Ferie', monte: 'ferie', causale: 'Ferie' },
   { tipo: 'permesso', etichetta: 'Permesso', monte: 'permessi', causale: 'Permesso' },
   { tipo: 'permesso_rsu', etichetta: 'Permesso sindacale RSU', monte: 'permessi_rsu', causale: 'Permesso sindacale RSU' },
-  { tipo: 'riunione_sindacale', etichetta: 'Riunione sindacale', monte: 'permessi_sindacali', causale: 'Riunione sindacale' },
+  /* ASSEMBLEA SINDACALE (02/11/2026, decisione dell'utente): è la «Riunione sindacale» di sempre, con la
+     sua causale invariata. 12 ore retribuite per ANNO FORMATIVO dal 1° settembre (art. 17 B CCNL FP;
+     contatore nel database, s_assemblea_ore). Già autorizzata quando si tiene: la richiesta nasce
+     approvata, senza nulla osta, e il lavoratore comunica solo se partecipa. */
+  { tipo: 'riunione_sindacale', etichetta: 'Assemblea sindacale (riunione sindacale)', monte: 'permessi_sindacali', causale: 'Riunione sindacale' },
   { tipo: 'legge104', etichetta: 'Permesso legge 104/92', monte: 'legge104', causale: 'Permessi legge 104/92' },
   { tipo: 'recupero', etichetta: 'Recupero', monte: 'banca_ore', causale: 'Recupero' },
   /* VISITA MEDICA (22/10/2026, art. 45 c.4 del CCNL): 18 ore l'anno, in proporzione all'orario per il
@@ -79,6 +83,20 @@ const MONTI = [
   { monte: 'visite_mediche', etichetta: 'Visite mediche (art. 45 c.4: 18 ore l’anno, in proporzione al part-time)' },
 ];
 const eVisita = (r) => r?.tipo === 'visita_medica';
+const eAssemblea = (r) => r?.tipo === 'riunione_sindacale';
+/* il contatore dell'assemblea sindacale, letto dal database (null se non si legge) */
+async function leggiAssemblea(dip, data, escludiRichiesta = null) {
+  const { data: j, error } = await sb.rpc('s_assemblea_ore', { p_dipendente: dip, p_data: data || oggiIso(), p_escludi_richiesta: escludiRichiesta });
+  return error ? null : j;
+}
+/* il testo del contatore; chiestaMin = ore della partecipazione che si sta comunicando */
+function testoAssemblea(a, chiestaMin = 0) {
+  if (!a) return '';
+  const oltre = Math.max(chiestaMin - a.residuo_min, 0);
+  return `Anno formativo ${a.anno}: <strong>${mm2hm(a.usate_min)}</strong> registrate${a.comunicate_min ? ` e ${mm2hm(a.comunicate_min)} comunicate`
+    : ''} su ${mm2hm(a.tetto_min)} retribuite, ne restano <strong>${mm2hm(a.residuo_min)}</strong>.${oltre > 0
+    ? ` <span style="color:#a01f00">⚠ ${mm2hm(oltre)} di questa partecipazione vanno oltre le ${mm2hm(a.tetto_min)} retribuite dell'anno (art. 17 B CCNL): come trattarle lo decide l'ufficio personale.</span>` : ''}`;
+}
 /* il contatore delle visite mediche di un dipendente per l'anno della data (null se non si legge).
    Le righe già generate da questa stessa richiesta non si contano due volte. */
 async function leggiVisite(dip, data, chiestaMin, escludiRichiesta = null) {
@@ -1063,6 +1081,10 @@ async function renderFerie(hostArg) {
     if (!errO) visite = contatoreVisite(righeSind, annoOra, null, tettoVisite(orarioValido(orari || [], oggiIso())));
   }
 
+  /* l'assemblea sindacale: 12 ore per anno formativo, dal database (02/11/2026) */
+  const assemblea = state.soloDirettore ? null : await leggiAssemblea(dipendente, oggiIso());
+  if (!state.soloDirettore && !assemblea) toast("Non sono riuscito a leggere le ore di assemblea sindacale: il contatore non compare.", 'err');
+
   /* i SALDI (02/10/2026): solo per la segreteria — il Direttore qui vede le
      richieste da autorizzare, e le tabelle delle presenze non le legge */
   const saldi = state.soloDirettore ? '' : await riquadroSaldi(annoOra);
@@ -1092,6 +1114,12 @@ async function renderFerie(hostArg) {
       <p class="hint" style="margin:2px 0 0">Ore di ${esc(dipendente)} con la causale «${CAUSALE_VISITA}» in banca ore. Contatore a parte:
         non scala ferie, permessi né banca ore. Tetto dell'anno: ${esc(testoTetto(visite))}. Oltre il tetto la richiesta passa lo stesso,
         e le ore in più vanno a recupero.</p></div>` : ''}
+    ${assemblea ? `<div class="dt-quadro" style="margin-bottom:10px"><div class="dt-quadro-riga">
+        <span class="dt-quadro-req">Assemblea sindacale, anno formativo ${esc(assemblea.anno)} (art. 17 B)</span>
+        <span class="dt-cella ${assemblea.residuo_min ? '' : 'dt-scaduto'}"><strong>${mm2hm(assemblea.usate_min + assemblea.comunicate_min)}</strong> su ${mm2hm(assemblea.tetto_min)} · ne restano <strong>${mm2hm(assemblea.residuo_min)}</strong></span></div>
+      <p class="hint" style="margin:2px 0 0">Ore di ${esc(dipendente)} con la causale «Riunione sindacale» dal ${dataIt(assemblea.anno_da)} al ${dataIt(assemblea.anno_a)}${assemblea.comunicate_min
+        ? `, di cui ${mm2hm(assemblea.comunicate_min)} comunicate e non ancora in banca ore` : ''}. Retribuite fino a 12 ore l'anno formativo;
+        l'assemblea è già autorizzata, il lavoratore comunica solo se partecipa. Contatore nel database (s_assemblea_ore).</p></div>` : ''}
     <div class="dt-barra">
       <div class="seg" id="fe-f">
         ${[['aperte', 'In attesa'], ['tutte', 'Tutte']].map(([v, l]) =>
@@ -1397,6 +1425,7 @@ function vistoDaRichiesta(r) {
     utente,
     riga: r.aut_modalita === 'app' ? `Visto registrato nell’app Segreteria${utente ? ` da ${utente}` : ''}`
       : r.aut_modalita === 'cartacea' ? 'Nulla osta firmato su carta, registrato dalla segreteria: l’originale lo tiene l’Amministrazione.'
+      : r.aut_modalita === 'assemblea' ? 'Assemblea sindacale indetta: non serve il nulla osta, il lavoratore comunica la partecipazione (art. 17 B CCNL).'
         : 'Approvazione registrata dalla segreteria: il visto del Direttore non è nell’app.',
     note: r.aut_modalita === 'app' ? (r.aut_note || null) : null,
   };
@@ -1634,6 +1663,11 @@ function formRichiesta() {
       <p class="hint" style="margin-top:4px">Le ore comprendono il viaggio di andata e ritorno dalla sede. Si conserva l’attestazione di presenza
         del medico o della struttura. <strong>Preavviso, modulo e consegna dell’attestazione</strong>: la regola interna non è scritta,
         va chiesta all’ufficio personale.</p></div>
+    <div class="field hidden" id="fr-assemblea-box" style="margin-top:8px"><label>Assemblea sindacale — partecipazione</label>
+      <p class="hint" style="margin:0">L'assemblea indetta è già autorizzata: il lavoratore comunica solo se partecipa, e la
+        richiesta nasce <strong>approvata</strong>, senza nulla osta del Direttore. Ore retribuite: 12 per anno formativo
+        (dal 1° settembre), art. 17 lett. B del CCNL Formazione Professionale. Nelle note: chi l'ha indetta e la data della convocazione.</p>
+      <div id="fr-as-conta" class="hint" style="margin-top:6px"></div></div>
     <div class="field" style="margin-top:8px"><label>Note (facoltative)</label><input id="fr-motivo"></div>
     <button class="btn btn-primary" id="fr-crea" style="margin-top:10px">Crea la richiesta</button>`);
 
@@ -1660,7 +1694,20 @@ function formRichiesta() {
       : '⚠ Non sono riuscito a leggere le ore di visita già usate: il contatore non c’è.';
   };
   ['#fr-tipo', '#fr-dip', '#fr-da'].forEach((q) => $(q).addEventListener('change', contaVisita));
-  const aggiornaBanca = () => { $('#fr-banca')._aggiorna?.(); contaVisita(); };
+  /* assemblea sindacale: il contatore dell'anno formativo, dal database (02/11/2026) */
+  const contaAssemblea = async () => {
+    const box = $('#fr-assemblea-box');
+    if (!box) return;
+    const si = $('#fr-tipo').value === 'riunione_sindacale';
+    box.classList.toggle('hidden', !si);
+    $('#fr-crea').textContent = si ? 'Registra la partecipazione' : 'Crea la richiesta';
+    if (!si) return;
+    const a = await leggiAssemblea($('#fr-dip').value, $('#fr-da').value);
+    $('#fr-as-conta').innerHTML = a ? `${esc($('#fr-dip').value)} — ${testoAssemblea(a, minutiBozza() || 0)}`
+      : '⚠ Non sono riuscito a leggere le ore di assemblea già usate: il contatore non c’è.';
+  };
+  ['#fr-tipo', '#fr-dip', '#fr-da'].forEach((q) => $(q).addEventListener('change', contaAssemblea));
+  const aggiornaBanca = () => { $('#fr-banca')._aggiorna?.(); contaVisita(); contaAssemblea(); };
 
   $('#fr-tipo').addEventListener('change', () => {
     /* ogni tipo ha il suo monte: il recupero attinge alla BANCA ORE e le due voci
@@ -1697,6 +1744,15 @@ function formRichiesta() {
       if (!v && !confirm('Non sono riuscito a leggere le ore di visita già usate: creo la richiesta senza contatore? Si rilegge quando la mandi al Direttore.')) return;
       visitaFoto = { ...(v || {}), per_se: true, ssn: true, fuori_orario_no: true, urgente: $('#fr-vm-urgente').checked, al: new Date().toISOString() };
     }
+    const assemblea = $('#fr-tipo').value === 'riunione_sindacale';
+    let assembleaFoto = null;
+    if (assemblea) {
+      if (!$('#fr-ore').value) return toast('Scrivi quante ore (o dalle/alle): servono al contatore delle 12 ore di assemblea.', 'err');
+      const a = await leggiAssemblea($('#fr-dip').value, $('#fr-da').value);
+      if (!a && !confirm('Non sono riuscito a leggere le ore di assemblea già usate: registro la partecipazione senza contatore?')) return;
+      const chiesta = minutiBozza() || 0;
+      assembleaFoto = a ? { ...a, chiesta_min: chiesta, oltre_min: Math.max(chiesta - a.residuo_min, 0), al: new Date().toISOString() } : null;
+    }
     const hostBanca = $('#fr-banca');
     const foto = eRecupero() ? fotoDa(hostBanca, bozza()) : null;
     if (eRecupero()) {
@@ -1706,7 +1762,7 @@ function formRichiesta() {
     }
     attendi(btn, true);
     /* ferie e permessi: il saldo del monte fotografato sulla richiesta (20/10/2026) */
-    const saldoFoto = suppl || eRecupero() || visita ? null : await saldoRichiestaDati({ ...bozza(), monte: $('#fr-monte').value, righe_generate: false });
+    const saldoFoto = suppl || eRecupero() || visita || assemblea ? null : await saldoRichiestaDati({ ...bozza(), monte: $('#fr-monte').value, righe_generate: false });
     const { data: nuova, error } = await sb.from('s_ferie_richieste').insert({
       dipendente: $('#fr-dip').value,
       tipo: $('#fr-tipo').value,
@@ -1721,11 +1777,14 @@ function formRichiesta() {
       ...(foto || {}),
       ...(saldoFoto ? { saldo_foto: saldoFoto } : {}),
       ...(visitaFoto ? { visita_foto: visitaFoto } : {}),
+      /* l'assemblea nasce approvata: il nulla osta non serve (decisione dell'utente, 02/11/2026) */
+      ...(assemblea ? { aut_stato: 'approvata', aut_modalita: 'assemblea', data_autorizzazione: oggiIso(),
+        autorizzata_da: 'Assemblea sindacale indetta: nessun nulla osta', ...(assembleaFoto ? { assemblea_foto: assembleaFoto } : {}) } : {}),
       aggiornato_da: state.email,
     }).select('*').single();
     attendi(btn, false);
     if (error) return toast('Creazione non riuscita: ' + error.message, 'err');
-    toast('Richiesta creata.', 'ok');
+    toast(assemblea ? 'Partecipazione all’assemblea registrata.' : 'Richiesta creata.', 'ok');
     await renderFerie();
     apriRichiesta(nuova.id);
   });
@@ -1752,8 +1811,8 @@ export async function apriRichiesta(id) {
     <div class="dt-quadro-riga">
       <span class="dt-dot ${cA}"></span>
       <span class="dt-quadro-req">Nulla osta Direttore</span>
-      <span class="dt-quadro-stato">${esc(lA)}${r.autorizzata_da ? ` — ${esc(r.autorizzata_da)}${r.data_autorizzazione ? ` il ${dataIt(r.data_autorizzazione)}` : ''}` : ''}
-        ${r.aut_drive_url ? ` · <a href="${esc(r.aut_drive_url)}" target="_blank" rel="noopener">modulo</a>` : ''}</span>
+      <span class="dt-quadro-stato">${r.aut_modalita === 'assemblea' ? 'non serve — assemblea sindacale indetta, il lavoratore comunica la partecipazione' : `${esc(lA)}${r.autorizzata_da ? ` — ${esc(r.autorizzata_da)}${r.data_autorizzazione ? ` il ${dataIt(r.data_autorizzazione)}` : ''}` : ''}
+        ${r.aut_drive_url ? ` · <a href="${esc(r.aut_drive_url)}" target="_blank" rel="noopener">modulo</a>` : ''}`}</span>
     </div>
     <div class="dt-doc-riga"><strong>Periodo:</strong> ${dataIt(r.data_inizio)}${r.data_fine && r.data_fine !== r.data_inizio ? ' → ' + dataIt(r.data_fine) : ''}
       ${r.ora_dalle ? ` — dalle ${hm(r.ora_dalle)} alle ${hm(r.ora_alle)}` : ''}</div>
@@ -1765,6 +1824,10 @@ export async function apriRichiesta(id) {
     ${eVisita(r) ? `<div class="dt-doc-riga"${r.visita_foto?.oltreMin > 0 ? ' style="color:#a01f00"' : ''}><strong>Visita medica:</strong><br>${
       (r.visita_foto ? righeTestoVisita(r.visita_foto) : ['⚠ La richiesta non porta la dichiarazione della visita medica.']).map(esc).join('<br>')}
       <br><span class="hint">Preavviso, modulo e consegna dell’attestazione di presenza: da chiedere all’ufficio personale.</span></div>` : ''}
+    ${eAssemblea(r) ? `<div class="dt-doc-riga"${r.assemblea_foto?.oltre_min > 0 ? ' style="color:#a01f00"' : ''}><strong>Assemblea sindacale:</strong> ${r.assemblea_foto
+      ? `${testoAssemblea(r.assemblea_foto)} <span class="hint">(alla comunicazione, prima di queste ${mm2hm(r.assemblea_foto.chiesta_min)})</span>${r.assemblea_foto.oltre_min > 0
+        ? `<br>⚠ ${mm2hm(r.assemblea_foto.oltre_min)} oltre le ore retribuite dell'anno.` : ''}`
+      : '<span class="hint">la richiesta non porta il contatore delle 12 ore</span>'}</div>` : ''}
     ${banca ? `<div class="dt-doc-riga"${banca.scelte ? '' : ' style="color:#a01f00"'}><strong>Banca ore:</strong><br>${righeTestoBanca(banca).map(esc).join('<br>')}
       ${banca.scelte && r.banca_fotografia_il ? `<br><span class="hint">Situazione della banca ore al ${esc(oraIt(r.banca_fotografia_il))}.</span>` : ''}
       ${!decisa && !state.soloDirettore ? `<div style="margin-top:6px"><button class="btn btn-ghost btn-sm" id="fe-banca">⏱ ${banca.scelte ? 'Cambia' : 'Scegli'} le ore da scalare</button></div>` : ''}</div>` : ''}
