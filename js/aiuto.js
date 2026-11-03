@@ -312,6 +312,7 @@ window.AIUTO_TESTI = {
   'hm-fatture': 'Mesi passati ancora aperti, fatture da verificare o approvare, approvate da mettere in mandato, stand-by e avvisi automatici non partiti.',
   'hm-flussi': 'Flussi mai usati su un caso vero: vanno provati prima che servano, con un caso di prova da annullare subito dopo. Lo storico importato e gli annullati non contano.',
   'hm-agenda': 'Gli eventi dei calendari dell\'ufficio nei prossimi giorni, letti dall\'app dal lunedì al giovedì alle 8.',
+  'hm-agenda-corsi': 'I corsi e le attività della Scuola Edile CPT nei prossimi giorni, dal calendario corsi: letti con l\'agenda, dal lunedì al giovedì alle 8.',
   'hm-posta': 'Le mail che le regole hanno segnato come importanti. Si aprono in Gmail; l\'app non risponde e non archivia. Il numero a destra è il punteggio delle regole.',
   'hm-respinte-altre': 'Mail partite dalla casella dell\'ufficio e tornate indietro, che non sono verbali: di solito un indirizzo scritto male. Le vede solo la segreteria. Clicca la riga per chiuderla con una nota.',
   'hm-respinte':'Il rapporto di mancata consegna torna alla casella dell\'ufficio. Quelli definitivi (5.x.x) fanno partire da soli l\'avviso al tecnico; i rinvii (4.x.x) si registrano e basta. L\'indirizzo lo corregge il tecnico.',

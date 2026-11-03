@@ -87,13 +87,13 @@ export async function render() {
     const [{ data: bMail }, { data: bEventi }, { data: bCfg }] = await Promise.all([
       sb.from('s_bacheca_mail').select('casella, thread_id, gmail_id, mittente, mittente_email, oggetto, data, letta, ha_allegati, anteprima, punteggio, motivi, importante')
         .eq('importante', true).order('data', { ascending: false }).limit(40),
-      sb.from('s_bacheca_eventi').select('calendario, casella, titolo, inizio, fine, tutto_il_giorno, luogo, link')
-        .gte('fine', new Date(Date.now() - 3600000).toISOString()).order('inizio').limit(30),
-      sb.from('s_config').select('chiave, valore').in('chiave', ['bacheca_al', 'bacheca_esito']),
+      sb.from('s_bacheca_eventi').select('calendario_id, calendario, casella, titolo, inizio, fine, tutto_il_giorno, luogo, link')
+        .gte('fine', new Date(Date.now() - 3600000).toISOString()).order('inizio').limit(80),
+      sb.from('s_config').select('chiave, valore').in('chiave', ['bacheca_al', 'bacheca_esito', 'bacheca_calendario_corsi']),
     ]);
     const cfgB = Object.fromEntries((bCfg || []).map((r) => [r.chiave, r.valore]));
     let esitoB = null; try { esitoB = cfgB.bacheca_esito ? JSON.parse(cfgB.bacheca_esito) : null; } catch { esitoB = null; }
-    bacheca = { mail: bMail || [], eventi: bEventi || [], al: cfgB.bacheca_al || null, esito: esitoB };
+    bacheca = { mail: bMail || [], eventi: bEventi || [], al: cfgB.bacheca_al || null, esito: esitoB, calCorsi: cfgB.bacheca_calendario_corsi || '' };
   } catch { /* senza il ruolo segreteria la card non compare */ } })();
 
   /* ── flussi mai usati (17/09/2026): quante volte ogni flusso ha lavorato su
@@ -573,17 +573,25 @@ export async function render() {
     if (!bacheca) return '';
     const oraIt = (iso) => iso && iso.length > 10 ? new Date(iso).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }) : '';
     const giornoIt = (iso) => new Date(iso.length > 10 ? iso : iso + 'T00:00:00').toLocaleDateString('it-IT', { weekday: 'short', day: '2-digit', month: '2-digit' });
-    const perGiorno = {};
-    for (const e of bacheca.eventi) { const g = String(e.inizio || '').slice(0, 10); (perGiorno[g] = perGiorno[g] || []).push(e); }
-    const eventiHtml = Object.keys(perGiorno).sort().map((g) => `
+    const htmlEventi = (lista, conCalendario) => {
+      const perGiorno = {};
+      for (const e of lista) { const g = String(e.inizio || '').slice(0, 10); (perGiorno[g] = perGiorno[g] || []).push(e); }
+      return Object.keys(perGiorno).sort().map((g) => `
       <div class="hint" style="margin-top:6px;font-weight:600">${esc(giornoIt(g))}</div>
       ${perGiorno[g].map((e) => `
         <div class="hm-riga" ${e.link ? `onclick="window.open('${esc(e.link)}','_blank','noopener')"` : ''}>
           <span>${e.tutto_il_giorno ? '📌' : '🕒'}</span>
           <span><strong>${esc(e.titolo || '')}</strong>${e.luogo ? ` <span class="hint">· ${esc(e.luogo)}</span>` : ''}
-            ${e.calendario && !/^primary/.test(e.calendario) ? `<span class="hint"> · ${esc(e.calendario)}</span>` : ''}</span>
+            ${conCalendario && e.calendario && !/^primary/.test(e.calendario) ? `<span class="hint"> · ${esc(e.calendario)}</span>` : ''}</span>
           <span class="hint">${e.tutto_il_giorno ? 'tutto il giorno' : oraIt(e.inizio) + (e.fine ? '–' + oraIt(e.fine) : '')}</span>
         </div>`).join('')}`).join('');
+    };
+    /* (03/11/2026, chiesto dall'utente) i corsi in un riquadro loro: il calendario che lo alimenta è in
+       s_config.bacheca_calendario_corsi, e deve stare anche fra i bacheca_calendari perché il giro lo legga */
+    const idCorsi = String(bacheca.calCorsi || '').trim();
+    const evCorsi = idCorsi ? bacheca.eventi.filter((e) => e.calendario_id === idCorsi) : [];
+    const evAgenda = bacheca.eventi.filter((e) => !evCorsi.includes(e));
+    const eventiHtml = htmlEventi(evAgenda, true);
     const mail = [...bacheca.mail].sort((a, b) => (b.punteggio - a.punteggio) || String(b.data).localeCompare(String(a.data))).slice(0, 10);
     /* l'anteprima di Gmail arriva già con le entità HTML (&lt; &#39; …): si decodifica prima
        di ri-escapare, altrimenti si legge «&lt;»; e va a capo, non è un'etichetta */
@@ -608,12 +616,14 @@ export async function render() {
         <span>Aggiornata alle ${esc(alTesto)}, dal lunedì al giovedì alle 8.</span>
         <button class="btn btn-ghost btn-sm hm-bacheca-aggiorna" title="Rilegge adesso posta e calendari">🔄 Aggiorna adesso</button>
       </div>`;
-    const agenda = card('📅 Agenda della settimana', bacheca.eventi.length,
+    const agenda = card('📅 Agenda della settimana', evAgenda.length,
       (eventiHtml || '<p class="hint">Nessun evento nei prossimi giorni.</p>') + piede, '', { k: 'agenda' });
+    const corsi = idCorsi ? card('🎓 Calendario corsi', evCorsi.length,
+      (htmlEventi(evCorsi, false) || '<p class="hint">Nessun corso nei prossimi giorni.</p>') + piede, '', { k: 'agenda-corsi' }) : '';
     const posta = card('✉️ Posta da guardare', nImp,
       (mailHtml || '<p class="hint">Nessuna mail segnata come importante nell\'ultimo giro.</p>')
       + errori + piede, '', { k: 'posta', sempre: !!errori });
-    return { agenda, posta };
+    return { agenda, corsi, posta };
   })();
 
   /* ⚠️ Un rimbalzo NON dice quale sia l'indirizzo giusto: dice che quello
@@ -824,7 +834,8 @@ export async function render() {
               }
               return `<div class="hm-riga" ${pr ? `data-vista="${pr.vista}" data-id="${pr.id}"` : 'data-goto="visite"'}><span>🔧</span>
                 <span><strong>inc. ${r.id}</strong> — ${esc(r.impresa || r.comune || '?')}${r.visita_id ? ` · ${r._nrVerbale ? `verbale ${esc(String(r._nrVerbale))}` : r._nrErr ? '<span class="hint" style="color:#a01f00">numero del verbale non letto</span>' : 'verbale senza numero'}` : ''} <span class="hint">(${esc(r.tecnico_nome || '')})</span></span>
-                <span class="hint">${r.eseguito_il ? dataIt(String(r.eseguito_il).slice(0, 10)) : ''}</span></div>`;
+                <span style="display:flex;flex-direction:column;gap:4px;align-items:flex-end"><span class="hint">${r.eseguito_il ? dataIt(String(r.eseguito_il).slice(0, 10)) : ''}</span>
+                  <button class="btn btn-ghost btn-sm" data-chiudi-eseguito="${r.id}" data-aiuto="Chiude l'incarico: esce da questo riquadro e dagli incarichi in corso. Il verbale e il pagamento della visita non cambiano.">✓ Chiudi</button></span></div>`;
             }).join('')
           : '<p class="hint">Nessuna visita eseguita in attesa di chiusura.</p>', '', { k: 'eseguite', nonLetto: nonLetti.has('incarichi') })}
 
@@ -1025,7 +1036,7 @@ export async function render() {
             <span class="hint">${dataIt(r.data_prot)}</span></div>`).join('')}
         ${eProt ? '<p class="hint" style="color:#a01f00">⚠ Non sono riuscito a leggere gli ultimi protocolli.</p>' : ''}`,
         vai('registro', 'Apri il registro'))}
-      ${cardBacheca ? cardBacheca.agenda + cardBacheca.posta : ''}
+      ${cardBacheca ? cardBacheca.agenda + cardBacheca.corsi + cardBacheca.posta : ''}
       ${cardRespinte}${cardRespinteAltre}`;
   host.innerHTML = `
     ${bannerCanale}${bannerFormazione}${striscia()}
@@ -1146,6 +1157,18 @@ export async function render() {
       const { error } = await sb.rpc('incarico_esito_chiudi', { p_id: id, p_pagare: paga, p_motivo: motivo });
       if (error) return toast('Non chiuso: ' + error.message, 'err');
       toast(paga ? `Incarico n° ${id} chiuso: l'uscita si paga.` : `Incarico n° ${id} chiuso: l'uscita non si paga.`, 'ok');
+      render();
+    }));
+  /* (03/11/2026) gli incarichi eseguiti senza pratica nei servizi (venuti da Access) o con la pratica già chiusa
+     restavano qui per sempre: nessun pulsante li chiudeva */
+  host.querySelectorAll('[data-chiudi-eseguito]').forEach((b) =>
+    b.addEventListener('click', async (ev) => {
+      ev.stopPropagation();
+      const id = Number(b.dataset.chiudiEseguito);
+      if (!confirm(`Chiudere l'incarico n° ${id}? Esce dalle visite eseguite; verbale e pagamento della visita non cambiano.`)) return;
+      const { error } = await sb.rpc('incarichi_set_stato', { p_id: id, p_stato: 'chiuso' });
+      if (error) return toast('Non chiuso: ' + error.message, 'err');
+      toast(`Incarico n° ${id} chiuso.`, 'ok');
       render();
     }));
   host.querySelectorAll('[data-riassegna]').forEach((b) =>
