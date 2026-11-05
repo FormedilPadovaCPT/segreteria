@@ -80,8 +80,11 @@ async function cerca(testo) {
   const t = testo.trim();
   const box = $('#pe-esiti');
   if (t.length < 3) { box.innerHTML = '<p class="hint">Almeno 3 lettere.</p>'; return; }
+  /* le schede eliminate (doppioni già uniti) non si mostrano: 269 su 9.192 il 05/11/2026,
+     fra cui il secondo Aligo Mirco, che compariva accanto a quello vero */
   const { data, error } = await perNominativo(sb.from('persone')
-    .select('persona_id, titolo, cognome, nome, cf, email, telefono, comune_res'), t, ['cognome', 'nome', 'cf'])
+    .select('persona_id, titolo, cognome, nome, cf, email, telefono, comune_res')
+    .or('elimina.is.null,elimina.eq.0'), t, ['cognome', 'nome', 'cf'])
     .order('cognome').order('nome').limit(60);
   if (error) { box.innerHTML = `<p class="empty">${esc(error.message)}</p>`; return; }
   box.innerHTML = data.length ? `
