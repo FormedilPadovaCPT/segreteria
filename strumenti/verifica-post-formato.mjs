@@ -23,13 +23,18 @@ const ko = (m) => { errori++; console.error('✗ ' + m); };
 const ok = (m) => console.log('✓ ' + m);
 
 const orig = join(radice, 'js', 'post-formato.js');
-const copia = join(radice, 'supabase', 'functions', 'redazione-social', 'post-formato.js');
-{
+/* due copie (06/11/2026: la seconda nel gestionale visite, dove Coordinatore e Direttore vedono il post
+   com'è prima di dargli il visto o approvarlo — pagina Comunicazione, comunicazione-post.js) */
+const COPIE = [
+  ['redazione-social/post-formato.js', join(radice, 'supabase', 'functions', 'redazione-social', 'post-formato.js')],
+  ['gestionale-visite/post-formato.js', join(radice, '..', 'gestionale-visite', 'post-formato.js')],
+];
+for (const [nome, copia] of COPIE) {
   const o = readFileSync(orig, 'utf8');
   const k = existsSync(copia) ? readFileSync(copia, 'utf8') : null;
-  if (k === o) ok('copia allineata: redazione-social/post-formato.js');
-  else if (sincronizza) { copyFileSync(orig, copia); ok('copia rigenerata: redazione-social/post-formato.js'); }
-  else ko(`redazione-social/post-formato.js ${k === null ? 'manca' : 'diverge da js/post-formato.js'} — esegui: npm run post-formato-sync`);
+  if (k === o) ok('copia allineata: ' + nome);
+  else if (sincronizza) { copyFileSync(orig, copia); ok('copia rigenerata: ' + nome); }
+  else ko(`${nome} ${k === null ? 'manca' : 'diverge da js/post-formato.js'} — esegui: npm run post-formato-sync`);
 }
 
 const F = await import('../js/post-formato.js');

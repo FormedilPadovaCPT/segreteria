@@ -20,6 +20,18 @@
    - ogni affermazione normativa cita la norma;
    - i contenuti tecnici sul merito della sicurezza li valida il
      coordinatore (regola d'oro 1), non solo la segreteria.
+
+   VISTO E APPROVAZIONE (06/11/2026, deciso dall'utente): la segreteria
+   non approva più da sé. Rilegge la bozza e la manda AL COORDINATORE
+   (contenuti tecnici) o direttamente AL DIRETTORE, con «Manda al…»
+   (s_post_manda). Il Coordinatore, nella pagina «📣 Comunicazione» del
+   gestionale, dà il visto — e il post passa comunque al Direttore — o
+   scrive le modifiche: torna qui in bozza e il testo lo corregge la
+   segreteria. Il Direttore approva, approva con indicazioni (si applicano
+   qui e si pubblica senza ripassare da lui) o non approva con una nota.
+   Mentre il post aspetta non si cambia: per correggerlo si ritira. Lo
+   storico dei passaggi è in s_post_passaggi; «approvato» lo dà solo il
+   Direttore (lo fa rispettare il database, trigger s_post_regola).
    ============================================================ */
 
 import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer } from './core.js';
@@ -27,6 +39,7 @@ import { scaricaEml } from './eml.js';
 import { postInTelegramHtml, postInHtmlNotizia, postInTestoSemplice, postPerIncollaTelegram, lunghezzaVisibile, SEGNI_AMMESSI } from './post-formato.js';
 
 let post = [];
+let passaggi = [];   // s_post_passaggi: chi l'ha visto, che cosa ha detto (06/11/2026)
 let filtro = 'bozza';
 let linee = '';
 
@@ -34,17 +47,37 @@ const PILASTRI = {
   cantiere: ['🏗️', 'Dal cantiere'], normativa: ['📖', 'Normativa e scadenze'], servizi: ['🧰', 'Servizi dell\'Area'],
   formazione: ['🎓', 'Formazione ed eventi'], rassegna: ['📰', 'Rassegna'], avviso: ['📢', 'Avviso'],
 };
-const STATI = { bozza: 'Bozza', approvato: 'Approvato', pubblicato: 'Pubblicato', scartato: 'Scartato' };
+const STATI = { bozza: 'Bozza', al_coordinatore: 'Dal Coordinatore', al_direttore: 'Dal Direttore', approvato: 'Approvato', pubblicato: 'Pubblicato', scartato: 'Scartato' };
+const IN_ATTESA = ['al_coordinatore', 'al_direttore'];
+const ESITI = {
+  in_attesa: '⏳ in attesa', visto: '👍 visto', modifiche: '✏️ chiede modifiche', approvato: '✅ approvato',
+  approvato_indicazioni: '✅ approvato con indicazioni', non_approvato: '✋ non approvato', ritirato: '↩ ritirato dalla segreteria',
+};
+const CHI = { coordinatore: 'Coordinatore', direttore: 'Direttore' };
+const passaggiDi = (id) => passaggi.filter((x) => x.post_id === id);
+/* l'ultima parola detta su un post, se c'è una nota che la segreteria deve leggere */
+function ultimaNota(p) {
+  const fatti = passaggiDi(p.id).filter((x) => x.stato !== 'in_attesa' && x.stato !== 'ritirato');
+  const u = fatti[fatti.length - 1];
+  if (!u || !u.nota) return null;
+  if (p.stato === 'bozza' && ['modifiche', 'non_approvato'].includes(u.stato)) return u;
+  if (['approvato', 'pubblicato'].includes(p.stato) && u.stato === 'approvato_indicazioni') return u;
+  return null;
+}
 const CANALI = [['telegram', 'Telegram'], ['app', 'App servizi'], ['linkedin', 'LinkedIn'], ['instagram', 'Instagram / Facebook']];
 const AGENZIA_EMAIL = '';   // indirizzo dell'agenzia: si compila nella bozza, non lo cabliamo qui
 
 async function carica() {
-  const [{ data: p }, { data: c }] = await Promise.all([
+  const [{ data: p }, { data: c }, { data: pa, error: ePa }] = await Promise.all([
     sb.from('s_post').select('*').order('created_at', { ascending: false }).limit(400),
     sb.from('s_config').select('valore').eq('chiave', 'redazione_linee').maybeSingle(),
+    sb.from('s_post_passaggi').select('*').order('richiesto_il', { ascending: true }).limit(2000),
   ]);
   post = p || [];
   linee = c?.valore || '';
+  /* se non si leggono i passaggi lo si dice: senza, un post «dal Direttore» sembrerebbe senza storia */
+  passaggi = pa || [];
+  if (ePa) toast('Non sono riuscito a leggere i visti e le approvazioni: ' + ePa.message, 'err');
 }
 
 /* supabase-js nasconde il corpo della risposta quando la funzione risponde
@@ -246,7 +279,7 @@ const immagini = (p) => (p.immagine_url ? [p.immagine_url] : [])
   .concat((Array.isArray(p.immagini) ? p.immagini : []).map((x) => (typeof x === 'string' ? x : x && x.url)).filter(Boolean));
 const pillPilastro = (k) => { const [ico, nome] = PILASTRI[k] || ['•', k]; return `<span class="badge" style="background:#eef0f3;color:var(--grigio)">${ico} ${esc(nome)}</span>`; };
 const pillStato = (s) => {
-  const col = { bozza: ['#fff3e8', 'var(--arancio)'], approvato: ['#e7f5e1', '#3d7a1f'], pubblicato: ['#e3edf7', '#1f4f8a'], scartato: ['#f1f1f1', '#777'] }[s] || ['#eee', '#555'];
+  const col = { bozza: ['#fff3e8', 'var(--arancio)'], al_coordinatore: ['#fdf0d5', '#8a5a00'], al_direttore: ['#fdf0d5', '#8a5a00'], approvato: ['#e7f5e1', '#3d7a1f'], pubblicato: ['#e3edf7', '#1f4f8a'], scartato: ['#f1f1f1', '#777'] }[s] || ['#eee', '#555'];
   return `<span class="badge" style="background:${col[0]};color:${col[1]}">${esc(STATI[s] || s)}</span>`;
 };
 
@@ -259,14 +292,17 @@ export async function render() {
 
   const n = (s) => post.filter((p) => p.stato === s).length;
   const ultimoGiro = post.find((p) => p.creato_da === 'routine')?.giro;
-  const visibili = post.filter((p) => filtro === 'tutti' ? true : p.stato === filtro);
+  const visibili = post.filter((p) => filtro === 'tutti' ? true : filtro === 'in_visione' ? IN_ATTESA.includes(p.stato) : p.stato === filtro);
 
   const righe = visibili.map((p) => {
     const c = canaliDi(p);
     const spunte = CANALI.map(([k, l]) => c[k] ? `<span title="${esc(l)} · ${esc((c[k].at || '').slice(0, 10))}">✓ ${esc(l.split(' ')[0])}</span>` : '').filter(Boolean).join(' ');
     return `<tr data-id="${p.id}">
       <td>${pillPilastro(p.pilastro)}</td>
-      <td><strong>${esc(p.titolo)}</strong>${p.gancio ? `<br><span class="hint">${esc(p.gancio.slice(0, 120))}</span>` : ''}</td>
+      <td><strong>${esc(p.titolo)}</strong>${p.gancio ? `<br><span class="hint">${esc(p.gancio.slice(0, 120))}</span>` : ''}${(() => {
+        const u = ultimaNota(p);
+        return u ? `<br><span class="hint" style="color:#8a5a00">${u.stato === 'approvato_indicazioni' ? '⚠ indicazioni' : '↩ nota'} del ${esc(CHI[u.verso])}: «${esc(u.nota.slice(0, 90))}»</span>` : '';
+      })()}</td>
       <td class="hint">${esc(p.fonte || '—')}</td>
       <td>${p.data_programmata ? dataIt(p.data_programmata) : '—'}</td>
       <td class="hint">${spunte || '—'}</td>
@@ -277,13 +313,14 @@ export async function render() {
   host.innerHTML = `
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
       <span class="dt-cella ${n('bozza') ? 'dt-senzadata' : 'dt-ok'}" style="padding:4px 10px">✍️ ${n('bozza')} bozze da rivedere</span>
+      <span class="dt-cella ${n('al_coordinatore') + n('al_direttore') ? 'dt-senzadata' : 'dt-ok'}" style="padding:4px 10px">👀 ${n('al_coordinatore')} dal Coordinatore · ${n('al_direttore')} dal Direttore</span>
       <span class="dt-cella dt-ok" style="padding:4px 10px">✅ ${n('approvato')} approvati da pubblicare</span>
       <span class="dt-cella dt-ok" style="padding:4px 10px">📣 ${n('pubblicato')} pubblicati</span>
       ${ultimoGiro ? `<span class="dt-cella" style="padding:4px 10px">🤖 ultimo giro della routine: ${esc(ultimoGiro)}</span>` : '<span class="dt-cella dt-senzadata" style="padding:4px 10px">🤖 la routine non ha ancora scritto niente</span>'}
     </div>
     <div class="dt-barra">
       <div class="seg" id="cm-f">
-        ${[['bozza', 'Bozze'], ['approvato', 'Approvati'], ['pubblicato', 'Pubblicati'], ['scartato', 'Scartati'], ['tutti', 'Tutti']].map(([v, l]) =>
+        ${[['bozza', 'Bozze'], ['in_visione', 'In visione'], ['approvato', 'Approvati'], ['pubblicato', 'Pubblicati'], ['scartato', 'Scartati'], ['tutti', 'Tutti']].map(([v, l]) =>
           `<button class="seg-btn ${filtro === v ? 'is-active' : ''}" data-val="${v}">${l}</button>`).join('')}
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap">
@@ -299,9 +336,10 @@ export async function render() {
       </table>
     </div>
     <p class="hint" style="margin-top:10px">
-      Le bozze le scrive la routine del lunedì; qui si rileggono, si ritoccano e si decide che cosa esce.
-      Telegram e app servizi si pubblicano da qui; per LinkedIn, Instagram e Facebook parte un kit all'agenzia.
-      Mai nomi di imprese, cantieri o persone nei post; i contenuti tecnici li valida il coordinatore.
+      Le bozze le scrive la routine del lunedì; qui si rileggono, si ritoccano e si mandano al Coordinatore
+      (contenuti tecnici: dopo il suo visto passano al Direttore) o direttamente al Direttore, che approva.
+      Lo trovano nella pagina «📣 Comunicazione» del gestionale. Approvato, si pubblica da qui: Telegram e app
+      servizi col bot, per LinkedIn, Instagram e Facebook parte un kit all'agenzia. Mai nomi di imprese, cantieri o persone nei post.
     </p>`;
 
   $('#cm-f').addEventListener('click', (e) => {
@@ -398,6 +436,10 @@ export async function apriPratica(id) {
   const p = post.find((x) => x.id === id);
   if (!p) return;
   const c = canaliDi(p);
+  const attende = IN_ATTESA.includes(p.stato);
+  const storia = passaggiDi(id);
+  const inAttesa = storia.find((x) => x.stato === 'in_attesa');
+  const nota = ultimaNota(p);
   const area = (idc, label, val, rows, canale) => `
     <div class="field" style="margin-top:8px">
       <label style="display:flex;justify-content:space-between;align-items:center">${label}
@@ -412,6 +454,20 @@ export async function apriPratica(id) {
       ${pillStato(p.stato)} ${pillPilastro(p.pilastro)}
       <span class="hint">${p.creato_da === 'routine' ? `scritto dalla routine (giro ${esc(p.giro || '?')})` : `scritto da ${esc(p.creato_da)}`} · ${dataIt(p.created_at.slice(0, 10))}</span>
     </div>
+    ${attende ? `<div class="dt-doc-riga" style="background:#fdf0d5;border-left:3px solid #8a5a00;padding:8px 10px;margin-bottom:8px">
+      <strong>${p.stato === 'al_coordinatore' ? '👷 È dal Coordinatore per il visto' : '🏛️ È dal Direttore per l\'approvazione'}</strong>${inAttesa ? ` dal ${esc(dataIt(inAttesa.richiesto_il.slice(0, 10)))}` : ''}.
+      Lo vede nella pagina «📣 Comunicazione» del gestionale e ha ricevuto la notifica. Mentre aspetta il post non si cambia:
+      per correggerlo, <b>↩ Ritira</b> qui sotto, poi lo rimandi.</div>` : ''}
+    ${nota ? `<div class="dt-doc-riga" style="background:#fff8e6;border-left:3px solid var(--arancio);padding:8px 10px;margin-bottom:8px">
+      <strong>${nota.stato === 'approvato_indicazioni' ? 'Indicazioni del Direttore, da applicare prima di pubblicare' : nota.stato === 'modifiche' ? 'Modifiche chieste dal Coordinatore' : 'Il Direttore non l\'ha approvato'}:</strong><br>${esc(nota.nota)}
+      <br><span class="hint">${esc(nota.deciso_da_nome || '')} · ${esc(dataIt((nota.deciso_il || '').slice(0, 10)))}${nota.stato === 'approvato_indicazioni' ? ' — l\'approvazione vale: applicale e pubblica, senza ripassare dal Direttore.' : ' — correggi il testo e rimandalo.'}</span></div>` : ''}
+    ${storia.length ? `<details class="dt-doc-riga" style="margin-bottom:8px"${attende || nota ? '' : ' open'}><summary><strong>Visti e approvazioni</strong> (${storia.length})</summary>
+      <table class="tbl" style="margin-top:6px"><thead><tr><th>Mandato</th><th>A</th><th>Esito</th><th>Nota</th></tr></thead><tbody>
+      ${storia.map((x) => `<tr><td class="hint">${esc(dataIt(x.richiesto_il.slice(0, 10)))}${x.nota_richiesta ? `<br>«${esc(x.nota_richiesta)}»` : ''}</td>
+        <td>${esc(CHI[x.verso])}</td>
+        <td>${esc(ESITI[x.stato] || x.stato)}${x.deciso_il ? `<br><span class="hint">${esc(x.deciso_da_nome || '')} · ${esc(dataIt(x.deciso_il.slice(0, 10)))}</span>` : ''}</td>
+        <td>${esc(x.nota || '')}</td></tr>`).join('')}
+      </tbody></table></details>` : ''}
     ${p.verifica ? `<div class="dt-doc-riga" style="background:#fff8e6;border-left:3px solid var(--arancio);padding:8px 10px;margin-bottom:8px"><strong>Da verificare prima di approvare:</strong><br>${esc(p.verifica)}</div>` : ''}
     ${p.fonte ? `<div class="dt-doc-riga"><strong>Fonte:</strong> ${esc(p.fonte)}${p.fonte_url ? ` · <a href="${esc(p.fonte_url)}" target="_blank" rel="noopener">apri</a>` : ''}</div>` : ''}
     ${p.norma ? `<div class="dt-doc-riga"><strong>Norma citata:</strong> ${esc(p.norma)}</div>` : ''}
@@ -463,10 +519,13 @@ export async function apriPratica(id) {
     <div class="field" style="margin-top:8px"><label>Hashtag</label><input type="text" id="pd-hashtag" value="${esc(p.hashtag || '')}"></div>
 
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:14px">
-      <button class="btn btn-ghost" id="pd-salva">💾 Salva le modifiche</button>
-      ${p.stato === 'bozza' || p.stato === 'scartato' ? '<button class="btn btn-primary" id="pd-approva">✅ Approva</button>' : ''}
-      ${p.stato === 'approvato' ? '<button class="btn btn-ghost" id="pd-bozza">↩ Riporta a bozza</button>' : ''}
-      ${p.stato !== 'scartato' && p.stato !== 'pubblicato' ? '<button class="btn btn-ghost" id="pd-scarta">🗑 Scarta con motivo</button>' : ''}
+      ${attende ? '' : '<button class="btn btn-ghost" id="pd-salva">💾 Salva le modifiche</button>'}
+      ${p.stato === 'bozza' || p.stato === 'scartato' ? `
+        <button class="btn btn-primary" id="pd-al-coord" data-aiuto="Salva e manda il post al Coordinatore: lo vede nella pagina Comunicazione del gestionale e riceve la notifica. Dopo il suo visto passa da solo al Direttore; se chiede modifiche torna qui con la sua nota.">👷 Manda al Coordinatore</button>
+        <button class="btn btn-primary" id="pd-al-dir" data-aiuto="Salva e manda il post direttamente al Direttore, senza il Coordinatore: lo vede nella pagina Comunicazione del gestionale e riceve la notifica. Approvato, lo pubblichi da qui.">🏛️ Manda al Direttore</button>` : ''}
+      ${attende ? '<button class="btn btn-ghost" id="pd-ritira" data-aiuto="Toglie il post dalla pagina di chi lo sta guardando e lo riporta in bozza, per correggerlo. Il passaggio resta scritto come ritirato.">↩ Ritira</button>' : ''}
+      ${p.stato === 'approvato' ? '<button class="btn btn-ghost" id="pd-bozza" data-aiuto="Riporta il post in bozza: per pubblicarlo dovrà approvarlo di nuovo il Direttore.">↩ Riporta a bozza</button>' : ''}
+      ${!attende && p.stato !== 'scartato' && p.stato !== 'pubblicato' ? '<button class="btn btn-ghost" id="pd-scarta">🗑 Scarta con motivo</button>' : ''}
     </div>
     <hr style="margin:14px 0;border:0;border-top:1px solid var(--bordo)">
     <strong>🧪 Prova prima di pubblicare</strong>
@@ -476,7 +535,7 @@ export async function apriPratica(id) {
       <button class="btn btn-ghost btn-sm" id="pd-canale-prova">⚙ Canale di prova…</button>
     </div>
     <p class="hint" style="margin-top:6px">Esce sul canale di prova esattamente come uscirebbe su quello pubblico — stesse immagini, stesso album, stessa formattazione — ma <b>non</b> conta come pubblicazione: il post resta dov'è. Si può provare anche una bozza, e quante volte si vuole.</p>
-    ${c.prova && p.stato === 'bozza' ? `<p class="hint" style="margin-top:6px;background:#f2f8ec;border-left:3px solid var(--verde, #5d7f18);padding:7px 10px">👍 <b>Se com'è uscito ti convince</b>, premi <b>✅ Approva</b> qui sopra: compaiono i pulsanti per il <b>canale pubblico</b> e per l'<b>app servizi</b>. Se invece va corretto, cambia il testo o le immagini e riprova: le prove sono illimitate.</p>` : ''}
+    ${c.prova && p.stato === 'bozza' ? `<p class="hint" style="margin-top:6px;background:#f2f8ec;border-left:3px solid var(--verde, #5d7f18);padding:7px 10px">👍 <b>Se com'è uscito ti convince</b>, mandalo al <b>Coordinatore</b> o al <b>Direttore</b> coi pulsanti qui sopra: quando il Direttore l'ha approvato compaiono i pulsanti per il <b>canale pubblico</b> e per l'<b>app servizi</b>. Se invece va corretto, cambia il testo o le immagini e riprova: le prove sono illimitate.</p>` : ''}
 
     ${['approvato', 'pubblicato'].includes(p.stato) ? `
     <hr style="margin:14px 0;border:0;border-top:1px solid var(--bordo)">
@@ -493,6 +552,12 @@ export async function apriPratica(id) {
 
   $('#drawer').classList.add('drawer-xl');
   collegaFormato($('#drawer-body'), { immagineUrl: p.immagine_url });
+  /* mentre aspetta il Coordinatore o il Direttore il post non si cambia (il database lo rifiuterebbe) */
+  if (attende) {
+    $('#drawer-body').querySelectorAll('textarea, #pd-titolo, #pd-hashtag, #pd-video').forEach((el) => { el.readOnly = true; });
+    $('#drawer-body').querySelectorAll('#pd-pilastro, #pd-img-file, #pd-img-carica, .pd-img-togli, .fmt-barra button:not([data-fmt="anteprima"]), .fmt-barra select')
+      .forEach((el) => { el.disabled = true; });
+  }
 
   const valori = () => ({
     pilastro: $('#pd-pilastro').value, data_programmata: $('#pd-data').value || null,
@@ -504,6 +569,7 @@ export async function apriPratica(id) {
     video_url: $('#pd-video')?.value.trim() || null,
   });
   const salva = async (extra = {}, msg = 'Salvato.') => {
+    if (attende && !Object.keys(extra).length) return true;   // niente da salvare: il testo è fermo finché aspetta
     const { error } = await sb.from('s_post').update({ ...valori(), ...extra }).eq('id', id);
     if (error) { toast('Non salvato: ' + error.message, 'err'); return false; }
     toast(msg, 'ok');
@@ -531,12 +597,36 @@ export async function apriPratica(id) {
       toast(canale === 'telegram' ? 'Copiato. Incollato in Telegram, grassetto, corsivo e barrato escono all\'invio; il sottolineato no.' : 'Copiato.', 'ok');
     } catch { toast('Copia non riuscita: seleziona il testo e copia a mano.', 'err'); }
   }));
-  $('#pd-salva').addEventListener('click', async (ev) => { const btn = ev.currentTarget; attendi(btn, true); await salva(); attendi(btn, false); });
-  $('#pd-approva')?.addEventListener('click', async (ev) => {
-    attendi(ev.currentTarget, true);
-    if (await salva({ stato: 'approvato', scarto_motivo: null }, 'Approvato: ora si può pubblicare.')) apriPratica(id);
+  $('#pd-salva')?.addEventListener('click', async (ev) => { const btn = ev.currentTarget; attendi(btn, true); await salva(); attendi(btn, false); });
+  /* manda al Coordinatore o al Direttore: prima si salva quello che c'è a schermo, poi decide il database */
+  const manda = async (btn, verso) => {
+    const chi = verso === 'coordinatore' ? 'al Coordinatore' : 'al Direttore';
+    const nota = prompt(`Mando il post ${chi}.\n\nVuoi aggiungere due righe per lui? (facoltativo: per esempio che cosa guardare)`, '');
+    if (nota === null) return;
+    attendi(btn, true, 'Mando…');
+    if (!await salva({}, 'Salvato.')) { attendi(btn, false); return; }
+    const { error } = await sb.rpc('s_post_manda', { p_post: id, p_verso: verso, p_nota: nota.trim() || null });
+    attendi(btn, false);
+    if (error) return toast('Non mandato: ' + error.message, 'err');
+    toast(`Mandato ${chi}: lo trova nella pagina Comunicazione del gestionale.`, 'ok');
+    await render(); apriPratica(id);
+  };
+  $('#pd-al-coord')?.addEventListener('click', (ev) => manda(ev.currentTarget, 'coordinatore'));
+  $('#pd-al-dir')?.addEventListener('click', (ev) => manda(ev.currentTarget, 'direttore'));
+  $('#pd-ritira')?.addEventListener('click', async (ev) => {
+    if (!confirm(`Ritiro il post? Esce dalla pagina del ${p.stato === 'al_coordinatore' ? 'Coordinatore' : 'Direttore'} e torna in bozza.`)) return;
+    const btn = ev.currentTarget;
+    attendi(btn, true);
+    const { error } = await sb.rpc('s_post_ritira', { p_post: id });
+    attendi(btn, false);
+    if (error) return toast('Non ritirato: ' + error.message, 'err');
+    toast('Ritirato: è di nuovo una bozza.', 'ok');
+    await render(); apriPratica(id);
   });
-  $('#pd-bozza')?.addEventListener('click', async () => { if (await salva({ stato: 'bozza' }, 'Riportato a bozza.')) apriPratica(id); });
+  $('#pd-bozza')?.addEventListener('click', async () => {
+    if (!confirm('Riporto il post in bozza? Per pubblicarlo dovrà approvarlo di nuovo il Direttore.')) return;
+    if (await salva({ stato: 'bozza' }, 'Riportato a bozza.')) apriPratica(id);
+  });
   $('#pd-scarta')?.addEventListener('click', async () => {
     const motivo = prompt('Perché si scarta? (la routine lo rilegge al giro dopo, per non riproporlo)');
     if (motivo === null) return;
