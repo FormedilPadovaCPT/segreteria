@@ -369,8 +369,7 @@ export function mailInterna(tipo: string, d: Dati, prog: number,
   /* Notifica cantiere: figure professionali e imprese come elenchi leggibili */
   if (tipo === 'vis') {
     const imp = impreseLeggibili(d.imprese_json)
-    if (imp) gruppi.push({ titolo: 'Altre imprese in cantiere', righe: [['Elenco', escHtml(imp).replace(/
-/g, '<br>')]], html: true })
+    if (imp) gruppi.push({ titolo: 'Altre imprese in cantiere', righe: [['Elenco', escHtml(imp).replace(/\n/g, '<br>')]], html: true })
   }
   if (tipo === 'not') {
     const aRighe = (t: string) => escHtml(t).replace(/\n/g, '<br>')
