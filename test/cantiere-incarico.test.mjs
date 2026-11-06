@@ -41,7 +41,9 @@ assert.ok(/if \(serveCantiere && !\(cantiereId \|\| pratica\.cantiere_id\)\) \{/
 assert.ok(/tutti_i_lotti: !!\(tuttiLotti \?\? pratica\.tutti_i_lotti\),/.test(inc), 'l\'incarico porta «tutti i lotti»');
 const vis = fs.readFileSync(new URL('../js/visite.js', import.meta.url), 'utf8');
 assert.ok(/cantiereId: p\.cantiere_id \|\| null, tuttiLotti: !!p\.tutti_i_lotti, serveCantiere: true,/.test(vis), 'la richiesta passa il suo cantiere');
-assert.ok(/visitePreviste: null,/.test(vis), 'le visite previste le mette il database, non il numero dei cantieri');
+/* (06/11/2026) le visite previste vengono dalla pratica (serie con un numero autorizzato) o dal database: mai dal numero dei cantieri */
+assert.ok(/visitePreviste: visitePrevisteIncarico\(p\),/.test(vis), 'le visite previste vengono dalla pratica o dal database');
+assert.ok(!/visitePreviste: [^,\n]*(cantieri|cc\.length)/.test(vis), 'mai dal numero dei cantieri');
 assert.ok(/collegaCantiereIncarico\(p, \{/.test(vis), 'il riquadro è nella scheda della pratica');
 const ui = fs.readFileSync(new URL('../js/cantiere-incarico.js', import.meta.url), 'utf8');
 assert.ok(/sb\.rpc\('lotti_del_cantiere'/.test(ui), 'il complesso è quello del gestionale');

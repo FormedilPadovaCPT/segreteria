@@ -27,6 +27,7 @@ import { RUBRICA_INTERNA } from './lookups.js';
 import { caricaPassi, passoHtml } from './passo-tecnico.js';
 import { collegaRicercaImprese, collegaRicercaPersone, nomePersona } from './ricerca-anagrafica.js';
 import { sezioneHtml as cantiereIncaricoHtml, collega as collegaCantiereIncarico } from './cantiere-incarico.js';
+import { leggiVisitePreviste, visitePrevisteDi, visitePrevisteIncarico, VISITE_SERIE_BASE, VISITE_SERIE_MAX } from './serie-visite.js';
 
 let pratiche = [];
 let passi = null;              // il passo del tecnico sugli incarichi delle pratiche aperte (30/09/2026)
@@ -116,8 +117,9 @@ function campiIncarico(p, email) {
     referente: [p.ref_titolo, p.ref_nome, p.ref_cognome].filter(Boolean).join(' ') || null,
     cellReferente: p.ref_tel || null,
     /* (29/10/2026) una richiesta, un cantiere: il cantiere (o il lotto, o tutti i lotti) lo sceglie la segreteria
-       nella pratica, e senza non si crea l'incarico; le visite previste le mette il database (serie = 10) */
-    mezzo: p.fonte, visitePreviste: null,
+       nella pratica, e senza non si crea l'incarico. (06/11/2026) Le visite previste di una serie sono quelle
+       della pratica, se la segreteria ne ha indicate di diverse; vuoto = la base del database (10) */
+    mezzo: p.fonte, visitePreviste: visitePrevisteIncarico(p),
     cantiereId: p.cantiere_id || null, tuttiLotti: !!p.tutti_i_lotti, serveCantiere: true,
   };
 }
@@ -506,6 +508,9 @@ export async function apriPratica(id) {
         <input type="number" step="0.5" id="vs-ore" value="${p.ore ?? ''}"></div>
       <div class="field"><label>Tariffa €/ora</label>
         <input type="number" step="0.01" id="vs-corr" value="${p.corrispettivo ?? ''}"></div>
+      ${p.tipo_richiesta === 'serie' ? `<div class="field"><label>Visite della serie <span class="hint">(di norma ${VISITE_SERIE_BASE})</span></label>
+        <input type="number" min="1" max="${VISITE_SERIE_MAX}" step="1" id="vs-previste" value="${visitePrevisteDi(p)}"
+          ${p.incarico_id || p.aut_stato === 'approvata' ? 'disabled title="Il Direttore ha già autorizzato questo numero: per cambiarlo serve una nuova autorizzazione"' : ''}></div>` : ''}
     </div>
     <div class="field" style="margin-top:8px"><label>Note dell'ufficio</label>
       <textarea id="vs-note">${esc(p.note_ufficio || '')}</textarea></div>
@@ -553,8 +558,13 @@ export async function apriPratica(id) {
 
   $('#vs-salva').addEventListener('click', async (ev) => {
     const btn = ev.currentTarget;
+    /* (06/11/2026) le visite della serie: si scrivono solo se il numero è cambiato */
+    const prev = $('#vs-previste') && !$('#vs-previste').disabled ? leggiVisitePreviste($('#vs-previste').value) : null;
+    if (prev?.errore) return toast(prev.errore, 'err');
+    const cambiaPrev = prev && prev.valore !== (p.visite_previste ?? null);
     attendi(btn, true);
     const { error } = await sb.from('s_visite_richieste').update({
+      ...(cambiaPrev ? { visite_previste: prev.valore } : {}),
       stato: $('#vs-stato').value,
       tecnico_assegnato: $('#vs-tecnico').value || null,
       esito_ceiv: $('#vs-esitoceiv').value,
@@ -626,8 +636,17 @@ function daMaschera(p) {
     q.ore = $('#vs-ore')?.value ? Number($('#vs-ore').value) : null;
     q.corrispettivo = $('#vs-corr')?.value ? Number($('#vs-corr').value) : null;
   }
+  /* (06/11/2026) le visite della serie come sono nel campo; un numero non valido resta segnato in
+     erroreVisite, e il foglio al Direttore e l'incarico si fermano (visiteValide): meglio che uscire
+     con un numero diverso da quello scritto */
+  if ($('#vs-previste') && !$('#vs-previste').disabled) {
+    const r = leggiVisitePreviste($('#vs-previste').value);
+    if (r.errore) q.erroreVisite = r.errore;
+    else q.visite_previste = r.valore;
+  }
   return q;
 }
+const visiteValide = (q) => { if (q.erroreVisite) throw new Error(q.erroreVisite); return q; };
 const voce = (campi, etichetta) => campi.find(([l]) => l === etichetta)?.[1] || '—';
 
 function campiVisita(p) {
@@ -646,6 +665,9 @@ function campiVisita(p) {
     ['TipologiaRichiesta', tipologie.find((t) => t.id === p.tipologia_id)?.descrizione
       || (p.tipo_richiesta === 'serie' ? 'Richiesta Serie di Visite' : 'Richiesta Visita da Impresa')],
     ['Tipo di richiesta', tipiRichiesta.find((t) => t.id === p.tipo_richiesta_id)?.descrizione],
+    /* (06/11/2026) il Direttore autorizza anche QUANTE visite: di norma 10, la segreteria può proporne altre */
+    ...(p.tipo_richiesta === 'serie'
+      ? [['Visite della serie', `${visitePrevisteDi(p)}${p.visite_previste ? ` (di norma ${VISITE_SERIE_BASE})` : ''}`]] : []),
     ['Oggetto', (p.oggetti || []).map((id) => oggetti.find((o) => o.id === id)?.descrizione).filter(Boolean).join('; ')],
     ['Impresa', [p.ragione_sociale, p.partita_iva ? `P.IVA ${p.partita_iva}` : ''].filter(Boolean).join(' — ')],
     ['CEIV', p.esito_ceiv === 'iscritta' ? `iscritta (cod. ${p.codice_ceiv_dich || '—'})` : p.esito_ceiv === 'non_iscritta' ? 'NON iscritta' : 'da verificare'],
@@ -663,7 +685,7 @@ async function richiestaAutorizzazione(p, btn) {
   attendi(btn, true, 'Preparo…');
   try {
     const tecnico = nomeTecnico($('#vs-tecnico')?.value || p.tecnico_assegnato || p.tecnico_proposto);
-    const q = daMaschera(p);
+    const q = visiteValide(daMaschera(p));
     const campi = campiVisita(q);
     const { pdfRichiestaAutCampi } = await import('./segnalazioni-doc.js');
     const byte = await pdfRichiestaAutCampi(campi, tecnico,
@@ -677,7 +699,7 @@ async function richiestaAutorizzazione(p, btn) {
 
 vogliate trovare in allegato la richiesta di autorizzazione per la ${p.tipo_richiesta === 'serie' ? 'serie di visite' : 'visita'} n. ${n} richiesta da ${p.ragione_sociale || '?'} (${esitoBreve(q)}).
 Tecnico proposto: ${tecnico || 'da assegnare'}.
-Spesa prevista: ${voce(campi, 'Spesa prevista')}.
+${p.tipo_richiesta === 'serie' ? `Visite della serie: ${visitePrevisteDi(q)}.\n` : ''}Spesa prevista: ${voce(campi, 'Spesa prevista')}.
 
 >>>> ✅ Apri la pratica e autorizza (pratica da autorizzare: si apre direttamente nell'app):
 ${APP_URL}#visita-${p.id}
@@ -696,6 +718,8 @@ ${FIRMA_SEGRETERIA}`,
       aut_richiesta_il: new Date().toISOString(),
       esito_ceiv: q.esito_ceiv, codice_ceiv_dich: q.codice_ceiv_dich,
       spesa_ordinaria: q.spesa_ordinaria, ore: q.ore, corrispettivo: q.corrispettivo,
+      ...(p.tipo_richiesta === 'serie' && 'visite_previste' in q && q.visite_previste !== (p.visite_previste ?? null)
+        ? { visite_previste: q.visite_previste } : {}),
       aggiornato_da: state.email, updated_at: new Date().toISOString(),
     }).eq('id', p.id);
     if (errAgg) toast('Bozza scaricata, ma la pratica non si è aggiornata: ' + errAgg.message, 'err');
@@ -729,8 +753,9 @@ async function decidiDaApp(p, esito, btn) {
       utente: state.email,
       note,
     };
+    const q = visiteValide(daMaschera(p));
     const { pdfAutorizzazioneCampi } = await import('./segnalazioni-doc.js');
-    const byte = await pdfAutorizzazioneCampi(campiVisita(daMaschera(p)), tecnico, visto, firmaByte,
+    const byte = await pdfAutorizzazioneCampi(campiVisita(q), tecnico, visto, firmaByte,
       p.tipo_richiesta === 'serie' ? 'Autorizzazione serie di visite' : 'Autorizzazione visita richiesta dall’impresa');
 
     const cart = await risolviCartella(PERCORSO_VAULT);
@@ -754,13 +779,16 @@ async function decidiDaApp(p, esito, btn) {
       aut_drive_url: su.drive_url,
       tecnico_assegnato: $('#vs-tecnico')?.value || p.tecnico_assegnato || p.tecnico_proposto,
       stato: esito === 'approvata' ? 'autorizzata' : 'scartata',
+      /* (06/11/2026) le visite della serie autorizzate sono quelle scritte sul foglio col visto */
+      ...(p.tipo_richiesta === 'serie' && 'visite_previste' in q && q.visite_previste !== (p.visite_previste ?? null)
+        ? { visite_previste: q.visite_previste } : {}),
       aggiornato_da: state.email, updated_at: new Date().toISOString(),
     }).eq('id', p.id);
     if (error) throw new Error(error.message);
     if (esito === 'approvata') {
       const { creaIncaricoDaPratica } = await import('./incarico-tecnico.js');
       await creaIncaricoDaPratica({ tabella: 's_visite_richieste', pratica: p,
-        ...campiIncarico(p, $('#vs-tecnico')?.value || p.tecnico_assegnato || p.tecnico_proposto) });
+        ...campiIncarico(q, $('#vs-tecnico')?.value || p.tecnico_assegnato || p.tecnico_proposto) });
     }
     toast(`Autorizzazione ${esito} registrata: il documento col visto è su Drive.`, 'ok');
     await render();
