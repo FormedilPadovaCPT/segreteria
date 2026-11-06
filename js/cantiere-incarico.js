@@ -15,6 +15,7 @@
 
 import { sb, state, $, esc, toast, attendi } from './core.js';
 import { comuneAnagrafica, testoRicerca, separaCivico, etichettaCantiere, sceltaDaSalvare } from './cantiere-incarico-regole.js';
+import * as Previste from './imprese-previste.js';
 
 const COLONNE = 'cantiere_id, cantiere_etichetta, cantiere_indirizzo, cantiere_civico, comune_nome, lotto, lotto_di, cantiere_cnce, cantiere_chiuso';
 
@@ -24,6 +25,7 @@ export function sezioneHtml() {
     <div id="ci-box" style="border:1px solid var(--bordo);border-radius:8px;padding:10px 12px;margin:12px 0">
       <h4 style="margin:0 0 6px">Cantiere dell'incarico</h4>
       <div id="ci-attuale" class="hint">Un istante…</div>
+      ${Previste.sezioneHtml()}
       <div id="ci-scelta" style="display:none;margin-top:8px">
         <div style="display:grid;grid-template-columns:2fr 1fr auto;gap:6px;align-items:end">
           <div class="field" style="margin:0"><label>Indirizzo, etichetta o CNCE</label><input id="ci-q"></div>
@@ -62,6 +64,8 @@ export async function collega(p, { tabella = 's_visite_richieste', dopo } = {}) 
       + (c?.cantiere_chiuso ? ' <span style="color:#c0392b">— il cantiere risulta chiuso</span>' : '')
       + ' <button class="btn btn-ghost btn-sm" id="ci-cambia">Cambia</button>';
     $('#ci-cambia')?.addEventListener('click', apriScelta);
+    /* (06/11/2026) le imprese previste del cantiere scelto: il tecnico se le trova nel verbale */
+    Previste.collega(p).catch((e) => console.warn('imprese previste:', e));
   } else {
     $('#ci-attuale').innerHTML = '<span style="color:#c0392b;font-weight:600">Non ancora scelto.</span> '
       + 'Senza il cantiere l\'incarico non si crea: il tecnico lo ritrova scegliendo il cantiere nel verbale.';
@@ -132,6 +136,7 @@ export async function collega(p, { tabella = 's_visite_richieste', dopo } = {}) 
     }
     attendi(btn, false);
     Object.assign(p, v);
+    Previste.collega(p).catch((e) => console.warn('imprese previste:', e));
     toast(p.incarico_id ? `Cantiere salvato sulla pratica e sull'incarico n° ${p.incarico_id}.` : 'Cantiere salvato: passerà all\'incarico quando si crea.', 'ok');
     if (dopo) await dopo();
   };
