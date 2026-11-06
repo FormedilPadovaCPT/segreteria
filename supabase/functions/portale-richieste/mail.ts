@@ -22,6 +22,7 @@
 // le stringhe lunghe si rompono nel deploy delle edge function (07/09/2026).
 
 import { RESA_STRUTTURATA, riassuntoStrutturato, sembraStrutturato } from './leggibili.js'
+import { VOCI_CANTIERE } from './cantiere-visita.js'
 
 export const MITTENTE = 'cptpd@did.formedilpadova.it'
 export const NOME_MITTENTE = 'Formedil Padova – Area Sicurezza e Salute'
@@ -221,6 +222,11 @@ const ETICHETTE_CAMPI: Record<string, string> = {
   scala_serv3: 'Conosce la consulenza (1-5)', scala_serv4: 'Conosce la formazione (1-5)',
   scala_serv5: 'Conosce corsi e seminari (1-5)', suggerimenti_testo: 'Proposte di miglioramento',
   qst_aggiornamenti: 'Vuole ricevere aggiornamenti', qst_contatto: 'Vuole essere contattato', recapito_contatto: 'Recapito',
+  /* richiesta di visita: il cantiere e il committente (06/11/2026) */
+  civico_cantiere: 'Civico', cant_lat: 'Latitudine', cant_lng: 'Longitudine', cant_descrizione: 'Descrizione dei lavori',
+  cant_tip_int: 'Tipo di intervento', cant_tip_ope: 'Tipo di opera', cant_tip_ope_altro: 'Opera (altro)',
+  cant_data_inizio: 'Inizio lavori', cant_data_fine: 'Fine lavori prevista', cant_importo: 'Importo dei lavori',
+  cant_cnce: 'Codice CNCE', natura: 'Pubblico o privato', contatto: 'Contatto',
 }
 function etichettaCampo(key: string, prefisso: string, tipo: string): string {
   if (tipo === 'seg' && key === 'notifica') return 'Nome e cognome'
@@ -271,7 +277,9 @@ function gruppiCampiCpt(tipo: string, d: Dati): Gruppo[] {
      nel test portavano in mail anche le risposte corrette (21/09/2026). Quel
      che non si riconosce diventa «N voci — si leggono nell'app», mai il JSON. */
   const val = (k: string, v: unknown) => {
-    if (isData(k)) return fmtDate(v)
+    if (isData(k) || k === 'cant_data_inizio' || k === 'cant_data_fine') return fmtDate(v)
+    const voce = (VOCI_CANTIERE as Record<string, Record<string, string>>)[k]
+    if (voce) return voce[String(v)] || s(v)
     const resa = (RESA_STRUTTURATA as Record<string, (x: unknown) => string>)[k]
     if (resa) return resa(v)
     return sembraStrutturato(v) ? riassuntoStrutturato(v) : s(v)
@@ -282,7 +290,8 @@ function gruppiCampiCpt(tipo: string, d: Dati): Gruppo[] {
     'indirizzo_impresa', 'comune_impresa', 'telefono_impresa', 'cassa_edile_provincia']
   const CHIAVI_CANTIERE = ['comune_cantiere', 'indirizzo_cantiere', 'data_inizio', 'data_fine', 'durata_giorni',
     'importo_lavori', 'max_lavoratori', 'num_imprese', 'num_autonomi', 'note_cantiere', 'stato_lavori',
-    'imprese_presenti', 'notifica', 'motivo']
+    'imprese_presenti', 'notifica', 'motivo', 'civico_cantiere', 'cant_lat', 'cant_lng', 'cant_descrizione',
+    'cant_tip_int', 'cant_tip_ope', 'cant_tip_ope_altro', 'cant_data_inizio', 'cant_data_fine', 'cant_importo', 'cant_cnce']
   const CHIAVI_COMUNICANTE = ['titolo', 'nome', 'cognome', 'codice_fiscale', 'email', 'telefono']
 
   const definizioni: { titolo: string; chiavi?: string[]; prefisso?: string; nominativo?: string }[] = [
@@ -297,6 +306,7 @@ function gruppiCampiCpt(tipo: string, d: Dati): Gruppo[] {
     { titolo: 'Referente', prefisso: 'ref_', nominativo: 'ref_' },
     { titolo: 'RLS', prefisso: 'rls_', nominativo: 'rls_' },
     { titolo: 'Committente', prefisso: 'committente_', nominativo: 'committente_' },
+    { titolo: 'Committente', prefisso: 'comm_', nominativo: 'comm_' },
     { titolo: 'Cantiere', chiavi: CHIAVI_CANTIERE },
     { titolo: 'Cantieri proposti', prefisso: 'c1_' }, { titolo: 'Cantiere 2', prefisso: 'c2_' },
     { titolo: 'Cantiere 3', prefisso: 'c3_' }, { titolo: 'Cantiere 4', prefisso: 'c4_' },
@@ -357,6 +367,11 @@ export function mailInterna(tipo: string, d: Dati, prog: number,
 
   const gruppi = gruppiCampiCpt(tipo, d)
   /* Notifica cantiere: figure professionali e imprese come elenchi leggibili */
+  if (tipo === 'vis') {
+    const imp = impreseLeggibili(d.imprese_json)
+    if (imp) gruppi.push({ titolo: 'Altre imprese in cantiere', righe: [['Elenco', escHtml(imp).replace(/
+/g, '<br>')]], html: true })
+  }
   if (tipo === 'not') {
     const aRighe = (t: string) => escHtml(t).replace(/\n/g, '<br>')
     const fig = figureLeggibili(d.figure_json)

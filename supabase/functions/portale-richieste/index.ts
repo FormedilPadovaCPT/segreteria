@@ -89,6 +89,7 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { getToken, SCOPE_DRIVE, SCOPE_GMAIL } from '../_shared/google.ts'
 import { EMAIL_UFFICIO, mailConferma, mailInterna, messaggioMime } from './mail.ts'
+import { cantiereDaModulo } from './cantiere-visita.js'
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -623,15 +624,23 @@ const MODULI: Record<string, Modulo> = {
       privacy: 'privacy',
     },
     extra: async (sb, d) => {
-      const c = { indirizzo: testo(d.indirizzo_cantiere, 300), comune: testo(d.comune_cantiere, 200) }
-      return { tipo_richiesta: 'visita', cantieri: c.indirizzo || c.comune ? [c] : null,
+      /* (06/11/2026) il cantiere completo: posizione, intervento, opera, date, importo, CNCE, committente, imprese */
+      const c = cantiereDaModulo(d, elenco(d.imprese_json))
+      return { tipo_richiesta: 'visita', cantieri: c ? [c] : null,
         ...(await conImpresa('rl_cf')(sb, d)), tecnico_proposto: await propostaTecnico(sb, d.comune_cantiere) }
     },
     campi: [['TIMESTAMP', '#ts'], ['PROGRESSIVO', '#prog'], ['RAGIONE SOCIALE', 'ragione_sociale'],
       ['CODICE CEIV', 'codice_ceiv'], ['PARTITA IVA', 'piva'], ['CF IMPRESA', 'cf_impresa'], ['IND. LEGALE', 'indirizzo_legale'],
       ['IND. AMM.', 'indirizzo_amm'], ['TELEFONO', 'telefono'], ['CELLULARE', 'cellulare'], ['RL TITOLO', 'rl_titolo'],
-      ['RL NOME', 'rl_nome'], ['RL COGNOME', 'rl_cognome'], ['RL CF', 'maiusc:rl_cf'], ['IND. CANTIERE', 'indirizzo_cantiere'],
-      ['COMUNE CANTIERE', 'comune_cantiere'], ['REF TITOLO', 'ref_titolo'], ['REF. NOME', 'ref_nome'],
+      ['RL NOME', 'rl_nome'], ['RL COGNOME', 'rl_cognome'], ['RL CF', 'maiusc:rl_cf'], ['E-MAIL', 'email'], ['IND. CANTIERE', 'indirizzo_cantiere'],
+      ['CIVICO', 'civico_cantiere'], ['COMUNE CANTIERE', 'comune_cantiere'], ['POSIZIONE (LAT)', 'cant_lat'], ['POSIZIONE (LNG)', 'cant_lng'],
+      ['DESCRIZIONE LAVORI', 'cant_descrizione'], ['TIPO INTERVENTO (codice)', 'cant_tip_int'], ['TIPO OPERA (codice)', 'cant_tip_ope'],
+      ['OPERA ALTRO', 'cant_tip_ope_altro'], ['INIZIO LAVORI', 'giorno:cant_data_inizio'], ['FINE LAVORI', 'giorno:cant_data_fine'],
+      ['IMPORTO (fascia)', 'cant_importo'], ['CNCE', 'maiusc:cant_cnce'], ['COMMITTENTE PUBBLICO/PRIVATO', 'comm_natura'],
+      ['COMMITTENTE PERSONA/SOCIETÀ', 'comm_tipo'], ['COMMITTENTE NOME', 'comm_nome'], ['COMMITTENTE COGNOME', 'comm_cognome'],
+      ['COMMITTENTE DENOMINAZIONE', 'comm_ragione_sociale'], ['COMMITTENTE CF/P.IVA', 'maiusc:comm_cf'], ['COMMITTENTE CONTATTO', 'comm_contatto'],
+      ['ALTRE IMPRESE', 'elenco:imprese_json'],
+      ['REF TITOLO', 'ref_titolo'], ['REF. NOME', 'ref_nome'],
       ['REF. COGNOME', 'ref_cognome'], ['REF. TEL', 'ref_telefono|ref_cellulare'], ['TIPO VISITA', 'vis_tipo_visita|tipo_visita'],
       ['NOTE', 'note'], ['PRIVACY', 'privacy']],
   },

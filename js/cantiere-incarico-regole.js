@@ -61,3 +61,60 @@ export function sceltaDaSalvare({ cercato, lotti = [], scelta }) {
   if (lotti.length && !lotti.some((l) => l.cantiere_id === id)) return null;
   return { cantiere_id: id, tutti_i_lotti: false };
 }
+
+/* (06/11/2026) La richiesta di visita del portale porta il cantiere completo (portale-richieste,
+   cantiere-visita.js). Da lì i campi della scheda del cantiere, solo quelli validi: la segreteria li
+   vede prima di creare la scheda, e quello che manca lo completa il tecnico nel verbale. */
+const intero = (v, lo, hi) => { const n = Number(v); return Number.isInteger(n) && n >= lo && n <= hi ? n : null; };
+const giorno = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) ? String(v) : null);
+export function schedaDaModulo(m) {
+  m = m || {};
+  const tipOpe = intero(m.tip_ope, 1, 16);
+  const lat = Number(m.lat), lng = Number(m.lng);
+  const pos = m.lat != null && m.lng != null && isFinite(lat) && isFinite(lng) && lat >= 43 && lat <= 48 && lng >= 9 && lng <= 15;
+  const f = {
+    cantiere_descrizione: String(m.descrizione || '').trim() || null,
+    cantiere_tip_int: intero(m.tip_int, 1, 4),
+    cantiere_tip_ope: tipOpe,
+    cantiere_tip_ope_altro: tipOpe === 16 ? (String(m.tip_ope_altro || '').trim() || null) : null,
+    data_inizio_lavori: giorno(m.data_inizio),
+    data_ult: giorno(m.data_fine),
+    cantiere_importo: intero(m.importo, 1, 10),
+    cantiere_cnce: String(m.cnce || '').replace(/\s+/g, '').toUpperCase() || null,
+    ...(pos ? { lat, lng, geocode_status: 'manuale', geocoded_at: new Date().toISOString() } : {}),
+  };
+  for (const k of Object.keys(f)) if (f[k] === null) delete f[k];
+  return f;
+}
+
+/* Il committente del modulo come riga di `committenti`. La chiave è il codice fiscale o la P.IVA
+   (come nel gestionale): senza, non si crea niente e lo completa il tecnico. 1 = pubblico, 2 = privato;
+   PF/PG come tipo_sogg. */
+export function committenteDaModulo(c) {
+  if (!c) return null;
+  const cf = String(c.cf || '').replace(/\s+/g, '').toUpperCase();
+  const nome = c.tipo === 'giuridica'
+    ? String(c.ragione_sociale || '').trim()
+    : [c.nome, c.cognome].map((x) => String(x || '').trim()).filter(Boolean).join(' ');
+  const tipo = c.natura === 'pubblico' ? 1 : c.natura === 'privato' ? 2 : null;
+  return {
+    chiave: /^[A-Z0-9]{11}$|^[A-Z0-9]{16}$/.test(cf) ? cf : null,
+    riga: {
+      committente_nome: nome.toUpperCase() || null,
+      committente_tipo: tipo,
+      tipo_sogg: c.tipo === 'giuridica' ? 'PG' : c.tipo === 'fisica' ? 'PF' : null,
+      cf_piva: cf || null,
+      piva: /^\d{11}$/.test(cf) ? cf : null,
+      email: /@/.test(String(c.contatto || '')) ? String(c.contatto).trim() : null,
+      telefono: c.contatto && !/@/.test(String(c.contatto)) ? String(c.contatto).trim() : null,
+    },
+  };
+}
+
+/* distanza in metri fra due punti (per i cantieri vicini al segnaposto del modulo) */
+export function metri(a, b) {
+  const R = 6371000, r = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * r, dLng = (b.lng - a.lng) * r;
+  const x = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLng / 2) ** 2;
+  return Math.round(2 * R * Math.asin(Math.sqrt(x)));
+}

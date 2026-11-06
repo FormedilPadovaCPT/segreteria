@@ -40,6 +40,30 @@ export async function collega(p) {
   const cnce = String(c.cantiere_cnce || '').trim();
 
   let righe = [];
+  /* (06/11/2026) le altre imprese scritte dall'impresa nel modulo del portale: si propongono, non entrano da sole */
+  const dalModulo = ((Array.isArray(p.cantieri) ? p.cantieri[0] : null)?.imprese || []).filter((x) => x && (x.piva || x.ragione_sociale)).slice(0, 15);
+  let trovate = [];   // [{ voce, imp }] imp = riga dell'anagrafica o null
+  if (dalModulo.length) {
+    const pive = [...new Set(dalModulo.map((x) => String(x.piva || '').replace(/\D/g, '')).filter((x) => x.length === 11))];
+    let anag = [];
+    if (pive.length) {
+      const { data, error } = await sb.from('imprese').select('impresa_id, impresa_nome, piva, elimina')
+        .or(pive.map((v) => `impresa_id.eq.${v},piva.eq.${v}`).join(','));
+      if (error) toast('Non sono riuscito a cercare in anagrafica le imprese del modulo: ' + error.message, 'err');
+      anag = (data || []).filter((r) => !r.elimina);
+    }
+    trovate = dalModulo.map((voce) => {
+      const v = String(voce.piva || '').replace(/\D/g, '');
+      return { voce, imp: v ? anag.find((r) => r.impresa_id === v) || anag.find((r) => r.piva === v) || null : null };
+    });
+  }
+  /* l'e-mail del modulo nell'anagrafica dell'impresa, solo se lì manca: il verbale parte da quella */
+  let emailAnag = null, emailLetta = false;
+  const emailModulo = String(p.email || '').trim();
+  if (emailModulo && p.impresa_id) {
+    const { data, error } = await sb.from('imprese').select('impresa_email_ref, impresa_email2, impresa_email3').eq('impresa_id', p.impresa_id).maybeSingle();
+    if (!error && data) { emailLetta = true; emailAnag = [data.impresa_email_ref, data.impresa_email2, data.impresa_email3].filter(Boolean); }
+  }
   const leggi = async () => {
     const { data, error } = await sb.from('cantiere_imprese_previste')
       .select('id, cnce, cantiere_id, impresa_cf, impresa_nome, note, fonte').or(filtroPreviste(cnce, c.cantiere_id));
@@ -56,16 +80,41 @@ export async function collega(p) {
     const richiesta = p.impresa_id && !presente(p.impresa_id)
       ? `<button class="btn btn-primary btn-sm" id="ip-richiesta" style="margin-top:4px" data-aiuto="Mette l'impresa che ha fatto la richiesta fra le imprese previste di questo cantiere.">➕ ${esc(p.ragione_sociale || p.impresa_id)} (impresa della richiesta)</button>`
       : '';
+    const proposte = trovate.filter((x) => !(x.imp && presente(x.imp.impresa_id)));
+    const htmlModulo = proposte.length ? `<div style="margin-top:8px"><div class="hint">Scritte dall'impresa nel modulo:</div>${proposte.map((x, i) => `
+        <div style="display:flex;justify-content:space-between;gap:8px;padding:2px 0">
+          <span>${esc(x.voce.ragione_sociale || x.imp?.impresa_nome || '')} <span class="hint">${esc(x.voce.piva || '')}${x.voce.ruolo ? ' · ' + esc(x.voce.ruolo) : ''}</span></span>
+          ${x.imp ? `<button class="btn btn-ghost btn-sm" data-ip-mod="${i}">➕ Aggiungi</button>` : '<span class="hint">non in anagrafica: va creata fra le imprese</span>'}</div>`).join('')}</div>` : '';
+    const giaMail = (emailAnag || []).some((m) => String(m).toLowerCase() === emailModulo.toLowerCase());
+    const htmlMail = emailLetta && !giaMail ? `<div style="margin-top:8px" class="hint">E-mail scritta nel modulo: <strong>${esc(emailModulo)}</strong>${emailAnag.length ? ` (in anagrafica c'è già ${esc(emailAnag[0])})` : ` — in anagrafica l'impresa non ha un'e-mail, e senza il verbale non parte. <button class="btn btn-ghost btn-sm" id="ip-mail" data-aiuto="Scrive l'e-mail del modulo come e-mail di riferimento dell'impresa: solo perché il campo è vuoto, non sostituisce niente.">✉️ Mettila in anagrafica</button>`}</div>` : '';
     $('#ip-elenco').innerHTML = (uniche.length
       ? uniche.map((r) => `<div style="display:flex;justify-content:space-between;gap:8px;padding:3px 0;border-top:1px solid var(--bordo)">
           <span><strong>${esc(r.impresa_nome || r.impresa_cf)}</strong> <span class="hint">${esc(r.impresa_cf || '')} · ${r.fonte === 'segreteria' ? 'indicata dalla segreteria' : 'dalla Cassa Edile'}</span></span>
           ${r.fonte === 'segreteria' ? `<button class="btn btn-ghost btn-sm" data-ip-togli="${r.id}" data-aiuto="Toglie l'impresa dalle previste di questo cantiere. Non tocca l'anagrafica né i verbali.">✕</button>` : ''}</div>`).join('')
-      : '<p class="hint">Nessuna impresa prevista per ora.</p>') + richiesta;
+      : '<p class="hint">Nessuna impresa prevista per ora.</p>') + richiesta + htmlModulo + htmlMail;
+    $('#ip-elenco').querySelectorAll('[data-ip-mod]').forEach((b) => b.addEventListener('click', () => {
+      const x = proposte[Number(b.dataset.ipMod)];
+      aggiungi(b, { impresa_id: x.imp.impresa_id, impresa_nome: x.imp.impresa_nome }, x.voce.ruolo);
+    }));
+    $('#ip-mail')?.addEventListener('click', (ev) => mettiMail(ev.currentTarget));
     $('#ip-richiesta')?.addEventListener('click', (ev) => aggiungi(ev.currentTarget, { impresa_id: p.impresa_id, impresa_nome: p.ragione_sociale }));
     $('#ip-elenco').querySelectorAll('[data-ip-togli]').forEach((b) => b.addEventListener('click', () => togli(b, Number(b.dataset.ipTogli))));
   };
 
-  const aggiungi = async (btn, imp) => {
+  const mettiMail = async (btn) => {
+    attendi(btn, true);
+    /* solo se il campo è ancora vuoto: nessuno scrive sopra un indirizzo messo nel frattempo */
+    const { data, error } = await sb.from('imprese').update({ impresa_email_ref: emailModulo })
+      .eq('impresa_id', p.impresa_id).or('impresa_email_ref.is.null,impresa_email_ref.eq.').select('impresa_id');
+    attendi(btn, false);
+    if (error) { toast('E-mail non scritta: ' + error.message, 'err'); return; }
+    if (!(data || []).length) { toast('Nel frattempo l\'impresa ha già un\'e-mail in anagrafica: non l\'ho toccata.', 'err'); }
+    else toast('E-mail dell\'impresa scritta in anagrafica.', 'ok');
+    emailAnag = [emailModulo];
+    disegna();
+  };
+
+  const aggiungi = async (btn, imp, ruolo) => {
     if (presente(imp.impresa_id)) { toast('Questa impresa è già fra le previste.', 'ok'); return; }
     /* il nome si legge dall'anagrafica: quello del modulo può essere scritto in un altro modo */
     const { data: a, error: eA } = await sb.from('imprese').select('impresa_id, impresa_nome').eq('impresa_id', imp.impresa_id).maybeSingle();
@@ -74,7 +123,7 @@ export async function collega(p) {
     attendi(btn, true);
     const { error } = await sb.from('cantiere_imprese_previste').insert({
       cantiere_id: c.cantiere_id, impresa_cf: a.impresa_id, impresa_nome: a.impresa_nome, fonte: 'segreteria',
-      note: p.id ? `dalla richiesta n° ${p.id}` : null,
+      note: [p.id ? `dalla richiesta n° ${p.id}` : '', ruolo || ''].filter(Boolean).join(' · ') || null,
     });
     attendi(btn, false);
     if (error) { toast('Impresa non aggiunta: ' + error.message, 'err'); return; }

@@ -14,10 +14,20 @@
    ============================================================ */
 
 import { sb, state, $, esc, toast, attendi } from './core.js';
-import { comuneAnagrafica, testoRicerca, separaCivico, etichettaCantiere, sceltaDaSalvare } from './cantiere-incarico-regole.js';
+import { comuneAnagrafica, testoRicerca, separaCivico, etichettaCantiere, sceltaDaSalvare, schedaDaModulo, committenteDaModulo, metri } from './cantiere-incarico-regole.js';
 import * as Previste from './imprese-previste.js';
 
-const COLONNE = 'cantiere_id, cantiere_etichetta, cantiere_indirizzo, cantiere_civico, comune_nome, lotto, lotto_di, cantiere_cnce, cantiere_chiuso';
+const COLONNE = 'cantiere_id, cantiere_etichetta, cantiere_indirizzo, cantiere_civico, comune_nome, lotto, lotto_di, cantiere_cnce, cantiere_chiuso, lat, lng';
+const esc_ = (v) => esc(v == null ? '' : String(v));
+/* le voci come le legge una persona: le stesse del gestionale e del portale */
+const VOCI = {
+  int: { 1: 'Costruzione', 2: 'Ristrutturazione', 3: 'Demolizione', 4: 'Ampliamento' },
+  ope: { 1: 'Industriale', 2: 'Civile', 3: 'Commerciale', 4: 'Ospedaliera', 5: 'Stradale', 6: 'Rurale', 7: 'Funeraria', 8: 'Scolastica',
+    9: 'Ferroviaria', 10: 'Marittima', 11: 'Fluviale', 12: 'Sportiva', 13: 'Carceraria', 14: 'Campi eolici', 15: 'Fotovoltaica', 16: 'Altro' },
+  imp: { 1: 'fino a 250.000 €', 2: '250.001 – 500.000 €', 3: '500.001 – 1.000.000 €', 4: '1.000.001 – 1.500.000 €', 5: '1.500.001 – 2.500.000 €',
+    6: '2.500.001 – 3.500.000 €', 7: '3.500.001 – 5.000.000 €', 8: '5.000.001 – 10.000.000 €', 9: '10.000.001 – 15.000.000 €', 10: 'oltre 15.000.000 €' },
+};
+const dataIt = (d) => (d ? String(d).split('-').reverse().join('/') : '');
 
 /* il riquadro nella scheda della pratica */
 export function sezioneHtml() {
@@ -86,14 +96,31 @@ export async function collega(p, { tabella = 's_visite_richieste', dopo } = {}) 
     if (com) q = q.ilike('comune_nome', `%${com}%`);
     const { data, error } = await q.order('cantiere_indirizzo');
     if (error) { $('#ci-esiti').innerHTML = `<p style="color:#c0392b">Non sono riuscito a leggere l'anagrafica dei cantieri: ${esc(error.message)}</p>`; return; }
-    const righe = data || [];
+    /* (06/11/2026) il modulo può dire il codice CNCE e il punto sulla mappa: quei cantieri vengono prima,
+       perché sono il doppione più probabile anche quando l'indirizzo è scritto in un altro modo */
+    const prima = [];
+    if (modulo.cnce) {
+      const { data: dc, error: eC } = await sb.from('cantieri').select(COLONNE).ilike('cantiere_cnce', modulo.cnce).or('elimina.is.null,elimina.eq.0').limit(20);
+      if (eC) toast('Non sono riuscito a cercare il CNCE del modulo: ' + eC.message, 'err');
+      (dc || []).forEach((c) => prima.push({ ...c, _perche: 'stesso CNCE del modulo' }));
+    }
+    const lat = Number(modulo.lat), lng = Number(modulo.lng);
+    if (modulo.lat != null && isFinite(lat) && isFinite(lng)) {
+      const { data: dv, error: eV } = await sb.from('cantieri').select(COLONNE).or('elimina.is.null,elimina.eq.0')
+        .gte('lat', lat - 0.003).lte('lat', lat + 0.003).gte('lng', lng - 0.004).lte('lng', lng + 0.004).limit(30);
+      if (eV) toast('Non sono riuscito a cercare i cantieri vicini al punto del modulo: ' + eV.message, 'err');
+      (dv || []).map((c) => ({ ...c, _m: metri({ lat, lng }, { lat: c.lat, lng: c.lng }) })).filter((c) => c._m <= 300)
+        .sort((a, b) => a._m - b._m).forEach((c) => prima.push({ ...c, _perche: `a ${c._m} m dal punto del modulo` }));
+    }
+    const visti = new Set();
+    const righe = [...prima, ...(data || [])].filter((c) => (visti.has(c.cantiere_id) ? false : visti.add(c.cantiere_id)));
     $('#ci-esiti').innerHTML = (righe.length
       ? `<div class="hint" style="margin-bottom:4px">${righe.length === 40 ? 'Primi 40 risultati: restringi la ricerca se non lo vedi.' : `${righe.length} cantieri trovati.`}</div>`
         + righe.map((c) => `<label style="display:block;padding:3px 0;cursor:pointer">
             <input type="radio" name="ci-c" value="${esc(c.cantiere_id)}"> ${esc(etichettaCantiere(c))}
-            ${c.cantiere_cnce ? `<span class="hint">${esc(c.cantiere_cnce)}</span>` : ''}${c.cantiere_chiuso ? ' <span class="hint">(chiuso)</span>' : ''}</label>`).join('')
+            ${c.cantiere_cnce ? `<span class="hint">${esc(c.cantiere_cnce)}</span>` : ''}${c.cantiere_chiuso ? ' <span class="hint">(chiuso)</span>' : ''}${c._perche ? ` <strong style="color:#e7500f">— ${esc(c._perche)}</strong>` : ''}</label>`).join('')
       : '<p class="hint">Nessun cantiere trovato con questi dati.</p>')
-      + '<button class="btn btn-ghost btn-sm" id="ci-crea-apri" style="margin-top:6px" data-aiuto="Crea la scheda del cantiere con indirizzo, civico e comune: il resto lo completa il tecnico nel verbale.">➕ Non c\'è: crea la scheda</button>';
+      + '<button class="btn btn-ghost btn-sm" id="ci-crea-apri" style="margin-top:6px" data-aiuto="Crea la scheda del cantiere con indirizzo, civico e comune e, se la richiesta li porta, con i dati del cantiere e del committente scritti dall\'impresa: li vedi prima di salvare. Quello che manca lo completa il tecnico nel verbale.">➕ Non c\'è: crea la scheda</button>';
     $('#ci-esiti').querySelectorAll('input[name=ci-c]').forEach((r) => r.addEventListener('change', () => scegli(r.value)));
     $('#ci-crea-apri').addEventListener('click', formNuovo);
   };
@@ -157,13 +184,30 @@ export async function collega(p, { tabella = 's_visite_richieste', dopo } = {}) 
   };
 
   const formNuovo = () => {
-    const s = separaCivico(modulo.indirizzo);
+    const s = modulo.civico ? { indirizzo: String(modulo.indirizzo || '').trim().toUpperCase(), civico: String(modulo.civico).trim().toUpperCase() } : separaCivico(modulo.indirizzo);
+    const sm = schedaDaModulo(modulo);
+    const cm = committenteDaModulo(modulo.committente);
+    const riga = (l, v) => (v ? `<div><span class="hint" style="display:inline-block;min-width:150px">${l}</span> ${esc_(v)}</div>` : '');
+    const datiModulo = Object.keys(sm).length || cm ? `
+      <div style="margin-top:8px;padding:8px 10px;border-left:3px solid #e7500f;background:#fff7f0;border-radius:6px">
+        <label style="font-weight:600;cursor:pointer"><input type="checkbox" id="ci-n-modulo" checked> Usa i dati del cantiere scritti dall'impresa nel modulo</label>
+        <div class="hint" style="margin:2px 0 6px">Controllali: entrano nella scheda come sono. Quello che manca lo completa il tecnico nel verbale.</div>
+        ${riga('Descrizione', sm.cantiere_descrizione)}
+        ${riga('Tipo di intervento', VOCI.int[sm.cantiere_tip_int])}
+        ${riga('Tipo di opera', sm.cantiere_tip_ope ? VOCI.ope[sm.cantiere_tip_ope] + (sm.cantiere_tip_ope_altro ? ' — ' + sm.cantiere_tip_ope_altro : '') : '')}
+        ${riga('Inizio lavori', dataIt(sm.data_inizio_lavori))}
+        ${riga('Fine lavori prevista', dataIt(sm.data_ult))}
+        ${riga('Importo', VOCI.imp[sm.cantiere_importo])}
+        ${riga('Codice CNCE', sm.cantiere_cnce)}
+        ${riga('Posizione', sm.lat != null ? `${sm.lat.toFixed(5)}, ${sm.lng.toFixed(5)} (segnata dall'impresa sulla mappa)` : '')}
+        ${cm ? riga('Committente', [cm.riga.committente_nome, cm.riga.committente_tipo === 1 ? 'pubblico' : cm.riga.committente_tipo === 2 ? 'privato' : '', cm.chiave || 'senza codice fiscale: lo completa il tecnico'].filter(Boolean).join(' · ')) : ''}
+      </div>` : '';
     $('#ci-nuovo').innerHTML = `
       <div style="display:grid;grid-template-columns:2fr 1fr 1.5fr;gap:6px">
         <div class="field" style="margin:0"><label>Indirizzo *</label><input id="ci-n-ind" value="${esc(s.indirizzo)}"></div>
         <div class="field" style="margin:0"><label>Civico * (SNC se manca)</label><input id="ci-n-civ" value="${esc(s.civico)}"></div>
         <div class="field" style="margin:0"><label>Comune *</label><input id="ci-n-com" value="${esc(comuneAnagrafica(modulo.comune))}"></div>
-      </div>
+      </div>${datiModulo}
       <button class="btn btn-primary btn-sm" id="ci-n-salva" style="margin-top:6px">Crea la scheda e usala</button>`;
     $('#ci-n-salva').addEventListener('click', async (ev) => {
       const ind = $('#ci-n-ind').value.trim().toUpperCase();
@@ -184,10 +228,30 @@ export async function collega(p, { tabella = 's_visite_richieste', dopo } = {}) 
       const btn = ev.currentTarget;
       attendi(btn, true);
       const id = crypto.randomUUID();
-      const { error } = await sb.from('cantieri').insert({ cantiere_id: id, cantiere_indirizzo: ind, cantiere_civico: civ, comune_nome: com, elimina: 0 });
+      const usaModulo = !!$('#ci-n-modulo')?.checked;
+      const riga = { cantiere_id: id, cantiere_indirizzo: ind, cantiere_civico: civ, comune_nome: com, elimina: 0, ...(usaModulo ? schedaDaModulo(modulo) : {}) };
+      /* il committente: quello in anagrafica con lo stesso CF/P.IVA, altrimenti si crea; senza codice lo completa il tecnico */
+      let notaComm = '';
+      const cm = usaModulo ? committenteDaModulo(modulo.committente) : null;
+      if (cm && cm.chiave && cm.riga.committente_nome) {
+        const { data: ex, error: eEx } = await sb.from('committenti').select('committente_id, committente_nome, elimina')
+          .or(`committente_id.eq.${cm.chiave},cf_piva.eq.${cm.chiave}`).limit(3);
+        if (eEx) notaComm = ' Committente non collegato (non sono riuscito a leggere l\'anagrafica): lo completa il tecnico.';
+        else {
+          const buono = (ex || []).find((r) => !r.elimina) || null;
+          if (buono) { riga.cantiere_committente_id = buono.committente_id; notaComm = ` Committente: ${buono.committente_nome}, già in anagrafica.`; }
+          else if ((ex || []).length) notaComm = ' Il committente indicato è archiviato in anagrafica: non l\'ho collegato.';
+          else {
+            const { error: eN } = await sb.from('committenti').insert({ committente_id: cm.chiave, ...cm.riga, elimina: 0 });
+            if (eN) notaComm = ' Committente non creato (' + eN.message + '): lo completa il tecnico.';
+            else { riga.cantiere_committente_id = cm.chiave; notaComm = ` Committente ${cm.riga.committente_nome} creato in anagrafica.`; }
+          }
+        }
+      } else if (cm) notaComm = ' Il committente del modulo non ha codice fiscale o P.IVA: lo completa il tecnico.';
+      const { error } = await sb.from('cantieri').insert(riga);
       attendi(btn, false);
       if (error) { toast('Scheda non creata: ' + error.message, 'err'); return; }
-      toast('Scheda del cantiere creata: il tecnico la completa nel verbale.', 'ok');
+      toast((usaModulo ? 'Scheda del cantiere creata con i dati del modulo.' : 'Scheda del cantiere creata: il tecnico la completa nel verbale.') + notaComm, 'ok', 9000);
       $('#ci-nuovo').innerHTML = '';
       await scegli(id);
     });
