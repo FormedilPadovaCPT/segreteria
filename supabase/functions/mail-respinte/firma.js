@@ -367,9 +367,12 @@ export const codificaOggetto = (s) => /^[\x20-\x7e]*$/.test(s) ? s : `=?utf-8?B?
       «FORMEDIL PADOVA - Area…», «Formedil Padova - …») si riconoscono e si
       riscrivono: la regola sta qui, e nessun modulo deve ricordarsene ── */
 export const OGGETTO_UFFICIO = 'FORMEDIL Padova -AREA SICUREZZA E SALUTE-';
+/* (06/11/2026) il prefisso si toglie TUTTE le volte che c'è in testa, non una sola: send-protocollo mette
+   il suo davanti a un oggetto che può già averlo, e il Prot_26-27_0114 è uscito con il prefisso due volte. */
+const PREFISSO_UFFICIO = /^formedil\s+padova\b(\s*[-–—]\s*area\s+sicurezza\s+e\s+salute\b)?\s*[-–—]?\s*/i;
 export function oggettoUfficio(oggetto) {
-  const resto = String(oggetto ?? '').replace(/[\r\n]+/g, ' ').trim()
-    .replace(/^formedil\s+padova\b(\s*[-–—]\s*area\s+sicurezza\s+e\s+salute\b)?\s*[-–—]?\s*/i, '');
+  let resto = String(oggetto ?? '').replace(/[\r\n]+/g, ' ').trim();
+  while (PREFISSO_UFFICIO.test(resto)) resto = resto.replace(PREFISSO_UFFICIO, '');
   return resto ? `${OGGETTO_UFFICIO} ${resto}` : OGGETTO_UFFICIO;
 }
 

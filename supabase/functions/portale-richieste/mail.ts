@@ -529,9 +529,11 @@ const indirizzo = (t: string) => {
    (regola dell'utente, 14/09/2026): la stessa di firma.js, qui per le mail
    del portale */
 const OGGETTO_UFFICIO = 'FORMEDIL Padova -AREA SICUREZZA E SALUTE-'
+/* (06/11/2026) come oggettoUfficio di js/firma.js: il prefisso ripetuto si toglie tutte le volte */
+const PREFISSO_UFFICIO = /^formedil\s+padova\b(\s*[-–—]\s*area\s+sicurezza\s+e\s+salute\b)?\s*[-–—]?\s*/i
 export function oggettoUfficio(oggetto: string): string {
-  const resto = String(oggetto ?? '').replace(/[\r\n]+/g, ' ').trim()
-    .replace(/^formedil\s+padova\b(\s*[-–—]\s*area\s+sicurezza\s+e\s+salute\b)?\s*[-–—]?\s*/i, '')
+  let resto = String(oggetto ?? '').replace(/[\r\n]+/g, ' ').trim()
+  while (PREFISSO_UFFICIO.test(resto)) resto = resto.replace(PREFISSO_UFFICIO, '')
   return resto ? `${OGGETTO_UFFICIO} ${resto}` : OGGETTO_UFFICIO
 }
 
