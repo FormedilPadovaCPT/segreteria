@@ -266,6 +266,7 @@ window.AIUTO_TESTI = {
   'cm-materia': 'I numeri con cui la redazione lavora: visite, corsi, eventi del periodo.',
   'pd-al-coord': 'Manda il post al Coordinatore per il visto: dopo passa da solo al Direttore.',
   'pd-al-dir': 'Manda il post direttamente al Direttore, che lo approva nel gestionale.',
+  'pd-cal': 'Rimette in pari il promemoria del post nel calendario di cptpd@: lo crea, lo sposta o lo segna pubblicato.',
   'pd-ritira': 'Ritira il post da chi lo sta guardando e lo riporta in bozza, per correggerlo.',
   'pd-bozza': 'Riporta il post a bozza.',
   'pd-scarta': 'Scarta il post scrivendo il motivo: la redazione impara da qui.',

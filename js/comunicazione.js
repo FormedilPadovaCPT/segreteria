@@ -511,6 +511,12 @@ export async function apriPratica(id) {
         riempire, un convegno con le iscrizioni aperte. <b>Passata la data sparisce da sé</b> — non c'è niente da
         ricordarsi di togliere. Vale dal momento in cui la notizia viene pubblicata nell'app.</span>
     </div>
+    <div class="dt-doc-riga" style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <span>📅 <strong>Promemoria in calendario:</strong> ${p.calendario_esito
+        ? `${esc(p.calendario_esito)}${p.calendario_il ? ` <span class="hint">(${esc(dataIt(p.calendario_il.slice(0, 10)))})</span>` : ''}`
+        : `<span class="hint">quando il Direttore approva un post con la data «Da pubblicare il», compare da solo nel calendario di cptpd@ alle 9:30 di quel giorno, con la notifica; pubblicato, resta segnato «✅ Pubblicato».</span>`}</span>
+      ${['approvato', 'pubblicato'].includes(p.stato) ? '<button class="btn btn-ghost btn-sm" id="pd-cal" type="button">📅 Riallinea il calendario</button>' : ''}
+    </div>
     <p class="hint" style="margin:10px 0 0">Formattazione: ${esc(SEGNI_AMMESSI)}. Si mette coi pulsanti o con Ctrl+B / Ctrl+I / Ctrl+U / Ctrl+K. Telegram e app servizi la mostrano; LinkedIn e Instagram escono in testo semplice e i segni si tolgono da soli.</p>
     ${area('pd-telegram', '📋 Telegram (esce da qui col bot)', p.testo_telegram, 9, 'telegram')}
     ${area('pd-app', '🔔 App servizi — notizia estesa', p.testo_app, 8, 'app')}
@@ -611,6 +617,18 @@ export async function apriPratica(id) {
     toast(`Mandato ${chi}: lo trova nella pagina Comunicazione del gestionale.`, 'ok');
     await render(); apriPratica(id);
   };
+  /* il promemoria nel calendario lo mette da solo il database (trigger s_post_calendario → funzione calendario-post);
+     il pulsante serve se Google non ha risposto, o dopo aver cambiato la data a mano (06/11/2026) */
+  $('#pd-cal')?.addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
+    attendi(btn, true, 'Allineo…');
+    const { data, error } = await sb.functions.invoke('calendario-post', { body: { post_id: id } });
+    attendi(btn, false);
+    if (error || data?.error) return toast('Calendario: ' + await messaggioErrore(error, data), 'err');
+    const e = data?.esiti?.[0]?.esito || 'allineato';
+    toast('Calendario: ' + e, data?.ok ? 'ok' : 'err');
+    await render(); apriPratica(id);
+  });
   $('#pd-al-coord')?.addEventListener('click', (ev) => manda(ev.currentTarget, 'coordinatore'));
   $('#pd-al-dir')?.addEventListener('click', (ev) => manda(ev.currentTarget, 'direttore'));
   $('#pd-ritira')?.addEventListener('click', async (ev) => {
