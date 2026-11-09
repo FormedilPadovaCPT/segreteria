@@ -232,6 +232,11 @@ async function vaiA(vista) {
     mod.comunicazione = mod.comunicazione || await import('./comunicazione.js');
     return mod.comunicazione.render();
   }
+  if (vista === 'commissione') {
+    mostraVista('commissione');
+    mod.commissione = mod.commissione || await import('./commissione.js');
+    return mod.commissione.render();
+  }
   if (vista === 'nomine') {
     mostraVista('nomine');
     $('#nomine-host').innerHTML = '<p class="empty">Un istante…</p>';

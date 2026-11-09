@@ -146,6 +146,7 @@ export function mostraVista(nome) {
     corsi: '#view-corsi',
     persone: '#view-persone',
     nomine: '#view-nomine',
+    commissione: '#view-commissione',
     presenze: '#view-presenze',
     'fatture-tecnici': '#view-fatture-tecnici',
     amministrazione: '#view-amministrazione',

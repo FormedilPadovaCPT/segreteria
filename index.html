@@ -96,6 +96,7 @@ try {
       <button class="nav-item" data-view="corsi">📖 Corsi e formazione</button>
       <button class="nav-item" data-view="persone">👤 Persone</button>
       <button class="nav-item" data-view="nomine">📋 Nomine</button>
+      <button class="nav-item" data-view="commissione">🏛️ Commissione Sicurezza</button>
       <button class="nav-item" data-view="presenze">🕒 Presenze e ferie</button>
       <button class="nav-item" data-view="fatture-tecnici">💶 Incarichi e fatture tecnici</button>
       <button class="nav-item" data-view="amministrazione">🏦 Amministrazione — mandati</button>
@@ -278,6 +279,12 @@ try {
         <div id="nomine-host" class="condensa"></div>
       </section>
 
+      <!-- ── COMMISSIONE SICUREZZA (09/11/2026): gli accessi al gestionale seguono le nomine — commissione.js ── -->
+      <section id="view-commissione" class="view hidden">
+        <div class="view-head"><h2>Commissione Sicurezza — accessi al gestionale</h2></div>
+        <div id="commissione-host" class="condensa"></div>
+      </section>
+
       <!-- ── PRESENZE E FERIE ── -->
       <section id="view-presenze" class="view hidden">
         <div class="view-head"><h2>Presenze, banca ore e ferie</h2></div>
@@ -333,7 +340,7 @@ try {
    dopo una pubblicazione (vedi sw.js) */
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 </script>
-<script src="js/aiuto.js?v=23" defer></script>
+<script src="js/aiuto.js?v=24" defer></script>
 <script type="module" src="js/veste.js"></script>
 <script type="module" src="js/app.js"></script>
 </body>

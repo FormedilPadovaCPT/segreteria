@@ -19,7 +19,8 @@
 
 window.AIUTO_TESTI = {
   /* ── menu ── */
-  't:cruscotto': 'La pagina iniziale: che cosa aspetta una risposta, le scadenze vicine, la posta letta dall\'app e i moduli arrivati dal portale.',
+  't:commissione sicurezza': 'I membri della Commissione Sicurezza (le nomine attive) e i loro accessi al gestionale: chi non è mai entrato, a chi va creato o chiuso l\'accesso, il benvenuto protocollato.',
+  't:cruscotto':'La pagina iniziale: che cosa aspetta una risposta, le scadenze vicine, la posta letta dall\'app e i moduli arrivati dal portale.',
   't:registro protocollo': 'Il registro unico dell\'ente: cerca un numero, apri il documento su Drive, timbra, invia, inoltra. Un numero, un documento.',
   't:nuovo protocollo in': 'Registra un documento arrivato: prende il primo numero libero in entrata (dal 1° ottobre un contatore solo). Il file si collega o si carica su Drive.',
   't:nuovo protocollo out': 'Registra un documento che esce dall\'ufficio: prende il numero in uscita e prepara timbro e bozza mail. Si fa quando il documento è pronto per uscire.',
