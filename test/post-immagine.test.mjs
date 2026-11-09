@@ -28,6 +28,10 @@ test('la proposta dal post', () => {
   assert.equal(p3.modello, 'frase');
   assert.equal(p3.frase, 'Cambiano i requisiti dichiarabili');
   assert.equal(proposta({}).occhiello, 'Area Sicurezza e Salute');
+  const p4 = proposta({ titolo: 'Rassegna: crollo in cantiere, il CSE risponde solo se informato', pilastro: 'rassegna', gancio: 'Una sentenza' });
+  assert.equal(p4.occhiello, 'Rassegna');
+  assert.equal(p4.titolo, 'Crollo in cantiere, il CSE risponde solo se informato', 'il titolo non ripete l\'occhiello, e comincia con la maiuscola');
+  assert.equal(proposta({ titolo: 'Rassegnati a nulla', pilastro: 'rassegna' }).titolo, 'Rassegnati a nulla', 'solo la parola «Rassegna» seguita dai due punti');
   assert.ok(MODELLI.foto, 'c\'è il modello con la foto');
 });
 

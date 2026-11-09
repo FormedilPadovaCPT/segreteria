@@ -62,9 +62,12 @@ export function puntiDelTesto(testo) {
 /* la proposta a partire dal post: si può sempre correggere */
 export function proposta(p) {
   p = p || {};
-  const titolo = titoloPulito(p.titolo || '');
-  const gancio = senzaSegni(p.gancio || '');
   const occhiello = OCCHIELLI[p.pilastro] || 'Area Sicurezza e Salute';
+  /* «Rassegna: …» nel titolo ripete l'occhiello: si toglie (chiesto dall'utente il 09/11/2026) */
+  const t0 = titoloPulito(p.titolo || '');
+  const tr = t0.replace(/^rassegna\s*[:·\-–—]\s*/i, '');
+  const titolo = tr !== t0 ? tr.charAt(0).toUpperCase() + tr.slice(1) : t0;
+  const gancio = senzaSegni(p.gancio || '');
   const n = numeroInTesta(gancio);
   const punti = puntiDelTesto(p.testo_telegram || p.testo_app || '');
   const base = { occhiello, titolo, numero: '', didascalia: '', frase: '', punti: [], piede: 'Area Sicurezza e Salute' };
