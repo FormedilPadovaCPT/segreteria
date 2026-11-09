@@ -105,7 +105,7 @@ const NOTIZIE_URL_DEFAULT = 'https://qcvwrgjldbdoxcfdsvkq.supabase.co'
 /* invio a Telegram in HTML; se Telegram rifiuta la formattazione
    («can't parse entities») si ritenta col testo senza segni, invece di
    lasciare il post fermo: il messaggio esce, e la risposta lo dice */
-async function inviaTelegram(token: string, metodo: 'sendMessage' | 'sendPhoto', campi: Record<string, unknown>, testo: string, campoTesto: 'text' | 'caption') {
+async function inviaTelegram(token: string, metodo: 'sendMessage' | 'sendPhoto' | 'sendVideo', campi: Record<string, unknown>, testo: string, campoTesto: 'text' | 'caption') {
   const chiama = (payload: Record<string, unknown>) => fetch(`https://api.telegram.org/bot${token}/${metodo}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
   }).then(async (r) => ({ r, tg: await r.json().catch(() => ({})) as Record<string, any> }))
@@ -129,7 +129,27 @@ async function mandaSuTelegram(token: string, chat: string, post: Record<string,
   let tg: Record<string, any> = {}
   let formattazioneTolta = false
 
-  if (post.immagine_url && altre.length) {
+  if (post.video_file_url) {
+    /* 09/11/2026 - video breve caricato (MP4 temporaneo nel bucket social-video): esce come
+       video vero, col testo in didascalia come la foto. Le immagini del post restano per
+       l'app servizi; su Telegram, quando c'e' il video, esce il video. */
+    const vid = inDidascalia
+      ? await inviaTelegram(token, 'sendVideo', { chat_id: chat, video: post.video_file_url, supports_streaming: true }, testo, 'caption')
+      : await (async () => {
+          const r = await fetch(`https://api.telegram.org/bot${token}/sendVideo`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: chat, video: post.video_file_url, supports_streaming: true }),
+          })
+          return { r, tg: await r.json().catch(() => ({})) as Record<string, any>, formattazione_tolta: false }
+        })()
+    if (!vid.r.ok || !vid.tg.ok) return { formattazioneTolta, errore: 'Telegram (video): ' + (vid.tg.description || vid.r.status) }
+    tg = vid.tg; formattazioneTolta = vid.formattazione_tolta
+    if (!inDidascalia) {
+      const msg = await inviaTelegram(token, 'sendMessage', { chat_id: chat, disable_web_page_preview: true }, testo, 'text')
+      if (!msg.r.ok || !msg.tg.ok) return { formattazioneTolta, errore: 'Telegram (testo dopo il video): ' + (msg.tg.description || msg.r.status) }
+      tg = msg.tg; formattazioneTolta = msg.formattazione_tolta
+    }
+  } else if (post.immagine_url && altre.length) {
     /* carosello -> album; la didascalia sta sulla prima foto */
     const urls = [post.immagine_url, ...altre].slice(0, 10)
     const album = async (conFormato: boolean) => {
@@ -291,6 +311,42 @@ serve(async (req) => {
       return json({ ok: true, quante: tutte.length })
     }
 
+    /* ── video breve per Telegram (09/11/2026, scelta dell'utente «YouTube + Telegram») ──
+       Il MP4 si carica nel bucket social-video con un indirizzo firmato (il file non passa
+       da questa funzione: niente limite di dimensione del corpo), poi si registra sul post.
+       Serve SOLO per mandarlo al canale: dopo la pubblicazione si cancella, Telegram ne
+       tiene la sua copia. Per l'app servizi vale il link YouTube (video_url). ── */
+    if (op === 'video_carica') {
+      if (!['bozza', 'approvato', 'scartato'].includes(post.stato)) return json({ error: 'il video si carica solo su un post non ancora pubblicato' }, 400)
+      const path = `post-${id}/video-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.mp4`
+      const { data, error } = await admin.storage.from('social-video').createSignedUploadUrl(path)
+      if (error || !data) return json({ error: 'indirizzo di caricamento: ' + (error?.message || 'non creato') }, 502)
+      return json({ ok: true, path: data.path, token: data.token })
+    }
+    if (op === 'video_registra') {
+      const path = String(body.path || '')
+      if (!path.startsWith(`post-${id}/video-`) || !path.endsWith('.mp4')) return json({ error: 'percorso del video non valido' }, 400)
+      const cartella = `post-${id}`, nome = path.slice(cartella.length + 1)
+      const { data: lista, error: eL } = await admin.storage.from('social-video').list(cartella, { search: nome })
+      if (eL) return json({ error: 'non sono riuscito a leggere il video caricato: ' + eL.message }, 502)
+      const f = (lista || []).find((x) => x.name === nome)
+      if (!f) return json({ error: 'video non trovato: il caricamento non è arrivato' }, 404)
+      const peso = Number((f.metadata as Record<string, unknown> | null)?.size || 0)
+      if (peso > 20 * 1024 * 1024) {
+        await admin.storage.from('social-video').remove([path]).catch(() => null)
+        return json({ error: 'video oltre 20 MB: Telegram non lo accetta da un indirizzo' }, 400)
+      }
+      if (post.video_file_path && post.video_file_path !== path) await admin.storage.from('social-video').remove([post.video_file_path]).catch(() => null)
+      const { data: pub } = admin.storage.from('social-video').getPublicUrl(path)
+      await admin.from('s_post').update({ video_file_url: pub.publicUrl, video_file_path: path, aggiornato_da: email }).eq('id', id)
+      return json({ ok: true, video_file_url: pub.publicUrl, peso })
+    }
+    if (op === 'video_rimuovi') {
+      if (post.video_file_path) await admin.storage.from('social-video').remove([post.video_file_path]).catch(() => null)
+      await admin.from('s_post').update({ video_file_url: null, video_file_path: null, aggiornato_da: email }).eq('id', id)
+      return json({ ok: true })
+    }
+
     /* 18/09/2026 - I canali che il bot ha visto di recente: serve a trovare il
        chat_id del canale di prova senza cercarlo a mano. Telegram lo mostra solo
        se in quel canale e' stato scritto qualcosa da poco E il bot e' fra gli
@@ -323,7 +379,7 @@ serve(async (req) => {
       if (!chatProva) return json({ error: 'canale di prova non impostato: va scritto in s_config.telegram_canale_prova, e il bot deve esserne amministratore' }, 400)
       let testoP = String(body.testo || post.testo_telegram || '').trim()
       if (!testoP) return json({ error: 'testo Telegram vuoto' }, 400)
-      if (post.video_url && !testoP.includes(String(post.video_url))) testoP = testoP + '\n\n' + post.video_url
+      if (post.video_url && !post.video_file_url && !testoP.includes(String(post.video_url))) testoP = testoP + '\n\n' + post.video_url
       if (lunghezzaVisibile(testoP) > 4096) return json({ error: `testo Telegram troppo lungo: ${lunghezzaVisibile(testoP)} caratteri visibili, il limite è 4096` }, 400)
       const esitoP = await mandaSuTelegram(TOKEN, chatProva, post, testoP)
       if (esitoP.errore) {
@@ -356,7 +412,8 @@ serve(async (req) => {
       /* Il video non si carica da nessuna parte: si manda il LINK, che Telegram rende
          cliccabile e - quando non ci sono foto - apre anche l'anteprima. Se chi scrive
          l'ha gia' messo nel testo non si ripete. */
-      if (post.video_url && !testo.includes(String(post.video_url))) testo = testo + '\n\n' + post.video_url
+      /* col video caricato su Telegram esce il video vero: il link YouTube non si aggiunge */
+      if (post.video_url && !post.video_file_url && !testo.includes(String(post.video_url))) testo = testo + '\n\n' + post.video_url
       if (lunghezzaVisibile(testo) > 4096) return json({ error: `testo Telegram troppo lungo: ${lunghezzaVisibile(testo)} caratteri visibili, il limite è 4096` }, 400)
       /* con l'immagine di testa: foto col testo come didascalia (limite Telegram
          1024 caratteri VISIBILI, cioè senza i segni); se il testo è più lungo,
@@ -365,10 +422,17 @@ serve(async (req) => {
       if (esito.errore) return json({ error: esito.errore }, 502)
       const tg = esito.tg || {}
       const formattazioneTolta = esito.formattazioneTolta
-      canali.telegram = { message_id: tg.result?.message_id, chat: chat, at: new Date().toISOString(), da: email, ...(formattazioneTolta ? { formattazione_tolta: true } : {}) }
+      canali.telegram = { message_id: tg.result?.message_id, chat: chat, at: new Date().toISOString(), da: email, ...(formattazioneTolta ? { formattazione_tolta: true } : {}), ...(post.video_file_url ? { video: true } : {}) }
+      /* il MP4 temporaneo ha finito il suo lavoro: Telegram ne ha la sua copia. Si cancella. */
+      let videoTolto = false
+      if (post.video_file_path) {
+        const { error: eRm } = await admin.storage.from('social-video').remove([post.video_file_path])
+        videoTolto = !eRm
+      }
       await admin.from('s_post').update({
         canali_pubblicati: canali, stato: 'pubblicato', pubblicato_il: post.pubblicato_il || new Date().toISOString(),
         testo_telegram: testo, aggiornato_da: email,
+        ...(videoTolto ? { video_file_url: null, video_file_path: null } : {}),
       }).eq('id', id)
       return json({ ok: true, message_id: tg.result?.message_id, chat, formattazione_tolta: formattazioneTolta })
     }

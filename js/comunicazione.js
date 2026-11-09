@@ -498,8 +498,21 @@ export async function apriPratica(id) {
         <input type="url" id="pd-video" value="${esc(p.video_url || '')}" placeholder="https://www.youtube.com/watch?v=…" style="flex:1;min-width:280px">
         ${p.video_url ? `<a href="${esc(p.video_url)}" target="_blank" rel="noopener">apri</a>` : ''}
       </div>
-      <span class="hint">Il video <b>non si carica qui</b>: si mette sul canale dell'Area (@formedilpadova_areasicurezza) e si incolla il link. Nell'app servizi la notizia lo mostra con copertina e tasto play (il lettore parte solo al tocco, quindi nessun cookie prima); su Telegram esce il link nel testo. Si salva con «Salva le modifiche».</span>
+      <span class="hint">Il video <b>non si carica qui</b>: si mette sul canale dell'Area (@formedilpadova_areasicurezza) e si incolla il link. Nell'app servizi la notizia lo mostra con copertina e tasto play (il lettore parte solo al tocco, quindi nessun cookie prima); su Telegram esce il link nel testo, oppure il video vero se lo carichi qui sotto. Si salva con «Salva le modifiche».</span>
     </div>
+
+    ${['bozza', 'approvato', 'scartato'].includes(p.stato) || p.video_file_url ? `
+    <div class="dt-doc-riga" style="margin-top:8px">
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+        <strong>🎬 Video per Telegram (MP4):</strong>
+        ${p.video_file_url
+          ? `<span>caricato</span> <a href="${esc(p.video_file_url)}" target="_blank" rel="noopener">guarda</a>
+             <button class="btn btn-ghost btn-sm" id="pd-vid-togli" type="button" data-aiuto="Toglie il video dal post e cancella il file. Il link YouTube resta.">✕ Togli</button>`
+          : `<input type="file" id="pd-vid-file" accept="video/mp4" style="max-width:260px">
+             <button class="btn btn-ghost btn-sm" id="pd-vid-carica" type="button" data-aiuto="Carica il video MP4 (al massimo 20 MB): sul canale Telegram il post uscirà come video, col testo sotto. Non pubblica niente.">⬆ Carica il video</button>`}
+      </div>
+      <span class="hint">Il file serve <b>solo per Telegram</b>, dove il post esce come video vero, e <b>si cancella da solo dopo la pubblicazione</b> (Telegram ne tiene la sua copia): così non pesa sull'archivio dell'app. Per l'app servizi vale il link YouTube qui sopra. Verticale 1080×1920, al massimo 20 MB.</span>
+    </div>` : ''}
 
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:10px">
       <div class="field"><label>Pilastro</label><select id="pd-pilastro">${Object.entries(PILASTRI).map(([k, [i, n]]) => `<option value="${k}" ${k === p.pilastro ? 'selected' : ''}>${i} ${n}</option>`).join('')}</select></div>
@@ -564,7 +577,7 @@ export async function apriPratica(id) {
   /* mentre aspetta il Coordinatore o il Direttore il post non si cambia (il database lo rifiuterebbe) */
   if (attende) {
     $('#drawer-body').querySelectorAll('textarea, #pd-titolo, #pd-hashtag, #pd-video').forEach((el) => { el.readOnly = true; });
-    $('#drawer-body').querySelectorAll('#pd-pilastro, #pd-img-file, #pd-img-carica, .pd-img-togli, .fmt-barra button:not([data-fmt="anteprima"]), .fmt-barra select')
+    $('#drawer-body').querySelectorAll('#pd-pilastro, #pd-img-file, #pd-img-carica, .pd-img-togli, #pd-vid-file, #pd-vid-carica, #pd-vid-togli, .fmt-barra button:not([data-fmt="anteprima"]), .fmt-barra select')
       .forEach((el) => { el.disabled = true; });
   }
 
@@ -681,6 +694,38 @@ export async function apriPratica(id) {
       attendi(btn, false);
       toast('Immagine: ' + e.message, 'err');
     }
+  });
+  /* video breve per Telegram (09/11/2026): il file va direttamente nel bucket social-video
+     con un indirizzo firmato dato dalla funzione, poi si registra sul post. Dopo la
+     pubblicazione sul canale la funzione lo cancella. */
+  $('#pd-vid-carica')?.addEventListener('click', async (ev) => {
+    const file = ($('#pd-vid-file').files || [])[0];
+    if (!file) return toast('Scegli prima il file del video (MP4).', 'err');
+    if (file.type && file.type !== 'video/mp4') return toast('Il video deve essere un MP4.', 'err');
+    if (file.size > 20 * 1024 * 1024) return toast(`Video di ${(file.size / 1048576).toFixed(1)} MB: Telegram ne accetta al massimo 20.`, 'err');
+    const btn = ev.currentTarget;
+    attendi(btn, true, 'Carico…');
+    try {
+      const { data: d1, error: e1 } = await sb.functions.invoke('redazione-social', { body: { op: 'video_carica', id } });
+      if (e1 || d1?.error) throw new Error(await messaggioErrore(e1, d1));
+      const { error: eUp } = await sb.storage.from('social-video').uploadToSignedUrl(d1.path, d1.token, file, { contentType: 'video/mp4' });
+      if (eUp) throw new Error('caricamento: ' + eUp.message);
+      const { data: d2, error: e2 } = await sb.functions.invoke('redazione-social', { body: { op: 'video_registra', id, path: d1.path } });
+      if (e2 || d2?.error) throw new Error(await messaggioErrore(e2, d2));
+      toast('Video caricato: su Telegram il post uscirà come video.', 'ok');
+      await render(); apriPratica(id);
+    } catch (e) {
+      attendi(btn, false);
+      toast('Video: ' + e.message, 'err');
+    }
+  });
+  $('#pd-vid-togli')?.addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
+    attendi(btn, true);
+    const { data, error } = await sb.functions.invoke('redazione-social', { body: { op: 'video_rimuovi', id } });
+    if (error || data?.error) { attendi(btn, false); return toast('Video: ' + await messaggioErrore(error, data), 'err'); }
+    toast('Video tolto.', 'ok');
+    await render(); apriPratica(id);
   });
   document.querySelectorAll('.pd-img-togli').forEach((b) => b.addEventListener('click', async (ev) => {
     const btn = ev.currentTarget;
