@@ -15,10 +15,27 @@
    ============================================================ */
 
 import { sb, $, esc, toast, attendi } from './core.js';
-import { LARGHEZZA as W, ALTEZZA as H, MODELLI, proposta, aCapo } from './post-immagine.js';
+import { LARGHEZZA as W, ALTEZZA as H, MODELLI, COLORI, proposta, aCapo } from './post-immagine.js';
 
 const F = 'Barlow, Arial, sans-serif';
-const C = { arancio: '#e7500f', grigio: '#565c66', verde: '#6cd220', bianco: '#ffffff' };
+const C = { arancio: '#e7500f', grigio: '#565c66', verde: '#6cd220', verdeEnte: '#95c22f', grigioChiaro: '#d7dade', bianco: '#ffffff' };
+/* il colore del pilastro (approvato dall'utente il 09/11/2026): arancio = dal cantiere, grigio = normativa,
+   verde = servizi e formazione. Cambiano il pannello del modello A e l'etichetta di B e C; fascia arancione e
+   logo restano uguali. Sul verde il testo corrente è grigio (il bianco fa 2,1:1); titolo grande, numero e logo bianchi. */
+const SCHEMI = {
+  arancio: { fondo: C.arancio, testo: C.bianco, grande: C.bianco, secondo: C.grigio, filetto: C.grigio },
+  grigio: { fondo: C.grigio, testo: C.bianco, grande: C.bianco, secondo: C.grigioChiaro, filetto: C.arancio },
+  verde: { fondo: C.verdeEnte, testo: C.grigio, grande: C.bianco, secondo: C.grigio, filetto: C.arancio },
+};
+const schema = (c) => SCHEMI[c.colore] || SCHEMI.arancio;
+/* l'etichetta: nel rettangolo del colore del pilastro; senza colore (rassegna, avvisi) in verde accento */
+function etichetta(ctx, testo, x, y, colore) {
+  const t = (testo || '').toUpperCase(); ctx.font = `600 30px ${F}`;
+  const sc = SCHEMI[colore];
+  if (!sc) { ctx.fillStyle = C.verde; ctx.fillText(t, x, y); return; }
+  ctx.fillStyle = sc.fondo; ctx.fillRect(x, y - 34, ctx.measureText(t).width + 32, 48);
+  ctx.fillStyle = sc.testo; ctx.fillText(t, x + 16, y);
+}
 const M = 64, FX = 540;
 
 const carica = (src) => new Promise((ok, ko) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => ko(new Error('immagine non leggibile')); i.src = src; });
@@ -70,28 +87,29 @@ function fasciaArancio(ctx, testo) {
 
 /* A: fondo arancione a sinistra, foto a destra, testo bianco */
 function disegnaA(ctx, c, r) {
-  ctx.fillStyle = C.arancio; ctx.fillRect(0, 0, W, H);
+  const s = schema(c);
+  ctx.fillStyle = s.fondo; ctx.fillRect(0, 0, W, H);
   riquadro(ctx, r.foto, FX, 0, W - FX, H, c.fuoco);
-  ctx.fillStyle = C.grigio; ctx.fillRect(FX - 10, 0, 10, H);
+  ctx.fillStyle = s.filetto; ctx.fillRect(FX - 10, 0, 10, H);
   logo(ctx, r.neg, M, 64, 74);
   const larg = FX - 10 - M - 30;
   let y = 210;
-  if (c.etichetta) { ctx.font = `600 28px ${F}`; ctx.fillStyle = C.grigio; ctx.fillText(c.etichetta.toUpperCase(), M, y); y += 40; }
+  if (c.etichetta) { ctx.font = `600 28px ${F}`; ctx.fillStyle = s.secondo; ctx.fillText(c.etichetta.toUpperCase(), M, y); y += 40; }
   if (c.numero) {
     let px = 260; ctx.font = `800 ${px}px ${F}`;
     while (ctx.measureText(c.numero).width > larg && px > 120) { px -= 10; ctx.font = `800 ${px}px ${F}`; }
-    ctx.fillStyle = C.bianco; ctx.fillText(c.numero, M - 6, y + px * 0.74); y += px * 0.74 + 20;
-    if (c.didascalia) y = scrivi(ctx, righe(ctx, c.didascalia, `700 46px ${F}`, larg, 2), M, y + 46, 52, C.grigio) + 4;
+    ctx.fillStyle = s.grande; ctx.fillText(c.numero, M - 6, y + px * 0.74); y += px * 0.74 + 20;
+    if (c.didascalia) y = scrivi(ctx, righe(ctx, c.didascalia, `700 46px ${F}`, larg, 2), M, y + 46, 52, s.secondo) + 4;
   }
   const lungo = (c.titolo || '').length > 34 || c.numero;
-  y = scrivi(ctx, righe(ctx, c.titolo, `${lungo ? 600 : 700} ${lungo ? 46 : 68}px ${F}`, larg, 5), M, y + (lungo ? 56 : 72), lungo ? 56 : 74, C.bianco);
-  if (c.frase) y = scrivi(ctx, righe(ctx, c.frase, `500 31px ${F}`, larg, 4), M, y + 28, 40, C.bianco);
+  y = scrivi(ctx, righe(ctx, c.titolo, `${lungo ? 600 : 700} ${lungo ? 46 : 68}px ${F}`, larg, 5), M, y + (lungo ? 56 : 72), lungo ? 56 : 74, lungo ? s.testo : s.grande);
+  if (c.frase) y = scrivi(ctx, righe(ctx, c.frase, `500 31px ${F}`, larg, 4), M, y + 28, 40, s.testo);
   for (const p of (c.punti || []).slice(0, 3)) {
     if (y > H - 170) break;
-    ctx.font = `700 34px ${F}`; ctx.fillStyle = C.bianco; ctx.fillText('»', M, y + 40);
-    y = scrivi(ctx, righe(ctx, p, `500 31px ${F}`, larg - 32, 2), M + 32, y + 40, 40, C.bianco) - 28;
+    ctx.font = `700 34px ${F}`; ctx.fillStyle = s.testo; ctx.fillText('»', M, y + 40);
+    y = scrivi(ctx, righe(ctx, p, `500 31px ${F}`, larg - 32, 2), M + 32, y + 40, 40, s.testo) - 28;
   }
-  if (c.nota) { ctx.font = `400 24px ${F}`; ctx.fillStyle = C.bianco; ctx.fillText(c.nota, M, H - 56); }
+  if (c.nota) { ctx.font = `400 24px ${F}`; ctx.fillStyle = s.testo; ctx.fillText(c.nota, M, H - 56); }
 }
 
 /* B: foto a tutto campo, velatura scura, fascia arancione con » */
@@ -112,7 +130,7 @@ function disegnaB(ctx, c, r) {
     if (c.didascalia) { const w = ctx.measureText(c.numero).width; ctx.font = `700 64px ${F}`; ctx.fillText(c.didascalia.toUpperCase(), M + w + 24, base + 10); }
     base -= 175;
   }
-  if (c.etichetta) { ctx.font = `600 30px ${F}`; ctx.fillStyle = C.verde; ctx.fillText(c.etichetta.toUpperCase(), M, base); }
+  if (c.etichetta) etichetta(ctx, c.etichetta, M, base, c.colore);
   fasciaArancio(ctx, c.fascia);
 }
 
@@ -132,7 +150,7 @@ function disegnaC(ctx, c, r) {
     const rt = righe(ctx, (c.titolo || '').toUpperCase(), `700 80px ${F}`, larg, 3);
     top = y - rt.length * 82 - 20; scrivi(ctx, rt, M, top + 70, 82, C.bianco);
   }
-  if (c.etichetta) { ctx.font = `600 30px ${F}`; ctx.fillStyle = C.verde; ctx.fillText(c.etichetta.toUpperCase(), M, top - 20); }
+  if (c.etichetta) etichetta(ctx, c.etichetta, M, top - 20, c.colore);
   if (c.nota) { ctx.font = `400 22px ${F}`; ctx.fillStyle = C.bianco; ctx.textAlign = 'right'; ctx.fillText(c.nota, W - M, H - 40); ctx.textAlign = 'left'; }
 }
 
@@ -180,6 +198,7 @@ export function htmlGrafica(p, quanteImmagini) {
             <div class="field"><label>Modello</label><select id="pg-modello">${Object.entries(MODELLI).map(([k, v]) => `<option value="${k}" ${c.modello === k ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select></div>
             <div class="field" id="pg-c-foto"><label>Foto</label><select id="pg-foto"><option value="">(caricamento…)</option></select></div>
           </div>
+          <div class="field" id="pg-c-colore"><label>Colore del pilastro</label><select id="pg-colore">${Object.entries(COLORI).map(([k, v]) => `<option value="${k}" ${c.colore === k ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select></div>
           <div class="field" id="pg-c-file"><label>Oppure una foto dal computer</label><input id="pg-file" type="file" accept="image/jpeg,image/png,image/webp">
             <span class="hint">Mai cantieri o persone riconoscibili senza liberatoria.</span></div>
           <div class="field" id="pg-c-fuoco"><label>Inquadratura della foto</label><input id="pg-fuoco" type="range" min="0" max="100" value="${esc(c.fuoco)}"></div>
@@ -213,7 +232,7 @@ export function collegaGrafica(host, p, dopo) {
     modello: v('modello'), etichetta: v('etichetta').trim(), numero: v('numero').trim(), didascalia: v('didascalia').trim(),
     titolo: v('titolo').replace(/\s+/g, ' ').trim(), frase: v('frase').replace(/\s+/g, ' ').trim(),
     punti: v('punti').split('\n').map((r) => r.trim()).filter(Boolean),
-    fascia: v('fascia').trim(), nota: v('nota').trim(), fuoco: Number(v('fuoco')),
+    fascia: v('fascia').trim(), nota: v('nota').trim(), fuoco: Number(v('fuoco')), colore: v('colore'),
   });
   const fotoScelta = async () => {
     if (v('modello') === 'T') return null;
@@ -225,7 +244,7 @@ export function collegaGrafica(host, p, dopo) {
     const m = v('modello');
     const vedi = (id, si) => { const el = $('#pg-c-' + id, host); if (el) el.style.display = si ? '' : 'none'; };
     vedi('foto', m !== 'T'); vedi('file', m !== 'T'); vedi('fuoco', m !== 'T');
-    vedi('punti', m === 'A'); vedi('fascia', m === 'B' || m === 'T'); vedi('nota', m === 'A' || m === 'C');
+    vedi('punti', m === 'A'); vedi('colore', m !== 'T'); vedi('fascia', m === 'B' || m === 'T'); vedi('nota', m === 'A' || m === 'C');
   };
   const ridisegna = () => { clearTimeout(timer); timer = setTimeout(async () => { try { await disegna(tela, leggi(), await fotoScelta()); } catch (e) { toast('Immagine: ' + e.message, 'err'); } }, 120); };
   const riempi = (scelta) => {
@@ -233,12 +252,13 @@ export function collegaGrafica(host, p, dopo) {
       + `<option value="__file" ${scelta === '__file' ? 'selected' : ''}>La foto caricata dal computer</option>`;
   };
   const applica = (c) => {
-    for (const k of ['modello', 'etichetta', 'numero', 'didascalia', 'titolo', 'frase', 'fascia', 'nota', 'fuoco']) $('#pg-' + k, host).value = c[k] ?? '';
+    for (const k of ['modello', 'colore', 'etichetta', 'numero', 'didascalia', 'titolo', 'frase', 'fascia', 'nota', 'fuoco']) $('#pg-' + k, host).value = c[k] ?? '';
     $('#pg-punti', host).value = (c.punti || []).join('\n');
     riempi(c.foto); mostraCampi(); ridisegna();
   };
   box.addEventListener('input', (ev) => { if (ev.target.id !== 'pg-file') ridisegna(); });
   $('#pg-modello', host).addEventListener('change', () => { mostraCampi(); ridisegna(); });
+  $('#pg-colore', host).addEventListener('change', ridisegna);
   sel.addEventListener('change', ridisegna);
   $('#pg-file', host).addEventListener('change', (ev) => {
     const file = ev.target.files && ev.target.files[0]; if (!file) return;

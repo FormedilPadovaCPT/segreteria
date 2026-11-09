@@ -23,6 +23,15 @@ export const MODELLI = {
   T: 'Solo testo su bianco',
 };
 
+/* il colore del pilastro (approvato dall'utente il 09/11/2026) */
+export const COLORI = {
+  arancio: 'Arancio · dal cantiere',
+  grigio: 'Grigio · normativa',
+  verde: 'Verde · servizi e formazione',
+  neutro: 'Senza colore (rassegna, avvisi)',
+};
+const COLORE_DEL_PILASTRO = { cantiere: 'arancio', normativa: 'grigio', servizi: 'verde', formazione: 'verde' };
+
 const ETICHETTE = {
   cantiere: 'Dal cantiere', normativa: 'Normativa e scadenze', servizi: 'Servizi per le imprese',
   formazione: 'Formazione', rassegna: 'Rassegna', avviso: 'Avviso',
@@ -124,6 +133,9 @@ export function leggiSuggerita(testo) {
 /* la foto dell'archivio che meglio risponde alle parole della grafica suggerita */
 export function sceltaFoto(archivio, testo, pilastro) {
   const t = String(testo || '').toLowerCase();
+  /* la redazione scrive il nome della foto dell'archivio (linee della redazione del 09/11/2026): vince quello */
+  const perNome = (archivio || []).find((f) => f.nome && t.includes(f.nome));
+  if (perNome) return perNome.nome;
   let meglio = null, punti = 0;
   for (const f of archivio || []) {
     const s = (f.parole || []).reduce((n, w) => n + (t.includes(w) ? w.length : 0), 0);
@@ -150,6 +162,7 @@ export function proposta(p, archivio = []) {
   const frase = s.sottotitolo || (n ? n.resto : (gancio && gancio !== titolo ? gancio : ''));
   return {
     modello,
+    colore: COLORE_DEL_PILASTRO[p.pilastro] || 'neutro',
     etichetta,
     numero: s.numero || (n ? n.numero : ''),
     didascalia: s.numero ? s.didascalia : (n ? n.didascalia : ''),

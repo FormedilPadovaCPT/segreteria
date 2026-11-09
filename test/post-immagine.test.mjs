@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { proposta, leggiSuggerita, sceltaFoto, numeroInTesta, puntiDelTesto, titoloPulito, senzaSegni, aCapo, MODELLI, LARGHEZZA, ALTEZZA } from '../js/post-immagine.js';
+import { proposta, leggiSuggerita, sceltaFoto, numeroInTesta, puntiDelTesto, titoloPulito, senzaSegni, aCapo, MODELLI, COLORI, LARGHEZZA, ALTEZZA } from '../js/post-immagine.js';
 
 const ARCHIVIO = [
   { nome: 'istruttore-planimetria', parole: ['planimetria', 'istruttore'] },
@@ -50,6 +50,7 @@ test('la foto si sceglie dalle parole della grafica suggerita, poi dal pilastro'
   assert.equal(sceltaFoto(ARCHIVIO, 'Foto: armadietti con attrezzi e imbracature', 'cantiere'), 'armadietti-imbracature');
   assert.equal(sceltaFoto(ARCHIVIO, '', 'cantiere'), 'allievi-cantiere-scuola');
   assert.equal(sceltaFoto([], 'qualunque', 'cantiere'), '');
+  assert.equal(sceltaFoto(ARCHIVIO, 'Foto: allievi-cantiere-scuola, con un istruttore e la planimetria', 'servizi'), 'allievi-cantiere-scuola', 'il nome della foto scritto dalla redazione vince sulle parole');
 });
 
 test('la proposta dal post', () => {
@@ -72,6 +73,17 @@ test('la proposta dal post', () => {
   const p4 = proposta({ titolo: 'DM 132', pilastro: 'servizi', immagine_suggerita: 'Testo «CREDITI AGGIUNTIVI»; niente foto.' }, ARCHIVIO);
   assert.equal(p4.modello, 'T'); assert.equal(p4.foto, ''); assert.equal(p4.titolo, 'CREDITI AGGIUNTIVI');
   assert.equal(proposta({}).etichetta, 'Area Sicurezza e Salute');
+});
+
+test('il colore dice il pilastro: arancio cantiere, grigio normativa, verde servizi e formazione', () => {
+  assert.deepEqual(Object.keys(COLORI), ['arancio', 'grigio', 'verde', 'neutro']);
+  assert.equal(proposta({ pilastro: 'cantiere' }).colore, 'arancio');
+  assert.equal(proposta({ pilastro: 'normativa' }).colore, 'grigio');
+  assert.equal(proposta({ pilastro: 'servizi' }).colore, 'verde');
+  assert.equal(proposta({ pilastro: 'formazione' }).colore, 'verde');
+  assert.equal(proposta({ pilastro: 'rassegna' }).colore, 'neutro');
+  const gr = readFileSync(new URL('../js/post-grafica.js', import.meta.url), 'utf8');
+  assert.match(gr, /verde: \{ fondo: C\.verdeEnte, testo: C\.grigio, grande: C\.bianco/, 'sul verde il testo corrente è grigio: il bianco fa 2,1:1');
 });
 
 test('pulizia dei segni e a capo', () => {
