@@ -36,6 +36,7 @@
 
 import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer } from './core.js';
 import { scaricaEml } from './eml.js';
+import { htmlGrafica, collegaGrafica } from './post-grafica.js';
 import { postInTelegramHtml, postInHtmlNotizia, postInTestoSemplice, postPerIncollaTelegram, lunghezzaVisibile, SEGNI_AMMESSI } from './post-formato.js';
 
 let post = [];
@@ -489,6 +490,7 @@ export async function apriPratica(id) {
       </div>
       <span class="hint">La prima è la <b>copertina</b>, le altre fanno il <b>carosello</b>: nell'app servizi si scorrono, su Telegram escono come album (didascalia sulla prima, max 1024 caratteri). Le immagini si rimpiccioliscono da sole. Foto dell'ente o d'archivio, mai cantieri o persone riconoscibili.</span>
     </div>
+    ${htmlGrafica(p, immagini(p).length)}
 
     <div class="dt-doc-riga" style="margin-top:8px">
       <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
@@ -558,6 +560,7 @@ export async function apriPratica(id) {
 
   $('#drawer').classList.add('drawer-xl');
   collegaFormato($('#drawer-body'), { immagineUrl: p.immagine_url });
+  collegaGrafica($('#drawer-body'), p, async () => { await render(); apriPratica(id); });
   /* mentre aspetta il Coordinatore o il Direttore il post non si cambia (il database lo rifiuterebbe) */
   if (attende) {
     $('#drawer-body').querySelectorAll('textarea, #pd-titolo, #pd-hashtag, #pd-video').forEach((el) => { el.readOnly = true; });
