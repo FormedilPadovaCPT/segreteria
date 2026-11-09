@@ -91,9 +91,9 @@ function disegnaA(ctx, c, r) {
   ctx.fillStyle = s.fondo; ctx.fillRect(0, 0, W, H);
   riquadro(ctx, r.foto, FX, 0, W - FX, H, c.fuoco);
   ctx.fillStyle = s.filetto; ctx.fillRect(FX - 10, 0, 10, H);
-  logo(ctx, r.neg, M, 64, 74);
+  logo(ctx, r.neg, M, 60, 140);   // logo doppio: a 74 px sul telefono non si leggeva (utente, 09/11/2026)
   const larg = FX - 10 - M - 30;
-  let y = 210;
+  let y = 262;
   if (c.etichetta) { ctx.font = `600 28px ${F}`; ctx.fillStyle = s.secondo; ctx.fillText(c.etichetta.toUpperCase(), M, y); y += 40; }
   if (c.numero) {
     let px = 260; ctx.font = `800 ${px}px ${F}`;
@@ -116,7 +116,7 @@ function disegnaA(ctx, c, r) {
 function disegnaB(ctx, c, r) {
   riquadro(ctx, r.foto, 0, 0, W, H, c.fuoco);
   velatura(ctx, 0.30, 0.82, 0.15);
-  logo(ctx, r.neg, M, 60, 74);
+  logo(ctx, r.neg, M, 60, 140);
   const larg = W - 2 * M;
   const rt = righe(ctx, (c.titolo || '').toUpperCase(), `700 84px ${F}`, larg, 3);
   const rf = c.frase ? righe(ctx, c.frase, `600 38px ${F}`, larg, 3) : [];
@@ -138,7 +138,7 @@ function disegnaB(ctx, c, r) {
 function disegnaC(ctx, c, r) {
   riquadro(ctx, r.foto, 0, 0, W, H, c.fuoco);
   velatura(ctx, 0.30, 0.84, 0.30);
-  logo(ctx, r.neg, M, 60, 64);
+  logo(ctx, r.neg, M, 60, 128);
   const larg = W - 2 * M;
   const rf = c.frase ? righe(ctx, c.frase, `600 40px ${F}`, larg, 3) : [];
   let y = H - 90 - rf.length * 50;
@@ -158,9 +158,9 @@ function disegnaC(ctx, c, r) {
 function disegnaT(ctx, c, r) {
   ctx.fillStyle = C.bianco; ctx.fillRect(0, 0, W, H);
   ctx.fillStyle = C.arancio; ctx.fillRect(0, 0, W, 14);
-  logo(ctx, r.pos, M, 70, 84);
+  logo(ctx, r.pos, M, 64, 150);
   const larg = W - 2 * M;
-  let y = 320;
+  let y = 350;
   if (c.etichetta) { ctx.font = `600 30px ${F}`; ctx.fillStyle = C.grigio; ctx.fillText(c.etichetta.toUpperCase(), M, y); y += 30; }
   if (c.numero) { ctx.font = `800 220px ${F}`; ctx.fillStyle = C.arancio; ctx.fillText(c.numero, M - 6, y + 180); y += 200; }
   y = scrivi(ctx, righe(ctx, (c.titolo || '').toUpperCase(), `800 120px ${F}`, larg, 3), M, y + 110, 122, C.arancio);
