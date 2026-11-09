@@ -24,10 +24,10 @@ IC = "Immagini_cantiere\\"
 # nome, sorgente, descrizione, parole chiave (minuscole) per la scelta automatica, fonte
 ARCHIVIO = [
     ("istruttore-planimetria", ST + "DSCF0041.jpg", "Istruttore che illustra una planimetria", ["planimetria", "istruttore", "progetto", "pos", "formazione"], "Tagliani, Stanghella 29/05/2025"),
-    ("istruttore-indica-lavoro", ST + "DSCF9915.jpg", "Istruttore che indica il lavoro agli allievi", ["istruttore", "allievi", "indica", "conferenza"], "Tagliani, Stanghella 29/05/2025"),
-    ("istruttore-livella", ST + "DSCF9946.jpg", "Istruttore con la livella", ["livella", "istruttore", "verifica"], "Tagliani, Stanghella 29/05/2025"),
+    ("istruttore-indica-lavoro", ST + "DSCF9915.jpg", "Istruttore che indica il lavoro agli allievi", ["istruttore", "allievi", "indica", "conferenza", "tecnico risponde", "domanda"], "Tagliani, Stanghella 29/05/2025"),
+    ("istruttore-livella", ST + "DSCF9946.jpg", "Istruttore con la livella", ["livella", "istruttore", "verifica", "crediti", "patente", "recupero"], "Tagliani, Stanghella 29/05/2025"),
     ("lavoratori-di-spalle", ST + "DSCF0025.jpg", "Lavoratori di spalle col casco", ["lavoratori", "rlst", "rls", "spalle"], "Tagliani, Stanghella 29/05/2025"),
-    ("escavatore", ST + "DSCF0013.jpg", "Escavatore del cantiere scuola", ["escavatore", "scavo", "macchine"], "Tagliani, Stanghella 29/05/2025"),
+    ("escavatore", ST + "DSCF0013.jpg", "Escavatore del cantiere scuola", ["escavatore", "scavo", "macchine", "controlli", "ispettorato", "squadra"], "Tagliani, Stanghella 29/05/2025"),
     ("armadietti-imbracature", PD + "DSCF0702.jpg", "Armadietti con attrezzi e imbracature", ["armadietti", "imbracature", "attrezzi", "dpi", "smerigliatrice", "anticaduta"], "Tagliani, Padova 05/06/2025"),
     ("allievi-cantiere-scuola", PD + "DSCF0698.jpg", "Allievi al lavoro nel cantiere scuola", ["allievi", "cantiere-scuola", "cantiere scuola", "postura"], "Tagliani, Padova 05/06/2025"),
     ("allievo-carriola", PD + "DSCF0690.jpg", "Allievo con la carriola nel cantiere scuola", ["carriola", "movimentazione", "carichi"], "Tagliani, Padova 05/06/2025"),
@@ -35,14 +35,16 @@ ARCHIVIO = [
     ("galleria-controluce", DS + "4631c.jpg", "Operai in galleria, controluce (bianco e nero)", ["nero", "lavoro nero", "galleria", "ombra"], "De Sandre 2009"),
     ("trave-alla-gru", DS + "5007cc.jpg", "Trave sollevata dalla gru, operaio che la guida (bianco e nero)", ["gru", "trave", "sollevamento", "coordinatore", "cse"], "De Sandre 2009"),
     ("muratore-filo", DS + "4388.jpg", "Muratore col filo a piombo (bianco e nero)", ["muratore", "filo", "piombo", "muratura"], "De Sandre 2009"),
-    ("mani-casco", DS + "5251.jpg", "Mani che reggono il casco (bianco e nero)", ["mani", "casco", "dpi"], "De Sandre 2009"),
+    ("mani-casco", DS + "5251.jpg", "Mani che reggono il casco (bianco e nero)", ["mani", "casco", "dpi", "sopralluogo", "visita"], "De Sandre 2009"),
     ("rete-alla-gru", DS + "5289.jpg", "Rete elettrosaldata appesa alla gru (bianco e nero)", ["rete", "gru", "carico sospeso"], "De Sandre 2009"),
     ("edificio-ponteggio", IC + "IMG_edificio-con-ponteggio.jpg", "Edificio col ponteggio", ["ponteggio", "facciata", "edificio", "notifica", "cantiere"], "Immagini_cantiere (archivio)"),
-    ("mani-progetto-casco", IC + "IMG_mani-su-progetto-con-casco.jpg", "Mani sul progetto e casco giallo", ["progetto", "crediti", "patente", "recupero"], "Immagini_cantiere (archivio)"),
-    ("due-operai-progetto", IC + "IMG_due-operai-con-progetto.jpg", "Due operai che guardano un progetto", ["tecnico risponde", "domanda", "progetto"], "Immagini_cantiere (archivio)"),
-    ("cantiere-squadra-ai", IC + "IMG_immagine-AI-marzo-2026-1.png", "Squadra col casco davanti a uno scavo (immagine AI)", ["controlli", "ispettorato", "squadra", "scavo"], "immagine AI, marzo 2026"),
-    ("casco-sul-cantiere-ai", IC + "IMG_immagine-AI-casco-su-cantiere.png", "Casco e planimetria su un banco, cantiere sullo sfondo (immagine AI)", ["sopralluogo", "visita", "casco"], "immagine AI"),
 ]
+# Tolte il 09/11/2026 perché troppo piccole (sgranavano sul post 1080×1080, osservazione
+# dell'utente): Immagini_cantiere «mani-su-progetto-con-casco» (853 px), «due-operai-con-progetto»
+# (800 px), le immagini AI «marzo-2026-1» (576 px) e «casco-su-cantiere» (768 px).
+# Regola: il lato corto della foto originale deve essere almeno LATO_MINIMO.
+LATO_MINIMO = 1080
+LATO_ARCHIVIO = 1200   # lato corto delle copie nell'app: basta per 1080 senza ingrandire
 
 def tecnico_col_logo_nuovo(im):
     sys.path.insert(0, r"C:\Google Drive Gsuite\5_MEDIA\PUBBLICAZIONI\2026_11_Patente-a-crediti-nuovi-requisiti")
@@ -57,7 +59,11 @@ def main():
         im = ImageOps.exif_transpose(Image.open(os.path.join(FOTO, src))).convert("RGB")
         if nome == "tecnico-casco-gilet":
             im = tecnico_col_logo_nuovo(im)
-        im.thumbnail((1600, 1600), Image.LANCZOS)
+        corto = min(im.size)
+        if corto < LATO_MINIMO:
+            sys.exit(f"{nome}: lato corto {corto} px, sotto i {LATO_MINIMO}: sgranerebbe, non entra nell'archivio")
+        k = LATO_ARCHIVIO / corto
+        if k < 1: im = im.resize((round(im.width * k), round(im.height * k)), Image.LANCZOS)
         im.save(os.path.join(OUT, nome + ".jpg"), quality=82, optimize=True, progressive=True)
         righe.append({"nome": nome, "file": f"img/foto-post/{nome}.jpg", "descrizione": descr, "parole": parole, "fonte": fonte,
                       "larghezza": im.width, "altezza": im.height})

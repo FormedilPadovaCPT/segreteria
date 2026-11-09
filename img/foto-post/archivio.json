@@ -22,7 +22,9 @@
    "istruttore",
    "allievi",
    "indica",
-   "conferenza"
+   "conferenza",
+   "tecnico risponde",
+   "domanda"
   ],
   "fonte": "Tagliani, Stanghella 29/05/2025",
   "larghezza": 1600,
@@ -35,7 +37,10 @@
   "parole": [
    "livella",
    "istruttore",
-   "verifica"
+   "verifica",
+   "crediti",
+   "patente",
+   "recupero"
   ],
   "fonte": "Tagliani, Stanghella 29/05/2025",
   "larghezza": 1600,
@@ -62,7 +67,10 @@
   "parole": [
    "escavatore",
    "scavo",
-   "macchine"
+   "macchine",
+   "controlli",
+   "ispettorato",
+   "squadra"
   ],
   "fonte": "Tagliani, Stanghella 29/05/2025",
   "larghezza": 1600,
@@ -122,8 +130,8 @@
    "laboratorio"
   ],
   "fonte": "Tagliani, ritratti del personale 05/05/2026",
-  "larghezza": 1067,
-  "altezza": 1600
+  "larghezza": 1200,
+  "altezza": 1800
  },
  {
   "nome": "galleria-controluce",
@@ -136,8 +144,8 @@
    "ombra"
   ],
   "fonte": "De Sandre 2009",
-  "larghezza": 1600,
-  "altezza": 1064
+  "larghezza": 1805,
+  "altezza": 1200
  },
  {
   "nome": "trave-alla-gru",
@@ -151,8 +159,8 @@
    "cse"
   ],
   "fonte": "De Sandre 2009",
-  "larghezza": 1600,
-  "altezza": 970
+  "larghezza": 1979,
+  "altezza": 1200
  },
  {
   "nome": "muratore-filo",
@@ -165,8 +173,8 @@
    "muratura"
   ],
   "fonte": "De Sandre 2009",
-  "larghezza": 1600,
-  "altezza": 1064
+  "larghezza": 1805,
+  "altezza": 1200
  },
  {
   "nome": "mani-casco",
@@ -175,11 +183,13 @@
   "parole": [
    "mani",
    "casco",
-   "dpi"
+   "dpi",
+   "sopralluogo",
+   "visita"
   ],
   "fonte": "De Sandre 2009",
-  "larghezza": 1600,
-  "altezza": 1064
+  "larghezza": 1805,
+  "altezza": 1200
  },
  {
   "nome": "rete-alla-gru",
@@ -191,8 +201,8 @@
    "carico sospeso"
   ],
   "fonte": "De Sandre 2009",
-  "larghezza": 1600,
-  "altezza": 1064
+  "larghezza": 1805,
+  "altezza": 1200
  },
  {
   "nome": "edificio-ponteggio",
@@ -206,61 +216,7 @@
    "cantiere"
   ],
   "fonte": "Immagini_cantiere (archivio)",
-  "larghezza": 1600,
-  "altezza": 1068
- },
- {
-  "nome": "mani-progetto-casco",
-  "file": "img/foto-post/mani-progetto-casco.jpg",
-  "descrizione": "Mani sul progetto e casco giallo",
-  "parole": [
-   "progetto",
-   "crediti",
-   "patente",
-   "recupero"
-  ],
-  "fonte": "Immagini_cantiere (archivio)",
-  "larghezza": 1280,
-  "altezza": 853
- },
- {
-  "nome": "due-operai-progetto",
-  "file": "img/foto-post/due-operai-progetto.jpg",
-  "descrizione": "Due operai che guardano un progetto",
-  "parole": [
-   "tecnico risponde",
-   "domanda",
-   "progetto"
-  ],
-  "fonte": "Immagini_cantiere (archivio)",
-  "larghezza": 800,
-  "altezza": 1198
- },
- {
-  "nome": "cantiere-squadra-ai",
-  "file": "img/foto-post/cantiere-squadra-ai.jpg",
-  "descrizione": "Squadra col casco davanti a uno scavo (immagine AI)",
-  "parole": [
-   "controlli",
-   "ispettorato",
-   "squadra",
-   "scavo"
-  ],
-  "fonte": "immagine AI, marzo 2026",
-  "larghezza": 1600,
-  "altezza": 514
- },
- {
-  "nome": "casco-sul-cantiere-ai",
-  "file": "img/foto-post/casco-sul-cantiere-ai.jpg",
-  "descrizione": "Casco e planimetria su un banco, cantiere sullo sfondo (immagine AI)",
-  "parole": [
-   "sopralluogo",
-   "visita",
-   "casco"
-  ],
-  "fonte": "immagine AI",
-  "larghezza": 1408,
-  "altezza": 768
+  "larghezza": 1798,
+  "altezza": 1200
  }
 ]

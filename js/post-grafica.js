@@ -242,7 +242,11 @@ export function collegaGrafica(host, p, dopo) {
   sel.addEventListener('change', ridisegna);
   $('#pg-file', host).addEventListener('change', (ev) => {
     const file = ev.target.files && ev.target.files[0]; if (!file) return;
-    carica(URL.createObjectURL(file)).then((img) => { fotoFile = img; riempi('__file'); ridisegna(); }).catch((e) => toast('Foto: ' + e.message, 'err'));
+    carica(URL.createObjectURL(file)).then((img) => {
+      fotoFile = img; riempi('__file'); ridisegna();
+      /* sotto i 1080 px di lato corto la foto va ingrandita e sgrana (osservazione dell'utente, 09/11/2026) */
+      if (Math.min(img.width, img.height) < 1080) toast(`Foto piccola (${img.width}×${img.height}): sul post sgranerà. Meglio una foto di almeno 1080 px di lato corto.`, 'err');
+    }).catch((e) => toast('Foto: ' + e.message, 'err'));
   });
   $('#pg-riparti', host).addEventListener('click', () => { fotoFile = null; $('#pg-file', host).value = ''; applica(proposta(p, archivio)); });
   $('#pg-scarica', host).addEventListener('click', () => {

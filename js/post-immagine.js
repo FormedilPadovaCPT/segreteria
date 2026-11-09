@@ -36,7 +36,7 @@ const FASCE = {
 };
 const FOTO_DI_BASE = {
   cantiere: 'allievi-cantiere-scuola', normativa: 'istruttore-planimetria', servizi: 'tecnico-casco-gilet',
-  formazione: 'istruttore-indica-lavoro', rassegna: 'edificio-ponteggio', avviso: 'casco-sul-cantiere-ai',
+  formazione: 'istruttore-indica-lavoro', rassegna: 'edificio-ponteggio', avviso: 'mani-casco',
 };
 
 const MESI = 'gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre';

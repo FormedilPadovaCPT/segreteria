@@ -91,6 +91,7 @@ test('l\'archivio delle foto è nell\'app e ogni voce ha il suo file', () => {
   for (const f of arch) {
     assert.ok(f.nome && f.descrizione && Array.isArray(f.parole) && f.fonte, f.nome);
     assert.ok(readFileSync(new URL('../' + f.file, import.meta.url)).length > 10000, f.file);
+    assert.ok(Math.min(f.larghezza, f.altezza) >= 1080, f.nome + ': sotto i 1080 px di lato corto la foto sgrana sul post');
   }
 });
 
