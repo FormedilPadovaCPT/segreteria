@@ -2,122 +2,163 @@
    🎨 Immagine proposta dei post (09/11/2026, chiesto dall'utente)
 
    Nella scheda di un post (pagina Comunicazione) l'immagine arriva già
-   proposta, disegnata nel browser con la grafica dell'ente: il modello
-   della serie «918 visite» (1080×1350, barra arancione, occhiello,
-   titolo in Barlow Condensed, numero grande, piede col logo ufficiale),
-   oppure una foto scelta dalla persona con la fascia arancione.
-   La persona corregge i testi, vede l'anteprima cambiare, e la
-   aggiunge al post (stessa strada del «⬆ Carica»: redazione-social,
-   op «immagine») o la scarica. Niente parte da solo, niente QR né link
-   nell'immagine (regola del 26/10/2026). Le regole della proposta
-   stanno in post-immagine.js.
+   proposta, disegnata nel browser col Brand Design System dell'ente
+   (9_APPLICATIVI/Claude/DERSIGN Formedil Padova/): post 1080×1080,
+   template A (arancione + foto), B (foto, velatura, fascia arancione con »),
+   C (foto editoriale) o solo testo su bianco, Barlow, logo ufficiale.
+   Modello, testi e foto partono dalla «Grafica suggerita» della redazione
+   (regole in post-immagine.js); le foto sono l'archivio scelto da 5_MEDIA
+   in img/foto-post/ (tools/prepara_foto_post.py), oppure una foto del computer.
+   La persona corregge, vede l'anteprima cambiare, e la aggiunge al post
+   (stessa strada del «⬆ Carica»: redazione-social, op «immagine») o la
+   scarica. Niente parte da solo, niente QR né link nell'immagine (26/10/2026).
    ============================================================ */
 
 import { sb, $, esc, toast, attendi } from './core.js';
 import { LARGHEZZA as W, ALTEZZA as H, MODELLI, proposta, aCapo } from './post-immagine.js';
 
-const F = { titolo: '"Barlow Condensed", Arial, sans-serif', testo: 'Barlow, Arial, sans-serif' };
-const C = { arancio: '#e7500f', grigio: '#565c66', tenue: '#6c727b', inchiostro: '#202327', riga: '#d7dade' };
-const X = 80, L = 920;
+const F = 'Barlow, Arial, sans-serif';
+const C = { arancio: '#e7500f', grigio: '#565c66', verde: '#6cd220', bianco: '#ffffff' };
+const M = 64, FX = 540;
 
 const carica = (src) => new Promise((ok, ko) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => ko(new Error('immagine non leggibile')); i.src = src; });
-let _loghi = null;
+let _loghi = null, _archivio = null;
 async function loghi() {
   if (!_loghi) _loghi = Promise.all([carica('img/logo-post-positivo.png'), carica('img/logo-post-negativo.png')]).then(([pos, neg]) => ({ pos, neg }));
   return _loghi;
 }
+export async function archivioFoto() {
+  if (!_archivio) _archivio = fetch('img/foto-post/archivio.json').then((r) => (r.ok ? r.json() : [])).catch(() => []);
+  return _archivio;
+}
+const _foto = new Map();
+function fotoArchivio(rel) {
+  if (!_foto.has(rel)) _foto.set(rel, carica(rel).catch((e) => { _foto.delete(rel); throw e; }));
+  return _foto.get(rel);
+}
 async function caratteriPronti() {
   if (!document.fonts) return;
-  await Promise.all(['800 82px "Barlow Condensed"', '800 190px "Barlow Condensed"', '600 27px Barlow', '400 34px Barlow', '700 24px Barlow']
+  await Promise.all(['800 260px Barlow', '700 90px Barlow', '600 46px Barlow', '500 31px Barlow', '400 24px Barlow']
     .map((f) => document.fonts.load(f).catch(() => null)));
 }
 
-function scrivi(ctx, righe, x, y, lh) { righe.forEach((r, i) => ctx.fillText(r, x, y + i * lh)); return y + (righe.length - 1) * lh; }
-function logoAlto(ctx, img, x, y, h) { if (img) ctx.drawImage(img, x, y, img.width * h / img.height, h); }
-
-/* il post bianco: numero, elenco o frase */
-function disegnaChiaro(ctx, c, ris) {
-  const misura = (t) => ctx.measureText(t).width;
-  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = C.arancio; ctx.fillRect(0, 0, W, 18);
-  const piede = H - 56 - 70 - 26;
-  /* in alto occhiello e titolo; il resto si appoggia sul fondo, sopra il piede, come nella serie «918 visite» */
-  ctx.font = `600 30px ${F.testo}`; ctx.fillStyle = C.arancio; ctx.fillText(c.occhiello || '', X, 118);
-  ctx.font = `800 92px ${F.titolo}`; ctx.fillStyle = C.inchiostro;
-  const alto = scrivi(ctx, aCapo(c.titolo, L, misura, 4), X, 236, 90);
-  const fondo = piede - 56;
-  if (c.modello === 'elenco' && c.punti && c.punti.length) {
-    ctx.font = `400 38px ${F.testo}`;
-    const blocchi = c.punti.slice(0, 5).map((t) => aCapo(t, L - 40, misura, 3));
-    const frase = c.frase ? aCapo(c.frase, L, misura, 2) : [];
-    const altezza = (b) => (b.length - 1) * 50 + 46;
-    let tot = blocchi.reduce((s, b) => s + altezza(b) + 30, -30) + (frase.length ? frase.length * 50 + 30 : 0);
-    while (blocchi.length > 1 && fondo - tot < alto + 70) { const b = blocchi.pop(); tot -= altezza(b) + 30; }
-    let y = fondo - tot + 36;
-    if (frase.length) { ctx.font = `500 38px ${F.testo}`; ctx.fillStyle = C.grigio; y = scrivi(ctx, frase, X, y, 50) + 50 + 30; ctx.font = `400 38px ${F.testo}`; }
-    for (const b of blocchi) {
-      ctx.fillStyle = C.arancio; ctx.fillRect(X, y - 34, 9, altezza(b));
-      ctx.fillStyle = C.inchiostro; y = scrivi(ctx, b, X + 40, y, 50) + 50 + 30;
-    }
-  } else {
-    ctx.font = `400 ${c.modello === 'numero' ? 40 : 46}px ${F.testo}`; ctx.fillStyle = C.inchiostro;
-    const lh = c.modello === 'numero' ? 54 : 62;
-    const frase = c.frase ? aCapo(c.frase, L, misura, c.modello === 'numero' ? 4 : 7) : [];
-    const yFrase = fondo - (frase.length - 1) * lh;
-    if (frase.length) scrivi(ctx, frase, X, yFrase, lh);
-    if (c.modello === 'numero' && c.numero) {
-      const yNum = (frase.length ? yFrase - lh - 40 : fondo);
-      ctx.font = `800 240px ${F.titolo}`; ctx.fillStyle = C.arancio; ctx.fillText(c.numero, X, yNum);
-      const w = misura(c.numero);
-      ctx.font = `600 46px ${F.testo}`; ctx.fillStyle = C.grigio;
-      const d = aCapo(c.didascalia, L - w - 28, misura, 3);
-      scrivi(ctx, d, X + w + 28, yNum - (d.length - 1) * 54, 54);
-    }
-  }
-  ctx.fillStyle = C.riga; ctx.fillRect(X, piede, L, 2);
-  logoAlto(ctx, ris.pos, X, piede + 26, 70);
-  ctx.font = `700 24px ${F.testo}`; ctx.fillStyle = C.inchiostro; ctx.textAlign = 'right';
-  ctx.fillText(c.piede || '', X + L, piede + 26 + 44); ctx.textAlign = 'left';
+const misuraDi = (ctx) => (t) => ctx.measureText(t).width;
+function righe(ctx, testo, font, larg, max) { ctx.font = font; const r = aCapo(testo, larg, misuraDi(ctx), max); r.font = font; return r; }
+function scrivi(ctx, rr, x, y, lh, colore) { if (rr.font) ctx.font = rr.font; ctx.fillStyle = colore; rr.forEach((r, i) => ctx.fillText(r, x, y + i * lh)); return y + rr.length * lh; }
+function logo(ctx, img, x, y, h) { if (img) ctx.drawImage(img, x, y, img.width * h / img.height, h); }
+/* la foto ritagliata a riempire un riquadro; `fuoco` 0-100 sposta l'inquadratura in orizzontale */
+function riquadro(ctx, foto, x, y, w, h, fuoco) {
+  if (!foto) { ctx.fillStyle = C.grigio; ctx.fillRect(x, y, w, h); return; }
+  const s = Math.max(w / foto.width, h / foto.height);
+  const fw = foto.width * s, fh = foto.height * s;
+  const dx = (w - fw) * (Math.min(100, Math.max(0, fuoco ?? 50)) / 100);
+  ctx.save(); ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+  ctx.drawImage(foto, x + dx, y + (h - fh) / 2, fw, fh); ctx.restore();
 }
-
-/* la foto a tutto campo con la fascia arancione in basso */
-function disegnaFoto(ctx, c, ris) {
-  const misura = (t) => ctx.measureText(t).width;
-  ctx.fillStyle = C.grigio; ctx.fillRect(0, 0, W, H);
-  if (ris.foto) {
-    const f = ris.foto, s = Math.max(W / f.width, H / f.height);
-    ctx.drawImage(f, (W - f.width * s) / 2, (H - f.height * s) / 2, f.width * s, f.height * s);
-  }
+function velatura(ctx, alto, basso, da) {
   const g = ctx.createLinearGradient(0, 0, 0, H);
-  g.addColorStop(0, 'rgba(0,0,0,0.25)'); g.addColorStop(0.45, 'rgba(0,0,0,0.05)'); g.addColorStop(1, 'rgba(0,0,0,0.65)');
+  g.addColorStop(0, `rgba(0,0,0,${alto})`); g.addColorStop(da, `rgba(0,0,0,${alto})`); g.addColorStop(1, `rgba(0,0,0,${basso})`);
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-  logoAlto(ctx, ris.neg, 60, 56, 64);
-  if (c.occhiello) {
-    ctx.font = `600 27px ${F.testo}`;
-    const w = misura(c.occhiello);
-    ctx.fillStyle = C.arancio; ctx.fillRect(60, 160, w + 36, 48);
-    ctx.fillStyle = '#fff'; ctx.fillText(c.occhiello, 78, 194);
-  }
-  const fascia = H - 380;
-  if (c.frase) {
-    ctx.font = `500 34px ${F.testo}`; ctx.fillStyle = '#fff';
-    const r = aCapo(c.frase, L, misura, 4);
-    scrivi(ctx, r, X, fascia - 40 - (r.length - 1) * 46, 46);
-  }
-  ctx.fillStyle = C.arancio; ctx.fillRect(0, fascia, W, H - fascia);
-  ctx.font = `800 76px ${F.titolo}`; ctx.fillStyle = '#fff';
-  scrivi(ctx, aCapo(c.titolo, L - 110, misura, 3), X, fascia + 105, 76);
-  ctx.font = `800 130px ${F.titolo}`; ctx.textAlign = 'right'; ctx.fillText('»', X + L, fascia + 125); ctx.textAlign = 'left';
-  ctx.font = `700 24px ${F.testo}`; ctx.fillText(c.piede || '', X, H - 52);
 }
+function fasciaArancio(ctx, testo) {
+  const h = 150;
+  ctx.fillStyle = C.arancio; ctx.fillRect(0, H - h, W, h);
+  const rr = righe(ctx, (testo || '').toUpperCase(), `700 46px ${F}`, W - 2 * M - 120, 2);
+  scrivi(ctx, rr, M, H - h + (h - rr.length * 54) / 2 + 40, 54, C.bianco);
+  ctx.font = `700 110px ${F}`; ctx.fillStyle = C.bianco; ctx.fillText('»', W - M - 70, H - 32);
+}
+
+/* A: fondo arancione a sinistra, foto a destra, testo bianco */
+function disegnaA(ctx, c, r) {
+  ctx.fillStyle = C.arancio; ctx.fillRect(0, 0, W, H);
+  riquadro(ctx, r.foto, FX, 0, W - FX, H, c.fuoco);
+  ctx.fillStyle = C.grigio; ctx.fillRect(FX - 10, 0, 10, H);
+  logo(ctx, r.neg, M, 64, 74);
+  const larg = FX - 10 - M - 30;
+  let y = 210;
+  if (c.etichetta) { ctx.font = `600 28px ${F}`; ctx.fillStyle = C.grigio; ctx.fillText(c.etichetta.toUpperCase(), M, y); y += 40; }
+  if (c.numero) {
+    let px = 260; ctx.font = `800 ${px}px ${F}`;
+    while (ctx.measureText(c.numero).width > larg && px > 120) { px -= 10; ctx.font = `800 ${px}px ${F}`; }
+    ctx.fillStyle = C.bianco; ctx.fillText(c.numero, M - 6, y + px * 0.74); y += px * 0.74 + 20;
+    if (c.didascalia) y = scrivi(ctx, righe(ctx, c.didascalia, `700 46px ${F}`, larg, 2), M, y + 46, 52, C.grigio) + 4;
+  }
+  const lungo = (c.titolo || '').length > 34 || c.numero;
+  y = scrivi(ctx, righe(ctx, c.titolo, `${lungo ? 600 : 700} ${lungo ? 46 : 68}px ${F}`, larg, 5), M, y + (lungo ? 56 : 72), lungo ? 56 : 74, C.bianco);
+  if (c.frase) y = scrivi(ctx, righe(ctx, c.frase, `500 31px ${F}`, larg, 4), M, y + 28, 40, C.bianco);
+  for (const p of (c.punti || []).slice(0, 3)) {
+    if (y > H - 170) break;
+    ctx.font = `700 34px ${F}`; ctx.fillStyle = C.bianco; ctx.fillText('»', M, y + 40);
+    y = scrivi(ctx, righe(ctx, p, `500 31px ${F}`, larg - 32, 2), M + 32, y + 40, 40, C.bianco) - 28;
+  }
+  if (c.nota) { ctx.font = `400 24px ${F}`; ctx.fillStyle = C.bianco; ctx.fillText(c.nota, M, H - 56); }
+}
+
+/* B: foto a tutto campo, velatura scura, fascia arancione con » */
+function disegnaB(ctx, c, r) {
+  riquadro(ctx, r.foto, 0, 0, W, H, c.fuoco);
+  velatura(ctx, 0.30, 0.82, 0.15);
+  logo(ctx, r.neg, M, 60, 74);
+  const larg = W - 2 * M;
+  const rt = righe(ctx, (c.titolo || '').toUpperCase(), `700 84px ${F}`, larg, 3);
+  const rf = c.frase ? righe(ctx, c.frase, `600 38px ${F}`, larg, 3) : [];
+  /* dal basso: la frase appoggiata sulla fascia, sopra il titolo, il numero e l'etichetta */
+  let base = H - 150 - 46;                       // linea di base dell'ultima riga
+  if (rf.length) { scrivi(ctx, rf, M, base - (rf.length - 1) * 48, 48, C.bianco); base -= (rf.length - 1) * 48 + 62; }
+  scrivi(ctx, rt, M, base - (rt.length - 1) * 86, 86, C.bianco);
+  base -= (rt.length - 1) * 86 + 86;
+  if (c.numero) {
+    ctx.font = `800 220px ${F}`; ctx.fillStyle = C.bianco; ctx.fillText(c.numero, M - 6, base + 10);
+    if (c.didascalia) { const w = ctx.measureText(c.numero).width; ctx.font = `700 64px ${F}`; ctx.fillText(c.didascalia.toUpperCase(), M + w + 24, base + 10); }
+    base -= 175;
+  }
+  if (c.etichetta) { ctx.font = `600 30px ${F}`; ctx.fillStyle = C.verde; ctx.fillText(c.etichetta.toUpperCase(), M, base); }
+  fasciaArancio(ctx, c.fascia);
+}
+
+/* C: foto editoriale, testo minimo in basso */
+function disegnaC(ctx, c, r) {
+  riquadro(ctx, r.foto, 0, 0, W, H, c.fuoco);
+  velatura(ctx, 0.30, 0.84, 0.30);
+  logo(ctx, r.neg, M, 60, 64);
+  const larg = W - 2 * M;
+  const rf = c.frase ? righe(ctx, c.frase, `600 40px ${F}`, larg, 3) : [];
+  let y = H - 90 - rf.length * 50;
+  scrivi(ctx, rf, M, y + 40, 50, C.bianco);
+  let top;
+  if (c.numero) {
+    ctx.font = `800 220px ${F}`; ctx.fillStyle = C.bianco; top = y - 200; ctx.fillText(c.numero, M - 6, y - 26);
+  } else {
+    const rt = righe(ctx, (c.titolo || '').toUpperCase(), `700 80px ${F}`, larg, 3);
+    top = y - rt.length * 82 - 20; scrivi(ctx, rt, M, top + 70, 82, C.bianco);
+  }
+  if (c.etichetta) { ctx.font = `600 30px ${F}`; ctx.fillStyle = C.verde; ctx.fillText(c.etichetta.toUpperCase(), M, top - 20); }
+  if (c.nota) { ctx.font = `400 22px ${F}`; ctx.fillStyle = C.bianco; ctx.textAlign = 'right'; ctx.fillText(c.nota, W - M, H - 40); ctx.textAlign = 'left'; }
+}
+
+/* solo testo su bianco: titolo arancione, testo grigio, fascia arancione */
+function disegnaT(ctx, c, r) {
+  ctx.fillStyle = C.bianco; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = C.arancio; ctx.fillRect(0, 0, W, 14);
+  logo(ctx, r.pos, M, 70, 84);
+  const larg = W - 2 * M;
+  let y = 320;
+  if (c.etichetta) { ctx.font = `600 30px ${F}`; ctx.fillStyle = C.grigio; ctx.fillText(c.etichetta.toUpperCase(), M, y); y += 30; }
+  if (c.numero) { ctx.font = `800 220px ${F}`; ctx.fillStyle = C.arancio; ctx.fillText(c.numero, M - 6, y + 180); y += 200; }
+  y = scrivi(ctx, righe(ctx, (c.titolo || '').toUpperCase(), `800 120px ${F}`, larg, 3), M, y + 110, 122, C.arancio);
+  if (c.frase) scrivi(ctx, righe(ctx, c.frase, `600 46px ${F}`, larg, 4), M, y + 30, 58, C.grigio);
+  fasciaArancio(ctx, c.fascia);
+}
+
+const DISEGNI = { A: disegnaA, B: disegnaB, C: disegnaC, T: disegnaT };
 
 export async function disegna(cv, c, foto) {
   await caratteriPronti();
   const lg = await loghi().catch(() => ({}));
   const ctx = cv.getContext('2d');
   ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
-  if (c.modello === 'foto') disegnaFoto(ctx, c, { ...lg, foto });
-  else disegnaChiaro(ctx, c, lg);
+  ctx.clearRect(0, 0, W, H);
+  (DISEGNI[c.modello] || disegnaA)(ctx, c, { ...lg, foto });
 }
 
 /* ════════ nella scheda del post ════════ */
@@ -126,29 +167,36 @@ const modificabile = (p) => ['bozza', 'approvato', 'scartato'].includes(p.stato)
 export function htmlGrafica(p, quanteImmagini) {
   if (!modificabile(p)) return '';
   const c = proposta(p);
+  const campo = (id, etichetta, val, righeT = 0) => `<div class="field" id="pg-c-${id}"><label>${etichetta}</label>${righeT
+    ? `<textarea id="pg-${id}" rows="${righeT}">${esc(val)}</textarea>` : `<input id="pg-${id}" type="text" value="${esc(val)}">`}</div>`;
   return `
     <details class="dt-doc-riga" id="pg-box" style="margin-top:8px" ${quanteImmagini ? '' : 'open'}>
-      <summary style="cursor:pointer"><strong>🎨 Immagine proposta</strong> <span class="hint">disegnata dall'app con la grafica dell'ente: correggi i testi, guarda l'anteprima e aggiungila al post</span></summary>
-      ${p.immagine_suggerita ? `<p class="hint" style="margin:6px 0">La redazione suggeriva: ${esc(p.immagine_suggerita)}</p>` : ''}
+      <summary style="cursor:pointer"><strong>🎨 Immagine proposta</strong> <span class="hint">col manuale grafico dell'ente e la grafica suggerita dalla redazione: correggi, guarda l'anteprima e aggiungila al post</span></summary>
+      ${p.immagine_suggerita ? `<p class="hint" style="margin:6px 0">Grafica suggerita: ${esc(p.immagine_suggerita)}</p>` : ''}
       <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-start;margin-top:6px">
-        <canvas id="pg-tela" width="${W}" height="${H}" style="width:270px;height:auto;border:1px solid var(--bordo);border-radius:8px;background:#fff"></canvas>
+        <canvas id="pg-tela" width="${W}" height="${H}" style="width:300px;height:auto;border:1px solid var(--bordo);border-radius:8px;background:#fff"></canvas>
         <div style="flex:1;min-width:260px;display:grid;gap:6px">
-          <div class="field"><label>Modello</label><select id="pg-modello">${Object.entries(MODELLI).map(([k, v]) => `<option value="${k}" ${c.modello === k ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select></div>
-          <div class="field"><label>Occhiello</label><input id="pg-occhiello" type="text" value="${esc(c.occhiello)}"></div>
-          <div class="field"><label>Titolo</label><textarea id="pg-titolo" rows="2">${esc(c.titolo)}</textarea></div>
-          <div id="pg-campi-numero" style="display:grid;grid-template-columns:120px 1fr;gap:8px">
-            <div class="field"><label>Numero grande</label><input id="pg-numero" type="text" value="${esc(c.numero)}"></div>
-            <div class="field"><label>Accanto al numero</label><input id="pg-didascalia" type="text" value="${esc(c.didascalia)}"></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <div class="field"><label>Modello</label><select id="pg-modello">${Object.entries(MODELLI).map(([k, v]) => `<option value="${k}" ${c.modello === k ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select></div>
+            <div class="field" id="pg-c-foto"><label>Foto</label><select id="pg-foto"><option value="">(caricamento…)</option></select></div>
           </div>
-          <div class="field"><label>Frase</label><textarea id="pg-frase" rows="3">${esc(c.frase)}</textarea></div>
-          <div class="field" id="pg-campi-elenco"><label>Punti dell'elenco (uno per riga)</label><textarea id="pg-punti" rows="4">${esc(c.punti.join('\n'))}</textarea></div>
-          <div class="field" id="pg-campi-foto"><label>Foto di sfondo</label><input id="pg-foto" type="file" accept="image/jpeg,image/png,image/webp">
-            <span class="hint">Foto dell'ente o d'archivio: mai cantieri o persone riconoscibili senza liberatoria.</span></div>
-          <div class="field"><label>Piede</label><input id="pg-piede" type="text" value="${esc(c.piede)}"></div>
+          <div class="field" id="pg-c-file"><label>Oppure una foto dal computer</label><input id="pg-file" type="file" accept="image/jpeg,image/png,image/webp">
+            <span class="hint">Mai cantieri o persone riconoscibili senza liberatoria.</span></div>
+          <div class="field" id="pg-c-fuoco"><label>Inquadratura della foto</label><input id="pg-fuoco" type="range" min="0" max="100" value="${esc(c.fuoco)}"></div>
+          ${campo('etichetta', 'Etichetta', c.etichetta)}
+          <div style="display:grid;grid-template-columns:120px 1fr;gap:8px">
+            ${campo('numero', 'Numero grande', c.numero)}
+            ${campo('didascalia', 'Accanto al numero', c.didascalia)}
+          </div>
+          ${campo('titolo', 'Titolo', c.titolo, 2)}
+          ${campo('frase', 'Frase', c.frase, 2)}
+          ${campo('punti', 'Punti con » (uno per riga, solo modello A)', c.punti.join('\n'), 3)}
+          ${campo('fascia', 'Fascia arancione', c.fascia)}
+          ${campo('nota', 'Nota in basso (fonte, facoltativa)', c.nota)}
           <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">
             <button class="btn btn-primary btn-sm" id="pg-aggiungi" type="button" data-aiuto="Aggiunge questa immagine al post: se non ne ha, diventa la copertina; altrimenti va in fondo al carosello. Non pubblica niente.">➕ Aggiungi al post</button>
-            <button class="btn btn-ghost btn-sm" id="pg-scarica" type="button" data-aiuto="Scarica l'immagine sul computer (JPEG 1080×1350), per esempio da mandare allo Studio Tagliani. Non cambia il post.">⬇ Scarica</button>
-            <button class="btn btn-ghost btn-sm" id="pg-riparti" type="button" data-aiuto="Rimette i testi proposti dal post, togliendo le correzioni fatte qui.">↺ Torna alla proposta</button>
+            <button class="btn btn-ghost btn-sm" id="pg-scarica" type="button" data-aiuto="Scarica l'immagine sul computer (JPEG 1080×1080), per esempio da mandare allo Studio Tagliani. Non cambia il post.">⬇ Scarica</button>
+            <button class="btn btn-ghost btn-sm" id="pg-riparti" type="button" data-aiuto="Rimette i testi, il modello e la foto proposti dalla grafica suggerita, togliendo le correzioni fatte qui.">↺ Torna alla proposta</button>
           </div>
         </div>
       </div>
@@ -158,38 +206,45 @@ export function htmlGrafica(p, quanteImmagini) {
 export function collegaGrafica(host, p, dopo) {
   const box = $('#pg-box', host); if (!box) return;
   const tela = $('#pg-tela', host);
-  let foto = null, timer = null, inCorso = false;
+  const sel = $('#pg-foto', host);
+  let archivio = [], fotoFile = null, timer = null, inCorso = false;
+  const v = (id) => $('#pg-' + id, host).value;
   const leggi = () => ({
-    modello: $('#pg-modello', host).value,
-    occhiello: $('#pg-occhiello', host).value.trim(),
-    titolo: $('#pg-titolo', host).value.replace(/\s+/g, ' ').trim(),
-    numero: $('#pg-numero', host).value.trim(),
-    didascalia: $('#pg-didascalia', host).value.trim(),
-    frase: $('#pg-frase', host).value.replace(/\s+/g, ' ').trim(),
-    punti: $('#pg-punti', host).value.split('\n').map((r) => r.trim()).filter(Boolean),
-    piede: $('#pg-piede', host).value.trim(),
+    modello: v('modello'), etichetta: v('etichetta').trim(), numero: v('numero').trim(), didascalia: v('didascalia').trim(),
+    titolo: v('titolo').replace(/\s+/g, ' ').trim(), frase: v('frase').replace(/\s+/g, ' ').trim(),
+    punti: v('punti').split('\n').map((r) => r.trim()).filter(Boolean),
+    fascia: v('fascia').trim(), nota: v('nota').trim(), fuoco: Number(v('fuoco')),
   });
-  const mostraCampi = () => {
-    const m = $('#pg-modello', host).value;
-    $('#pg-campi-numero', host).style.display = m === 'numero' ? 'grid' : 'none';
-    $('#pg-campi-elenco', host).style.display = m === 'elenco' ? '' : 'none';
-    $('#pg-campi-foto', host).style.display = m === 'foto' ? '' : 'none';
+  const fotoScelta = async () => {
+    if (v('modello') === 'T') return null;
+    if (sel.value === '__file') return fotoFile;
+    const f = archivio.find((x) => x.nome === sel.value);
+    return f ? fotoArchivio(f.file).catch(() => null) : null;
   };
-  const ridisegna = () => { clearTimeout(timer); timer = setTimeout(() => disegna(tela, leggi(), foto).catch((e) => toast('Immagine: ' + e.message, 'err')), 120); };
-  box.addEventListener('input', (ev) => { if (ev.target.id !== 'pg-foto') ridisegna(); });
+  const mostraCampi = () => {
+    const m = v('modello');
+    const vedi = (id, si) => { const el = $('#pg-c-' + id, host); if (el) el.style.display = si ? '' : 'none'; };
+    vedi('foto', m !== 'T'); vedi('file', m !== 'T'); vedi('fuoco', m !== 'T');
+    vedi('punti', m === 'A'); vedi('fascia', m === 'B' || m === 'T'); vedi('nota', m === 'A' || m === 'C');
+  };
+  const ridisegna = () => { clearTimeout(timer); timer = setTimeout(async () => { try { await disegna(tela, leggi(), await fotoScelta()); } catch (e) { toast('Immagine: ' + e.message, 'err'); } }, 120); };
+  const riempi = (scelta) => {
+    sel.innerHTML = archivio.map((f) => `<option value="${esc(f.nome)}" ${f.nome === scelta ? 'selected' : ''}>${esc(f.descrizione)}</option>`).join('')
+      + `<option value="__file" ${scelta === '__file' ? 'selected' : ''}>La foto caricata dal computer</option>`;
+  };
+  const applica = (c) => {
+    for (const k of ['modello', 'etichetta', 'numero', 'didascalia', 'titolo', 'frase', 'fascia', 'nota', 'fuoco']) $('#pg-' + k, host).value = c[k] ?? '';
+    $('#pg-punti', host).value = (c.punti || []).join('\n');
+    riempi(c.foto); mostraCampi(); ridisegna();
+  };
+  box.addEventListener('input', (ev) => { if (ev.target.id !== 'pg-file') ridisegna(); });
   $('#pg-modello', host).addEventListener('change', () => { mostraCampi(); ridisegna(); });
-  $('#pg-foto', host).addEventListener('change', (ev) => {
+  sel.addEventListener('change', ridisegna);
+  $('#pg-file', host).addEventListener('change', (ev) => {
     const file = ev.target.files && ev.target.files[0]; if (!file) return;
-    const url = URL.createObjectURL(file);
-    carica(url).then((img) => { foto = img; ridisegna(); }).catch((e) => toast('Foto: ' + e.message, 'err'));
+    carica(URL.createObjectURL(file)).then((img) => { fotoFile = img; riempi('__file'); ridisegna(); }).catch((e) => toast('Foto: ' + e.message, 'err'));
   });
-  $('#pg-riparti', host).addEventListener('click', () => {
-    const c = proposta(p);
-    $('#pg-modello', host).value = c.modello; $('#pg-occhiello', host).value = c.occhiello; $('#pg-titolo', host).value = c.titolo;
-    $('#pg-numero', host).value = c.numero; $('#pg-didascalia', host).value = c.didascalia; $('#pg-frase', host).value = c.frase;
-    $('#pg-punti', host).value = c.punti.join('\n'); $('#pg-piede', host).value = c.piede; foto = null; $('#pg-foto', host).value = '';
-    mostraCampi(); ridisegna();
-  });
+  $('#pg-riparti', host).addEventListener('click', () => { fotoFile = null; $('#pg-file', host).value = ''; applica(proposta(p, archivio)); });
   $('#pg-scarica', host).addEventListener('click', () => {
     const a = document.createElement('a');
     a.href = tela.toDataURL('image/jpeg', 0.92);
@@ -201,7 +256,7 @@ export function collegaGrafica(host, p, dopo) {
     if (inCorso) return;
     inCorso = true; attendi(btn, true, 'Aggiungo…');
     try {
-      await disegna(tela, leggi(), foto);
+      await disegna(tela, leggi(), await fotoScelta());
       const base64 = tela.toDataURL('image/jpeg', 0.92).split(',')[1];
       const { data, error } = await sb.functions.invoke('redazione-social', { body: { op: 'immagine', id: p.id, mime: 'image/jpeg', base64 } });
       if (error || data?.error) {
@@ -215,7 +270,11 @@ export function collegaGrafica(host, p, dopo) {
       toast('Immagine: ' + e.message, 'err');
     } finally { inCorso = false; attendi(btn, false); }
   });
-  mostraCampi();
-  if (box.open) ridisegna();
-  else box.addEventListener('toggle', () => { if (box.open) ridisegna(); }, { once: true });
+  const parti = async () => {
+    archivio = await archivioFoto();
+    if (!archivio.length) toast('Archivio delle foto non letto: si può usare una foto dal computer.', 'err');
+    applica(proposta(p, archivio));
+  };
+  if (box.open) parti();
+  else box.addEventListener('toggle', () => { if (box.open) parti(); }, { once: true });
 }

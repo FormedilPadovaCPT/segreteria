@@ -1,0 +1,266 @@
+[
+ {
+  "nome": "istruttore-planimetria",
+  "file": "img/foto-post/istruttore-planimetria.jpg",
+  "descrizione": "Istruttore che illustra una planimetria",
+  "parole": [
+   "planimetria",
+   "istruttore",
+   "progetto",
+   "pos",
+   "formazione"
+  ],
+  "fonte": "Tagliani, Stanghella 29/05/2025",
+  "larghezza": 1600,
+  "altezza": 1200
+ },
+ {
+  "nome": "istruttore-indica-lavoro",
+  "file": "img/foto-post/istruttore-indica-lavoro.jpg",
+  "descrizione": "Istruttore che indica il lavoro agli allievi",
+  "parole": [
+   "istruttore",
+   "allievi",
+   "indica",
+   "conferenza"
+  ],
+  "fonte": "Tagliani, Stanghella 29/05/2025",
+  "larghezza": 1600,
+  "altezza": 1200
+ },
+ {
+  "nome": "istruttore-livella",
+  "file": "img/foto-post/istruttore-livella.jpg",
+  "descrizione": "Istruttore con la livella",
+  "parole": [
+   "livella",
+   "istruttore",
+   "verifica"
+  ],
+  "fonte": "Tagliani, Stanghella 29/05/2025",
+  "larghezza": 1600,
+  "altezza": 1200
+ },
+ {
+  "nome": "lavoratori-di-spalle",
+  "file": "img/foto-post/lavoratori-di-spalle.jpg",
+  "descrizione": "Lavoratori di spalle col casco",
+  "parole": [
+   "lavoratori",
+   "rlst",
+   "rls",
+   "spalle"
+  ],
+  "fonte": "Tagliani, Stanghella 29/05/2025",
+  "larghezza": 1600,
+  "altezza": 1200
+ },
+ {
+  "nome": "escavatore",
+  "file": "img/foto-post/escavatore.jpg",
+  "descrizione": "Escavatore del cantiere scuola",
+  "parole": [
+   "escavatore",
+   "scavo",
+   "macchine"
+  ],
+  "fonte": "Tagliani, Stanghella 29/05/2025",
+  "larghezza": 1600,
+  "altezza": 1200
+ },
+ {
+  "nome": "armadietti-imbracature",
+  "file": "img/foto-post/armadietti-imbracature.jpg",
+  "descrizione": "Armadietti con attrezzi e imbracature",
+  "parole": [
+   "armadietti",
+   "imbracature",
+   "attrezzi",
+   "dpi",
+   "smerigliatrice",
+   "anticaduta"
+  ],
+  "fonte": "Tagliani, Padova 05/06/2025",
+  "larghezza": 1600,
+  "altezza": 1200
+ },
+ {
+  "nome": "allievi-cantiere-scuola",
+  "file": "img/foto-post/allievi-cantiere-scuola.jpg",
+  "descrizione": "Allievi al lavoro nel cantiere scuola",
+  "parole": [
+   "allievi",
+   "cantiere-scuola",
+   "cantiere scuola",
+   "postura"
+  ],
+  "fonte": "Tagliani, Padova 05/06/2025",
+  "larghezza": 1600,
+  "altezza": 1200
+ },
+ {
+  "nome": "allievo-carriola",
+  "file": "img/foto-post/allievo-carriola.jpg",
+  "descrizione": "Allievo con la carriola nel cantiere scuola",
+  "parole": [
+   "carriola",
+   "movimentazione",
+   "carichi"
+  ],
+  "fonte": "Tagliani, Padova 05/06/2025",
+  "larghezza": 1600,
+  "altezza": 1200
+ },
+ {
+  "nome": "tecnico-casco-gilet",
+  "file": "img/foto-post/tecnico-casco-gilet.jpg",
+  "descrizione": "Tecnico col casco e il gilet FORMEDIL PADOVA in laboratorio",
+  "parole": [
+   "tecnico",
+   "casco",
+   "gilet",
+   "laboratorio"
+  ],
+  "fonte": "Tagliani, ritratti del personale 05/05/2026",
+  "larghezza": 1067,
+  "altezza": 1600
+ },
+ {
+  "nome": "galleria-controluce",
+  "file": "img/foto-post/galleria-controluce.jpg",
+  "descrizione": "Operai in galleria, controluce (bianco e nero)",
+  "parole": [
+   "nero",
+   "lavoro nero",
+   "galleria",
+   "ombra"
+  ],
+  "fonte": "De Sandre 2009",
+  "larghezza": 1600,
+  "altezza": 1064
+ },
+ {
+  "nome": "trave-alla-gru",
+  "file": "img/foto-post/trave-alla-gru.jpg",
+  "descrizione": "Trave sollevata dalla gru, operaio che la guida (bianco e nero)",
+  "parole": [
+   "gru",
+   "trave",
+   "sollevamento",
+   "coordinatore",
+   "cse"
+  ],
+  "fonte": "De Sandre 2009",
+  "larghezza": 1600,
+  "altezza": 970
+ },
+ {
+  "nome": "muratore-filo",
+  "file": "img/foto-post/muratore-filo.jpg",
+  "descrizione": "Muratore col filo a piombo (bianco e nero)",
+  "parole": [
+   "muratore",
+   "filo",
+   "piombo",
+   "muratura"
+  ],
+  "fonte": "De Sandre 2009",
+  "larghezza": 1600,
+  "altezza": 1064
+ },
+ {
+  "nome": "mani-casco",
+  "file": "img/foto-post/mani-casco.jpg",
+  "descrizione": "Mani che reggono il casco (bianco e nero)",
+  "parole": [
+   "mani",
+   "casco",
+   "dpi"
+  ],
+  "fonte": "De Sandre 2009",
+  "larghezza": 1600,
+  "altezza": 1064
+ },
+ {
+  "nome": "rete-alla-gru",
+  "file": "img/foto-post/rete-alla-gru.jpg",
+  "descrizione": "Rete elettrosaldata appesa alla gru (bianco e nero)",
+  "parole": [
+   "rete",
+   "gru",
+   "carico sospeso"
+  ],
+  "fonte": "De Sandre 2009",
+  "larghezza": 1600,
+  "altezza": 1064
+ },
+ {
+  "nome": "edificio-ponteggio",
+  "file": "img/foto-post/edificio-ponteggio.jpg",
+  "descrizione": "Edificio col ponteggio",
+  "parole": [
+   "ponteggio",
+   "facciata",
+   "edificio",
+   "notifica",
+   "cantiere"
+  ],
+  "fonte": "Immagini_cantiere (archivio)",
+  "larghezza": 1600,
+  "altezza": 1068
+ },
+ {
+  "nome": "mani-progetto-casco",
+  "file": "img/foto-post/mani-progetto-casco.jpg",
+  "descrizione": "Mani sul progetto e casco giallo",
+  "parole": [
+   "progetto",
+   "crediti",
+   "patente",
+   "recupero"
+  ],
+  "fonte": "Immagini_cantiere (archivio)",
+  "larghezza": 1280,
+  "altezza": 853
+ },
+ {
+  "nome": "due-operai-progetto",
+  "file": "img/foto-post/due-operai-progetto.jpg",
+  "descrizione": "Due operai che guardano un progetto",
+  "parole": [
+   "tecnico risponde",
+   "domanda",
+   "progetto"
+  ],
+  "fonte": "Immagini_cantiere (archivio)",
+  "larghezza": 800,
+  "altezza": 1198
+ },
+ {
+  "nome": "cantiere-squadra-ai",
+  "file": "img/foto-post/cantiere-squadra-ai.jpg",
+  "descrizione": "Squadra col casco davanti a uno scavo (immagine AI)",
+  "parole": [
+   "controlli",
+   "ispettorato",
+   "squadra",
+   "scavo"
+  ],
+  "fonte": "immagine AI, marzo 2026",
+  "larghezza": 1600,
+  "altezza": 514
+ },
+ {
+  "nome": "casco-sul-cantiere-ai",
+  "file": "img/foto-post/casco-sul-cantiere-ai.jpg",
+  "descrizione": "Casco e planimetria su un banco, cantiere sullo sfondo (immagine AI)",
+  "parole": [
+   "sopralluogo",
+   "visita",
+   "casco"
+  ],
+  "fonte": "immagine AI",
+  "larghezza": 1408,
+  "altezza": 768
+ }
+]
