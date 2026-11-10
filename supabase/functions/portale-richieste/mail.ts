@@ -443,6 +443,88 @@ export function mailInterna(tipo: string, d: Dati, prog: number,
   }
 }
 
+/* ── GRADIMENTO AL TECNICO (10/11/2026, deciso dall'utente) ─────────────────
+   Quando il questionario e' agganciato a una visita, il tecnico riceve il suo
+   gradimento, SEMPRE (anche con voto 1 o 2), col coordinatore in copia: e' il
+   coordinatore che segue il rendimento dei tecnici. Eccezione 12 alla regola
+   «l'app prepara, la persona manda»: interna, e il testo intorno alle risposte
+   e' fisso.
+   ⚠️ Niente recapito, e-mail o «vuole essere contattato» di chi ha compilato:
+   chi chiede di essere richiamato lo richiama la segreteria, che quei dati li
+   ha nella sua mail. La privacy del modulo promette che le risposte non vanno
+   all'impresa ne' nel verbale: il tecnico e' dell'ente, e la promessa regge. */
+export function mailTecnico(d: Dati, nomeTecnico: string): { oggetto: string; html: string } {
+  const v = Number(d.utilita)
+  const voto = Number.isInteger(v) && v >= 1 && v <= 5 ? `${v} su 5 — ${PAROLA_UTILITA[v]}` : 'non indicato'
+  const nr = s(d.nr_verbale)
+  const dataV = d.data_visita ? fmtDate(d.data_visita) : ''
+  const caselle = [
+    { t: 'Verbale', v: nr || '—', s: dataV ? 'visita del ' + dataV : '' },
+    { t: 'Quanto è stata utile', v: voto, s: '' },
+  ].map((c, i) => `
+      <td style="padding:10px 12px;background:#faf9f6;border:1px solid ${MAIL.RIGA};${i ? 'border-left:none;' : ''}vertical-align:top;width:50%">
+        <p style="margin:0;font-family:${MAIL.FONT};font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:${MAIL.GRIGIO_CHIARO};font-weight:600">${escHtml(c.t)}</p>
+        <p style="margin:2px 0 0;font-family:${MAIL.FONT};font-size:14px;font-weight:600;color:${MAIL.INK}">${escHtml(c.v)}</p>
+        ${c.s ? `<p style="margin:0;font-family:${MAIL.FONT};font-size:12.5px;color:${MAIL.GRIGIO_TESTO}">${escHtml(c.s)}</p>` : ''}
+      </td>`).join('')
+  const risposte: [string, string][] = ([
+    ['Motivi indicati', s(d.motivi)],
+    ['Dopo la visita', s(d.azione_dopo)],
+    ['Ha scritto', s(d.commento)],
+  ] as [string, string][]).filter(([, t]) => t.trim())
+  const tabella = risposte.length ? `
+  <tr><td style="padding:18px 28px 0">
+    <p style="margin:0;font-family:${MAIL.FONT};font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:${MAIL.ARANCIO};font-weight:600;border-bottom:2px solid ${MAIL.ARANCIO};padding-bottom:5px">Le risposte</p>
+    <table width="100%" cellpadding="0" cellspacing="0" style="font-family:${MAIL.FONT};font-size:13.5px;line-height:1.55">
+      ${risposte.map(([k, t], i) => `<tr${i < risposte.length - 1 ? ' style="border-bottom:1px solid #f0efe9"' : ''}>` +
+        `<td style="padding:7px 10px 7px 0;color:${MAIL.GRIGIO_CHIARO};width:150px;vertical-align:top">${escHtml(k)}</td>` +
+        `<td style="padding:7px 0;color:${MAIL.INK}">${escHtml(t).replace(/\n/g, '<br>')}</td></tr>`).join('')}
+    </table>
+  </td></tr>` : ''
+  const saluto = s(nomeTecnico).trim() ? `Gentile ${escHtml(s(nomeTecnico).trim())},` : 'Buongiorno,'
+  const righe = `
+  <tr><td style="background:${MAIL.GRIGIO};padding:16px 28px">
+    <img src="${MAIL.LOGO_BIANCO}" width="170" alt="Formedil Padova" style="display:block;border:0">
+  </td></tr>
+  <tr><td style="background:${MAIL.ARANCIO};padding:16px 28px">
+    <p style="margin:0;font-family:${MAIL.FONT};font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,.85);font-weight:600">Gradimento della visita</p>
+    <p style="margin:2px 0 0;font-family:${MAIL.FONT};font-size:22px;font-weight:600;color:#ffffff;line-height:1.2">${escHtml(nr ? 'Verbale ' + nr : 'Questionario sul sopralluogo')}</p>
+  </td></tr>
+  <tr><td style="padding:22px 28px 0;font-family:${MAIL.FONT};font-size:14.5px;color:${MAIL.INK};line-height:1.65">
+    <p style="margin:0 0 10px">${saluto}</p>
+    <p style="margin:0">chi ha ricevuto il verbale ha compilato il questionario sulla visita${dataV ? ' del <strong>' + escHtml(dataV) + '</strong>' : ''}. Qui sotto trovi le sue risposte, così come le ha scritte.</p>
+  </td></tr>
+  <tr><td style="padding:18px 28px 0">
+    <table width="100%" cellpadding="0" cellspacing="0"><tr>${caselle}</tr></table>
+  </td></tr>
+  ${tabella}`
+  return {
+    oggetto: `Gradimento della visita${nr ? ' — verbale ' + nr : ''}: ${Number.isInteger(v) && v >= 1 && v <= 5 ? v + ' su 5' : 'senza voto'}`,
+    html: mailDocumento(righe, {
+      senzaFirma: true,
+      notaFinale: 'Inviato automaticamente dal Portale Formedil Padova quando arriva un questionario collegato a un tuo verbale; il coordinatore lo riceve in copia. ' +
+        'Le risposte non vengono comunicate all\'impresa. Rispondendo a questa mail scrivi alla segreteria dell\'Area.',
+    }),
+  }
+}
+
+/* A chi va il gradimento: al primo tecnico della visita, gli altri (il secondo
+   tecnico) e il coordinatore in copia. Indirizzi ripetuti tolti a maiuscole
+   ignorate: se il tecnico E' il coordinatore, la mail gli arriva una volta sola. */
+export function destinatariGradimento(tecnici: { email?: unknown }[], coordinatore?: unknown): { a: string; cc: string[] } | null {
+  const visti = new Set<string>()
+  const pulito = (x: unknown) => {
+    const e = s(x).trim()
+    if (!e || !/^[^\s@<>,;]+@[^\s@<>,;]+\.[^\s@<>,;]+$/.test(e) || visti.has(e.toLowerCase())) return ''
+    visti.add(e.toLowerCase())
+    return e
+  }
+  const delTecnico = tecnici.map((t) => pulito(t.email)).filter(Boolean)
+  if (!delTecnico.length) return null
+  const coord = pulito(coordinatore)
+  return { a: delTecnico[0], cc: [...delTecnico.slice(1), ...(coord ? [coord] : [])] }
+}
+
 /* ── CONFERMA A CHI COMPILA ─────────────────────────────────────────────── */
 export function mailConferma(tipo: string, d: Dati, prog: number): { oggetto: string; html: string } {
   const label = TIPO_LABEL[tipo] || tipo
@@ -537,11 +619,14 @@ export function oggettoUfficio(oggetto: string): string {
   return resto ? `${OGGETTO_UFFICIO} ${resto}` : OGGETTO_UFFICIO
 }
 
-export function messaggioMime(m: { a: string; rispondiA?: string; oggetto: string; html: string }): string {
+export function messaggioMime(m: { a: string; cc?: string[]; rispondiA?: string; oggetto: string; html: string }): string {
   const righe = [
     `From: ${parolaIntestazione(NOME_MITTENTE)} <${MITTENTE}>`,
     `To: ${indirizzo(m.a)}`,
   ]
+  /* (10/11/2026) copia per conoscenza: ogni indirizzo passa dallo stesso controllo del «To» */
+  const cc = (m.cc || []).map(indirizzo).filter(Boolean)
+  if (cc.length) righe.push(`Cc: ${cc.join(', ')}`)
   if (m.rispondiA) righe.push(`Reply-To: ${indirizzo(m.rispondiA)}`)
   righe.push(
     `Subject: ${parolaIntestazione(oggettoUfficio(m.oggetto))}`,

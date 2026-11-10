@@ -88,7 +88,7 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { getToken, SCOPE_DRIVE, SCOPE_GMAIL } from '../_shared/google.ts'
-import { EMAIL_UFFICIO, mailConferma, mailInterna, messaggioMime } from './mail.ts'
+import { destinatariGradimento, EMAIL_UFFICIO, mailConferma, mailInterna, mailTecnico, messaggioMime } from './mail.ts'
 import { cantiereDaModulo } from './cantiere-visita.js'
 
 const CORS = {
@@ -252,6 +252,38 @@ async function agganciaVisita(sb: SB, d: Dati): Promise<Dati> {
     ...(r.tecnico ? { tecnico: r.tecnico } : {}),
     ...(r.data_visita ? { data_visita: r.data_visita } : {}),
   }
+}
+
+/* ── il gradimento al tecnico della visita (10/11/2026, deciso dall'utente) ──
+   Si legge tutto dal DATABASE, non da quel che ha mandato il portale: anche al
+   reinvio (pratica gia' esistente, aggancio non rifatto) il tecnico si trova,
+   e tecnico e verbale sono quelli della visita, non quelli scritti nel modulo.
+   Restituisce a chi e' andata, oppure null se non c'e' niente da mandare
+   (questionario non agganciato). Ogni lettura controlla l'errore: «nessun
+   tecnico» si dice solo se la lettura e' riuscita. */
+async function gradimentoAlTecnico(sb: SB, sa: Dati, questionarioId: unknown): Promise<string | null> {
+  const { data: q, error: eq } = await sb.from('s_questionari_sopralluogo')
+    .select('visita_id, nr_verbale, data_visita, utilita, motivi, commento, azione_dopo').eq('id', questionarioId).maybeSingle()
+  if (eq) throw new Error('questionario non leggibile: ' + eq.message)
+  if (!q?.visita_id) return null
+  const { data: v, error: ev } = await sb.from('visite')
+    .select('tecnico_id, tecnico2_id, nr_verbale, data_visita').eq('visita_id', q.visita_id).maybeSingle()
+  if (ev) throw new Error('visita non leggibile: ' + ev.message)
+  if (!v) throw new Error('visita ' + q.visita_id + ' non trovata')
+  const ids = [v.tecnico_id, v.tecnico2_id].filter(Boolean)
+  if (!ids.length) throw new Error('la visita non ha un tecnico')
+  const { data: tec, error: et } = await sb.from('tecnici').select('tecnico_id, tecnico_nome, tecnico_cognome, email').in('tecnico_id', ids)
+  if (et) throw new Error('tecnici non leggibili: ' + et.message)
+  const ordinati = ids.map((id) => (tec || []).find((t: Dati) => t.tecnico_id === id)).filter(Boolean) as Dati[]
+  const { data: cfg, error: ec } = await sb.from('s_config').select('valore').eq('chiave', 'coordinatore_email').maybeSingle()
+  if (ec) throw new Error('indirizzo del coordinatore non leggibile: ' + ec.message)
+  const dest = destinatariGradimento(ordinati, cfg?.valore)
+  if (!dest) throw new Error('il tecnico della visita non ha un indirizzo e-mail')
+  const primo = ordinati.find((t) => String(t.email || '').trim().toLowerCase() === dest.a.toLowerCase())
+  const mt = mailTecnico({ ...q, nr_verbale: v.nr_verbale || q.nr_verbale, data_visita: v.data_visita || q.data_visita },
+    String(primo?.tecnico_nome || ''))
+  await inviaMail(sa, messaggioMime({ a: dest.a, cc: dest.cc, rispondiA: EMAIL_UFFICIO, oggetto: mt.oggetto, html: mt.html }))
+  return [dest.a, ...dest.cc].join(', ')
 }
 
 /* ── il questionario di un evento e l'evento a cui si riferisce ───────────
@@ -1337,6 +1369,21 @@ async function lavora(sb: SB, sa: Dati, d: Dati, tipo: string, m: Modulo, subId:
         esito.mail_conferma_errore = errMsg(e)
         email = email === 'ok' ? 'impresa-non-inviata' : 'nessuna-inviata'
       }
+    }
+  }
+  /* 4b. GRADIMENTO AL TECNICO (10/11/2026) — solo per il questionario agganciato
+         a una visita, una volta sola; un errore resta scritto sulla pratica e non
+         cambia la risposta a chi ha compilato, che il suo questionario l'ha mandato */
+  if (tipo === 'qst' && !esito.mail_tecnico_il) {
+    try {
+      const a = await gradimentoAlTecnico(sb, sa, p.id)
+      if (a) {
+        esito.mail_tecnico_il = adesso()
+        esito.mail_tecnico_a = a
+        delete esito.mail_tecnico_errore
+      }
+    } catch (e) {
+      esito.mail_tecnico_errore = errMsg(e)
     }
   }
   await salva()
