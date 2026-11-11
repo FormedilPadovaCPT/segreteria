@@ -9,3 +9,7 @@ revoke execute on function public.s_commissione_chiudi(text, text)     from publ
 revoke execute on function public.s_commissione_aggiorna_carica(integer) from public, anon;
 revoke execute on function public.s_post_regola()                      from public, anon;   -- trigger dei post
 revoke execute on function public.tg_cip_no_truncate()                 from public, anon;   -- trigger del gestionale (imprese previste)
+-- Per i due trigger basta service_role (regola del 07/09/2026): tolto anche ad authenticated.
+-- Provato: un aggiornamento di s_post fatto dalla segreteria fa scattare s_post_regola lo stesso.
+revoke execute on function public.s_post_regola()      from authenticated;
+revoke execute on function public.tg_cip_no_truncate() from authenticated;
