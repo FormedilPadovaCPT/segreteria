@@ -121,7 +121,7 @@
 :root[data-veste="scrivania"][data-tema="scuro"] .ac-item{border-bottom-color:var(--filetto)}
 
 /* cruscotto */
-:root[data-veste="scrivania"][data-tema="scuro"] .hm-card{background:var(--superficie);border-color:var(--filetto)}
+:root[data-veste="scrivania"][data-tema="scuro"] .hm-card{background:var(--superficie);border-color:var(--filetto);--hm-carta:var(--superficie)}
 :root[data-veste="scrivania"][data-tema="scuro"] .hm-testa{background:var(--superficie-2);border-bottom-color:var(--bordo)}
 :root[data-veste="scrivania"][data-tema="scuro"] .hm-testa h3{color:#c9ccd1}
 :root[data-veste="scrivania"][data-tema="scuro"] .hm-n{color:#6f757d}

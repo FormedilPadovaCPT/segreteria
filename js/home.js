@@ -15,6 +15,7 @@ import { dividiRespinte } from './mail-respinte-viste.js';
 import { datiCruscotto as datiFirme, cardFirme, collegaFirme } from './firme.js';
 import { datiApprovazioni, quanteApprovazioni, righeApprovazioni, bottoneRicorda, collegaApprovazioni } from './approvazioni-direttore.js';
 import { datiEfficacia, cardEfficacia, collegaEfficacia } from './efficacia.js';
+import { agendaElenco, htmlOrarioCorsi, orarioCorsi, DETTAGLIO_ORARIO } from './home-calendari.js';
 
 /* 05/10/2026 — gli incarichi che si chiudono col cantiere, e quelli che restano aperti perché hanno altri
    cantieri aperti (incarichi_del_cantiere, stessa regola di chiudi_cantiere). Lettura fallita = detta, non «nessuno». */
@@ -477,7 +478,10 @@ export async function render() {
      da aprire dalla pastiglia, id = id della pastiglia, segno = cosa
      scrivere al posto dello 0, aiuto = nuvoletta della pastiglia al posto di
      quella di k, sempre = tessera anche a zero (quando dentro c'è un
-     messaggio da leggere), nonLetto = lettura fallita. */
+     messaggio da leggere), nonLetto = lettura fallita.
+     (12/11/2026, chiesto dall'utente) Il corpo ha un tetto di altezza e scorre
+     dentro (.hm-corpo): testata e pulsanti (azione) restano fermi; sopra = HTML
+     fermo fra testata e corpo. classe = classe in più sulla tessera. */
   const card = (titolo, conteggio, corpo, azione = '', o = {}) => {
     if (o.nonLetto || (conteggio === 0 && !o.sempre)) {
       aPosto.push({ titolo, nonLetto: !!o.nonLetto, goto: o.goto, id: o.id, segno: o.segno,
@@ -486,9 +490,9 @@ export async function render() {
     }
     const aiuto = aiutoDi(o.k);
     return `
-    <div class="hm-card">
+    <div class="hm-card${o.classe ? ' ' + o.classe : ''}">
       <div class="hm-testa"><h3${aiuto ? ` data-aiuto="${esc(aiuto)}"` : ''}>${titolo}</h3><span class="hm-n ${conteggio ? 'hm-n-attivo' : ''}">${conteggio}</span></div>
-      ${corpo}${azione}
+      ${o.sopra || ''}<div class="hm-corpo">${corpo}</div>${azione}
     </div>`;
   };
   const striscia = () => {
@@ -572,26 +576,11 @@ export async function render() {
   const cardBacheca = (() => {
     if (!bacheca) return '';
     const oraIt = (iso) => iso && iso.length > 10 ? new Date(iso).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }) : '';
-    const giornoIt = (iso) => new Date(iso.length > 10 ? iso : iso + 'T00:00:00').toLocaleDateString('it-IT', { weekday: 'short', day: '2-digit', month: '2-digit' });
-    const htmlEventi = (lista, conCalendario) => {
-      const perGiorno = {};
-      for (const e of lista) { const g = String(e.inizio || '').slice(0, 10); (perGiorno[g] = perGiorno[g] || []).push(e); }
-      return Object.keys(perGiorno).sort().map((g) => `
-      <div class="hint" style="margin-top:6px;font-weight:600">${esc(giornoIt(g))}</div>
-      ${perGiorno[g].map((e) => `
-        <div class="hm-riga" ${e.link ? `onclick="window.open('${esc(e.link)}','_blank','noopener')"` : ''}>
-          <span>${e.tutto_il_giorno ? '📌' : '🕒'}</span>
-          <span><strong>${esc(e.titolo || '')}</strong>${e.luogo ? ` <span class="hint">· ${esc(e.luogo)}</span>` : ''}
-            ${conCalendario && e.calendario && !/^primary/.test(e.calendario) ? `<span class="hint"> · ${esc(e.calendario)}</span>` : ''}</span>
-          <span class="hint">${e.tutto_il_giorno ? 'tutto il giorno' : oraIt(e.inizio) + (e.fine ? '–' + oraIt(e.fine) : '')}</span>
-        </div>`).join('')}`).join('');
-    };
     /* (03/11/2026, chiesto dall'utente) i corsi in un riquadro loro: il calendario che lo alimenta è in
        s_config.bacheca_calendario_corsi, e deve stare anche fra i bacheca_calendari perché il giro lo legga */
     const idCorsi = String(bacheca.calCorsi || '').trim();
     const evCorsi = idCorsi ? bacheca.eventi.filter((e) => e.calendario_id === idCorsi) : [];
     const evAgenda = bacheca.eventi.filter((e) => !evCorsi.includes(e));
-    const eventiHtml = htmlEventi(evAgenda, true);
     const mail = [...bacheca.mail].sort((a, b) => (b.punteggio - a.punteggio) || String(b.data).localeCompare(String(a.data))).slice(0, 10);
     /* l'anteprima di Gmail arriva già con le entità HTML (&lt; &#39; …): si decodifica prima
        di ri-escapare, altrimenti si legge «&lt;»; e va a capo, non è un'etichetta */
@@ -612,17 +601,21 @@ export async function render() {
     const errori = bacheca.esito?.errori?.length ? `<p class="hint" style="color:#b91c1c;margin-top:6px">⚠ Ultimo giro con avvisi: ${esc(bacheca.esito.errori.slice(0, 2).join('; '))}</p>` : '';
     /* due card separate (chiesto dall'utente 08/09): agenda e posta, entrambe in coda al cruscotto;
        il bottone rilegge tutte e due, quindi sta su entrambe */
-    const piede = `<div class="hint" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px">
+    const piede = `<div class="hint hm-piede">
         <span>Aggiornata alle ${esc(alTesto)}, dal lunedì al giovedì alle 8.</span>
         <button class="btn btn-ghost btn-sm hm-bacheca-aggiorna" title="Rilegge adesso posta e calendari">🔄 Aggiorna adesso</button>
       </div>`;
+    /* (12/11/2026, scelti dall'utente) agenda in elenco come prima, nel riquadro che scorre e si apre su oggi;
+       corsi come orario della settimana da oggi in avanti, a tutta larghezza sotto le colonne */
     const agenda = card('📅 Agenda della settimana', evAgenda.length,
-      (eventiHtml || '<p class="hint">Nessun evento nei prossimi giorni.</p>') + piede, '', { k: 'agenda' });
-    const corsi = idCorsi ? card('🎓 Calendario corsi', evCorsi.length,
-      (htmlEventi(evCorsi, false) || '<p class="hint">Nessun corso nei prossimi giorni.</p>') + piede, '', { k: 'agenda-corsi' }) : '';
+      agendaElenco(evAgenda, oggiIso()) || '<p class="hint">Nessun evento nei prossimi giorni.</p>', piede, { k: 'agenda' });
+    const orario = orarioCorsi(evCorsi, oggiIso());
+    const corsi = !idCorsi ? '' : card('🎓 Calendario corsi', evCorsi.length ? (orario.lezioni || '–') : 0,
+      htmlOrarioCorsi(evCorsi, oggiIso()) || '<p class="hint">Da oggi in avanti nessuna lezione fra quelle lette: premi «Aggiorna adesso».</p>',
+      (orario.lezioni ? DETTAGLIO_ORARIO : '') + piede, { k: 'agenda-corsi', classe: 'hm-orario' });
     const posta = card('✉️ Posta da guardare', nImp,
       (mailHtml || '<p class="hint">Nessuna mail segnata come importante nell\'ultimo giro.</p>')
-      + errori + piede, '', { k: 'posta', sempre: !!errori });
+      + errori, piede, { k: 'posta', sempre: !!errori });
     return { agenda, corsi, posta };
   })();
 
@@ -1036,11 +1029,22 @@ export async function render() {
             <span class="hint">${dataIt(r.data_prot)}</span></div>`).join('')}
         ${eProt ? '<p class="hint" style="color:#a01f00">⚠ Non sono riuscito a leggere gli ultimi protocolli.</p>' : ''}`,
         vai('registro', 'Apri il registro'))}
-      ${cardBacheca ? cardBacheca.agenda + cardBacheca.corsi + cardBacheca.posta : ''}
+      ${cardBacheca ? cardBacheca.agenda + cardBacheca.posta : ''}
       ${cardRespinte}${cardRespinteAltre}`;
   host.innerHTML = `
     ${bannerCanale}${bannerFormazione}${striscia()}
-    <div class="hm-griglia">${griglia}</div>`;
+    <div class="hm-griglia">${griglia}</div>
+    ${cardBacheca ? cardBacheca.corsi : ''}`;
+  /* agenda: il riquadro si apre sul giorno di oggi; orario dei corsi: il dettaglio del corso premuto; righe che aprono il calendario */
+  host.querySelectorAll('.hm-corpo [data-oggi]').forEach((g) => { const c = g.closest('.hm-corpo'); c.scrollTop = g.offsetTop - c.offsetTop; });
+  host.querySelectorAll('[data-or-det]').forEach((b) => b.addEventListener('click', () => {
+    const tessera = b.closest('.hm-card');
+    tessera.querySelectorAll('[data-or-det]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    const det = tessera.querySelector('.hm-or-det');
+    det.classList.remove('hint');
+    det.innerHTML = b.dataset.orDet;
+  }));
+  host.querySelectorAll('[data-apri]').forEach((r) => r.addEventListener('click', () => window.open(r.dataset.apri, '_blank', 'noopener')));
   collegaFirme(host, render, firme);
   collegaApprovazioni(host, render);
   collegaEfficacia(host, render, effic);
