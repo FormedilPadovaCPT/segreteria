@@ -104,3 +104,15 @@ test('la funzione firma-documenti: catena, ruoli, firmatario', () => {
   assert.match(fn, /const TIPI = \['incarico_assev', 'incarico_docenza', 'accettazione_incarico', 'scheda_formativa'/);
   assert.equal(fn, leggi('../supabase/functions/firma-presidente/index.ts'), 'firma-presidente (nome vecchio, usato dall\'asseverazione) ha lo stesso codice');
 });
+
+// (12/11/2026) una lettera firmata e mandata per un'altra strada deve poter uscire dalla tessera:
+// senza il «✓ già mandata» tre lettere di incarico sono rimaste lì per settimane.
+test('ogni documento firmato da usare ha un modo per uscire dalla tessera', async () => {
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync(new URL('../js/firme.js', import.meta.url), 'utf8');
+  const da = src.indexOf('...f.daUsare.map');
+  const pezzo = src.slice(da, src.indexOf('].join', da));
+  assert.equal((pezzo.match(/data-fp-fatto=/g) || []).length, 2, 'uno per i documenti liberi, uno per tutti gli altri');
+  assert.match(pezzo, /data-fp-altrove/);
+  assert.match(src, /dataset\.fpAltrove[\s\S]{0,400}NON viene depositata/, 'la conferma dice che la copia non si deposita');
+});

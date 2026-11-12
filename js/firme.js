@@ -230,7 +230,10 @@ export function cardFirme(card, f) {
       apri(r.file_originale))),
     ...f.daUsare.map((r) => riga(r,
       `firmata il ${dataIt(r.firmata_il)}${r.totale > 1 ? ` (${r.totale} firme)` : ''} — ${libero(r) ? '' : 'mail e dossier '}${dove(r)}`,
-      apri(r.file_firmato, 'apri firmata') + (libero(r) ? ` · <a href="#" data-fp-fatto="${r.id}" data-aiuto="Il documento firmato è stato protocollato e mandato: esce dalla tessera, resta nel registro delle firme.">✓ fatto</a>` : ''))),
+      apri(r.file_firmato, 'apri firmata') + (libero(r) ? ` · <a href="#" data-fp-fatto="${r.id}" data-aiuto="Il documento firmato è stato protocollato e mandato: esce dalla tessera, resta nel registro delle firme.">✓ fatto</a>`
+        /* (12/11/2026, chiesto dall'utente) le lettere di incarico e gli altri documenti firmati che sono già stati
+           mandati per un'altra strada: senza questo restavano nella tessera per sempre */
+        : ` · <a href="#" data-fp-fatto="${r.id}" data-fp-altrove="1" data-aiuto="Usalo solo se la lettera firmata è già stata mandata per un’altra strada: esce dalla tessera e resta nel registro delle firme, ma la copia firmata non viene depositata nel fascicolo. Per depositarla e preparare la mail, usa il pulsante ${esc(dove(r))}.">✓ già mandata</a>`))),
   ].join('');
   const azione = `
     <button class="btn btn-sm" type="button" id="hm-fp-documento">✍️ Documento alla firma</button><br>
@@ -258,7 +261,9 @@ export function collegaFirme(host, ricarica, firmeDati = null) {
   }));
   host.querySelectorAll('[data-fp-fatto]').forEach((a) => a.addEventListener('click', async (ev) => {
     ev.preventDefault();
-    if (!confirm('Il documento firmato è stato protocollato e mandato? Esce da questo elenco (resta nel registro delle firme).')) return;
+    if (!confirm(a.dataset.fpAltrove
+      ? 'La lettera firmata è già stata mandata per un\'altra strada? Esce da questo elenco e resta nel registro delle firme. La copia firmata NON viene depositata nel fascicolo: se serve, annulla e usa il pulsante della lettera nella sua pagina.'
+      : 'Il documento firmato è stato protocollato e mandato? Esce da questo elenco (resta nel registro delle firme).')) return;
     const { error } = await sb.rpc('s_firma_usata', { p_id: Number(a.dataset.fpFatto) });
     if (error) return toast('Non registrato: ' + error.message, 'err');
     toast('Fatto.', 'ok'); ricarica();
