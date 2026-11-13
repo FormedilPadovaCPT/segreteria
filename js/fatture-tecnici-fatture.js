@@ -13,7 +13,7 @@
    ============================================================ */
 
 import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer,
-  codiceProtocollo, esercizioDi } from './core.js';
+  codiceProtocollo, esercizioDi, scrivi } from './core.js';
 import { MESI, TIPI_PRESTAZIONE, euro, lordoDi } from './fatture-tecnici-doc.js';
 import { inviaAvvisoPagamento, dettaglioMandato } from './amministrazione.js';
 /* la ricerca in anagrafica sta in un posto solo: serve per i docenti esterni */
@@ -185,8 +185,17 @@ async function formFattura(f, prefill = {}) {
   });
   $('#ff-annulla')?.addEventListener('click', async () => {
     if (!confirm('Annullo la fattura? Le prestazioni collegate tornano aperte.')) return;
-    await sb.from('s_prestazioni').update({ fattura_id: null }).eq('fattura_id', f.id);
-    await sb.from('s_fatture_tecnici').update({ stato: 'annullata', aggiornato_da: state.email, updated_at: new Date().toISOString() }).eq('id', f.id);
+    /* (13/11/2026) i due passi si controllano, e l'ordine è cambiato: prima la
+       fattura, poi le prestazioni. Se il secondo non riesce resta una fattura
+       annullata con le prestazioni ancora attaccate, che si vede e si ripara
+       ripremendo; al contrario restavano prestazioni sganciate da una fattura
+       ancora valida, e a video «Fattura annullata» comunque. */
+    try {
+      await scrivi(sb.from('s_fatture_tecnici').update({ stato: 'annullata', aggiornato_da: state.email, updated_at: new Date().toISOString() }).eq('id', f.id),
+        'Fattura NON annullata');
+      await scrivi(sb.from('s_prestazioni').update({ fattura_id: null }).eq('fattura_id', f.id),
+        'Fattura annullata, ma le prestazioni sono rimaste collegate (premi di nuovo «Annulla»)');
+    } catch (e) { toast(e.message, 'err'); renderFatture(); return; }
     toast('Fattura annullata.', 'ok'); chiudiDrawer(); renderFatture();
   });
 }
@@ -260,7 +269,8 @@ export async function dettaglioFattura(id) {
     const btn = ev.currentTarget;
     attendi(btn, true, 'Verifico…');
     try {
-      await sb.from('s_fatture_tecnici').update({ stato: 'verificata', verificata_da: state.email, verificata_il: oggiIso(), aggiornato_da: state.email, updated_at: new Date().toISOString() }).eq('id', f.id);
+      await scrivi(sb.from('s_fatture_tecnici').update({ stato: 'verificata', verificata_da: state.email, verificata_il: oggiIso(), aggiornato_da: state.email, updated_at: new Date().toISOString() }).eq('id', f.id),
+        'Fattura NON segnata come verificata (nessun avviso è partito)');
       /* e il coordinatore lo viene a sapere subito: la mail parte da sola
          (21/09/2026). Se non parte non si annulla la verifica — la fattura
          È verificata: resta scritto il motivo e si ritenta da qui o dal
@@ -364,9 +374,13 @@ async function chiudiSeTuttoFatturato(incaricoId) {
     return false;
   }
   if (count) return false;
-  await sb.from('s_incarichi_mensili')
+  const { error: errStato } = await sb.from('s_incarichi_mensili')
     .update({ stato: 'fatturato', aggiornato_da: state.email, updated_at: new Date().toISOString() })
     .eq('id', incaricoId);
+  if (errStato) {
+    toast('Il mese è tutto fatturato, ma non sono riuscito a segnarlo: resta «chiuso». ' + errStato.message, 'err');
+    return false;
+  }
   return true;
 }
 

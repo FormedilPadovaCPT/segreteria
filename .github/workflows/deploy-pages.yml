@@ -48,6 +48,12 @@ jobs:
             echo "ok $f"
           done
 
+      # (13/11/2026) Le prove girano QUI, prima di pubblicare: fino a oggi stavano
+      # solo in test.yml, un workflow separato, e una prova rossa andava online
+      # lo stesso. Stesso comando di test.yml; nessuna dipendenza da installare.
+      - name: Prove (gate — una prova rossa ferma la pubblicazione)
+        run: node --test "test/**/*.test.mjs"
+
       - name: Prepara i file pubblici
         run: |
           set -e

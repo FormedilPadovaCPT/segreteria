@@ -66,6 +66,21 @@ type Fattura = {
   incarico_mensile_id: number | null; mandato_id: number | null
 }
 
+/* (13/11/2026) Dopo un invio RIUSCITO la registrazione sul database si
+   controlla: prima un aggiornamento fallito passava in silenzio, la mail era
+   partita e il registro diceva di no — il passo naturale era rimandarla.
+   Tre tentativi; se non va, torna il motivo e chi chiama lo dice. */
+async function segnaDopoInvio(fn: () => PromiseLike<{ error: { message: string } | null }>): Promise<string> {
+  let ultimo = ''
+  for (let i = 0; i < 3; i++) {
+    const { error } = await fn()
+    if (!error) return ''
+    ultimo = error.message
+    await new Promise((r) => setTimeout(r, 400 * (i + 1)))
+  }
+  return ultimo
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
   try {
@@ -193,11 +208,18 @@ serve(async (req) => {
         })
         const out = await res.json()
         if (!res.ok || out.error) throw new Error(out.error?.message || `Gmail ha risposto ${res.status}`)
-        await sb.from('s_fatture_tecnici').update({
+        /* da qui la mail è partita: un errore di registrazione NON deve finire
+           nel catch qui sotto, che scriverebbe «non inviato» e libererebbe la
+           prenotazione, cioè un secondo avviso allo stesso tecnico */
+        const nonRegistrato = await segnaDopoInvio(() => sb.from('s_fatture_tecnici').update({
           avviso_pagamento_il: new Date().toISOString(), avviso_pagamento_a: [email, ...cc].join(', '),
           avviso_pagamento_esito: logo.ok ? 'inviato' : `inviato (senza logo: ${logo.motivo})`, avviso_pagamento_dal: null,
-        }).in('id', idsT)
+        }).in('id', idsT))
         inviati.push({ tecnico: chi, a: email, fatture: idsT })
+        if (nonRegistrato) {
+          console.error('avviso-pagamento: mail PARTITA ma non registrata', idsT, nonRegistrato)
+          errori.push({ tecnico: chi, fatture: idsT, errore: `avviso PARTITO ma non registrato (${nonRegistrato}): non rimandarlo` })
+        }
       } catch (e) {
         const msg = (e as Error).message
         await sb.from('s_fatture_tecnici').update({

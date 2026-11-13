@@ -33,9 +33,9 @@ export function caricaModulo(nome, urls, verifica) {
 }
 
 export const supabaseJs = () => caricaModulo('supabase', [
-  'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm',
-  'https://esm.sh/@supabase/supabase-js@2',
-  'https://cdn.skypack.dev/@supabase/supabase-js@2',
+  'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.0/+esm',
+  'https://esm.sh/@supabase/supabase-js@2.119.0',
+  'https://cdn.skypack.dev/@supabase/supabase-js@2.119.0',
 ], (m) => typeof m.createClient === 'function');
 
 export const pdfLib = () => caricaModulo('pdf-lib', [

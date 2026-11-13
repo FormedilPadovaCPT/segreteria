@@ -150,6 +150,21 @@ const tuttiRiquadri = (r: Riquadro) => [r, ...(r.altri || [])]
 type Riga = Record<string, any>
 type Conf = Record<string, string>
 
+/* (13/11/2026) Dopo un invio RIUSCITO la registrazione sul database si
+   controlla: prima un aggiornamento fallito passava in silenzio, la mail era
+   partita e il registro diceva di no — il passo naturale era rimandarla.
+   Tre tentativi; se non va, torna il motivo e chi chiama lo dice. */
+async function segnaDopoInvio(fn: () => PromiseLike<{ error: { message: string } | null }>): Promise<string> {
+  let ultimo = ''
+  for (let i = 0; i < 3; i++) {
+    const { error } = await fn()
+    if (!error) return ''
+    ultimo = error.message
+    await new Promise((r) => setTimeout(r, 400 * (i + 1)))
+  }
+  return ultimo
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
   try {
@@ -776,8 +791,11 @@ async function avvisaFirmatario(sb: any, conf: Conf, a: string) {
     })
     const out = await res.json()
     if (!res.ok || out.error) throw new Error(out.error?.message || `Gmail ha risposto ${res.status}`)
-    await sb.from('s_firme').update({ avviso_il: adesso, avviso_esito: `inviato a ${a}` }).in('id', ids)
-    return { inviata: true, a, documenti: ids.length }
+    /* la mail è partita: se la registrazione fallisce lo si dice, senza passare
+       dal catch che scriverebbe «non inviato» (13/11/2026) */
+    const nonRegistrato = await segnaDopoInvio(() => sb.from('s_firme').update({ avviso_il: adesso, avviso_esito: `inviato a ${a}` }).in('id', ids))
+    if (nonRegistrato) console.error('firma: avviso PARTITO ma non registrato', ids, nonRegistrato)
+    return { inviata: true, a, documenti: ids.length, ...(nonRegistrato ? { avviso: `avviso partito ma non registrato (${nonRegistrato}): non rimandarlo` } : {}) }
   } catch (e) {
     const msg = (e as Error).message
     await sb.from('s_firme').update({ avviso_esito: `non inviato: ${msg}`.slice(0, 500) }).in('id', ids)

@@ -102,6 +102,17 @@ export function testoSpesa(p) {
   return 'a corrispettivo, importo da definire';
 }
 
+/* (13/11/2026) Una scrittura il cui esito non si legge dice «fatto» anche
+   quando il database ha rifiutato (una policy, un trigger, la rete): supabase-js
+   non lancia, restituisce `error`. Qui l'errore diventa un'eccezione, col nome
+   di ciò che non è riuscito, così finisce nel `catch` di chi chiama e a video.
+   Si usa al posto di un `await sb.from(...).update(...)` nudo. */
+export async function scrivi(query, cosa) {
+  const { data, error } = await query;
+  if (error) throw new Error(`${cosa}: ${error.message}`);
+  return data;
+}
+
 export function toast(msg, tipo = '') {
   const el = $('#toast');
   el.textContent = msg;

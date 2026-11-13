@@ -42,7 +42,7 @@
    ============================================================ */
 
 import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer,
-  codiceProtocollo, esercizioDi } from './core.js';
+  codiceProtocollo, esercizioDi, scrivi } from './core.js';
 import { risolviCartella, creaCartella, caricaByte, cestina } from './drive.js';
 import { riepilogoRifacibile } from './comune.js';
 import { scaricaEml, FIRMA_SEGRETERIA } from './eml.js';
@@ -636,21 +636,27 @@ async function inviaLettera(t, inc, btn) {
     if (!base.id) throw new Error('Cartella incarichi_visite non trovata su Drive');
     const sub = await creaCartella(base.id, `${inc.anno}-${String(inc.mese).padStart(2, '0')}`);
     const su = await caricaByte(prot, nomeFile, byte, 'application/pdf', sub.id || base.id);
-    await sb.from('s_prot_allegati').insert({ protocollo_id: prot.id, nome: su.file_name || nomeFile, mime: 'application/pdf',
-      dimensione: byte.length, principale: !integrazione, created_by: state.email, drive_file_id: su.drive_file_id, drive_url: su.drive_url });
+    /* (13/11/2026) da qui il numero di protocollo è già consumato e il PDF è su
+       Drive: ogni passo che non riesce si dice, col numero, invece di lasciare
+       un protocollo senza documento di cui nessuno sa niente */
+    const cod = codiceProtocollo(prot);
+    await scrivi(sb.from('s_prot_allegati').insert({ protocollo_id: prot.id, nome: su.file_name || nomeFile, mime: 'application/pdf',
+      dimensione: byte.length, principale: !integrazione, created_by: state.email, drive_file_id: su.drive_file_id, drive_url: su.drive_url }),
+      `${cod}: il PDF è su Drive ma non è stato collegato al protocollo (collegalo dal registro)`);
     if (!integrazione) {
-      await sb.from('s_protocollo').update({ drive_file_id: su.drive_file_id, drive_url: su.drive_url }).eq('id', prot.id);
+      await scrivi(sb.from('s_protocollo').update({ drive_file_id: su.drive_file_id, drive_url: su.drive_url }).eq('id', prot.id),
+        `${cod}: il collegamento al PDF non è stato scritto sul protocollo`);
     } else {
       /* il documento principale resta la lettera di origine: qui si annota solo l'integrazione */
-      await sb.from('s_protocollo').update({
+      await scrivi(sb.from('s_protocollo').update({
         sintesi: `${prot.sintesi || ''}\nIntegrazione del ${dataIt(oggiIso())}: ${d.ncAperte.length} cantieri con ritorno previsto, ${d.richieste.length} richieste in attesa, ${d.sospesi.length} altri incarichi in sospeso (non riportati nella prima stesura).`.trim(),
-      }).eq('id', prot.id);
+      }).eq('id', prot.id), `${cod}: l'integrazione non è stata annotata sul protocollo`);
     }
-    await sb.from('s_incarichi_mensili').update({
+    await scrivi(sb.from('s_incarichi_mensili').update({
       lettera_protocollo_id: prot.id,
       ...(integrazione ? {} : { lettera_drive_id: su.drive_file_id, lettera_drive_url: su.drive_url }),
       lettera_mail_at: new Date().toISOString(), aggiornato_da: state.email, updated_at: new Date().toISOString(),
-    }).eq('id', inc.id);
+    }).eq('id', inc.id), `${cod} è fatto e il PDF è su Drive, ma l'incarico mensile non lo riporta: NON ripremere (consumerebbe un altro numero), avvisa chi segue l'app`);
 
     scaricaEml({
       to: t.email, cc: [conf.coordinatore_email].filter(Boolean),
@@ -1014,7 +1020,7 @@ async function congelaEInvia(t, inc, anno, mese, sel, fisc, note, btn) {
          conteggio delle visite di quel mese sia quello di questo */
       const d = { tipo: r.tipo, quantita: r.quantita ?? 1, tariffa_unitaria: r.tariffa_unitaria, importo: r.importo };
       if (!r.arretrata) d.incarico_mensile_id = incarico.id;
-      await sb.from('s_prestazioni').update(d).eq('id', r.prestazione_id);
+      await scrivi(sb.from('s_prestazioni').update(d).eq('id', r.prestazione_id), 'Prestazione non aggiornata (il riepilogo non è stato protocollato)');
     }
 
     /* protocollo OUT del riepilogo */
@@ -1066,13 +1072,14 @@ async function congelaEInvia(t, inc, anno, mese, sel, fisc, note, btn) {
         try { await cestina(a.drive_file_id); } catch (e) { toast(`Il PDF di prima è rimasto su Drive accanto a quello nuovo: spostalo nel cestino a mano. ${e.message}`, 'err'); }
       }
     }
-    await sb.from('s_protocollo').update({ drive_file_id: su.drive_file_id, drive_url: su.drive_url }).eq('id', prot.id);
-    await sb.from('s_incarichi_mensili').update({
+    await scrivi(sb.from('s_protocollo').update({ drive_file_id: su.drive_file_id, drive_url: su.drive_url }).eq('id', prot.id),
+      `${codiceProtocollo(prot)}: il collegamento al PDF non è stato scritto sul protocollo`);
+    await scrivi(sb.from('s_incarichi_mensili').update({
       stato: 'chiuso', chiuso_il: new Date().toISOString(), chiuso_da: state.email,
       totale_netto: tot, totale_lordo: lordo, cantieri_visitati: datiRiepilogo(t, sel, fisc, note).cantieriVisitati,
       riepilogo_protocollo_id: prot.id, riepilogo_drive_id: su.drive_file_id, riepilogo_drive_url: su.drive_url,
       riepilogo_mail_at: new Date().toISOString(), aggiornato_da: state.email, updated_at: new Date().toISOString(),
-    }).eq('id', incarico.id);
+    }).eq('id', incarico.id), `Il riepilogo ${codiceProtocollo(prot)} è protocollato e su Drive, ma il mese NON risulta chiuso: avvisa chi segue l'app prima di ripremere`);
 
     const visite = sel.filter((r) => String(r.tipo).startsWith('visita_'));
     const perTipo = {};

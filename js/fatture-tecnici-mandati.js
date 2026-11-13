@@ -9,7 +9,7 @@
    qui non si chiama niente dell'altro, solo dentro le funzioni.
    ============================================================ */
 
-import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, esercizioDi } from './core.js';
+import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, esercizioDi, scrivi } from './core.js';
 import { risolviCartella, creaCartella } from './drive.js';
 import { scaricaEml } from './eml.js';
 import { corpoInHtml, paginaHtml, bloccoAzioneMail } from './firma.js';
@@ -101,14 +101,22 @@ async function emettiMandato(sel, btn) {
       });
       if (errUp || caricato?.error) throw new Error('Deposito su Drive non riuscito: ' + (caricato?.error || errUp.message));
       su = caricato;
-      await sb.from('s_mandati_pagamento').update({ drive_file_id: su.drive_file_id, drive_url: su.drive_url, mail_at: new Date().toISOString() }).eq('id', m.id);
+      await scrivi(sb.from('s_mandati_pagamento').update({ drive_file_id: su.drive_file_id, drive_url: su.drive_url, mail_at: new Date().toISOString() }).eq('id', m.id),
+        'Il PDF del mandato è su Drive ma non è stato collegato al mandato');
     } catch (e) {
-      await sb.from('s_mandati_pagamento').delete().eq('id', m.id);
+      /* (13/11/2026) anche la cancellazione si controlla: se non riesce resta
+         nel registro un mandato senza documento, e va detto */
+      const { error: errDel } = await sb.from('s_mandati_pagamento').delete().eq('id', m.id);
+      if (errDel) throw new Error(`${e.message} — e il mandato n° ${m.id} è rimasto nel registro senza documento (${errDel.message}): avvisa chi segue l'app.`);
       throw e;
     }
     const { error: eMand } = await sb.from('s_fatture_tecnici').update({ stato: 'mandato', mandato_id: m.id, mandato_data: oggiIso(), aggiornato_da: state.email, updated_at: new Date().toISOString() }).in('id', ids);
     if (eMand) throw new Error(`Mandato n° ${m.id} creato, ma le fatture non sono passate «in mandato» (${eMand.message}): avvisa chi segue l'app prima di mandarlo.`);
-    if (incIds.length) await sb.from('s_incarichi_mensili').update({ stato: 'pagato', aggiornato_da: state.email, updated_at: new Date().toISOString() }).in('id', incIds);
+    if (incIds.length) {
+      /* non blocca il mandato, che è già valido: ma si dice (13/11/2026) */
+      const { error: eInc } = await sb.from('s_incarichi_mensili').update({ stato: 'pagato', aggiornato_da: state.email, updated_at: new Date().toISOString() }).in('id', incIds);
+      if (eInc) toast(`Mandato n° ${m.id} creato; gli incarichi mensili però non sono passati a «pagato»: ${eInc.message}`, 'err');
+    }
 
     /* La mail porta il LINK AL MANDATO nell'app (16/09/2026): è lì che
        l'Amministrazione mette la presa visione con la firma e segna i

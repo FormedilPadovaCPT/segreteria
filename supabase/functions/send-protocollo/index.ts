@@ -267,6 +267,21 @@ function testoProtocollato(p: Record<string, unknown>, messaggio: string, saluto
   ].join('\n')
 }
 
+/* (13/11/2026) Dopo un invio RIUSCITO la registrazione sul database si
+   controlla: prima un aggiornamento fallito passava in silenzio, la mail era
+   partita e il registro diceva di no — il passo naturale era rimandarla.
+   Tre tentativi; se non va, torna il motivo e chi chiama lo dice. */
+async function segnaDopoInvio(fn: () => PromiseLike<{ error: { message: string } | null }>): Promise<string> {
+  let ultimo = ''
+  for (let i = 0; i < 3; i++) {
+    const { error } = await fn()
+    if (!error) return ''
+    ultimo = error.message
+    await new Promise((r) => setTimeout(r, 400 * (i + 1)))
+  }
+  return ultimo
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
   try {
@@ -443,14 +458,19 @@ serve(async (req) => {
        protocollato (uscita): sono quelli che «chiudono» il protocollo
        verso l'esterno. Gli inoltri interni sono un'altra cosa e non
        devono far credere che fuori sia arrivato qualcosa. */
+    let nonRegistrata = ''
     if (quale === 'avviso' || quale === 'protocollato') {
-      await sb.from('s_protocollo').update({
+      nonRegistrata = await segnaDopoInvio(() => sb.from('s_protocollo').update({
         mail_inviata_at: new Date().toISOString(),
         mail_destinatari: toList.join(', '),
-      }).eq('id', protocolloId)
+      }).eq('id', protocolloId))
+      if (nonRegistrata) console.error('send-protocollo: mail PARTITA ma non segnata sul protocollo', protocolloId, nonRegistrata)
     }
 
-    return new Response(JSON.stringify({ ok: true, messageId: out.id, modo: quale, da, oggetto: soggetto, allegati: allegatoNomi }),
+    return new Response(JSON.stringify({
+      ok: true, messageId: out.id, modo: quale, da, oggetto: soggetto, allegati: allegatoNomi,
+      ...(nonRegistrata ? { avviso: `La mail è PARTITA, ma non sono riuscito a segnarlo sul protocollo (${nonRegistrata}): non rimandarla.` } : {}),
+    }),
       { headers: { 'Content-Type': 'application/json', ...CORS } })
   } catch (e) {
     console.error('send-protocollo:', e)
