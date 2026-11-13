@@ -533,7 +533,16 @@ export async function apriDialogoMail(p, modo = 'avviso') {
     attendi(btn, false);
 
     if (error || data?.error) {
-      toast('Non sono riuscito a preparare la mail: ' + (data?.error || error?.message || 'risposta vuota'), 'err');
+      /* Con una risposta non 2xx supabase-js mette in error.message solo
+         «Edge Function returned a non-2xx status code»: la spiegazione della
+         funzione sta nel corpo, in error.context (13/11/2026, bozza Gmail
+         rifiutata da Google e messaggio generico a video). */
+      let msg = data?.error;
+      if (!msg) { try { const j = await error?.context?.json?.(); if (j?.error) msg = j.error; } catch { /* risposta non JSON */ } }
+      const scope = /gmail\.compose|unauthorized_client/i.test(msg || '');
+      toast('Non sono riuscito a preparare la mail: ' + (scope
+        ? 'Google non permette ancora all\'app di creare bozze in Gmail (manca il permesso «gmail.compose» nella console di amministrazione di Google Workspace). Usa «Outlook» finché non viene abilitato.'
+        : (msg || error?.message || 'risposta vuota')), 'err');
       return;
     }
 
