@@ -21,7 +21,7 @@
      Il registro presenze lo tiene la segreteria per tutti.
    ============================================================ */
 
-import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer } from './core.js';
+import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, scrivi } from './core.js';
 import { APP_URL } from './config.js';
 import { risolviCartella, leggiByte } from './drive.js';
 import { scaricaEml, FIRMA_SEGRETERIA } from './eml.js';
@@ -1882,7 +1882,7 @@ export async function apriRichiesta(id) {
   $('#fe-amm')?.addEventListener('click', (ev) => bozzaAmministrazione(r, ev.currentTarget));
   $('#fe-elimina')?.addEventListener('click', async () => {
     if (!confirm('Elimino la richiesta?')) return;
-    await sb.from('s_ferie_richieste').delete().eq('id', r.id);
+    await scrivi(sb.from('s_ferie_richieste').delete().eq('id', r.id), 's_ferie_richieste: riga non eliminata');
     chiudiDrawer();
     renderFerie();
   });
@@ -1937,9 +1937,9 @@ ${FIRMA_SEGRETERIA}`,
       allegati: [{ nome: nomeRichiesta(r, false), byte }],
       nomeFile: `richiesta-${r.tipo}-${r.id}.eml`,
     });
-    await sb.from('s_ferie_richieste').update({
+    await scrivi(sb.from('s_ferie_richieste').update({
       aut_stato: 'richiesta', aggiornato_da: state.email, updated_at: new Date().toISOString(),
-    }).eq('id', r.id);
+    }).eq('id', r.id), 's_ferie_richieste: riga non aggiornata');
     toast('Bozza per il Direttore scaricata: aprila da Outlook e premi Invia.', 'ok');
     await renderFerie();
   } catch (e) { toast(e.message, 'err'); } finally { attendi(btn, false); }
@@ -2093,9 +2093,9 @@ async function generaRighe(r, btn) {
       aggiornato_da: state.email,
     }))).select('id');
     if (e2) throw new Error(e2.message);
-    await sb.from('s_ferie_richieste').update({
+    await scrivi(sb.from('s_ferie_richieste').update({
       righe_generate: true, aggiornato_da: state.email, updated_at: new Date().toISOString(),
-    }).eq('id', r.id);
+    }).eq('id', r.id), 's_ferie_richieste: riga non aggiornata');
     const partite = causale === 'Recupero' ? ' ' + await chiudiPartite(r, totale, (nuove || []).map((x) => x.id)) : '';
     toast(`${giorni.length} giorni creati in presenze e banca ore.${partite}`, 'ok');
     chiudiDrawer();
@@ -2205,9 +2205,9 @@ async function registraSupplementari(r, btn) {
       aggiornato_da: state.email,
     });
     if (error) throw new Error(error.message);
-    await sb.from('s_ferie_richieste').update({
+    await scrivi(sb.from('s_ferie_richieste').update({
       righe_generate: true, aggiornato_da: state.email, updated_at: new Date().toISOString(),
-    }).eq('id', r.id);
+    }).eq('id', r.id), 's_ferie_richieste: riga non aggiornata');
     toast(`Ore supplementari registrate in banca ore (${r.compenso === 'paga' ? 'da pagare' : 'da recuperare'}).`, 'ok');
     chiudiDrawer();
     await renderFerie();

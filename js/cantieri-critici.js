@@ -25,7 +25,7 @@
    Sostituisce js/dinieghi.js del 16/09/2026.
    ============================================================ */
 
-import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo, siglaProtocollo } from './core.js';
+import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo, siglaProtocollo, scrivi } from './core.js';
 import { TIPO_DOC_ACCESSO_NEGATO, CARTELLA_VAULT, oggettoLettera, paragrafiAccessoNegato, paragrafiSollecito,
   corpoMail, corpoRichiestaPec, nomeFileLettera, TIPO_DOC_SEGNALAZIONE, TIPO_DOC_CONFERENZA, SEGNAPOSTO_MERITO, DESTINAZIONI,
   destinatariSegnalazione, oggettoSegnalazione, scheletroSegnalazione, corpoUlterioreVisita, corpoPropostaConferenza,
@@ -449,12 +449,12 @@ async function preparaComunicazione(d, prec, dopo) {
       const pdfByte = await generaLetteraPdf(destinatarioPdf(), nuovo, par, oggettoRiga);
       const nomeFile = nomeFileLettera(d, oggiIso(), sollecito, cant?.comune_nome || '');
       const su = await caricaByte(nuovo, nomeFile, pdfByte, 'application/pdf', cartId);
-      await sb.from('s_prot_allegati').insert({
+      await scrivi(sb.from('s_prot_allegati').insert({
         protocollo_id: nuovo.id, nome: su.file_name || nomeFile, mime: 'application/pdf',
         dimensione: pdfByte.length, principale: true, created_by: state.email,
         drive_file_id: su.drive_file_id, drive_url: su.drive_url,
-      });
-      await sb.from('s_protocollo').update({ drive_file_id: su.drive_file_id, drive_url: su.drive_url }).eq('id', nuovo.id);
+      }), 's_prot_allegati: riga non inserita');
+      await scrivi(sb.from('s_protocollo').update({ drive_file_id: su.drive_file_id, drive_url: su.drive_url }).eq('id', nuovo.id), 's_protocollo: riga non aggiornata');
 
       const sigla = siglaProtocollo(nuovo);
       const ccAltri = $('#cm-cc').value.trim();
@@ -489,10 +489,10 @@ async function preparaComunicazione(d, prec, dopo) {
           corpo: corpoRichiestaPec(caso(), `Prot. ${sigla}`, $('#cm-pec-a').value.trim()),
           allegati, nomeFile: `richiesta-pec-accesso-negato-n${d.id}.eml`,
         });
-        await sb.from('s_cantieri_critici_eventi').insert({
+        await scrivi(sb.from('s_cantieri_critici_eventi').insert({
           critico_id: d.id, tipo: 'pec_richiesta', protocollo_id: nuovo.id,
           testo: `Chiesto all'Amministrazione l'inoltro dalla PEC aziendale${$('#cm-pec-a').value.trim() ? ' a ' + $('#cm-pec-a').value.trim() : ' (PEC dell\'impresa da rilevare)'}. Agli atti va la ricevuta di consegna.`,
-        });
+        }), 's_cantieri_critici_eventi: riga non inserita');
       }
       toast(`${sollecito ? 'Sollecito' : 'Comunicazione'} protocollata (${codiceProtocollo(nuovo)}) e depositata. Bozze scaricate: impresa${vuolePec ? " e richiesta PEC all'Amministrazione" : ''}. Ricordati di segnare il protocollo come inviato quando parte.`, 'ok');
       if (dopo) dopo();
@@ -591,7 +591,7 @@ async function proponiConferenza(d, dopo) {
     if (errProt) throw new Error('Protocollazione non riuscita: ' + errProt.message);
     const { error } = await evento(d, 'conferenza_proposta', `Proposta all'impresa una conferenza di cantiere (${codiceProtocollo(nuovo)}).`, { protocollo_id: nuovo.id, dati: { sigla: siglaProtocollo(nuovo), a } });
     if (error) throw new Error(error.message);
-    await sb.from('s_cantieri_critici').update({ stato: 'attesa_impresa', termine_il: o.termine || fra(GIORNI_TERMINE), gestione_note: d.gestione_note || null }).eq('id', d.id);
+    await scrivi(sb.from('s_cantieri_critici').update({ stato: 'attesa_impresa', termine_il: o.termine || fra(GIORNI_TERMINE), gestione_note: d.gestione_note || null }).eq('id', d.id), 's_cantieri_critici: riga non aggiornata');
     const { scaricaEml } = await import('./eml.js');
     scaricaEml({ to: a, cc: [k.c.coordinatore_email].filter(Boolean), oggetto: `${oggetto} - Prot. ${siglaProtocollo(nuovo)}`, corpo, nomeFile: `proposta-conferenza-caso-${d.id}.eml` });
     toast(`Proposta protocollata (${codiceProtocollo(nuovo)}) e bozza scaricata.`, 'ok');
@@ -623,7 +623,7 @@ async function demanda(d, eventi, dopo) {
       const { error: e2 } = await sb.from('s_cantieri_critici_eventi').insert({ critico_id: d.id, tipo: 'demandata', visibile_tecnico: true,
         testo: 'Demandato alla Commissione Sicurezza.', dati: { chi: 'commissione', a: to } });
       if (e2) throw new Error(e2.message);
-      await sb.from('s_cantieri_critici').update({ stato: 'attesa_decisione', gestione_note: d.gestione_note || null }).eq('id', d.id);
+      await scrivi(sb.from('s_cantieri_critici').update({ stato: 'attesa_decisione', gestione_note: d.gestione_note || null }).eq('id', d.id), 's_cantieri_critici: riga non aggiornata');
     }
     const link = `${GESTIONALE_URL}#critico-${d.id}`;
     const { scaricaEml } = await import('./eml.js');
@@ -713,8 +713,8 @@ async function segnalaOrgani(d, eventi, dopo) {
     } });
     if (errProt) throw new Error('Protocollazione non riuscita: ' + errProt.message);
     for (const f of scelti) {
-      await sb.from('s_prot_allegati').insert({ protocollo_id: nuovo.id, nome: f.nome, mime: 'application/pdf', principale: false,
-        created_by: state.email, drive_file_id: f.id, drive_url: `https://drive.google.com/file/d/${f.id}/view` });
+      await scrivi(sb.from('s_prot_allegati').insert({ protocollo_id: nuovo.id, nome: f.nome, mime: 'application/pdf', principale: false,
+        created_by: state.email, drive_file_id: f.id, drive_url: `https://drive.google.com/file/d/${f.id}/view` }), 's_prot_allegati: riga non inserita');
     }
     const { error } = await sb.from('s_cantieri_critici_eventi').insert({
       critico_id: d.id, tipo: 'segnalazione_organi', visibile_tecnico: true, protocollo_id: nuovo.id,
@@ -786,7 +786,7 @@ async function chiediConfermaDirettore(d, eventi, dopo) {
     const { error } = await sb.from('s_cantieri_critici_eventi').insert({ critico_id: d.id, tipo: 'demandata', visibile_tecnico: false,
       testo: 'Chiesta al Direttore la conferma della segnalazione agli organi di vigilanza.', dati: { chi: 'direttore', a: $('#mk-a').value.trim() } });
     if (error) throw new Error(error.message);
-    await sb.from('s_cantieri_critici').update({ stato: 'attesa_decisione', gestione_note: d.gestione_note || null }).eq('id', d.id);
+    await scrivi(sb.from('s_cantieri_critici').update({ stato: 'attesa_decisione', gestione_note: d.gestione_note || null }).eq('id', d.id), 's_cantieri_critici: riga non aggiornata');
     const premessa = $('#mk-testo').value.trim();
     const { scaricaEml } = await import('./eml.js');
     scaricaEml({

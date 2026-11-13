@@ -19,7 +19,7 @@
       va SOLO sui corsi riconosciuti (riconosciuto_regione).
    ============================================================ */
 
-import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, codiceProtocollo, opzioniTendina } from './core.js';
+import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, codiceProtocollo, opzioniTendina, scrivi } from './core.js';
 import { risolviCartella, caricaByte, leggiByte } from './drive.js';
 import { scaricaEml, FIRMA_SEGRETERIA, collegaDoppioClickMail } from './eml.js';
 import { chiediFirma, scaricaFirmata, firmeDi, etichettaFirma, esitoAvvisi } from './firme.js';
@@ -313,7 +313,7 @@ function formCorso(c, prefill = {}) {
       id = nuovo.id;
       // prima giornata dal calendario, se le date ci sono
       if (dati.data_inizio) {
-        await sb.from('s_corsi_giornate').insert({ corso_id: id, data: dati.data_inizio, sede: dati.sede });
+        await scrivi(sb.from('s_corsi_giornate').insert({ corso_id: id, data: dati.data_inizio, sede: dati.sede }), 's_corsi_giornate: riga non inserita');
       }
       /* ⚠️ Una conferenza di cantiere nasce già col modulo da mandare
          (regola dell'utente, 19/09/2026): finché le iscrizioni restavano da
@@ -683,7 +683,7 @@ export async function apriCorso(id) {
   $('#drawer-body').querySelectorAll('[data-del-g]').forEach((a) => a.addEventListener('click', async (e) => {
     e.preventDefault();
     if (!confirm('Elimino la giornata (con le sue presenze)?')) return;
-    await sb.from('s_corsi_giornate').delete().eq('id', Number(a.dataset.delG));
+    await scrivi(sb.from('s_corsi_giornate').delete().eq('id', Number(a.dataset.delG)), 's_corsi_giornate: riga non eliminata');
     apriCorso(c.id);
   }));
 
@@ -694,7 +694,7 @@ export async function apriCorso(id) {
   }));
   $('#drawer-body').querySelectorAll('[data-del-int]').forEach((a) => a.addEventListener('click', async (e) => {
     e.preventDefault();
-    await sb.from('s_corsi_interventi').delete().eq('id', Number(a.dataset.delInt));
+    await scrivi(sb.from('s_corsi_interventi').delete().eq('id', Number(a.dataset.delInt)), 's_corsi_interventi: riga non eliminata');
     apriCorso(c.id);
   }));
 
@@ -739,7 +739,7 @@ Registro lo stesso una fattura qui?`)) return;
     /* una riga già protocollata ha la sua lettera fuori: eliminarla
        lascerebbe un protocollo senza pratica, quindi si chiede */
     if (k?.protocollo_out_id && !confirm(`Per ${k.nominativo} la lettera è già uscita protocollata: elimino comunque la riga? Il protocollo resta nel registro.`)) return;
-    await sb.from('s_corsi_incarichi').delete().eq('id', Number(a.dataset.delInc));
+    await scrivi(sb.from('s_corsi_incarichi').delete().eq('id', Number(a.dataset.delInc)), 's_corsi_incarichi: riga non eliminata');
     apriCorso(c.id);
   }));
 
@@ -787,7 +787,7 @@ Registro lo stesso una fattura qui?`)) return;
   $('#drawer-body').querySelectorAll('[data-del-iscr]').forEach((a) => a.addEventListener('click', async (e) => {
     e.preventDefault();
     if (!confirm('Tolgo l\'iscritto dal corso?')) return;
-    await sb.from('s_corsi_iscritti').delete().eq('id', Number(a.dataset.delIscr));
+    await scrivi(sb.from('s_corsi_iscritti').delete().eq('id', Number(a.dataset.delIscr)), 's_corsi_iscritti: riga non eliminata');
     apriCorso(c.id);
   }));
   $('#drawer-body').querySelectorAll('[data-pres]').forEach((a) => a.addEventListener('click', (e) => {
@@ -1027,13 +1027,13 @@ async function mailLetteraFirmata(c, k, firma) {
         const cart = await risolviCartella('2_AREE/Formazione');
         if (cart.id) {
           const su = await caricaByte(prot, nome, byte, 'application/pdf', cart.id);
-          await sb.from('s_prot_allegati').insert({
+          await scrivi(sb.from('s_prot_allegati').insert({
             protocollo_id: prot.id, nome: su.file_name || nome, mime: 'application/pdf',
             dimensione: byte.length, principale: true, created_by: state.email,
             drive_file_id: su.drive_file_id, drive_url: su.drive_url,
-          });
+          }), 's_prot_allegati: riga non inserita');
         }
-        await sb.rpc('s_firma_usata', { p_id: firma.id });
+        await scrivi(sb.rpc('s_firma_usata', { p_id: firma.id }), 's_firma_usata: non riuscita');
       } catch (e) { toast('Bozza pronta, ma il deposito su Drive non è riuscito: ' + e.message, 'err'); }
     }
 
@@ -1175,14 +1175,14 @@ async function proponiIncarichi(c, interventi, esistenti) {
     });
     motivi.add(motivo);
     const ore = d.ore || null;
-    await sb.from('s_corsi_incarichi').insert({
+    await scrivi(sb.from('s_corsi_incarichi').insert({
       corso_id: c.id, persona_id: d.persona_id, nominativo: d.nominativo,
       qualita: d.qualita === 'codocente' ? 'codocente' : 'docente',
       ore, tariffa_oraria: importo,
       corrispettivo: calcolaCorrispettivo(ore, importo),
       data_incarico: oggiIso(),
       aggiornato_da: state.email, updated_at: new Date().toISOString(),
-    });
+    }), 's_corsi_incarichi: riga non inserita');
     creati += 1;
   }
   toast(creati
@@ -1494,7 +1494,7 @@ function formPresenze(c, iscritto, giornate, righe) {
         uscita2: blocco.querySelector('.pr-u2').value || null,
       };
       dati.ore = dati.presente ? oreDa(dati.ingresso1, dati.uscita1) + oreDa(dati.ingresso2, dati.uscita2) : 0;
-      await sb.from('s_corsi_presenze').upsert(dati, { onConflict: 'iscritto_id,giornata_id' });
+      await scrivi(sb.from('s_corsi_presenze').upsert(dati, { onConflict: 'iscritto_id,giornata_id' }), 's_corsi_presenze: riga non salvata');
     }
     attendi(btn, false);
     toast('Presenze salvate.', 'ok');
@@ -1514,7 +1514,7 @@ async function calcolaFrequenze(c, giornate, iscritti, pres) {
     if (perc != null && ['in_attesa', 'presente', 'freq_insufficiente'].includes(i.esito)) {
       dati.esito = perc >= (c.perc_freq_min || 90) ? 'presente' : 'freq_insufficiente';
     }
-    await sb.from('s_corsi_iscritti').update(dati).eq('id', i.id);
+    await scrivi(sb.from('s_corsi_iscritti').update(dati).eq('id', i.id), 's_corsi_iscritti: riga non aggiornata');
   }
 }
 

@@ -11,7 +11,7 @@
    «📬 Verifiche di efficacia da ricordare» da cui la segreteria prepara la
    bozza .eml e segna «inviata». L'app prepara, la persona manda.
    ══════════════════════════════════════════════════════════════════════════ */
-import { sb, esc, dataIt, oggiIso, toast } from './core.js';
+import { sb, esc, dataIt, oggiIso, toast, scrivi } from './core.js';
 import { scaricaEml } from './eml.js';
 
 export async function datiEfficacia() {
@@ -75,7 +75,7 @@ export function collegaEfficacia(host, ricarica, dati) {
     const { error } = await sb.rpc('efficacia_segna', { p_id: r.id, p_stato: 'preparata', p_note: null });
     if (error) toast('Bozza scaricata, ma non segnata: ' + error.message, 'err');
     else toast('Bozza scaricata: mandala da Outlook, poi «✓ inviata».', 'ok');
-    if (!r.email || r.email !== a2.trim()) await sb.from('s_corsi_efficacia').update({ email: a2.trim() }).eq('id', r.id);
+    if (!r.email || r.email !== a2.trim()) await scrivi(sb.from('s_corsi_efficacia').update({ email: a2.trim() }).eq('id', r.id), 's_corsi_efficacia: riga non aggiornata');
     ricarica();
   }));
   host.querySelectorAll('[data-ef-inviata]').forEach((a) => a.addEventListener('click', async (ev) => {

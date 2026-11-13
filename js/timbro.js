@@ -6,7 +6,7 @@
    e si risalva. Cosi' il timbro e' uno solo.
    ============================================================ */
 
-import { sb, state, siglaProtocollo } from './core.js';
+import { sb, state, siglaProtocollo, scrivi } from './core.js';
 import { leggiByte, caricaByte, cestina, dove } from './drive.js';
 import { pdfLib, qrGen } from './cdn.js';
 import { applicaTimbro, testoQr } from './timbro-disegno.js';
@@ -56,19 +56,19 @@ export async function timbraAllegato(attId, protocollo, scelta) {
   const nome = (nudo.includes(sigla) ? `${nudo}_timbrato` : `${nudo}_${sigla}`) + '.pdf';
   const su = await caricaByte(protocollo, nome, bytes, 'application/pdf', dovEra?.parent_id || null);
 
-  await sb.from('s_prot_allegati').insert({
+  await scrivi(sb.from('s_prot_allegati').insert({
     protocollo_id: protocollo.id,
     nome: su.file_name || nome, mime: 'application/pdf',
     dimensione: bytes.length, timbrato: true, created_by: state.email,
     drive_file_id: su.drive_file_id, drive_url: su.drive_url,
-  });
+  }), 's_prot_allegati: riga non inserita');
 
   /* Che fare dell'originale: lo decide chi timbra, ogni volta. Di una
      circolare si tiene la sola copia protocollata; di un contratto
      firmato o di una scansione unica si conserva l'originale. */
   if (scelta.originale === 'cestina') {
     await cestina(att.drive_file_id);
-    await sb.from('s_prot_allegati').delete().eq('id', att.id);
+    await scrivi(sb.from('s_prot_allegati').delete().eq('id', att.id), 's_prot_allegati: riga non eliminata');
   }
 
   return {

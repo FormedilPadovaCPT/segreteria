@@ -18,7 +18,7 @@
    Drive e scarica la bozza .eml — l'invio resta a una persona.
    ============================================================ */
 
-import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo, siglaProtocollo, impresaPerPiva } from './core.js';
+import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo, siglaProtocollo, impresaPerPiva, scrivi } from './core.js';
 import { risolviCartella, sfoglia, creaCartella, caricaByte, leggiByte, idDaLink } from './drive.js';
 import { scaricaEml, FIRMA_SEGRETERIA } from './eml.js';
 
@@ -335,7 +335,7 @@ async function apriPratica(id) {
     });
     attendi(btn, false);
     if (error) return toast('Creazione non riuscita: ' + error.message, 'err');
-    await sb.from('s_rlst_pratiche').update({ impresa_id: p.partita_iva, aggiornato_da: state.email, updated_at: new Date().toISOString() }).eq('id', p.id);
+    await scrivi(sb.from('s_rlst_pratiche').update({ impresa_id: p.partita_iva, aggiornato_da: state.email, updated_at: new Date().toISOString() }).eq('id', p.id), 's_rlst_pratiche: riga non aggiornata');
     toast('Impresa creata in anagrafica (codice CEIV come dichiarato nel modulo: verificalo).', 'ok');
     await render();
     apriPratica(id);
@@ -489,14 +489,14 @@ async function preparaRisposta(p, imp, btn) {
       ? 'affidamento-servizio-RLST-a' : 'non-affidamento-RLST-a'}-${slugImpresa(p.ragione_sociale)}.pdf`;
     const su = await caricaByte(nuovo, nomeFile, pdfByte, 'application/pdf', cart.id);
 
-    await sb.from('s_prot_allegati').insert({
+    await scrivi(sb.from('s_prot_allegati').insert({
       protocollo_id: nuovo.id, nome: su.file_name || nomeFile, mime: 'application/pdf',
       dimensione: pdfByte.length, principale: true, created_by: state.email,
       drive_file_id: su.drive_file_id, drive_url: su.drive_url,
-    });
-    await sb.from('s_protocollo').update({ drive_file_id: su.drive_file_id, drive_url: su.drive_url }).eq('id', nuovo.id);
+    }), 's_prot_allegati: riga non inserita');
+    await scrivi(sb.from('s_protocollo').update({ drive_file_id: su.drive_file_id, drive_url: su.drive_url }).eq('id', nuovo.id), 's_protocollo: riga non aggiornata');
 
-    await sb.from('s_rlst_pratiche').update({
+    await scrivi(sb.from('s_rlst_pratiche').update({
       stato: 'risposta_protocollata',
       protocollo_out_id: nuovo.id,
       lettera_drive_id: su.drive_file_id,
@@ -504,7 +504,7 @@ async function preparaRisposta(p, imp, btn) {
       impresa_id: imp?.impresa_id || p.impresa_id,
       aggiornato_da: state.email,
       updated_at: new Date().toISOString(),
-    }).eq('id', p.id);
+    }).eq('id', p.id), 's_rlst_pratiche: riga non aggiornata');
 
     await scaricaEmlRisposta(p, nuovo, [{ nome: su.file_name || nomeFile, byte: pdfByte }], esito, contatti);
     toast(`Lettera protocollata (${codiceProtocollo(nuovo)}) e depositata in ${cart.nome}. Bozza mail scaricata: aprila da Outlook e premi Invia.`, 'ok');

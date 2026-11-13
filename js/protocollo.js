@@ -8,7 +8,7 @@
 import {
   sb, state, $, $$, esc, dataIt, oggiIso, toast, attendi,
   mostraVista, apriDrawer, chiudiDrawer,
-  codiceProtocollo, protocolloEsteso, perNominativo, opzioniTendina,
+  codiceProtocollo, protocolloEsteso, perNominativo, opzioniTendina, scrivi
 } from './core.js';
 import { PAGE_SIZE } from './config.js';
 import { agganci, caricaFile, cestina, dove, idDaLink, risolviCartella, sfoglia, LIMITE_MB } from './drive.js';
@@ -427,8 +427,8 @@ async function agganciaDalNome(p, gia) {
      allega alle mail. */
   if (!p.drive_file_id) {
     const pdf = nuovi.find((v) => /\.pdf$/i.test(v.nome)) || nuovi[0];
-    await sb.from('s_protocollo')
-      .update({ drive_file_id: pdf.id, drive_url: pdf.drive_url }).eq('id', p.id);
+    await scrivi(sb.from('s_protocollo')
+      .update({ drive_file_id: pdf.id, drive_url: pdf.drive_url }).eq('id', p.id), 's_protocollo: riga non aggiornata');
   }
   if (recordCorrente?.id === p.id) apriDettaglio(p.id);
 }
@@ -482,7 +482,7 @@ async function gestisciAzioneDrawer(e) {
     try {
       if (btn.dataset.drive) await cestina(btn.dataset.drive);
     } catch (err) { toast('Non riesco a spostarlo nel cestino: ' + err.message, 'err'); return; }
-    await sb.from('s_prot_allegati').delete().eq('id', Number(btn.dataset.att));
+    await scrivi(sb.from('s_prot_allegati').delete().eq('id', Number(btn.dataset.att)), 's_prot_allegati: riga non eliminata');
     toast('Documento tolto dal protocollo e messo nel cestino di Drive.', 'ok');
     apriDettaglio(p.id);
     return;
@@ -547,18 +547,18 @@ async function gestisciAzioneDrawer(e) {
   if (az === 'annulla') {
     const motivo = prompt('Motivo dell\'annullamento (resta scritto nel registro):', '');
     if (motivo === null) return;
-    await sb.from('s_protocollo').update({
+    await scrivi(sb.from('s_protocollo').update({
       annullato: true, annullato_motivo: motivo, aggiornato_da: state.email,
-    }).eq('id', p.id);
+    }).eq('id', p.id), 's_protocollo: riga non aggiornata');
     toast('Protocollo annullato.', 'ok');
     apriDettaglio(p.id); caricaElenco();
     return;
   }
 
   if (az === 'ripristina') {
-    await sb.from('s_protocollo').update({
+    await scrivi(sb.from('s_protocollo').update({
       annullato: false, annullato_motivo: null, aggiornato_da: state.email,
-    }).eq('id', p.id);
+    }).eq('id', p.id), 's_protocollo: riga non aggiornata');
     toast('Annullamento rimosso.', 'ok');
     apriDettaglio(p.id); caricaElenco();
   }
@@ -635,11 +635,11 @@ async function caricaAllegati(fileList) {
     toast(`Caricamento su Drive: ${file.name} (${fatti.length + falliti.length + 1} di ${files.length})…`);
     try {
       const su = await caricaFile(p, file);
-      await sb.from('s_prot_allegati').insert({
+      await scrivi(sb.from('s_prot_allegati').insert({
         protocollo_id: p.id, nome: su.file_name || file.name, mime: file.type,
         dimensione: file.size, created_by: state.email,
         drive_file_id: su.drive_file_id, drive_url: su.drive_url,
-      });
+      }), 's_prot_allegati: riga non inserita');
       fatti.push(file.name);
     } catch (err) {
       falliti.push(`${file.name} (${err.message})`);
@@ -678,10 +678,10 @@ async function registraAllegato(id, nome, cartella) {
   catch (err) { toast('Collegato, ma non riesco a leggerne la posizione: ' + err.message, 'err'); }
   if (d.cestinato) return toast('Quel documento sta nel cestino di Drive.', 'err');
 
-  await sb.from('s_prot_allegati').insert({
+  await scrivi(sb.from('s_prot_allegati').insert({
     protocollo_id: p.id, nome: d.nome,
     drive_file_id: id, drive_url: d.drive_url, created_by: state.email,
-  });
+  }), 's_prot_allegati: riga non inserita');
   toast(`Collegato: ${d.nome} — ${d.cartella || 'Drive'}`, 'ok');
   apriDettaglio(p.id);
 }
@@ -1300,9 +1300,9 @@ async function salva(ev) {
         /* il link del documento principale sta anche sulla riga del
            protocollo, cosi' si vede dall'elenco senza aprire nulla */
         if (principale) {
-          await sb.from('s_protocollo').update({
+          await scrivi(sb.from('s_protocollo').update({
             drive_file_id: su.drive_file_id, drive_url: su.drive_url,
-          }).eq('id', nuovo.id);
+          }).eq('id', nuovo.id), 's_protocollo: riga non aggiornata');
         }
 
         if (att && !daTimbrare && /\.pdf$/i.test(file.name)) daTimbrare = att.id;

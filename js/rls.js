@@ -20,7 +20,7 @@
    bozza .eml con cc al Direttore e al coordinatore.
    ============================================================ */
 
-import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo, siglaProtocollo, impresaPerPiva } from './core.js';
+import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo, siglaProtocollo, impresaPerPiva, scrivi } from './core.js';
 import { risolviCartella, caricaByte, leggiByte, idDaLink } from './drive.js';
 import { scaricaEml, FIRMA_SEGRETERIA } from './eml.js';
 
@@ -333,7 +333,7 @@ async function apriComunicazione(id) {
         comune_nascita: r.nato_a, indirizzo: r.residenza, comune_res: r.comune_res,
         note: `RLS di ${r.ragione_sociale || '?'} — creata dall'anagrafe RLS (${state.email})`,
       });
-      await sb.from('s_rls_anagrafe').update({ persona_id: pid, aggiornato_da: state.email, updated_at: new Date().toISOString() }).eq('id', r.id);
+      await scrivi(sb.from('s_rls_anagrafe').update({ persona_id: pid, aggiornato_da: state.email, updated_at: new Date().toISOString() }).eq('id', r.id), 's_rls_anagrafe: riga non aggiornata');
       toast('Persona creata in anagrafica.', 'ok');
       chiudiDrawer();
       apriPersona(pid);
@@ -444,14 +444,14 @@ async function preparaRiscontro(r, imp, btn) {
     const nomeFile = `${data}_COMU_Formedil-Padova_riscontro-${/riel/i.test(r.tipo_elezione || '') ? 'rielezione' : 'elezione'}-RLS-${slugImpresa(r.ragione_sociale)}.pdf`;
     const su = await caricaByte(nuovo, nomeFile, pdfByte, 'application/pdf', cart.id);
 
-    await sb.from('s_prot_allegati').insert({
+    await scrivi(sb.from('s_prot_allegati').insert({
       protocollo_id: nuovo.id, nome: su.file_name || nomeFile, mime: 'application/pdf',
       dimensione: pdfByte.length, principale: true, created_by: state.email,
       drive_file_id: su.drive_file_id, drive_url: su.drive_url,
-    });
-    await sb.from('s_protocollo').update({ drive_file_id: su.drive_file_id, drive_url: su.drive_url }).eq('id', nuovo.id);
+    }), 's_prot_allegati: riga non inserita');
+    await scrivi(sb.from('s_protocollo').update({ drive_file_id: su.drive_file_id, drive_url: su.drive_url }).eq('id', nuovo.id), 's_protocollo: riga non aggiornata');
 
-    await sb.from('s_rls_anagrafe').update({
+    await scrivi(sb.from('s_rls_anagrafe').update({
       stato: 'risposta_protocollata',
       protocollo_out_id: nuovo.id,
       lettera_drive_id: su.drive_file_id,
@@ -459,7 +459,7 @@ async function preparaRiscontro(r, imp, btn) {
       impresa_id: imp?.impresa_id || r.impresa_id,
       aggiornato_da: state.email,
       updated_at: new Date().toISOString(),
-    }).eq('id', r.id);
+    }).eq('id', r.id), 's_rls_anagrafe: riga non aggiornata');
 
     await bozzaRiscontro(r, nuovo, [{ nome: su.file_name || nomeFile, byte: pdfByte }]);
     toast(`Riscontro protocollato (${codiceProtocollo(nuovo)}) e depositato. Bozza mail scaricata: aprila da Outlook e premi Invia.`, 'ok');

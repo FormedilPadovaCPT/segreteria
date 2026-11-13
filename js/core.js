@@ -107,10 +107,25 @@ export function testoSpesa(p) {
    non lancia, restituisce `error`. Qui l'errore diventa un'eccezione, col nome
    di ciò che non è riuscito, così finisce nel `catch` di chi chiama e a video.
    Si usa al posto di un `await sb.from(...).update(...)` nudo. */
+export class ErroreScrittura extends Error {
+  constructor(messaggio) { super(messaggio); this.name = 'ErroreScrittura'; }
+}
 export async function scrivi(query, cosa) {
   const { data, error } = await query;
-  if (error) throw new Error(`${cosa}: ${error.message}`);
+  if (error) throw new ErroreScrittura(`${cosa}: ${error.message}`);
   return data;
+}
+/* Una scrittura rifiutata che nessun `catch` raccoglie NON deve sparire in console: la
+   maschera si ferma lì (niente «fatto» a video) e l'errore compare in rosso. È la rete
+   sotto tutte le `scrivi()` dei moduli (13/11/2026: 58 scritture, in 14 moduli, avevano
+   l'esito non letto). test/scritture-controllate.test.mjs fallisce se ne ricompare una. */
+if (typeof window !== 'undefined') {
+  window.addEventListener('unhandledrejection', (ev) => {
+    if (!(ev.reason instanceof ErroreScrittura)) return;
+    ev.preventDefault();
+    console.error('Scrittura non riuscita:', ev.reason.message);
+    try { toast(`⚠ Non salvato — ${ev.reason.message}. Ricarica la pagina e controlla prima di ripetere.`, 'err'); } catch { /* la pagina non ha ancora il riquadro dei messaggi */ }
+  });
 }
 
 export function toast(msg, tipo = '') {

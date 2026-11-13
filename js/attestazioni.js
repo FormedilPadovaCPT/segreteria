@@ -22,7 +22,7 @@
       presidente_nome / presidente_firma_id).
    ============================================================ */
 
-import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo, siglaProtocollo, impresaPerPiva, opzioniTendina } from './core.js';
+import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo, siglaProtocollo, impresaPerPiva, opzioniTendina, scrivi } from './core.js';
 import { APP_URL } from './config.js';
 import { risolviCartella, caricaByte, leggiByte, idDaLink } from './drive.js';
 import { scaricaEml, FIRMA_SEGRETERIA } from './eml.js';
@@ -455,11 +455,11 @@ ${FIRMA_SEGRETERIA}`,
       allegati: [{ nome: `richiesta-autorizzazione_attestazione-${n}_${slug(p.ragione_sociale)}.pdf`, byte }],
       nomeFile: `richiesta-autorizzazione-attestazione-${n}.eml`,
     });
-    await sb.from('s_attestazioni_dm132').update({
+    await scrivi(sb.from('s_attestazioni_dm132').update({
       aut_stato: p.aut_stato === 'da_richiedere' ? 'richiesta' : p.aut_stato,
       aut_richiesta_il: new Date().toISOString(),
       aggiornato_da: state.email, updated_at: new Date().toISOString(),
-    }).eq('id', p.id);
+    }).eq('id', p.id), 's_attestazioni_dm132: riga non aggiornata');
     toast('Bozza mail al Direttore scaricata: aprila da Outlook e premi Invia.', 'ok');
     await render();
   } catch (e) {
@@ -608,12 +608,12 @@ async function rilasciaAttestazione(p, btn) {
     const nomeFile = `${data}_ATT_Formedil-Padova_attestazione-DM132-consulenza-monitoraggio-n${num}-${anno}_${slug(p.ragione_sociale)}.pdf`;
     const su = await caricaByte(nuovo, nomeFile, byte, 'application/pdf', cart.id);
 
-    await sb.from('s_prot_allegati').insert({
+    await scrivi(sb.from('s_prot_allegati').insert({
       protocollo_id: nuovo.id, nome: su.file_name || nomeFile, mime: 'application/pdf',
       dimensione: byte.length, principale: true, created_by: state.email,
       drive_file_id: su.drive_file_id, drive_url: su.drive_url,
-    });
-    await sb.from('s_protocollo').update({ drive_file_id: su.drive_file_id, drive_url: su.drive_url }).eq('id', nuovo.id);
+    }), 's_prot_allegati: riga non inserita');
+    await scrivi(sb.from('s_protocollo').update({ drive_file_id: su.drive_file_id, drive_url: su.drive_url }).eq('id', nuovo.id), 's_protocollo: riga non aggiornata');
 
     const { error } = await sb.from('s_attestazioni_dm132').update({
       attestazione_num: num,

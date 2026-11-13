@@ -21,7 +21,7 @@
    principale e il riepilogo si aggiunge come secondo documento.
    ============================================================ */
 
-import { sb, state, toast } from './core.js';
+import { sb, state, toast, scrivi } from './core.js';
 import { risolviCartella, caricaByte } from './drive.js';
 import { dataIt, oggiIso } from './comune.js';
 import { apriCarta } from './segnalazioni-doc.js';
@@ -240,7 +240,7 @@ export async function depositaRiepilogo(tipo, p, prot, percorso) {
     });
     if (error) throw new Error(error.message);
     if (principale) {
-      await sb.from('s_protocollo').update({ drive_file_id: su.drive_file_id, drive_url: su.drive_url }).eq('id', prot.id);
+      await scrivi(sb.from('s_protocollo').update({ drive_file_id: su.drive_file_id, drive_url: su.drive_url }).eq('id', prot.id), 's_protocollo: riga non aggiornata');
     }
     toast(`Riepilogo del modulo depositato nel vault: ${su.file_name || nomeFile}`, 'ok');
   } catch (e) {

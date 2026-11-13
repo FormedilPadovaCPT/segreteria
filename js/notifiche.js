@@ -14,7 +14,7 @@
    quando viene creato); il verbale vive di là.
    ============================================================ */
 
-import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo, siglaProtocollo, impresaPerPiva, opzioniTendina } from './core.js';
+import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo, siglaProtocollo, impresaPerPiva, opzioniTendina, scrivi } from './core.js';
 import { scaricaEml, FIRMA_SEGRETERIA } from './eml.js';
 import { risolviCartella, caricaByte } from './drive.js';
 
@@ -378,7 +378,7 @@ async function depositaRiepilogo(p, nuovo) {
     });
     if (error) throw new Error(error.message);
     if (principale) {
-      await sb.from('s_protocollo').update({ drive_file_id: su.drive_file_id, drive_url: su.drive_url }).eq('id', nuovo.id);
+      await scrivi(sb.from('s_protocollo').update({ drive_file_id: su.drive_file_id, drive_url: su.drive_url }).eq('id', nuovo.id), 's_protocollo: riga non aggiornata');
     }
     toast(`Riepilogo della notifica depositato nel vault: ${su.file_name || nomeFile}`
       + (errConta ? ' — non sono riuscito a leggere gli altri allegati: è stato messo come secondario, controlla quale è il principale.' : ''),
@@ -404,10 +404,10 @@ Distinti saluti.
 ${FIRMA_SEGRETERIA}`,
     nomeFile: `ringraziamento-notifica-${p.progressivo ?? `m${p.id}`}.eml`,
   });
-  await sb.from('s_notifiche_cantiere').update({
+  await scrivi(sb.from('s_notifiche_cantiere').update({
     riscontro_inviato_il: new Date().toISOString(),
     aggiornato_da: state.email, updated_at: new Date().toISOString(),
-  }).eq('id', p.id);
+  }).eq('id', p.id), 's_notifiche_cantiere: riga non aggiornata');
   toast('Bozza di ringraziamento scaricata: aprila da Outlook e premi Invia.', 'ok');
   await render();
 }
@@ -549,12 +549,12 @@ async function riscontroCompleto(p, btn) {
     const nomeFile = `${oggiIso().replace(/-/g, '_')}_COMU_Formedil-Padova_riscontro-notifica-cantiere-${p.progressivo ?? `m${p.id}`}.pdf`;
     const su = await caricaByte(nuovo, nomeFile, pdfByte, 'application/pdf', cart.id);
 
-    await sb.from('s_prot_allegati').insert({
+    await scrivi(sb.from('s_prot_allegati').insert({
       protocollo_id: nuovo.id, nome: su.file_name || nomeFile, mime: 'application/pdf',
       dimensione: pdfByte.length, principale: true, created_by: state.email,
       drive_file_id: su.drive_file_id, drive_url: su.drive_url,
-    });
-    await sb.from('s_protocollo').update({ drive_file_id: su.drive_file_id, drive_url: su.drive_url }).eq('id', nuovo.id);
+    }), 's_prot_allegati: riga non inserita');
+    await scrivi(sb.from('s_protocollo').update({ drive_file_id: su.drive_file_id, drive_url: su.drive_url }).eq('id', nuovo.id), 's_protocollo: riga non aggiornata');
 
     /* niente lettera_drive_*: la tabella notifiche non ha quelle colonne
        (il link al PDF vive sul protocollo) — con una colonna inesistente

@@ -23,7 +23,7 @@
    lavorazione), settore edile dall'ATECO.
    ============================================================ */
 
-import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo, siglaProtocollo, impresaPerPiva, testoSpesa, opzioniTendina } from './core.js';
+import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo, siglaProtocollo, impresaPerPiva, testoSpesa, opzioniTendina, scrivi } from './core.js';
 import { APP_URL } from './config.js';
 import { risolviCartella, caricaByte, leggiByte, idDaLink } from './drive.js';
 import { scaricaEml, allargaDestinatari, FIRMA_SEGRETERIA } from './eml.js';
@@ -549,11 +549,11 @@ ${FIRMA_SEGRETERIA}`,
       nomeFile: `quesito-consulenza-${p.progressivo ?? `m${p.id}`}.eml`,
     });
     const nota = precedente ? `${new Date().toLocaleDateString('it-IT')}: quesito girato a ${nome} su indicazione di ${precedente}.` : null;
-    await sb.from('s_consulenze').update({
+    await scrivi(sb.from('s_consulenze').update({
       stato: 'girata', girata_a: email, girata_il: new Date().toISOString(),
       quesito, aggiornato_da: state.email, updated_at: new Date().toISOString(),
       ...(nota ? { note_ufficio: [p.note_ufficio, nota].filter(Boolean).join('\n') } : {}),
-    }).eq('id', p.id);
+    }).eq('id', p.id), 's_consulenze: riga non aggiornata');
     toast(`Bozza per ${nome} scaricata: aprila da Outlook e premi Invia.`, 'ok');
     await render();
   });
@@ -673,11 +673,11 @@ ${FIRMA_SEGRETERIA}`,
 
   $('#cn-uscita')?.addEventListener('click', async () => {
     if (!confirm('Passo la pratica alla corsia con uscita: servirà l\'autorizzazione del Direttore. Procedo?')) return;
-    await sb.from('s_consulenze').update({
+    await scrivi(sb.from('s_consulenze').update({
       corsia: 'uscita', aut_stato: 'da_richiedere',
       luogo: ['sede_impresa', 'cantiere'].includes($('#cn-luogo').value) ? $('#cn-luogo').value : 'sede_impresa',
       aggiornato_da: state.email, updated_at: new Date().toISOString(),
-    }).eq('id', p.id);
+    }).eq('id', p.id), 's_consulenze: riga non aggiornata');
     toast('Pratica passata alla corsia con autorizzazione.', 'ok');
     await render();
     apriPratica(p.id);

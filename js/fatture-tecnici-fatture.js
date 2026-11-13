@@ -296,7 +296,7 @@ export async function dettaglioFattura(id) {
     if (!confirm('Approvi la fattura per il pagamento (tutte le attività del mese sono a posto)?')) return;
     const { error } = await sb.rpc('s_fattura_decisione', { p_id: f.id, p_esito: 'approvata', p_motivo: null });
     if (error) return toast(error.message, 'err');
-    if (inc) await sb.from('s_incarichi_mensili').update({ stato: 'fatturato' }).eq('id', inc.id);
+    if (inc) await scrivi(sb.from('s_incarichi_mensili').update({ stato: 'fatturato' }).eq('id', inc.id), 's_incarichi_mensili: riga non aggiornata');
     toast('Fattura approvata.', 'ok'); await renderFatture(); dettaglioFattura(f.id);
   });
   $('#df-standby')?.addEventListener('click', async () => {
@@ -326,7 +326,7 @@ export async function dettaglioFattura(id) {
           avviso_pagamento_esito: "non inviato: mandato fuori dall'app (storico Access)", aggiornato_da: state.email, updated_at: new Date().toISOString() }).eq('id', f.id);
         if (error) throw new Error(error.message);
       }
-      if (inc) await sb.from('s_incarichi_mensili').update({ stato: 'pagato' }).eq('id', inc.id);
+      if (inc) await scrivi(sb.from('s_incarichi_mensili').update({ stato: 'pagato' }).eq('id', inc.id), 's_incarichi_mensili: riga non aggiornata');
       toast('Fattura segnata pagata.', 'ok');
     } catch (e) { toast(e.message, 'err'); } finally {
       attendi(btn, false);

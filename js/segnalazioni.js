@@ -35,7 +35,7 @@
    consultazione, per precedenti e statistiche.
    ============================================================ */
 
-import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo, siglaProtocollo, opzioniTendina } from './core.js';
+import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer, codiceProtocollo, siglaProtocollo, opzioniTendina, scrivi } from './core.js';
 import { APP_URL } from './config.js';
 import { risolviCartella, caricaByte, leggiByte, idDaLink } from './drive.js';
 import { scaricaEml, FIRMA_SEGRETERIA } from './eml.js';
@@ -673,12 +673,12 @@ ${FIRMA_SEGRETERIA}`,
       nomeFile: `richiesta-autorizzazione-segnalazione-${n}.eml`,
     });
 
-    await sb.from('s_segnalazioni').update({
+    await scrivi(sb.from('s_segnalazioni').update({
       aut_stato: p.aut_stato === 'da_richiedere' ? 'richiesta' : p.aut_stato,
       aut_richiesta_il: new Date().toISOString(),
       aggiornato_da: state.email,
       updated_at: new Date().toISOString(),
-    }).eq('id', p.id);
+    }).eq('id', p.id), 's_segnalazioni: riga non aggiornata');
     toast('Bozza mail al Direttore scaricata: aprila da Outlook e premi Invia.', 'ok');
     await render();
   } catch (e) {
@@ -866,14 +866,14 @@ async function preparaRiscontro(p, btn) {
     const nomeFile = `${data}_COMU_Formedil-Padova_presa-in-carico-segnalazione-${p.progressivo ?? `m${p.id}`}-${slug(p.notificante)}.pdf`;
     const su = await caricaByte(nuovo, nomeFile, byte, 'application/pdf', cart.id);
 
-    await sb.from('s_prot_allegati').insert({
+    await scrivi(sb.from('s_prot_allegati').insert({
       protocollo_id: nuovo.id, nome: su.file_name || nomeFile, mime: 'application/pdf',
       dimensione: byte.length, principale: true, created_by: state.email,
       drive_file_id: su.drive_file_id, drive_url: su.drive_url,
-    });
-    await sb.from('s_protocollo').update({ drive_file_id: su.drive_file_id, drive_url: su.drive_url }).eq('id', nuovo.id);
+    }), 's_prot_allegati: riga non inserita');
+    await scrivi(sb.from('s_protocollo').update({ drive_file_id: su.drive_file_id, drive_url: su.drive_url }).eq('id', nuovo.id), 's_protocollo: riga non aggiornata');
 
-    await sb.from('s_segnalazioni').update({
+    await scrivi(sb.from('s_segnalazioni').update({
       stato: 'riscontrata',
       protocollo_out_id: nuovo.id,
       riscontro_tipo: tipo,
@@ -883,7 +883,7 @@ async function preparaRiscontro(p, btn) {
       segnalante_tipo: tipoSeg,
       aggiornato_da: state.email,
       updated_at: new Date().toISOString(),
-    }).eq('id', p.id);
+    }).eq('id', p.id), 's_segnalazioni: riga non aggiornata');
 
     emlRiscontro(pp, nuovo, tipo, [{ nome: su.file_name || nomeFile, byte }]);
     toast(`Presa in carico protocollata (${codiceProtocollo(nuovo)}) e depositata nel vault. Bozza mail scaricata: aprila da Outlook e premi Invia.`, 'ok');
@@ -977,14 +977,14 @@ async function preparaEsito(p, btn, ceiv) {
     const nomeFile = `${data}_COMU_Formedil-Padova_esito-segnalazione-${p.progressivo ?? `m${p.id}`}-${slug(p.comune_cantiere || p.ind_cantiere)}.pdf`;
     const su = await caricaByte(nuovo, nomeFile, byte, 'application/pdf', cart.id);
 
-    await sb.from('s_prot_allegati').insert({
+    await scrivi(sb.from('s_prot_allegati').insert({
       protocollo_id: nuovo.id, nome: su.file_name || nomeFile, mime: 'application/pdf',
       dimensione: byte.length, principale: true, created_by: state.email,
       drive_file_id: su.drive_file_id, drive_url: su.drive_url,
-    });
-    await sb.from('s_protocollo').update({ drive_file_id: su.drive_file_id, drive_url: su.drive_url }).eq('id', nuovo.id);
+    }), 's_prot_allegati: riga non inserita');
+    await scrivi(sb.from('s_protocollo').update({ drive_file_id: su.drive_file_id, drive_url: su.drive_url }).eq('id', nuovo.id), 's_protocollo: riga non aggiornata');
 
-    await sb.from('s_segnalazioni').update({
+    await scrivi(sb.from('s_segnalazioni').update({
       esito_protocollo_id: nuovo.id,
       esito_drive_id: su.drive_file_id,
       esito_drive_url: su.drive_url,
@@ -993,7 +993,7 @@ async function preparaEsito(p, btn, ceiv) {
       risposta_testo: esitoTesto,
       aggiornato_da: state.email,
       updated_at: new Date().toISOString(),
-    }).eq('id', p.id);
+    }).eq('id', p.id), 's_segnalazioni: riga non aggiornata');
 
     emlEsito(pp, nuovo, a, cc, ceiv, [{ nome: su.file_name || nomeFile, byte }]);
     toast(`Esito protocollato (${codiceProtocollo(nuovo)}) e depositato nel vault. Bozza mail scaricata: aprila da Outlook e premi Invia.`, 'ok');
