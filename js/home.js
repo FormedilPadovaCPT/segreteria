@@ -147,7 +147,7 @@ export async function render() {
      spingevano fuori il giro del lunedì, che risultava «nessun giro registrato» pur essendo riuscito. */
   /* (13/11/2026) terza suite: «backup», scritta ogni notte da backup-db.yml. Prima il backup notturno non
      lasciava traccia qui: se si fermava lo diceva solo un'email di GitHub. */
-  let testAuto = { database: null, browser: null, backup: null }, testAutoErr = null;
+  let testAuto = { database: null, browser: null, backup: null, schema: null }, testAutoErr = null;
   const pTestAuto = (async () => { try {
     const letture = await Promise.all(Object.keys(testAuto).map(suite => sb.from('s_test_automatici')
       .select('id, eseguita_il, suite, esito, passati, falliti, elenco_falliti, run_url')
@@ -880,6 +880,8 @@ export async function render() {
           { k: 'browser',  nome: 'Prove nel browser del gestionale', limite: 4, unita: 'prove', dove: '«Prove nel browser (Playwright)»' },
           // backup: ogni notte, quindi oltre 2 giorni il giro si è fermato; «passati» qui sono i MB del file su Drive
           { k: 'backup',   nome: 'Backup notturno del database', limite: 2, unita: 'MB su Drive', dove: '«Backup DB (giornaliero)»' },
+          // schema: ogni notte lo schema (senza dati) va in _SISTEMA/schema_db, dove il git del vault ne mostra i cambi
+          { k: 'schema',   nome: 'Schema del database salvato', limite: 2, unita: 'KB in _SISTEMA/schema_db', dove: '«Schema del database (notturno)»' },
         ];
         const righe = SUITE.map(s => {
           const r = testAuto[s.k];
@@ -895,7 +897,7 @@ export async function render() {
           : righe.map(x => !x.r
               ? `<div class="hm-riga"><span>🔴</span><span>${x.nome}: <strong>nessun giro registrato</strong>. Su GitHub, repo gestionale-visite, tab Actions, ${x.dove}, Run workflow.</span><span></span></div>`
               : `<div class="hm-riga"><span>${x.ok ? '🟢' : '🔴'}</span>
-                   <span>${x.nome}: <strong>${esc(x.r.esito)}</strong>${x.r.passati != null ? ` · ${x.r.passati} ${x.unita}${x.k === 'backup' ? '' : ' passati'}` : ''}${x.r.falliti ? ` · <strong>${x.r.falliti} falliti</strong>` : ''}
+                   <span>${x.nome}: <strong>${esc(x.r.esito)}</strong>${x.r.passati != null ? ` · ${x.r.passati} ${x.unita}${x.k === 'backup' || x.k === 'schema' ? '' : ' passati'}` : ''}${x.r.falliti ? ` · <strong>${x.r.falliti} falliti</strong>` : ''}
                      ${(x.r.elenco_falliti || []).length ? `<span class="hint" style="display:block;white-space:normal">${x.r.elenco_falliti.map(esc).join(' · ')}</span>` : ''}
                      ${x.vecchio ? `<span class="hint" style="display:block;white-space:normal;color:#a01f00">Più vecchio di ${x.limite} giorni: il giro non è partito o non ha scritto.</span>` : ''}
                      ${!x.ok && x.r.run_url ? `<a class="hint" href="${esc(x.r.run_url)}" target="_blank" rel="noopener">dettaglio del giro su GitHub</a>` : ''}</span>

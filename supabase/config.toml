@@ -1,0 +1,105 @@
+# ══════════════════════════════════════════════════════════════════════
+# verify_jwt di ogni funzione server, SCRITTO NEL REPO (13/11/2026).
+#
+# Prima stava solo nei commenti e nel pannello di Supabase: una pubblicazione
+# senza il flag giusto faceva rispondere 401 ai giri automatici (o apriva al
+# pubblico una funzione riservata) senza un errore nel codice. La riga di
+# comando legge questo file a ogni «supabase functions deploy».
+#
+# false = la funzione risponde anche senza accesso e si difende DA SÉ (parola
+#         d'ordine, biglietto firmato, tetto di richieste): va scritto nel
+#         commento in testa alla funzione perché.
+# true  = Supabase rifiuta chi non ha un accesso valido prima ancora di
+#         avviare la funzione.
+#
+# I valori sono quelli letti su Supabase il 13/11/2026. Una funzione nuova
+# porta qui la sua riga: test/funzioni-config.test.* fallisce se manca.
+# ══════════════════════════════════════════════════════════════════════
+project_id = "segreteria-app"
+
+[functions.allegati-protocollo]
+verify_jwt = true
+
+[functions.approvazione-direttore]
+verify_jwt = true
+
+[functions.attestati-verifica]
+verify_jwt = false
+
+[functions.avviso-approvazione]
+verify_jwt = true
+
+[functions.avviso-pagamento]
+verify_jwt = true
+
+[functions.bacheca-giornata]
+verify_jwt = true
+
+[functions.calendario-piano]
+verify_jwt = true
+
+[functions.calendario-post]
+verify_jwt = false
+
+[functions.commissione-accesso]
+verify_jwt = true
+
+[functions.documenti-corso]
+verify_jwt = true
+
+[functions.firma-documenti]
+verify_jwt = true
+
+[functions.firma-presidente]
+verify_jwt = true
+
+[functions.import-ceiv]
+verify_jwt = true
+
+[functions.import-corsi-storico]
+verify_jwt = true   # una tantum, non pubblicata
+
+[functions.import-rlst]
+verify_jwt = true
+
+[functions.import-servizi-storico]
+verify_jwt = true   # una tantum, non pubblicata
+
+[functions.import-tsoft]
+verify_jwt = true   # una tantum, non pubblicata
+
+[functions.mail-respinte]
+verify_jwt = true
+
+[functions.manuali]
+verify_jwt = true
+
+[functions.password-dimenticata]
+verify_jwt = false
+
+[functions.portale-richieste]
+verify_jwt = false
+
+[functions.posta-locale]
+verify_jwt = false
+
+[functions.promemoria-corsi]
+verify_jwt = true
+
+[functions.questionari-pubblica]
+verify_jwt = false
+
+[functions.redazione-social]
+verify_jwt = false
+
+[functions.ricezione-portale]
+verify_jwt = false
+
+[functions.riconcilia-protocollo]
+verify_jwt = true
+
+[functions.risposte-verbali]
+verify_jwt = true
+
+[functions.send-protocollo]
+verify_jwt = true
