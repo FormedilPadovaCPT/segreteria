@@ -434,6 +434,10 @@ export function componiEml({ from = '', replyTo = '', to = '', cc = [], oggetto 
       `Content-Type: ${LOGO_FIRMA_MIME}; name="logo-formedil-padova.jpg"`,
       'Content-Transfer-Encoding: base64',
       `Content-ID: <${LOGO_FIRMA_CID}>`,
+      /* X-Attachment-Id (13/11/2026): senza, Gmail apre la bozza creata
+         via API e all'invio lascia fuori le immagini cid:, sostituite da
+         link interni alla bozza che il destinatario non vede. */
+      `X-Attachment-Id: ${LOGO_FIRMA_CID}`,
       'Content-Disposition: inline; filename="logo-formedil-padova.jpg"',
       '',
       aRighe(LOGO_FIRMA_B64),
@@ -444,6 +448,7 @@ export function componiEml({ from = '', replyTo = '', to = '', cc = [], oggetto 
       `Content-Type: ${i.mime || 'image/png'}; name="${i.nome || i.cid}"`,
       'Content-Transfer-Encoding: base64',
       `Content-ID: <${i.cid}>`,
+      `X-Attachment-Id: ${i.cid}`,
       `Content-Disposition: inline; filename="${i.nome || i.cid}"`,
       '',
       aRighe(b64(i.byte)),
