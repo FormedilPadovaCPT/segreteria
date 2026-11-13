@@ -408,7 +408,10 @@ serve(async (req) => {
       if (!resB.ok || outB.error) throw new Error(outB.error?.message || JSON.stringify(outB))
       return new Response(JSON.stringify({
         ok: true, bozzaGmail: true, draftId: outB.id, messageId: outB.message?.id,
-        url: `https://mail.google.com/mail/u/${MITTENTE}/#drafts/${outB.message?.id || ''}`,
+        /* 13/11/2026: «/mail/u/<indirizzo>/#drafts/<id>» dava «Temporary Error
+           (404)» nel browser. La casella si sceglie con authuser e la bozza si
+           apre nella finestra di composizione con «#drafts?compose=<id>». */
+        url: `https://mail.google.com/mail/?authuser=${encodeURIComponent(MITTENTE)}#drafts${outB.message?.id ? `?compose=${outB.message.id}` : ''}`,
         casella: MITTENTE, a: toList.join(', '), oggetto: soggetto, allegati: allegatoNomi,
         logo: logo.ok ? undefined : `senza logo: ${logo.motivo}`,
       }), { headers: { 'Content-Type': 'application/json', ...CORS } })
