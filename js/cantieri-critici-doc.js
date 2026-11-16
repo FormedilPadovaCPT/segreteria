@@ -106,9 +106,9 @@ export const nomeFileLettera = (d, dataIso, sollecito = false, comune = '') =>
   `${dataIso.replace(/-/g, '_')}_COMU_${slug(d.impresa_nome)}_${sollecito ? 'sollecito-' : ''}accesso-negato-cantiere-${comune ? slug(comune, 30) + '-' : ''}n${d.id}.pdf`;
 
 /* ── TAPPA 3: decisioni e segnalazione agli organi di vigilanza ──
-   Chi decide (precisato dall'utente, 17/09/2026): se segnalare a SPISAL
-   e/o ITL lo decidono la PRESIDENZA e poi la COMMISSIONE SICUREZZA; il
-   Direttore conferma. La conferenza di cantiere è sempre una PROPOSTA:
+   Chi decide (deciso dall'utente il 05/10/2026): se segnalare a SPISAL
+   e/o ITL lo decide il PRESIDENTE, legale rappresentante; DIRETTORE e
+   COMMISSIONE SICUREZZA propongono, il coordinatore istruisce. La conferenza di cantiere è sempre una PROPOSTA:
    l'impresa non è obbligata. La Cassa Edile va in copia SOLO sulla
    segnalazione. Il merito di una segnalazione lo scrive il coordinatore:
    l'app mette lo scheletro e si rifiuta di far uscire il segnaposto. */
@@ -180,9 +180,9 @@ Distinti saluti.`;
 export function corpoDemanda(d, eventi, verbali, a) {
   const crono = (eventi || []).filter((e) => e.tipo !== 'stato').map((e) => `- ${dataIt(String(e.created_at).slice(0, 10))} — ${e.testo || e.tipo}`).join('\n');
   const vv = (verbali || []).map((v) => `- ${v.nr_verbale} del ${dataIt(v.data_visita)}${v.ipc ? ` — IPC ${v.ipc}` : ''}${v.segnalazione ? ' — il tecnico propone la segnalazione' : ''}`).join('\n');
-  return `${a === 'commissione' ? 'Alla Commissione Sicurezza' : 'Alla Presidenza'},
+  return `${a === 'commissione' ? 'Alla Commissione Sicurezza' : 'Al Presidente'},
 
-si sottopone il caso n° ${d.id} del registro dei cantieri critici, per decidere se e come procedere (ulteriori visite, proposta di conferenza di cantiere, segnalazione a SPISAL e/o ITL).
+si sottopone il caso n° ${d.id} del registro dei cantieri critici, ${a === 'commissione' ? 'per la vostra proposta su' : 'per la Sua decisione su'} se e come procedere (ulteriori visite, proposta di conferenza di cantiere, segnalazione a SPISAL e/o ITL).
 
 Cantiere: ${d.cantiere_breve || d.cantiere_desc}
 Impresa: ${d.impresa_nome}
@@ -190,20 +190,21 @@ Origine: ${d.origine === 'proposta_segnalazione' ? 'il tecnico propone nel verba
 Tecnico: ${d.tecnico_nome || '—'}
 Note del tecnico: ${d.note || '—'}
 ${vv ? `\nVerbali sul cantiere:\n${vv}\n` : ''}${crono ? `\nChe cosa è stato fatto finora:\n${crono}\n` : ''}
-La decisione verrà registrata nel caso; l'eventuale segnalazione agli organi di vigilanza esce con la conferma del Direttore.`;
+${a === 'commissione' ? 'La proposta verrà registrata nel caso; la decisione sulla segnalazione agli organi di vigilanza spetta al Presidente.' : 'La decisione verrà registrata nel caso; la segnalazione agli organi di vigilanza esce solo con la Sua decisione.'}`;
 }
 
-/* la richiesta di conferma al Direttore, col link che apre il caso nell'app
-   (il suo ingresso è limitato: vede il caso e può solo confermare o no) */
+/* la richiesta di proposta al Direttore, col link che apre il caso nell'app
+   (il suo ingresso è limitato: vede il caso e può solo proporre di segnalare o no;
+   la proposta porta il caso al Presidente, che decide — 16/11/2026) */
 export function corpoRichiestaConferma(d, eventi, verbali, link) {
   const decisioni = (eventi || []).filter((e) => e.tipo === 'decisione_organo').map((e) => `- ${e.testo}`).join('\n');
   const vv = (verbali || []).map((v) => `- ${v.nr_verbale} del ${dataIt(v.data_visita)}${v.ipc ? ` — IPC ${v.ipc}` : ''}${v.segnalazione ? ' — il tecnico propone la segnalazione' : ''}`).join('\n');
   return `Egr. Direttore,
 
-si chiede la conferma per la segnalazione agli organi di vigilanza (SPISAL e/o ITL) del cantiere di ${d.cantiere_breve || d.cantiere_desc}, impresa ${d.impresa_nome} — caso n° ${d.id} del registro dei cantieri critici.
-${decisioni ? `\nDecisione degli organi dell'Ente:\n${decisioni}\n` : '\nIn cronologia non è ancora registrata la decisione di Presidenza / Commissione Sicurezza.\n'}${vv ? `\nVerbali sul cantiere:\n${vv}\n` : ''}
->>>> ✅ Apri il caso e conferma (caso da confermare: si apre nell'app con tutta la cronologia):
+si chiede la Sua proposta sulla segnalazione agli organi di vigilanza (SPISAL e/o ITL) del cantiere di ${d.cantiere_breve || d.cantiere_desc}, impresa ${d.impresa_nome} — caso n° ${d.id} del registro dei cantieri critici. La segnalazione la decide il Presidente: la Sua proposta gli porta il caso.
+${decisioni ? `\nDecisione del Presidente:\n${decisioni}\n` : '\nIn cronologia non è ancora registrata la decisione del Presidente.\n'}${vv ? `\nVerbali sul cantiere:\n${vv}\n` : ''}
+>>>> ✅ Apri il caso e fai la tua proposta (si apre nell'app con tutta la cronologia):
 ${link}
 
-In alternativa basta rispondere a questa mail: la conferma verrà registrata dalla segreteria.`;
+In alternativa basta rispondere a questa mail: la proposta verrà registrata dalla segreteria, che porterà il caso al Presidente.`;
 }

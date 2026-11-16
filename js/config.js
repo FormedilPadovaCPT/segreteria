@@ -22,7 +22,7 @@ export const APP_URL = 'https://formedilpadovacpt.github.io/segreteria/';
 
 /* Il gestionale visite (radice dello stesso dominio GitHub Pages): i link
    #critico-<id> dei cantieri critici aprono LÌ, non qui — la pagina
-   Direzione/Presidenza (con Confermo/Decido) sta in gestionale-visite,
+   Direzione/Presidenza (con Propongo/Decido) sta in gestionale-visite,
    non in questa app. Scoperto il 25/09/2026: chiediConfermaDirettore
    costruiva il link con APP_URL (…/segreteria/#critico-…), che non porta
    da nessuna parte perché questa app non ha quella route. */

@@ -1,4 +1,5 @@
--- Test della conferma del Direttore sui cantieri critici (17/09/2026):
+-- Test della PROPOSTA del Direttore sui cantieri critici (17/09/2026; dal
+-- 16/11/2026 proposta al Presidente, che decide):
 -- s_critico_conferma_direttore accetta SOLO lui, e lui può scrivere in
 -- cronologia SOLO quella riga. Transazione annullata: non resta niente.
 begin;
@@ -19,7 +20,7 @@ begin
   ok := false;
   begin perform public.s_critico_conferma_direttore(v_id, 'segnalare', null);
   exception when raise_exception then ok := true; end;
-  assert ok, 'la conferma e'' riservata al Direttore';
+  assert ok, 'la proposta e'' riservata al Direttore';
 
   -- il Direttore: vede il caso, conferma, e non puo'' fare altro
   perform set_config('role', 'postgres', true);
@@ -34,6 +35,9 @@ begin
   r := public.s_critico_conferma_direttore(v_id, 'segnalare', 'Procedere.');
   assert (select autore = v_dir and tipo = 'autorizzazione_direttore' and dati ->> 'via' = 'app' and dati ->> 'cosa' = 'segnalare'
             from public.s_cantieri_critici_eventi where id = (r ->> 'evento_id')::bigint), 'la riga porta il suo nome e dice che viene dall''app';
+  assert (select testo like '%PROPONE al Presidente di segnalare%' from public.s_cantieri_critici_eventi where id = (r ->> 'evento_id')::bigint), 'la riga dice PROPONE, non conferma';
+  assert exists (select 1 from public.s_cantieri_critici_eventi where critico_id = v_id and tipo = 'demandata' and dati ->> 'chi' = 'presidenza'),
+    'la proposta porta il caso al Presidente (16/11/2026)';
   ok := false;
   begin insert into public.s_cantieri_critici_eventi (critico_id, tipo, testo) values (v_id, 'nota', 'x');
   exception when insufficient_privilege then ok := true; end;
@@ -41,7 +45,7 @@ begin
   update public.s_cantieri_critici set stato = 'chiuso', gestione_note = 'x', esito = 'nessuna_azione' where id = v_id;
   assert (select stato <> 'chiuso' from public.s_cantieri_critici where id = v_id), 'il Direttore non gestisce il caso';
 
-  raise notice 'OK conferma del Direttore';
+  raise notice 'OK proposta del Direttore';
 end $$;
 
 rollback;

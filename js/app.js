@@ -369,7 +369,7 @@ try {
         if (hashVista) { await vaiA(hashVista[1]); return; }
         if (!hashPratica) return;
         /* i cantieri critici non hanno una vista propria: vivono nel cruscotto.
-           #critico-<id> apre il caso alla segreteria e la maschera di conferma
+           #critico-<id> apre il caso alla segreteria e la maschera della proposta
            al Direttore (17/09/2026) */
         if (hashPratica[1] === 'critico') {
           await vaiA(soloDirettore ? 'segnalazioni' : 'home');
@@ -404,7 +404,7 @@ try {
         if (hashPratica || hashVista) await apriDaHash();
         else {
           await vaiA('segnalazioni');
-          /* se c'è una conferma che aspetta lui sui cantieri critici, gliela si mostra subito */
+          /* se c'è una proposta che aspetta lui sui cantieri critici, gliela si mostra subito */
           try { await (await import('./cantieri-critici.js')).elencoDirettore(); } catch (e) { console.warn('[critici]', e); }
         }
       } else {

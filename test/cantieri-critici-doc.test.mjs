@@ -95,21 +95,27 @@ test('la conferenza è una proposta, il fascicolo per chi decide elenca verbali 
     [{ tipo: 'stato', created_at: '2026-09-17T10:00:00Z', testo: 'x' }, { tipo: 'lettera_impresa', created_at: '2026-09-17T10:00:00Z', testo: 'Comunicazione 2590-out' }],
     [{ nr_verbale: 'CPT/24_25/0704', data_visita: '2025-09-05', ipc: 'MEDIO', segnalazione: true }], 'commissione');
   assert.match(f, /^Alla Commissione Sicurezza,/);
+  assert.match(f, /per la vostra proposta/);
+  assert.match(f, /la decisione sulla segnalazione agli organi di vigilanza spetta al Presidente/);
+  assert.doesNotMatch(f, /conferma del Direttore/);
+  assert.match(corpoDemanda(caso, [], [], 'presidenza'), /^Al Presidente,[\s\S]*per la Sua decisione/);
   assert.match(f, /CPT\/24_25\/0704 del 05\/09\/2025 — IPC MEDIO — il tecnico propone la segnalazione/);
   assert.match(f, /Comunicazione 2590-out/);
   assert.doesNotMatch(f, /— x\n/);
   assert.match(corpoUlterioreVisita(caso, 'Tommaso', 'Sentire prima il capocantiere.'), /^Ciao Tommaso,[\s\S]*Sentire prima il capocantiere\./);
 });
 
-test('la richiesta di conferma al Direttore porta il link al caso e dice se manca la decisione degli organi', async () => {
+test('la richiesta di proposta al Direttore porta il link al caso e dice se manca la decisione del Presidente', async () => {
   const { corpoRichiestaConferma } = await import('../js/cantieri-critici-doc.js');
   const link = 'https://formedilpadovacpt.github.io/segreteria/#critico-12';
   const senza = corpoRichiestaConferma(caso, [], [], link);
-  assert.match(senza, /non è ancora registrata la decisione di Presidenza \/ Commissione Sicurezza/);
+  assert.match(senza, /non è ancora registrata la decisione del Presidente/);
+  assert.match(senza, /La segnalazione la decide il Presidente/);
+  assert.doesNotMatch(senza, /conferm/i, 'il Direttore propone, non conferma (05/10/2026)');
   assert.ok(senza.includes(link));
   const con = corpoRichiestaConferma(caso, [{ tipo: 'decisione_organo', testo: 'Presidenza, 17/09/2026: segnalare agli organi di vigilanza. Da mail.' }],
     [{ nr_verbale: 'CPT/24_25/0704', data_visita: '2025-09-05', segnalazione: true }], link);
-  assert.match(con, /Decisione degli organi dell'Ente:\n- Presidenza, 17\/09\/2026/);
+  assert.match(con, /Decisione del Presidente:\n- Presidenza, 17\/09\/2026/);
   assert.match(con, /CPT\/24_25\/0704 del 05\/09\/2025 — il tecnico propone la segnalazione/);
   assert.doesNotMatch(con, /non è ancora registrata/);
 });
