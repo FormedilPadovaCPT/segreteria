@@ -118,6 +118,8 @@ test('la richiesta di proposta al Direttore porta il link al caso e dice se manc
   assert.match(con, /Decisione del Presidente:\n- Presidenza, 17\/09\/2026/);
   assert.match(con, /CPT\/24_25\/0704 del 05\/09\/2025 — il tecnico propone la segnalazione/);
   assert.doesNotMatch(con, /non è ancora registrata/);
+  const soloParere = corpoRichiestaConferma(caso, [{ tipo: 'decisione_organo', testo: 'Vicepresidente: è del parere di segnalare.', dati: { chi: 'Vicepresidente', valore: 'parere' } }], [], link);
+  assert.match(soloParere, /non è ancora registrata la decisione del Presidente/, 'il parere del Vicepresidente non è la decisione (16/11/2026)');
 });
 
 test('se il coordinatore ha scritto il merito, prende il posto del segnaposto', () => {

@@ -62,6 +62,7 @@ begin
   assert ok, 'solo segnalare / non_segnalare';
   r := public.s_critico_decide_presidenza(v_id, 'segnalare', 'Concordo, procedere.');
   assert (r ->> 'chi') = 'Presidente', 'chi e'' letto da mia_carica(): ' || r::text;
+  assert (r ->> 'valore') = 'decisione', 'il Presidente decide (16/11/2026): ' || r::text;
   assert (select autore = v_pres and tipo = 'decisione_organo' and dati ->> 'via' = 'app' and dati ->> 'cosa' = 'segnalare' and dati ->> 'chi' = 'Presidente'
             from public.s_cantieri_critici_eventi where id = (r ->> 'evento_id')::bigint), 'la riga porta la carica giusta e dice che viene dall''app';
 
@@ -88,6 +89,11 @@ begin
   perform set_config('role', 'authenticated', true);
   d := public.s_direzione_in_attesa();
   assert exists (select 1 from jsonb_array_elements(d -> 'critici') e where (e ->> 'id')::bigint = v_id2), 'il vicepresidente vede il caso coinvolto dal Direttore: ' || d::text;
+  -- (16/11/2026) il Vicepresidente da' il suo parere: la parola spetta solo al Presidente
+  r := public.s_critico_decide_presidenza(v_id2, 'segnalare', null);
+  assert (r ->> 'chi') = 'Vicepresidente' and (r ->> 'valore') = 'parere', 'il Vicepresidente scrive un parere: ' || r::text;
+  assert (select testo like '%parere di segnalare%' and testo not like '%decide%' and dati ->> 'valore' = 'parere'
+            from public.s_cantieri_critici_eventi where id = (r ->> 'evento_id')::bigint), 'il testo dice parere, non decisione';
 
   -- il direttore non vede i casi della presidenza (sono cose distinte)
   perform set_config('role', 'postgres', true);

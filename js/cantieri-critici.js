@@ -151,7 +151,7 @@ export async function dettaglio(id, dopo = null) {
       <button class="btn btn-ghost btn-sm" id="cc-d-organo">✍️ Registra proposta o decisione</button>
       <button class="btn btn-ghost btn-sm" id="cc-d-dir">🖊 Chiedi la proposta del Direttore</button>
       <button class="btn btn-ghost btn-sm" id="cc-d-segnala">📨 Segnala a SPISAL / ITL</button>
-      <br><span class="hint">Se segnalare lo decide il Presidente; Direttore e Commissione Sicurezza propongono, il coordinatore istruisce il caso. La conferenza è una proposta: l'impresa non è obbligata.</span></div>` : ''}
+      <br><span class="hint">Se segnalare lo decide solo il Presidente: di norma ne parla col Vicepresidente, sentito il parere del coordinatore ed eventualmente del Direttore; Direttore e Commissione Sicurezza propongono, il coordinatore istruisce il caso. La conferenza è una proposta: l'impresa non è obbligata.</span></div>` : ''}
 
     ${successiva && !FERMI.includes(d.stato) ? `<div class="dt-doc-riga" style="background:#eef8f0;border-radius:6px;padding:6px 8px">
       ✅ ${esc(successiva.testo || 'Sul cantiere è entrato un verbale successivo.')}
@@ -179,7 +179,7 @@ export async function dettaglio(id, dopo = null) {
     <div style="font-weight:600;margin-bottom:4px">Cronologia</div>
     <div id="cc-crono">${(eventi || []).map((e) => `
       <div class="dt-doc-riga" style="white-space:pre-wrap;font-size:12.5px"><span class="hint">${oraIt(e.created_at)}</span>
-        <strong>${esc(EVENTI[e.tipo] || e.tipo)}</strong>${e.visibile_tecnico ? '' : ' <span class="hint" title="Non lo vede il tecnico">🔒</span>'}
+        <strong>${esc(e.tipo === 'decisione_organo' && e.dati?.valore === 'parere' ? 'Parere del Vicepresidente' : (EVENTI[e.tipo] || e.tipo))}</strong>${e.visibile_tecnico ? '' : ' <span class="hint" title="Non lo vede il tecnico">🔒</span>'}
         ${e.testo ? `— ${esc(e.testo)}` : ''} <span class="hint">${esc(e.autore || '')}</span></div>`).join('') || '<p class="hint">Ancora niente.</p>'}</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:6px">
       <div class="field" style="flex:0 0 230px"><label>Aggiungi alla cronologia</label>
@@ -643,7 +643,7 @@ async function registraDecisione(d, dopo) {
     <p class="hint">Qui si scrive la decisione del Presidente, o la proposta del Direttore o della Commissione Sicurezza, arrivata per mail, verbale o a voce. Se segnalare lo decide solo il Presidente. Resta in cronologia con la tua firma: scrivi come l'hai saputo (mail, verbale della Commissione, a voce).</p>
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <div class="field" style="flex:1 1 220px"><label>Chi</label>
-        <select id="mk-chi"><option value="Presidente">Presidente (decide)</option><option value="Direttore">Direttore (propone)</option><option value="Commissione Sicurezza">Commissione Sicurezza (propone)</option></select></div>
+        <select id="mk-chi"><option value="Presidente">Presidente (decide)</option><option value="Vicepresidente">Vicepresidente (parere)</option><option value="Coordinatore">Coordinatore (parere)</option><option value="Direttore">Direttore (propone)</option><option value="Commissione Sicurezza">Commissione Sicurezza (propone)</option></select></div>
       <div class="field" style="flex:1 1 220px"><label>Che cosa</label>
         <select id="mk-cosa"><option value="segnalare">segnalare agli organi di vigilanza</option><option value="non_segnalare">non segnalare</option><option value="altro">altro (scrivilo sotto)</option></select></div>
       <div class="field" style="flex:0 0 160px"><label>Il</label><input type="date" id="mk-data" value="${oggi()}" max="${oggi()}"></div>
@@ -655,12 +655,13 @@ async function registraDecisione(d, dopo) {
     const chi = $('#mk-chi').value, cosa = $('#mk-cosa').value;
     /* (16/11/2026) decide solo il Presidente (decisione_organo); Direttore e Commissione propongono:
        il Direttore nella sua riga autorizzazione_direttore, la Commissione in una «decisione» marcata proposta */
-    const verbo = chi === 'Presidente' ? 'decide di' : 'propone di';
+    const parere = chi === 'Vicepresidente' || chi === 'Coordinatore';
+    const verbo = chi === 'Presidente' ? 'decide di' : parere ? 'è del parere di' : 'propone di';
     const frase = cosa === 'altro' ? '' : `${verbo} ${cosa === 'segnalare' ? 'segnalare agli organi di vigilanza' : 'non segnalare'}. `;
     const tipo = chi === 'Presidente' ? 'decisione_organo' : chi === 'Direttore' ? 'autorizzazione_direttore' : 'decisione';
     const { error } = await sb.from('s_cantieri_critici_eventi').insert({
       critico_id: d.id, tipo, visibile_tecnico: true,
-      testo: `${chi}, ${dataIt($('#mk-data').value)}: ${frase}${testo}`, dati: { chi, cosa, data: $('#mk-data').value, ...(chi === 'Presidente' ? {} : { valore: 'proposta' }) },
+      testo: `${chi}, ${dataIt($('#mk-data').value)}: ${frase}${testo}`, dati: { chi, cosa, data: $('#mk-data').value, ...(chi === 'Presidente' ? {} : { valore: parere ? 'parere' : 'proposta' }) },
     });
     if (error) throw new Error(error.message);
     toast('Registrato in cronologia.', 'ok');
@@ -674,11 +675,11 @@ async function registraDecisione(d, dopo) {
 async function segnalaOrgani(d, eventi, dopo) {
   const k = await contesto(d);
   /* (16/11/2026) conta la decisione del Presidente, l'ultima registrata; le proposte non bastano */
-  const deciso = [...eventi].reverse().find((e) => e.tipo === 'decisione_organo')?.dati?.cosa === 'segnalare';
+  const deciso = [...eventi].reverse().find((e) => e.tipo === 'decisione_organo' && e.dati?.chi === 'Presidente')?.dati?.cosa === 'segnalare';
   const dest0 = destinatariSegnalazione('spisal_pc_itl', k.contatti);
   maschera(d, dopo, '📨 Segnalazione a SPISAL / ITL', `
     ${deciso ? '<p class="hint">✅ In cronologia risulta la decisione del Presidente di segnalare.</p>'
-      : `<div class="dt-doc-riga" style="background:#ffdcd6;border-radius:6px;padding:6px 8px">⚠️ In cronologia <strong>non risulta la decisione del Presidente</strong> di segnalare: la decide solo lui, Direttore e Commissione Sicurezza propongono. Portagli prima il caso («Porta al Presidente / alla Commissione», oppure «Chiedi la proposta del Direttore», che glielo porta da sola) o registra la decisione arrivata per altra via («Registra proposta o decisione»): qui ti verrà chiesto di confermare due volte.</div>`}
+      : `<div class="dt-doc-riga" style="background:#ffdcd6;border-radius:6px;padding:6px 8px">⚠️ In cronologia <strong>non risulta la decisione del Presidente</strong> di segnalare: la parola è solo sua: il parere del Vicepresidente e le proposte di Direttore e Commissione Sicurezza non bastano. Portagli prima il caso («Porta al Presidente / alla Commissione», oppure «Chiedi la proposta del Direttore», che glielo porta da sola) o registra la decisione arrivata per altra via («Registra proposta o decisione»): qui ti verrà chiesto di confermare due volte.</div>`}
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
       <div class="field" style="flex:1 1 260px"><label>A chi</label>
         <select id="sg-dest">${Object.entries(DESTINAZIONI).map(([v, [l]]) => `<option value="${v}">${esc(l)}</option>`).join('')}</select></div>
@@ -863,7 +864,7 @@ export async function confermaDirettore(id) {
       `${esc(v.nr_verbale)} del ${dataIt(v.data_visita)}${v.ipc ? ` — IPC ${esc(v.ipc)}` : ''}${v.segnalazione ? ' — <strong>il tecnico propone la segnalazione</strong>' : ''}`).join('<br>')}</div>` : ''}
     <div style="font-weight:600;margin:8px 0 4px">Cronologia</div>
     ${(eventi || []).filter((e) => e.tipo !== 'stato').map((e) => `<div class="dt-doc-riga" style="white-space:pre-wrap;font-size:12.5px"><span class="hint">${oraIt(e.created_at)}</span>
-      <strong>${esc(EVENTI[e.tipo] || e.tipo)}</strong> ${e.testo ? `— ${esc(e.testo)}` : ''}</div>`).join('') || '<p class="hint">Ancora niente.</p>'}
+      <strong>${esc(e.tipo === 'decisione_organo' && e.dati?.valore === 'parere' ? 'Parere del Vicepresidente' : (EVENTI[e.tipo] || e.tipo))}</strong> ${e.testo ? `— ${esc(e.testo)}` : ''}</div>`).join('') || '<p class="hint">Ancora niente.</p>'}
     <hr style="margin:10px 0;border:0;border-top:1px solid var(--bordo)">
     ${fermo ? `<p class="hint">Il caso è ${esc((STATI[d.stato] || [])[1] || d.stato)}: non c'è niente da proporre.</p>` : `
       ${gia ? `<p class="hint">Hai già risposto: ${esc(gia.testo || '')} Puoi rispondere di nuovo: vale l'ultima.</p>` : ''}

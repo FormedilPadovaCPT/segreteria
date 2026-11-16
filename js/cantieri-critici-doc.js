@@ -197,7 +197,7 @@ ${a === 'commissione' ? 'La proposta verrà registrata nel caso; la decisione su
    (il suo ingresso è limitato: vede il caso e può solo proporre di segnalare o no;
    la proposta porta il caso al Presidente, che decide — 16/11/2026) */
 export function corpoRichiestaConferma(d, eventi, verbali, link) {
-  const decisioni = (eventi || []).filter((e) => e.tipo === 'decisione_organo').map((e) => `- ${e.testo}`).join('\n');
+  const decisioni = (eventi || []).filter((e) => e.tipo === 'decisione_organo' && !(e.dati && e.dati.valore === 'parere')).map((e) => `- ${e.testo}`).join('\n');
   const vv = (verbali || []).map((v) => `- ${v.nr_verbale} del ${dataIt(v.data_visita)}${v.ipc ? ` — IPC ${v.ipc}` : ''}${v.segnalazione ? ' — il tecnico propone la segnalazione' : ''}`).join('\n');
   return `Egr. Direttore,
 
