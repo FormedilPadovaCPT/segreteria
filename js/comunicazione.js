@@ -526,7 +526,7 @@ export async function apriPratica(id) {
         <input type="file" id="pd-kit-file" accept="image/jpeg,image/png,image/webp,video/mp4" multiple style="max-width:240px">
         <button class="btn btn-ghost btn-sm" id="pd-kit-carica" type="button">⬆ Aggiungi</button>
       </div>
-      <span class="hint">I file per <b>Instagram, Facebook e LinkedIn</b> nei formati che servono (1080×1350, 1080×1080, video verticale…), in dimensione originale, fino a 50 MB l'uno. <b>Non vanno su Telegram né nell'app servizi</b>: li allega solo il <b>«✉️ Kit per l'agenzia»</b>, insieme alle immagini e al video del post. Si possono aggiungere anche mentre il post aspetta il Direttore.</span>
+      <span class="hint">I file per <b>Instagram, Facebook e LinkedIn</b> nei formati che servono (1080×1350, 1080×1080, video verticale…), in dimensione originale, fino a 50 MB l'uno. <b>Non vanno su Telegram né nell'app servizi</b>: li allega solo il <b>«✉️ Kit per l'agenzia»</b>, insieme alle immagini e al video del post. Il Direttore li vede insieme al post quando glielo mandi; mentre il post aspetta restano fermi, come il resto.</span>
     </div>
 
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:10px">
@@ -592,7 +592,7 @@ export async function apriPratica(id) {
   /* mentre aspetta il Coordinatore o il Direttore il post non si cambia (il database lo rifiuterebbe) */
   if (attende) {
     $('#drawer-body').querySelectorAll('textarea, #pd-titolo, #pd-hashtag, #pd-video').forEach((el) => { el.readOnly = true; });
-    $('#drawer-body').querySelectorAll('#pd-pilastro, #pd-img-file, #pd-img-carica, .pd-img-togli, #pd-vid-file, #pd-vid-carica, #pd-vid-togli, .fmt-barra button:not([data-fmt="anteprima"]), .fmt-barra select')
+    $('#drawer-body').querySelectorAll('#pd-pilastro, #pd-img-file, #pd-img-carica, .pd-img-togli, #pd-vid-file, #pd-vid-carica, #pd-vid-togli, #pd-kit-file, #pd-kit-carica, .pd-kit-togli, .fmt-barra button:not([data-fmt="anteprima"]), .fmt-barra select')
       .forEach((el) => { el.disabled = true; });
   }
 
