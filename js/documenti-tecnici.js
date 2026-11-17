@@ -16,6 +16,7 @@
    ============================================================ */
 
 import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, mostraVista, apriDrawer, chiudiDrawer } from './core.js';
+import { statoConOre, dettaglioOre, requisitoAOre } from './doc-tecnici-ore.js';
 
 let requisiti = [];   // catalogo
 let documenti = [];   // tutte le righe s_doc_tecnico
@@ -44,6 +45,18 @@ export function statoRequisito(tec, req, docs) {
   const suoi = docs.filter((d) => d.requisito_id === req.id &&
     (tec.tecnico_id ? d.tecnico_id === tec.tecnico_id : d.cf === tec.cf));
   if (!suoi.length) return { classe: 'mancante', testo: 'mancante' };
+
+  /* requisiti con attestato di base + aggiornamenti a ore (17/11/2026):
+     si sommano le ore del periodo, non conta l'ultima riga. Le righe senza
+     «tipo» restano valutate come prima, dalla loro data di fine. */
+  const origine = req.origine_requisito_id
+    ? docs.filter((d) => d.requisito_id === req.origine_requisito_id &&
+        (tec.tecnico_id ? d.tecnico_id === tec.tecnico_id : d.cf === tec.cf))
+    : [];
+  const conOre = statoConOre(req, suoi, oggiIso(), origine);
+  if (conOre) {
+    return { ...conOre, testo: conOre.testo || dataIt(conOre.scadenza), dettaglio: dettaglioOre(conOre, dataIt) };
+  }
 
   /* il documento corrente e' l'ultimo per inizio (poi per fine) */
   const doc = [...suoi].sort((a, b) =>
@@ -145,6 +158,7 @@ export async function render() {
 
   host.innerHTML = `
     <div id="la-host"></div>
+    ${pannelloCrediti(righe)}
     <div class="dt-barra">
       <div class="dt-legenda">
         <span class="dt-dot dt-ok"></span> valido
@@ -169,6 +183,12 @@ export async function render() {
     </p>`;
 
   $('#dt-storici').addEventListener('change', (e) => { mostraStorici = e.target.checked; render(); });
+  host.querySelectorAll('[data-crediti-tec]').forEach((b) => b.addEventListener('click', (e) => { e.preventDefault(); apriTecnico(b.dataset.creditiTec); }));
+  host.querySelectorAll('[data-crediti-cella]').forEach((b) => b.addEventListener('click', (e) => {
+    e.preventDefault();
+    const [tec, req] = b.dataset.creditiCella.split('|');
+    apriCella(tec, Number(req));
+  }));
   host.querySelectorAll('.dt-cella').forEach((c) => c.addEventListener('click', () =>
     apriCella(c.dataset.tec, Number(c.dataset.req))));
   host.querySelectorAll('.dt-nome').forEach((c) => c.addEventListener('click', () =>
@@ -179,9 +199,59 @@ export async function render() {
     .catch((e) => { $('#la-host').innerHTML = `<p class="hint" style="color:#c0392b">Le lettere di affiancamento non si sono caricate: ${esc(e.message)}</p>`; });
 }
 
+/* ── crediti formativi (17/11/2026) ───────────────────────────
+   Per i requisiti a ore (aggiornamento del coordinatore, formatori):
+   chi è in difetto, chi va avvisato (dentro il preavviso del catalogo,
+   180 giorni: un corso va trovato e programmato) e chi è in regola,
+   con le ore e la data «in regola fino al». L'avviso al tecnico è quello
+   di sempre (bozza .eml + protocollo OUT dal quadro del tecnico): la
+   mail la manda una persona (decisione dell'utente del 17/11/2026). */
+const ORDINE_CREDITI = { scaduto: 0, scade: 1, senzadata: 2, mancante: 3, ok: 4 };
+function pannelloCrediti(righe) {
+  const reqOre = requisiti.filter(requisitoAOre);
+  if (!reqOre.length) return '';
+  const voci = [];
+  for (const t of righe.filter((x) => !x.storico)) {
+    for (const r of reqOre) {
+      const s = statoCella(t, r);
+      if (s.classe === 'na') continue;
+      voci.push({ t, r, s });
+    }
+  }
+  voci.sort((a, b) => (ORDINE_CREDITI[a.s.classe] ?? 9) - (ORDINE_CREDITI[b.s.classe] ?? 9) ||
+    String(a.s.scadenza || '').localeCompare(String(b.s.scadenza || '')));
+  const daFare = voci.filter((v) => v.s.classe !== 'ok').length;
+  const giorni = (iso) => (iso ? giorniA(iso) : null);
+  const corpo = voci.map(({ t, r, s }) => {
+    const g = giorni(s.scadenza);
+    const urgente = s.classe === 'scade' && g != null && g <= 60 ? ' <strong>(entro 2 mesi)</strong>' : '';
+    const ore = s.soglia ? `${oreTesto(s.ore ?? 0)} / ${oreTesto(s.soglia)}` : '—';
+    const fino = s.classe === 'scaduto' ? `scaduto il ${dataIt(s.scadenza)}` : s.scadenza ? `${dataIt(s.scadenza)}${urgente}` : '—';
+    return `<tr>
+      <td><span class="dt-dot dt-${s.classe}"></span> <a href="#" data-crediti-tec="${esc(t.tecnico_id || t.cf || '')}">${esc(t.nome)}</a></td>
+      <td><a href="#" data-crediti-cella="${esc(t.tecnico_id || t.cf || '')}|${r.id}">${esc(r.breve || r.descrizione)}</a></td>
+      <td>${ore}</td>
+      <td>${fino}</td>
+      <td class="hint">${esc(s.dettaglio || (s.classe === 'mancante' ? 'nessun documento registrato' : s.testo || ''))}</td>
+    </tr>`;
+  }).join('');
+  return `
+    <details class="dt-crediti" ${daFare ? 'open' : ''} style="margin:0 0 16px">
+      <summary><strong>🎓 Crediti formativi</strong> — ${daFare ? `${daFare} ${daFare === 1 ? 'voce da seguire' : 'voci da seguire'}` : 'tutti in regola'}</summary>
+      <p class="hint" style="margin:8px 0">Aggiornamento del coordinatore (40 ore negli ultimi cinque anni) e dei formatori (24 ore per triennio). «In regola fino al» è il giorno in cui, senza altri corsi, le ore non bastano più. Clic sul nome per preparare l'avviso, sul requisito per registrare un corso.</p>
+      <div class="table-wrap"><table class="tbl">
+        <thead><tr><th>Tecnico</th><th>Requisito</th><th>Ore</th><th>In regola fino al</th><th>Situazione</th></tr></thead>
+        <tbody>${corpo}</tbody>
+      </table></div>
+    </details>`;
+}
+
 function trovaRiga(chiave) {
   return righeGriglia().find((t) => (t.tecnico_id || t.cf) === chiave);
 }
+
+const TIPI = { attestato: 'Attestato di base', aggiornamento: 'Aggiornamento (ore di corso, seminario, convegno)', docenza: 'Docenza (ore tenute)' };
+const oreTesto = (x) => (x == null || x === '' ? '?' : String(Number(x)).replace('.', ','));
 
 /* ── drawer di cella: i documenti di un requisito ─────────── */
 function apriCella(chiaveTec, reqId) {
@@ -197,8 +267,11 @@ function apriCella(chiaveTec, reqId) {
     <div class="dt-doc" data-id="${d.id}">
       <div class="dt-doc-testa">
         <strong>${esc(d.descrizione || req.descrizione)}</strong>
-        <span>${d.data_inizio ? dataIt(d.data_inizio) : '?'} → ${d.senza_scadenza ? 'senza scadenza' : d.data_fine ? dataIt(d.data_fine) : 'senza data'}</span>
+        <span>${d.tipo === 'aggiornamento' || d.tipo === 'docenza'
+          ? `${d.data_inizio ? dataIt(d.data_inizio) : '?'} · ${oreTesto(d.ore)} ore`
+          : `${d.data_inizio ? dataIt(d.data_inizio) : '?'} → ${d.senza_scadenza ? 'senza scadenza' : d.data_fine ? dataIt(d.data_fine) : 'senza data'}`}</span>
       </div>
+      ${d.tipo ? `<div class="dt-doc-riga">${esc(TIPI[d.tipo] || d.tipo)}${d.tipo === 'aggiornamento' && d.ore_di_corso != null ? ` · di cui in corsi di aggiornamento ${oreTesto(d.ore_di_corso)} ore` : ''}</div>` : ''}
       ${d.protocollo_txt ? `<div class="dt-doc-riga">Prot. ${esc(d.protocollo_txt)}</div>` : ''}
       ${d.disdetto_il ? `<div class="dt-doc-riga">Disdetto il ${dataIt(d.disdetto_il)}</div>` : ''}
       ${d.drive_url ? `<div class="dt-doc-riga"><a href="${esc(d.drive_url)}" target="_blank" rel="noopener">Apri su Drive</a></div>` : ''}
@@ -209,8 +282,16 @@ function apriCella(chiaveTec, reqId) {
       </div>
     </div>`).join('') || '<p class="empty">Nessun documento registrato.</p>';
 
+  const sit = requisitoAOre(req) ? statoCella(t, req) : null;
+  const situazione = sit && sit.dettaglio
+    ? `<div class="dt-situazione dt-${sit.classe}" style="margin:0 0 12px;padding:8px 10px;border-radius:6px">
+         <strong>${esc(etichetta(sit))}</strong>
+         ${sit.manca > 0 ? `<div>Mancano ${oreTesto(sit.manca)} ore nel periodo.</div>` : ''}
+       </div>` : '';
+
   apriDrawer(`${t.nome} — ${req.descrizione}`, '', `
     ${req.note ? `<p class="hint" style="margin:0 0 12px">${esc(req.note)}</p>` : ''}
+    ${situazione}
     ${righe}
     <hr style="margin:16px 0;border:0;border-top:1px solid var(--bordo)">
     <h4 style="margin:0 0 10px">Registra un documento</h4>
@@ -234,12 +315,32 @@ function apriCella(chiaveTec, reqId) {
 /* form di registrazione/modifica dentro il drawer */
 function disegnaForm(t, req, doc) {
   const d = doc || {};
+  /* una riga vecchia (senza tipo) si modifica com'era: aprirla e salvarla non
+     deve trasformarla; il conteggio a ore vale per le righe nuove */
+  const aOre = requisitoAOre(req) && !(doc && !doc.tipo);
+  const haBase = documenti.some((x) => x.requisito_id === req.id && x.tipo === 'attestato' &&
+    (t.tecnico_id ? x.tecnico_id === t.tecnico_id : x.cf === t.cf));
+  const tipoIniziale = d.tipo || (aOre ? (haBase ? 'aggiornamento' : 'attestato') : '');
+  const tipiAmmessi = ['attestato', 'aggiornamento', ...(req.docenza_alternativa ? ['docenza'] : [])];
+  const bloccoOre = aOre ? `
+    <div class="field"><label>Che cosa registri</label>
+      <select id="dtf-tipo">
+        <option value="attestato">Attestato di base</option>
+        <option value="aggiornamento">Aggiornamento (ore di corso, seminario, convegno)</option>
+        <option value="docenza">Docenza (ore tenute)</option>
+      </select></div>
+    <p class="hint" id="dtf-tipo-hint" style="margin:6px 0 0"></p>
+    <div id="dtf-ore-box" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px">
+      <div class="field"><label>Ore</label><input type="number" id="dtf-ore" min="0" step="0.5" value="${d.ore ?? ''}"></div>
+      ${req.ore_soglia_corsi ? `<div class="field"><label>di cui in corsi di aggiornamento</label><input type="number" id="dtf-ore-corso" min="0" step="0.5" value="${d.ore_di_corso ?? ''}"></div>` : '<div></div>'}
+    </div>` : '';
   $('#dt-form').innerHTML = `
-    <div class="field"><label>Descrizione</label>
+    ${bloccoOre}
+    <div class="field" style="margin-top:8px"><label>Descrizione</label>
       <input type="text" id="dtf-desc" value="${esc(d.descrizione || '')}" placeholder="es. polizza n° … / contratto prot …"></div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px">
-      <div class="field"><label>Inizio validità</label><input type="date" id="dtf-inizio" value="${d.data_inizio || ''}"></div>
-      <div class="field"><label>Fine validità</label><input type="date" id="dtf-fine" value="${d.data_fine || ''}"></div>
+      <div class="field"><label id="dtf-inizio-et">Inizio validità</label><input type="date" id="dtf-inizio" value="${d.data_inizio || ''}"></div>
+      <div class="field" id="dtf-fine-box"><label>Fine validità</label><input type="date" id="dtf-fine" value="${d.data_fine || ''}"></div>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px">
       <div class="field"><label>Protocollo</label><input type="text" id="dtf-prot" value="${esc(d.protocollo_txt || '')}" placeholder="es. 2405/2025"></div>
@@ -251,12 +352,52 @@ function disegnaForm(t, req, doc) {
     <div class="field" style="margin-top:8px"><label>Note</label><textarea id="dtf-note">${esc(d.note || '')}</textarea></div>
     <button class="btn btn-primary" id="dtf-salva" style="margin-top:12px">${doc ? 'Salva le modifiche' : 'Registra'}</button>`;
 
+  /* con il conteggio a ore, l'aggiornamento e la docenza hanno una data sola
+     (quella del corso) e delle ore; la scadenza la calcola l'app */
+  const adattaTipo = () => {
+    if (!aOre) return;
+    const tipo = $('#dtf-tipo').value;
+    const aggiorn = tipo === 'aggiornamento' || tipo === 'docenza';
+    $('#dtf-fine-box').style.display = aggiorn || tipo === 'attestato' ? 'none' : '';
+    $('#dtf-ore-box').style.display = aggiorn ? '' : 'none';
+    $('#dtf-inizio-et').textContent = aggiorn ? 'Data del corso (fine corso)' : 'Data dell\'attestato';
+    $('#dtf-tipo-hint').textContent = tipo === 'attestato'
+      ? (req.periodo_mobile
+        ? `Data di fine del corso abilitante. Per ${Math.round(req.durata_mesi / 12)} anni non servono ore; poi a ogni data servono ${req.ore_soglia} ore negli ultimi ${Math.round(req.durata_mesi / 12)} anni. La scadenza la calcola l'app.`
+        : `Da qui partono i periodi di ${Math.round(req.durata_mesi / 12)} anni. La scadenza la calcola l'app dalle ore degli aggiornamenti: non serve la fine validità.`)
+      : tipo === 'docenza'
+        ? `Ore di docenza tenute: valgono in alternativa agli aggiornamenti (${req.ore_soglia} ore nel periodo).`
+        : `Un corso, un seminario o un convegno. Servono ${req.ore_soglia} ore nel periodo${req.ore_soglia_corsi ? `, di cui almeno ${req.ore_soglia_corsi} in corsi di aggiornamento` : ''}: si sommano più registrazioni.`;
+  };
+  if (aOre) {
+    /* la docenza solo dove la norma la ammette; il valore di partenza lo dà la riga */
+    const optDoc = $('#dtf-tipo').querySelector('option[value="docenza"]');
+    if (!tipiAmmessi.includes('docenza')) optDoc.remove();
+    $('#dtf-tipo').value = tipoIniziale;
+  }
+  $('#dtf-tipo')?.addEventListener('change', adattaTipo);
+  adattaTipo();
+
   $('#dtf-salva').addEventListener('click', async (ev) => {
     const btn = ev.currentTarget;
+    const tipo = aOre ? $('#dtf-tipo').value : null;
+    const conOre = tipo === 'aggiornamento' || tipo === 'docenza';
+    if (conOre && !($('#dtf-ore').value !== '' && Number($('#dtf-ore').value) > 0)) {
+      return toast('Scrivi le ore dell\'aggiornamento: senza ore non si può sommare.', 'err');
+    }
+    if (aOre && !$('#dtf-inizio').value) {
+      return toast('Serve la data: da lì partono i periodi.', 'err');
+    }
     const riga = {
       descrizione: $('#dtf-desc').value.trim() || null,
       data_inizio: $('#dtf-inizio').value || null,
-      data_fine: $('#dtf-fine').value || null,
+      data_fine: aOre ? null : ($('#dtf-fine').value || null),
+      ...(aOre ? {
+        tipo,
+        ore: conOre ? Number($('#dtf-ore').value) : null,
+        ore_di_corso: tipo === 'aggiornamento' && $('#dtf-ore-corso') && $('#dtf-ore-corso').value !== ''
+          ? Number($('#dtf-ore-corso').value) : null,
+      } : {}),
       protocollo_txt: $('#dtf-prot').value.trim() || null,
       disdetto_il: $('#dtf-disdetta')?.value || null,
       drive_url: $('#dtf-drive').value.trim() || null,
@@ -335,13 +476,14 @@ function apriTecnico(chiave) {
 }
 
 function etichetta(s) {
-  return {
+  const base = {
     ok: 'valido' + (s.testo.includes('⟳') ? ' (tacito), fino al ' + s.testo.replace(' ⟳', '') : s.scadenza ? ' fino al ' + s.testo : (s.testo !== 'presente' ? ' — ' + s.testo : '')),
     scade: 'in scadenza il ' + s.testo,
     scaduto: 'SCADUTO il ' + s.testo,
-    senzadata: 'presente ma senza data di scadenza',
+    senzadata: s.dettaglio || s.soglia ? s.testo : 'presente ma senza data di scadenza',
     mancante: 'MANCANTE',
   }[s.classe] || s.testo;
+  return s.dettaglio ? `${base} (${s.dettaglio})` : base;
 }
 
 /* ── testo e bozza .eml dell'avviso ───────────────────────── */
@@ -349,8 +491,9 @@ function testoAvviso(t, voci) {
   const elenco = voci.map((x) => {
     if (x.s.classe === 'mancante') return `- ${x.req.descrizione}: non risulta consegnata copia`;
     if (x.s.classe === 'senzadata') return `- ${x.req.descrizione}: agli atti senza data di scadenza, da confermare`;
-    if (x.s.classe === 'scaduto') return `- ${x.req.descrizione}: scaduta il ${dataIt(x.s.scadenza)}`;
-    return `- ${x.req.descrizione}: in scadenza il ${dataIt(x.s.scadenza)}`;
+    const ore = x.s.dettaglio ? ` (${x.s.dettaglio})` : '';
+    if (x.s.classe === 'scaduto') return `- ${x.req.descrizione}: scaduta il ${dataIt(x.s.scadenza)}${ore}`;
+    return `- ${x.req.descrizione}: in scadenza il ${dataIt(x.s.scadenza)}${ore}`;
   }).join('\n');
   return `Gentile ${t.nome},
 
