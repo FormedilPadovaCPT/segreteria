@@ -50,7 +50,7 @@ import { caricaLogo } from './firma-logo.js'
 // ⚠️ anche questo è una COPIA di js/corsi-promemoria-testo.js: le regole
 // (quali lezioni, a chi, con che testo) si provano con `node --test`.
 // @ts-ignore modulo JS senza tipi
-import { corsoRicorda, giornateDaRicordare, giorniFra, iscrittiDaAvvisare, indirizzoDi, raggruppaPerIndirizzo, testoPromemoria } from './corsi-promemoria-testo.js'
+import { corsoRicorda, giornateDaRicordare, giorniFra, iscrittiDaAvvisare, indirizzoDi, raggruppaPerIndirizzo, testoPromemoria, firmeQrAperte } from './corsi-promemoria-testo.js'
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -74,9 +74,9 @@ const toB64Url = (s: string) => {
 const oggiRoma = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Rome' }).format(new Date())
 
 type Riga = Record<string, unknown>
-type Corso = { id: number; titolo: string | null; stato: string; promemoria_giorni: number | null; sede: string | null; modalita: string | null }
+type Corso = { id: number; titolo: string | null; stato: string; promemoria_giorni: number | null; sede: string | null; modalita: string | null; pres_codice: string | null; pres_chiuso_il: string | null }
 type Giornata = { id: number; corso_id: number; data: string; dalle: string | null; alle: string | null; dalle2: string | null; alle2: string | null; sede: string | null; aula: string | null }
-type Iscritto = { id: number; corso_id: number; persona_id: string | null; impresa_id: string | null; nominativo: string; email_iscrizione: string | null; esito: string | null }
+type Iscritto = { id: number; corso_id: number; persona_id: string | null; impresa_id: string | null; nominativo: string; email_iscrizione: string | null; esito: string | null; test_codice: string | null }
 type Quaderno = { id: number; giornata_id: number; iscritto_id: number; data_lezione: string; prenotato_il: string; inviato_il: string | null; esito: string | null }
 
 serve(async (req) => {
@@ -115,7 +115,7 @@ serve(async (req) => {
     const oggi = oggiRoma()
 
     /* ── quali lezioni ── */
-    let qC = sb.from('s_corsi').select('id, titolo, stato, promemoria_giorni, sede, modalita').eq('stato', 'aperto')
+    let qC = sb.from('s_corsi').select('id, titolo, stato, promemoria_giorni, sede, modalita, pres_codice, pres_chiuso_il').eq('stato', 'aperto')
     if (!soloGiornata) qC = qC.not('promemoria_giorni', 'is', null)
     if (soloCorso) qC = qC.eq('id', soloCorso)
     const { data: cc, error: eC } = await qC
@@ -155,10 +155,47 @@ serve(async (req) => {
       inviate: 0, non_inviate: 0, senza_indirizzo: 0, gia_avvisati: 0,
     }
 
+    /* ── i codici della firma di presenza (17/11/2026) ──
+       Se il corso ha le firme dal QR aperte, nel promemoria va il codice
+       personale di ciascuno. Prima chi non ce l'ha lo riceve, poi le firme
+       si RIPUBBLICANO sul portale: un codice che il portale non conosce
+       farebbe rifiutare la firma in aula. Se la pubblicazione non riesce, il
+       promemoria parte lo stesso ma SENZA codici (restano i biglietti
+       all'ingresso), e l'errore resta scritto nel giro. */
+    const codiciOk = new Set<number>()
+    const erroriCodici: string[] = []
+    const conQr = [...new Set(lezioni.map((g) => g.corso_id))].filter((id) => firmeQrAperte(corsoDi[id]))
+    if (conQr.length && prova) {
+      for (const id of conQr) codiciOk.add(id)   // l'anteprima mostra i codici che ci sono già, senza scrivere niente
+    } else if (conQr.length) {
+      const { data: cfgQ } = await sb.from('s_config').select('valore').eq('chiave', 'questionari_token').maybeSingle()
+      for (const id of conQr) {
+        try {
+          const { error: eCod } = await sb.rpc('corso_codici_personali', { p_corso_id: id })
+          if (eCod) throw new Error('codici personali: ' + eCod.message)
+          if (!cfgQ?.valore) throw new Error('manca questionari_token in s_config')
+          const r = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/questionari-pubblica`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`,
+              'X-Questionari-Token': cfgQ.valore,
+            },
+            body: JSON.stringify({ cosa: 'presenza', corso_id: id }),
+          })
+          const out = await r.json().catch(() => ({}))
+          if (!r.ok || out.status !== 'ok') throw new Error('firme non ripubblicate sul portale: ' + (out.esito || out.error || `HTTP ${r.status}`))
+          codiciOk.add(id)
+        } catch (e) {
+          erroriCodici.push(`corso ${id}: ${(e as Error).message} — promemoria senza codici`)
+        }
+      }
+    }
+
     if (lezioni.length) {
       const idsCorsi = [...new Set(lezioni.map((g) => g.corso_id))]
       const { data: ii, error: eI } = await sb.from('s_corsi_iscritti')
-        .select('id, corso_id, persona_id, impresa_id, nominativo, email_iscrizione, esito').in('corso_id', idsCorsi).order('nominativo')
+        .select('id, corso_id, persona_id, impresa_id, nominativo, email_iscrizione, esito, test_codice').in('corso_id', idsCorsi).order('nominativo')
       if (eI) throw new Error('Non sono riuscito a leggere gli iscritti: ' + eI.message)
       const iscritti = iscrittiDaAvvisare(ii || []) as Iscritto[]
 
@@ -196,13 +233,14 @@ serve(async (req) => {
         esito.lezioni.push(riepilogo)
 
         /* chi va avvisato, e chi lo è già stato per QUESTA data */
-        const daFare: { iscritto_id: number; nominativo: string; email: string | null; origine: string | null; riga: Quaderno | null }[] = []
+        const daFare: { iscritto_id: number; nominativo: string; email: string | null; origine: string | null; riga: Quaderno | null; codice: string | null }[] = []
+        const codici = codiciOk.has(c.id)
         for (const i of iscritti.filter((x) => x.corso_id === g.corso_id)) {
           const riga = quaderno.find((q) => q.giornata_id === g.id && q.iscritto_id === i.id && String(q.data_lezione) === String(g.data)) || null
           if (riga?.inviato_il) { (riepilogo.gia_avvisati as number)++; esito.gia_avvisati++; continue }
           if (riga && !riga.esito && riga.prenotato_il > scaduta) continue   // è in partenza da un'altra chiamata
           const ind = indirizzoDi(i, persDi[i.persona_id || ''] || null, impDi[i.impresa_id || ''] || null)
-          daFare.push({ iscritto_id: i.id, nominativo: i.nominativo, email: ind.email, origine: ind.origine, riga })
+          daFare.push({ iscritto_id: i.id, nominativo: i.nominativo, email: ind.email, origine: ind.origine, riga, codice: codici ? (i.test_codice || null) : null })
         }
 
         const { gruppi, senza } = raggruppaPerIndirizzo(daFare)
@@ -211,10 +249,11 @@ serve(async (req) => {
 
         if (prova) {
           for (const gr of gruppi) {
-            const t = testoPromemoria({ corso: c, giornata: g, giornate: giornateCorso, partecipanti: gr.righe, oggi, contatto: MITTENTE_UFFICIALE })
+            const t = testoPromemoria({ corso: c, giornata: g, giornate: giornateCorso, partecipanti: gr.righe, oggi, contatto: MITTENTE_UFFICIALE, codici })
             ;(riepilogo.anteprima as Riga[]).push({
               a: gr.email, partecipanti: gr.righe.map((r: { nominativo: string }) => r.nominativo),
               oggetto: oggettoUfficio(t.oggetto), corpo: t.corpo,
+              ...(t.firmaHtml ? { html: paginaHtml(`${corpoInHtml(t.corpoPrima)}\n${t.firmaHtml}\n${corpoInHtml(t.corpoDopo)}`) } : {}),
             })
           }
           continue
@@ -256,8 +295,9 @@ serve(async (req) => {
           if (!prese.length) continue
           const ids = prese.map((p) => p.id)
           try {
-            const t = testoPromemoria({ corso: c, giornata: g, giornate: giornateCorso, partecipanti: prese.map((p) => p.r), oggi, contatto: MITTENTE_UFFICIALE })
-            let html = paginaHtml(corpoInHtml(t.corpo))
+            const t = testoPromemoria({ corso: c, giornata: g, giornate: giornateCorso, partecipanti: prese.map((p) => p.r), oggi, contatto: MITTENTE_UFFICIALE, codici })
+            /* col codice della firma: il riquadro arancione fra «quando e dove» e il resto */
+            let html = paginaHtml(t.firmaHtml ? `${corpoInHtml(t.corpoPrima)}\n${t.firmaHtml}\n${corpoInHtml(t.corpoDopo)}` : corpoInHtml(t.corpo))
             if (!logo.ok) {
               html = html.replace(new RegExp(`<img[^>]*cid:${LOGO_FIRMA_CID.replace(/[.*+?^$()|[\]\\{}]/g, '\\$&')}[^>]*>`), '')
             }
@@ -293,7 +333,7 @@ serve(async (req) => {
     }
 
     if (!prova) {
-      const errori = esito.lezioni.flatMap((l) => (l.errori as string[]) || [])
+      const errori = [...erroriCodici, ...esito.lezioni.flatMap((l) => (l.errori as string[]) || [])]
       await sb.from('s_corsi_promemoria_giri').insert({
         chi, lezioni: esito.lezioni.length, inviate: esito.inviate, non_inviate: esito.non_inviate,
         senza_indirizzo: esito.senza_indirizzo, errore: errori.length ? errori.join(' · ').slice(0, 1000) : null,

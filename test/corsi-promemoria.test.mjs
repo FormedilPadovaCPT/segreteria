@@ -154,3 +154,41 @@ test('la mail degli attestati porta i materiali, e senza materiali resta com’e
   assert.match(con, /Le consigliamo di scaricarlo il prima possibile: resta a disposizione fino al lunedì 30 novembre 2026\./);
   assert.ok(con.indexOf('Slide') < con.indexOf('Grazie e cordiali saluti.'));
 });
+
+/* ── la firma di presenza dal QR (17/11/2026) ── */
+import { firmeQrAperte, firmaPresenza } from '../js/corsi-promemoria-testo.js';
+
+test('il codice della firma: solo con le firme dal QR aperte, e ben in vista', () => {
+  assert.equal(firmeQrAperte({ pres_codice: null }), false, 'firme non aperte: niente codice');
+  assert.equal(firmeQrAperte({ pres_codice: 'P900-AB12', pres_chiuso_il: '2026-10-10T00:00:00Z' }, '2026-10-12T00:00:00Z'), false, 'firme chiuse: niente codice');
+  assert.equal(firmeQrAperte({ pres_codice: 'P900-AB12', pres_chiuso_il: '2026-10-20T00:00:00Z' }, '2026-10-12T00:00:00Z'), true);
+
+  const uno = [{ nominativo: 'ROSSI MARIO', origine: 'iscrizione', codice: 'XK7P2' }];
+  const senza = testoPromemoria({ corso: CORSO, giornata: G1, giornate: [G1], partecipanti: uno, oggi: '2026-10-06' });
+  assert.ok(!/XK7P2/.test(senza.corpo) && !senza.firmaHtml, 'senza «codici» il codice non esce, anche se c\'è');
+  assert.ok(!/codice/.test(senza.oggetto));
+
+  const t = testoPromemoria({ corso: CORSO, giornata: G1, giornate: [G1], partecipanti: uno, oggi: '2026-10-06', codici: true });
+  assert.match(t.oggetto, / - il suo codice per la firma$/, 'l\'oggetto dice che dentro c\'è il codice');
+  assert.match(t.corpo, /={10,}\nIL SUO CODICE PER LA FIRMA DI PRESENZA:\s+XK7P2\n={10,}/, 'nel testo, fra due righe di =');
+  assert.ok(t.corpo.indexOf('XK7P2') < t.corpo.indexOf('Se non può partecipare'), 'subito dopo quando e dove, prima del resto');
+  assert.match(t.corpo, /1\. Arrivato in aula, inquadri[\s\S]*4\. All'uscita rifaccia/, 'i passaggi numerati, entrata e uscita');
+  assert.match(t.firmaHtml, /font-size:40px[^>]*>XK7P2</, 'nella grafica il codice è grande');
+  assert.match(t.firmaHtml, /border:3px solid #E7500F/, 'in un riquadro arancione');
+  assert.equal(t.corpoPrima + '\n' + t.corpoDopo !== '', true);
+  assert.ok(!t.corpoPrima.includes('XK7P2') && !t.corpoDopo.includes('XK7P2'), 'la grafica non ripete il codice fuori dal riquadro');
+
+  const gruppo = [
+    { nominativo: 'ROSSI MARIO', origine: 'impresa', codice: 'XK7P2' },
+    { nominativo: 'BIANCHI LUCA', origine: 'impresa', codice: 'M3Q8T' },
+    { nominativo: 'VERDI ANNA', origine: 'impresa', codice: null },
+  ];
+  const tg = testoPromemoria({ corso: CORSO, giornata: G2, giornate: [G2], partecipanti: gruppo, oggi: '2026-10-13', codici: true });
+  assert.match(tg.oggetto, / - i codici per la firma$/);
+  assert.match(tg.corpo, /- ROSSI MARIO:\s+XK7P2\n- BIANCHI LUCA:\s+M3Q8T/);
+  assert.match(tg.corpo, /VERDI ANNA: il codice lo riceverà all'ingresso/);
+  assert.match(tg.corpo, /girare a ciascuno il SUO codice/);
+  assert.match(tg.corpo, /Vale per la mattina e per il pomeriggio/, 'giornata su due turni: si firma in tutti e due');
+  assert.match(tg.firmaHtml, /BIANCHI LUCA<\/td><td[^>]*><span[^>]*font-size:26px[^>]*>M3Q8T</);
+  assert.ok(!/<script|onerror/i.test(firmaPresenza([{ nominativo: '<script>x</script>', codice: 'AAAAA' }], G1).html), 'i nomi si scrivono come testo');
+});
