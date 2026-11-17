@@ -96,14 +96,106 @@ export const fuoriGriglia = (t) => t.dipendente || t.tecnico_id === 'TEC-PROVA-2
 
 /* ── caricamento ──────────────────────────────────────────── */
 async function carica() {
-  const [rq, dc, tc] = await Promise.all([
+  const [rq, dc, tc, iv] = await Promise.all([
     sb.from('s_doc_requisito').select('*').eq('attivo', true).order('ordine'),
     sb.from('s_doc_tecnico').select('*'),
     sb.from('tecnici').select('tecnico_id, tecnico_cognome, tecnico_nome, email, attivo, asseveratore, dipendente'),
+    sb.from('s_doc_tecnico_invii').select('*').eq('stato', 'da_verificare').order('inviato_il'),
   ]);
   requisiti = rq.data || [];
   documenti = dc.data || [];
   tecnici = tc.data || [];
+  invii = iv.error ? null : (iv.data || []);
+  erroreInvii = iv.error ? iv.error.message : '';
+}
+
+/* ── attestati caricati dai tecnici (17/11/2026) ──────────────
+   Ogni tecnico carica i suoi dal gestionale (pagina «📄 Documenti»):
+   il file è già nel suo fascicolo su Drive, la riga aspetta qui. Non
+   conta nelle ore finché la segreteria non la conferma: alla conferma
+   nasce la riga di s_doc_tecnico coi valori controllati sul documento
+   (crediti_conferma_invio). Il rifiuto chiede il motivo, che il tecnico
+   legge nella sua pagina. Niente protocollo: resta nel fascicolo del
+   tecnico, come le polizze (deciso dall'utente). */
+let invii = [];
+let erroreInvii = '';
+function pannelloInvii() {
+  if (invii === null) return `<p class="hint" style="color:#c0392b;margin:0 0 12px">Non sono riuscito a leggere gli attestati caricati dai tecnici: ${esc(erroreInvii)}</p>`;
+  if (!invii.length) return '';
+  const nomeTec = (id) => { const t = tecnici.find((x) => x.tecnico_id === id); return t ? `${t.tecnico_cognome} ${t.tecnico_nome}` : id; };
+  const nomeReq = (id) => (requisiti.find((r) => r.id === id) || {}).descrizione || id;
+  const corpo = invii.map((i) => `<tr>
+      <td>${esc(dataIt(String(i.inviato_il).slice(0, 10)))}</td>
+      <td>${esc(nomeTec(i.tecnico_id))}</td>
+      <td>${esc(nomeReq(i.requisito_id))}</td>
+      <td>${esc(i.descrizione)}${i.ente ? ` <span class="hint">(${esc(i.ente)})</span>` : ''}</td>
+      <td>${esc(dataIt(i.data_inizio))}</td>
+      <td>${i.ore != null ? oreTesto(i.ore) : '—'}</td>
+      <td><button class="btn btn-primary btn-sm" data-invio="${i.id}" title="Apre l’attestato e i dati scritti dal tecnico: li controlli sul documento, poi confermi o rifiuti col motivo.">Controlla…</button></td>
+    </tr>`).join('');
+  return `<div class="dt-invii" style="margin:0 0 16px;padding:10px 12px;border:1px solid var(--bordo);border-left:4px solid #e7500f;border-radius:6px">
+      <strong>📤 Attestati caricati dai tecnici: ${invii.length} da controllare</strong>
+      <p class="hint" style="margin:6px 0">Il file è già nel fascicolo del tecnico. Non conta nelle ore finché non lo confermi: controlla sul documento requisito, data e ore (i crediti scritti sull’attestato, se ci sono).</p>
+      <div class="table-wrap"><table class="tbl">
+        <thead><tr><th>Caricato il</th><th>Tecnico</th><th>Requisito</th><th>Corso</th><th>Data</th><th>Ore</th><th></th></tr></thead>
+        <tbody>${corpo}</tbody></table></div></div>`;
+}
+
+function apriInvio(id) {
+  const i = (invii || []).find((x) => x.id === id);
+  if (!i) return;
+  const t = tecnici.find((x) => x.tecnico_id === i.tecnico_id) || {};
+  const opzReq = requisiti.filter((r) => requisitoAOre(r) || requisiti.some((x) => x.origine_requisito_id === r.id))
+    .map((r) => `<option value="${r.id}"${r.id === i.requisito_id ? ' selected' : ''}>${esc(r.descrizione)}</option>`).join('');
+  apriDrawer(`Attestato di ${t.tecnico_cognome || ''} ${t.tecnico_nome || ''}`.trim(), '', `
+    <p class="hint" style="margin:0 0 10px">Caricato il ${esc(dataIt(String(i.inviato_il).slice(0, 10)))} da ${esc(i.inviato_da)}. File: ${i.drive_url ? `<a href="${esc(i.drive_url)}" target="_blank" rel="noopener">${esc(i.nome_file)}</a>` : esc(i.nome_file)}</p>
+    ${i.note_tecnico ? `<p style="margin:0 0 10px"><strong>Nota del tecnico:</strong> ${esc(i.note_tecnico)}</p>` : ''}
+    <div class="field"><label>Requisito</label><select id="dti-req">${opzReq}</select></div>
+    <div class="field"><label>Tipo</label><select id="dti-tipo">
+      <option value="attestato">Attestato di base</option>
+      <option value="aggiornamento">Aggiornamento (ore di corso, seminario, convegno)</option>
+      <option value="docenza">Docenza (ore tenute)</option>
+    </select></div>
+    <div class="field"><label>Titolo del corso</label><input id="dti-desc" value="${esc(i.descrizione)}"></div>
+    <div class="field"><label>Data del documento</label><input type="date" id="dti-data" value="${esc(i.data_inizio)}"></div>
+    <div class="field"><label>Ore che valgono</label><input type="number" id="dti-ore" min="0" step="0.5" value="${i.ore ?? ''}"></div>
+    <div class="field"><label>di cui in corsi di aggiornamento (formatori)</label><input type="number" id="dti-corso" min="0" step="0.5" value="${i.ore_di_corso ?? ''}"></div>
+    <div class="field"><label>Nota (facoltativa, finisce nella riga del registro)</label><input id="dti-nota" maxlength="500"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0">
+      <button class="btn btn-primary" id="dti-conferma" title="Nasce la riga del registro coi valori di questa scheda: da adesso le ore contano.">✓ Conferma</button>
+    </div>
+    <hr style="margin:12px 0;border:0;border-top:1px solid var(--bordo)">
+    <div class="field"><label>Motivo del rifiuto (lo legge il tecnico)</label><input id="dti-motivo" maxlength="500" placeholder="Es. è un attestato di frequenza senza ore: serve quello con le ore"></div>
+    <button class="btn btn-ghost" id="dti-rifiuta" title="Il tecnico vede «Non accettato» col motivo. Il file resta nel suo fascicolo: se è sbagliato, spostalo o cestinalo da Drive.">Rifiuta</button>`);
+  $('#dti-tipo').value = i.tipo;
+  $('#dti-conferma').addEventListener('click', async () => {
+    const num = (id) => ($(id).value === '' ? null : Number($(id).value));
+    const tipo = $('#dti-tipo').value;
+    const btn = $('#dti-conferma');
+    attendi(btn, true, 'Confermo…');
+    const { error } = await sb.rpc('crediti_conferma_invio', {
+      p_id: i.id, p_requisito_id: Number($('#dti-req').value), p_tipo: tipo, p_data: $('#dti-data').value || null,
+      p_ore: num('#dti-ore'), p_ore_di_corso: tipo === 'aggiornamento' ? num('#dti-corso') : null,
+      p_descrizione: $('#dti-desc').value, p_nota: $('#dti-nota').value,
+    });
+    attendi(btn, false);
+    if (error) return toast('Non confermato: ' + error.message, 'err');
+    toast('Confermato: le ore contano da adesso.', 'ok');
+    chiudiDrawer();
+    await render();
+  });
+  $('#dti-rifiuta').addEventListener('click', async () => {
+    const motivo = $('#dti-motivo').value.trim();
+    if (!motivo) return toast('Scrivi il motivo: lo legge il tecnico.', 'err');
+    const btn = $('#dti-rifiuta');
+    attendi(btn, true, 'Registro il rifiuto…');
+    const { error } = await sb.rpc('crediti_rifiuta_invio', { p_id: i.id, p_motivo: motivo });
+    attendi(btn, false);
+    if (error) return toast('Non registrato: ' + error.message, 'err');
+    toast('Rifiutato: il tecnico vede il motivo nella sua pagina.', 'ok');
+    chiudiDrawer();
+    await render();
+  });
 }
 
 /* Le righe della griglia: i tecnici attivi veri, piu' (a richiesta)
@@ -158,6 +250,7 @@ export async function render() {
 
   host.innerHTML = `
     <div id="la-host"></div>
+    ${pannelloInvii()}
     ${pannelloCrediti(righe)}
     <div class="dt-barra">
       <div class="dt-legenda">
@@ -183,6 +276,7 @@ export async function render() {
     </p>`;
 
   $('#dt-storici').addEventListener('change', (e) => { mostraStorici = e.target.checked; render(); });
+  host.querySelectorAll('[data-invio]').forEach((b) => b.addEventListener('click', () => apriInvio(Number(b.dataset.invio))));
   host.querySelectorAll('[data-crediti-tec]').forEach((b) => b.addEventListener('click', (e) => { e.preventDefault(); apriTecnico(b.dataset.creditiTec); }));
   host.querySelectorAll('[data-crediti-cella]').forEach((b) => b.addEventListener('click', (e) => {
     e.preventDefault();
