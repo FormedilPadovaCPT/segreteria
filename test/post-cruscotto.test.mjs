@@ -33,7 +33,7 @@ test('i tre mucchi', () => {
 
 test('aperto o no da chi decide', () => {
   assert.match(passoVisto(pass[0]), /aperto dal Direttore il 17\/11\/2026 alle 12:44, non ancora deciso/);
-  assert.match(passoVisto(pass[1]), /il Direttore non l'ha ancora aperto/);
+  assert.match(passoVisto(pass[1]), /non risulta aperto dal Direttore/);
   const pres = passoVisto({ verso: 'presidenza', visti: { presidente: { il: '2026-11-17T08:00:00Z' } }, decisioni: { vicepresidente: { esito: 'approvato' } } });
   assert.match(pres, /aperto dal Presidente/);
   assert.match(pres, /il Vicepresidente ha deciso: approvato/);

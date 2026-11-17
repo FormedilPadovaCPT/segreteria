@@ -11,7 +11,9 @@
        il Direttore o il Coordinatore apre «📣 Comunicazione» nel
        gestionale) e da quanti giorni aspetta. Se la data in programma è
        vicina o passata, lo si dice: il post non può uscire senza
-       approvazione.
+       approvazione. Il «visto» si registra dal 17/11/2026 verso le 13: prima
+       di allora un post aperto risulta «non aperto», quindi si scrive «non
+       risulta aperto», non «non l'ha aperto».
      · RIMANDATI: il Coordinatore chiede modifiche o il Direttore non
        approva. Restano finché la segreteria non li corregge e li
        rimanda (o li scarta).
@@ -89,7 +91,7 @@ export function passoVisto(x) {
     }
     return v && v.il
       ? pastiglia('attesa', `👁 aperto ${DA[k] || k} il ${dIt(giornoRoma(v.il))} alle ${oraIt(v.il)}, non ancora deciso`)
-      : pastiglia('fermo', `⏳ ${CHI[k] || k} non l'ha ancora aperto`);
+      : pastiglia('fermo', `⏳ non risulta aperto ${DA[k] || k}`);
   }).join(' ');
 }
 
