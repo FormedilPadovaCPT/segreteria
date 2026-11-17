@@ -86,7 +86,7 @@ test('la verifica di efficacia: tessera nel cruscotto, bozza .eml, «inviata» v
   assert.match(home, /import \{ datiEfficacia, cardEfficacia, collegaEfficacia \} from '\.\/efficacia\.js';/);
   assert.match(home, /\$\{cardEfficacia\(card, effic\)\}/);
   assert.match(home, /collegaEfficacia\(host, render, effic\);/);
-  assert.match(home, /pFirme, pApprov, pEffic\]\)/, 'la lettura parte insieme alle altre');
+  assert.match(home, /pFirme, pApprov, pEffic[\],]/, 'la lettura parte insieme alle altre');
   assert.match(eff, /scaricaEml\(\{/, 'la mail è una bozza .eml: la manda una persona');
   assert.match(eff, /sb\.rpc\('efficacia_segna', \{ p_id: r\.id, p_stato: 'inviata'/);
   assert.match(eff, /errore: error\.message/, 'un errore di lettura si tiene');

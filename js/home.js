@@ -15,6 +15,7 @@ import { dividiRespinte } from './mail-respinte-viste.js';
 import { datiCruscotto as datiFirme, cardFirme, collegaFirme } from './firme.js';
 import { datiApprovazioni, quanteApprovazioni, righeApprovazioni, bottoneRicorda, collegaApprovazioni } from './approvazioni-direttore.js';
 import { datiEfficacia, cardEfficacia, collegaEfficacia } from './efficacia.js';
+import { STATI_CRUSCOTTO, quadroPost, quantiPost, righePost } from './post-cruscotto.js';
 import { agendaElenco, htmlOrarioCorsi, orarioCorsi, DETTAGLIO_ORARIO } from './home-calendari.js';
 
 /* 05/10/2026 — gli incarichi che si chiudono col cantiere, e quelli che restano aperti perché hanno altri
@@ -350,7 +351,20 @@ export async function render() {
   let effic = null;
   const pEffic = (async () => { effic = await datiEfficacia(); })();
 
-  await Promise.all([pBacheca, pFlussi, pForm, pBackup, pTestAuto, pTendine, pProm, pCanale, pCritici, pQuest, pIscr, pEseguiti, pFatture, pFirme, pApprov, pEffic]);
+  /* i post per i social mandati a Coordinatore e Direttore (17/11/2026, chiesto dall'utente): in attesa
+     (e se chi decide li ha aperti), rimandati indietro, approvati da pubblicare. Lettura fallita = «non letto» */
+  let postQ = null;
+  const pPost = (async () => { try {
+    const [{ data: pp, error: e1 }, { data: px, error: e2 }] = await Promise.all([
+      sb.from('s_post').select('id, titolo, stato, data_programmata, created_at').in('stato', STATI_CRUSCOTTO).limit(600),
+      sb.from('s_post_passaggi').select('id, post_id, verso, stato, richiesto_il, deciso_il, nota, visti, decisioni, vc:testi->visto_coordinatore')
+        .order('richiesto_il', { ascending: false }).limit(2000),
+    ]);
+    if (e1 || e2) { nonLetti.add('post'); return; }
+    postQ = quadroPost(pp || [], (px || []).map((x) => ({ ...x, testi: { visto_coordinatore: x.vc || null } })));
+  } catch { nonLetti.add('post'); } })();
+
+  await Promise.all([pBacheca, pFlussi, pForm, pBackup, pTestAuto, pTendine, pProm, pCanale, pCritici, pQuest, pIscr, pEseguiti, pFatture, pFirme, pApprov, pEffic, pPost]);
 
   /* documenti dei tecnici: lo stato si calcola come nella loro pagina —
      per ogni tecnico in griglia e ogni requisito conta il documento PIÙ
@@ -694,6 +708,9 @@ export async function render() {
         + righeApprovazioni(approv)
         + (approv?.errore ? `<p class="hint" style="color:#a01f00">⚠ Non sono riuscito a leggere i documenti di asseverazione da approvare: ${esc(approv.errore)}</p>` : ''),
         bottoneRicorda(approv), { k: 'direttore', nonLetto: nonLetti.has('servizi'), sempre: !!approv?.errore })}
+
+      ${card('📣 Post per i social in approvazione', quantiPost(postQ), righePost(postQ, oggi),
+        vai('comunicazione', 'Comunicazione'), { k: 'post', goto: 'comunicazione', nonLetto: nonLetti.has('post') })}
 
       ${cardFirme(card, firme)}
 
