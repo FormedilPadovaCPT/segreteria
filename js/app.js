@@ -322,12 +322,23 @@ try {
   } else {
     state.user = session.user;
     state.email = session.user.email || '';
+    /* (17/11/2026) le letture e i moduli dell'avvio partono INSIEME, subito: prima erano in fila
+       (ruolo, modulo del cambio password, cambio password, tipi di documento), e sul telefono ogni
+       attesa si sommava all'altra. Ognuna si usa più sotto, nel punto di prima. */
+    const subito = (q) => q.then((r) => r, (e) => ({ data: null, error: e }));
+    const pSegreteria = subito(sb.rpc('is_segreteria'));
+    const pPassword = subito(sb.rpc('deve_cambiare_password'));
+    const pTipi = subito(sb.from('s_tipo_doc').select('*').order('descrizione'));
+    const pCambio = import('./cambio-password.js');
+    pCambio.catch(() => {});
 
     /* l'app è riservata alla segreteria; il Direttore ha un ingresso
        suo, limitato alle autorizzazioni (pagina Segnalazioni), e
        l'Amministrazione il suo, limitato ai mandati di pagamento
        (16/09/2026) */
-    const { data: abilitato, error: errRuolo } = await sb.rpc('is_segreteria');
+    const { data: abilitato, error: errRuolo } = await pSegreteria;
+    /* per la segreteria i moduli della prima pagina si scaricano intanto (lo stesso import, poi, li ritrova) */
+    if (abilitato && !errRuolo) for (const m of ['./protocollo.js', './home.js']) import(m).catch(() => {});
     let soloDirettore = false;
     let soloAmministrazione = false;
     if (errRuolo || !abilitato) {
@@ -338,7 +349,7 @@ try {
     if ((errRuolo || !abilitato) && !soloDirettore && !soloAmministrazione) {
       await sb.auth.signOut();
       mostraLogin(`L'indirizzo ${state.email} non è abilitato all'app Segreteria. Chiedi l'abilitazione al coordinatore.`);
-    } else if (!(await (await import('./cambio-password.js')).obbligaCambioPassword())) {
+    } else if (!(await (await pCambio).obbligaCambioPassword(pPassword))) {
       /* cambio password obbligatorio non fatto (27/09/2026): l'app resta chiusa */
     } else {
       state.soloDirettore = soloDirettore;
@@ -351,7 +362,7 @@ try {
       /* chi non legge la casella d'ufficio: l'elenco dei secondi indirizzi, per le bozze (28/09/2026) */
       import('./secondi-indirizzi.js').then((m) => m.carica(sb)).catch((e) => console.warn('[secondi indirizzi]', e));
 
-      const { data: tipi } = await sb.from('s_tipo_doc').select('*').order('descrizione');
+      const { data: tipi } = await pTipi;
       state.tipiDoc = tipi || [];
 
       /* link profondo dalle mail: #segnalazione-<id>, #consulenza-<id>,
@@ -409,13 +420,24 @@ try {
         }
       } else {
         mod.protocollo = await import('./protocollo.js');
-        await mod.protocollo.init();
+        /* (17/11/2026) l'elenco del registro si carica INTANTO che si apre il cruscotto: prima si
+           aspettava il registro, che all'apertura non si vede. Filtri ed eventi init li prepara
+           subito, prima della sua prima attesa. Un errore resta scritto nel registro. */
+        const pInit = mod.protocollo.init();
         /* la prima pagina è il CRUSCOTTO, non il registro (deciso 01/09/2026) */
         if (hashImpresa) {
+          await pInit;
           mod.imprese = mod.imprese || await import('./imprese.js');
           await mod.imprese.apriScheda(decodeURIComponent(hashImpresa[1]));
-        } else if (hashPratica || hashVista) await apriDaHash();
-        else await vaiA('home');
+        } else if (hashPratica || hashVista) { await pInit; await apriDaHash(); }
+        else {
+          pInit.catch((e) => {
+            console.error('[avvio] registro', e);
+            const tb = $('#tb-registro');
+            if (tb) tb.innerHTML = `<tr><td colspan="8" class="empty">Registro non caricato: ${esc(e.message)}</td></tr>`;
+          });
+          await vaiA('home');
+        }
       }
     }
   }

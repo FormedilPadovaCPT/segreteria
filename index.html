@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Segreteria — Formedil Padova</title>
+<!-- versione pubblicata: la pubblicazione ci scrive il commit, come in sw.js (17/11/2026) -->
+<meta name="versione-app" content="locale">
 <link rel="stylesheet" href="css/app.css">
 <!-- veste «Scrivania», predefinita dall'11/09/2026 (vedi js/veste.js) -->
 <link rel="stylesheet" href="css/veste-scrivania.css">
@@ -336,8 +338,8 @@ try {
 <div id="toast" class="toast hidden"></div>
 
 <script>
-/* rete-prima sui nostri file: mai piu' moduli vecchi in cache
-   dopo una pubblicazione (vedi sw.js) */
+/* copie dei nostri file legate alla versione pubblicata: mai moduli
+   di due pubblicazioni insieme, e accensione senza attese (vedi sw.js) */
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 </script>
 <script src="js/aiuto.js?v=24" defer></script>

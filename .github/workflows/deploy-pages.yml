@@ -61,6 +61,14 @@ jobs:
           cp index.html sw.js manifest.webmanifest _site/
           cp -r css js img _site/
           touch _site/.nojekyll
+          # (17/11/2026) la versione pubblicata, in sw.js e nella pagina: le copie dei file
+          # sul telefono valgono solo per questa versione (vedi sw.js)
+          V="${GITHUB_SHA::12}"
+          sed -i "s/^const VERSIONE = 'locale';/const VERSIONE = '$V';/" _site/sw.js
+          sed -i "s/<meta name=\"versione-app\" content=\"locale\">/<meta name=\"versione-app\" content=\"$V\">/" _site/index.html
+          grep -q "^const VERSIONE = '$V';" _site/sw.js
+          grep -q "<meta name=\"versione-app\" content=\"$V\">" _site/index.html
+          echo "versione $V scritta in sw.js e index.html"
 
       - name: Carica artifact Pages
         uses: actions/upload-pages-artifact@v5

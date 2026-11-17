@@ -15,9 +15,10 @@
 
 import { sb } from './core.js';
 
-export async function obbligaCambioPassword() {
+export async function obbligaCambioPassword(pronta) {
   try {
-    const { data, error } = await sb.rpc('deve_cambiare_password');
+    /* pronta: la lettura già partita all'avvio (17/11/2026) */
+    const { data, error } = await (pronta || sb.rpc('deve_cambiare_password'));
     if (error) throw error;
     if (data !== true) return true;
   } catch (e) {
