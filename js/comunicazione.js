@@ -36,6 +36,7 @@
 
 import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer } from './core.js';
 import { scaricaEml } from './eml.js';
+import { elencoKit, percorsoKit, motivoRifiuto, mimeDaNome, pesoLeggibile, righeAllegati, KIT_AVVISO_TOTALE } from './kit-agenzia.js';
 import { htmlGrafica, collegaGrafica } from './post-grafica.js';
 import { postInTelegramHtml, postInHtmlNotizia, postInTestoSemplice, postPerIncollaTelegram, lunghezzaVisibile, SEGNI_AMMESSI } from './post-formato.js';
 
@@ -514,6 +515,20 @@ export async function apriPratica(id) {
       <span class="hint">Il file serve <b>solo per Telegram</b>, dove il post esce come video vero, e <b>si cancella da solo dopo la pubblicazione</b> (Telegram ne tiene la sua copia): così non pesa sull'archivio dell'app. Per l'app servizi vale il link YouTube qui sopra. Verticale 1080×1920, al massimo 20 MB.</span>
     </div>` : ''}
 
+    <div class="dt-doc-riga" style="margin-top:8px">
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <strong>📦 Materiale per l'agenzia:</strong>
+        ${(p.kit_allegati || []).length ? (p.kit_allegati || []).map((a, i) => `
+          <span style="display:inline-flex;align-items:center;gap:4px;border:1px solid var(--bordo);border-radius:999px;padding:2px 4px 2px 10px;font-size:12px">
+            ${a.mime === 'video/mp4' ? '🎬' : '🖼'} ${esc(a.nome)} <span class="hint">${esc(pesoLeggibile(a.dimensione))}</span>
+            <button class="btn btn-ghost btn-sm pd-kit-togli" data-i="${i}" type="button" style="padding:0 6px">✕</button>
+          </span>`).join('') : '<span class="hint">nessuno</span>'}
+        <input type="file" id="pd-kit-file" accept="image/jpeg,image/png,image/webp,video/mp4" multiple style="max-width:240px">
+        <button class="btn btn-ghost btn-sm" id="pd-kit-carica" type="button">⬆ Aggiungi</button>
+      </div>
+      <span class="hint">I file per <b>Instagram, Facebook e LinkedIn</b> nei formati che servono (1080×1350, 1080×1080, video verticale…), in dimensione originale, fino a 50 MB l'uno. <b>Non vanno su Telegram né nell'app servizi</b>: li allega solo il <b>«✉️ Kit per l'agenzia»</b>, insieme alle immagini e al video del post. Si possono aggiungere anche mentre il post aspetta il Direttore.</span>
+    </div>
+
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:10px">
       <div class="field"><label>Pilastro</label><select id="pd-pilastro">${Object.entries(PILASTRI).map(([k, [i, n]]) => `<option value="${k}" ${k === p.pilastro ? 'selected' : ''}>${i} ${n}</option>`).join('')}</select></div>
       <div class="field"><label>Da pubblicare il</label><input type="date" id="pd-data" value="${esc(p.data_programmata || '')}"></div>
@@ -737,6 +752,61 @@ export async function apriPratica(id) {
     await render(); apriPratica(id);
   }));
 
+  /* materiale per l'agenzia (17/11/2026): file nel bucket privato social-kit, elenco in
+     s_post.kit_allegati. Si rilegge l'elenco dal database prima di scriverlo, così due
+     caricamenti vicini non si cancellano a vicenda. */
+  const leggiKit = async () => {
+    const { data, error } = await sb.from('s_post').select('kit_allegati').eq('id', id).single();
+    if (error) throw new Error('non sono riuscito a leggere il materiale già caricato: ' + error.message);
+    return Array.isArray(data?.kit_allegati) ? data.kit_allegati : [];
+  };
+  $('#pd-kit-carica')?.addEventListener('click', async (ev) => {
+    const files = [...($('#pd-kit-file').files || [])];
+    if (!files.length) return toast('Scegli prima uno o più file (immagini o MP4).', 'err');
+    const rifiuti = files.map(motivoRifiuto).filter(Boolean);
+    if (rifiuti.length) return toast(rifiuti.join(' · '), 'err');
+    const btn = ev.currentTarget;
+    attendi(btn, true, 'Carico…');
+    const nuovi = [];
+    try {
+      for (const file of files) {
+        const path = percorsoKit(id, file.name);
+        const mime = file.type || mimeDaNome(file.name);
+        const { error } = await sb.storage.from('social-kit').upload(path, file, { contentType: mime, upsert: false });
+        if (error) throw new Error(`${file.name}: ${error.message}`);
+        nuovi.push({ nome: file.name, path, mime, dimensione: file.size, caricato_il: new Date().toISOString() });
+      }
+      const elenco = [...await leggiKit(), ...nuovi];
+      const { error } = await sb.from('s_post').update({ kit_allegati: elenco }).eq('id', id);
+      if (error) throw new Error('file caricati ma non registrati sul post: ' + error.message);
+      toast(nuovi.length > 1 ? `${nuovi.length} file aggiunti al materiale per l'agenzia.` : "File aggiunto al materiale per l'agenzia.", 'ok');
+      await render(); apriPratica(id);
+    } catch (e) {
+      attendi(btn, false);
+      /* i file già saliti ma non registrati si tolgono, per non lasciare file orfani */
+      if (nuovi.length) await sb.storage.from('social-kit').remove(nuovi.map((x) => x.path));
+      toast("Materiale per l'agenzia: " + e.message, 'err');
+    }
+  });
+  document.querySelectorAll('.pd-kit-togli').forEach((b) => b.addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
+    const voce = (p.kit_allegati || [])[Number(btn.dataset.i)];
+    if (!voce || !confirm(`Tolgo «${voce.nome}» dal materiale per l'agenzia? Il file si cancella.`)) return;
+    attendi(btn, true);
+    try {
+      const elenco = (await leggiKit()).filter((x) => x.path !== voce.path);
+      const { error } = await sb.from('s_post').update({ kit_allegati: elenco }).eq('id', id);
+      if (error) throw new Error(error.message);
+      const { error: eRm } = await sb.storage.from('social-kit').remove([voce.path]);
+      if (eRm) toast(`Tolto dal post, ma il file non si è cancellato: ${eRm.message}`, 'err');
+      else toast('Tolto.', 'ok');
+      await render(); apriPratica(id);
+    } catch (e) {
+      attendi(btn, false);
+      toast("Materiale per l'agenzia: " + e.message, 'err');
+    }
+  }));
+
   /* prova sul canale di prova: stesso invio della pubblicazione, altro canale */
   $('#pd-prova')?.addEventListener('click', async (ev) => {
     const btn = ev.currentTarget;
@@ -814,9 +884,39 @@ export async function apriPratica(id) {
     toast('Pubblicato nell\'app servizi.', 'ok');
     await render(); apriPratica(id);
   });
-  $('#pd-kit')?.addEventListener('click', async () => {
+  $('#pd-kit')?.addEventListener('click', async (ev) => {
     await salva({}, 'Testo salvato.');
     const v = valori();
+    /* gli allegati: immagini e video del post, poi il materiale per l'agenzia (17/11/2026).
+       Se anche un solo file non si scarica, il kit non si prepara: meglio dirlo che
+       mandare all'agenzia un kit monco senza che nessuno se ne accorga. */
+    const btn = ev.currentTarget;
+    attendi(btn, true, 'Preparo…');
+    const { data: fresco, error: eF } = await sb.from('s_post').select('id, immagini, immagine_url, video_file_url, kit_allegati').eq('id', id).single();
+    if (eF) { attendi(btn, false); return toast('Kit: non sono riuscito a rileggere il post: ' + eF.message, 'err'); }
+    const allegati = [];
+    const mancati = [];
+    for (const x of elencoKit(fresco)) {
+      try {
+        let byte;
+        if (x.origine === 'agenzia') {
+          const { data, error } = await sb.storage.from('social-kit').download(x.path);
+          if (error) throw new Error(error.message);
+          byte = new Uint8Array(await data.arrayBuffer());
+        } else {
+          const r = await fetch(x.url);
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          byte = new Uint8Array(await r.arrayBuffer());
+        }
+        allegati.push({ nome: x.nome, byte, mime: x.mime || mimeDaNome(x.nome), origine: x.origine });
+      } catch (e) {
+        mancati.push(`${x.nome} (${e.message})`);
+      }
+    }
+    attendi(btn, false);
+    if (mancati.length) return toast('Kit NON preparato: non sono riuscito a scaricare ' + mancati.join(', '), 'err');
+    const totale = allegati.reduce((n, a) => n + a.byte.length, 0);
+    if (totale > KIT_AVVISO_TOTALE && !confirm(`Gli allegati pesano ${pesoLeggibile(totale)}: molte caselle rifiutano le mail oltre i 20-25 MB. Preparo lo stesso il kit?`)) return;
     const corpo = [
       'Ciao,', '',
       `vi giro il testo per i canali social di Formedil Padova, Area Sicurezza e Salute — «${v.titolo}».`,
@@ -826,10 +926,12 @@ export async function apriPratica(id) {
       '', v.hashtag ? `Hashtag: ${v.hashtag}` : '',
       p.immagine_suggerita ? `Grafica suggerita: ${p.immagine_suggerita}` : '',
       p.fonte_url ? `Fonte: ${p.fonte_url}` : '',
+      '', ...righeAllegati(allegati),
       '', 'Grazie, a disposizione per qualunque ritocco.',
     ].filter((r) => r !== null).join('\n');
-    scaricaEml({ to: AGENZIA_EMAIL, oggetto: `Formedil Padova – Area Sicurezza e Salute – post social: ${v.titolo}`, corpo, nomeFile: `kit-social-${id}.eml` });
-    toast('Bozza .eml scaricata: si apre in Outlook, si mette il destinatario e si invia a mano.', 'ok');
+    scaricaEml({ to: AGENZIA_EMAIL, oggetto: `Formedil Padova – Area Sicurezza e Salute – post social: ${v.titolo}`, corpo,
+      allegati: allegati.map(({ nome, byte, mime }) => ({ nome, byte, mime })), nomeFile: `kit-social-${id}.eml` });
+    toast(`Bozza .eml scaricata con ${allegati.length} allegat${allegati.length === 1 ? 'o' : 'i'}: si apre in Outlook, si mette il destinatario e si invia a mano.`, 'ok');
   });
   $('#drawer-body').querySelectorAll('[data-segna]').forEach((b) => b.addEventListener('click', async () => {
     const k = b.dataset.segna;

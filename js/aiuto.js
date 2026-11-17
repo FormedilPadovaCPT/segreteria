@@ -274,7 +274,8 @@ window.AIUTO_TESTI = {
   'pd-prova': 'Manda il post al canale Telegram di prova, per vederlo com\'è.',
   'pd-tg': 'Pubblica il post sul canale Telegram dell\'Area. Dopo, non si ritira dall\'app.',
   'pd-notizia': 'Pubblica il post come notizia nell\'app servizi: chi ha attivato gli avvisi riceve la notifica.',
-  'pd-kit': 'Prepara la mail per l\'agenzia con testo e immagini del post.',
+  'pd-kit': 'Prepara la bozza per l\'agenzia: testi, immagini e video del post e il materiale per l\'agenzia, allegati. Se un file non si scarica, la bozza non nasce.',
+  'pd-kit-carica': 'Carica i file per Instagram, Facebook e LinkedIn: finiscono solo nel kit per l\'agenzia, non su Telegram né nell\'app servizi.',
   'hm-respinte-cerca': 'Rilegge adesso i rapporti di mancata consegna delle mail dei verbali.',
 
   /* ── cruscotto: titoli delle tessere e pastiglie «A posto» (26/09/2026).
