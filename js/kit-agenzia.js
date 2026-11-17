@@ -101,3 +101,15 @@ export function righeAllegati(allegati) {
   const etichetta = { immagine: 'immagine del post', video: 'video', agenzia: 'per i vostri canali' };
   return ['Allegati:', ...allegati.map((a) => `- ${a.nome} (${etichetta[a.origine] || a.origine}, ${pesoLeggibile(a.byte?.length ?? a.dimensione)})`)];
 }
+
+/* due allegati identici byte per byte (per esempio lo stesso video caricato per Telegram
+   e nel materiale per l'agenzia) si mandano una volta sola: resta il primo, coi nomi
+   dei doppioni tolti restituiti a parte per poterlo dire */
+export function togliDoppi(allegati) {
+  const tenuti = [], tolti = [];
+  for (const a of allegati) {
+    const uguale = tenuti.find((b) => b.byte.length === a.byte.length && b.byte.every((v, i) => v === a.byte[i]));
+    if (uguale) tolti.push(a.nome); else tenuti.push(a);
+  }
+  return { tenuti, tolti };
+}

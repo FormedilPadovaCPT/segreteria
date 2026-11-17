@@ -58,3 +58,16 @@ test('tipo dal nome e righe dell\'elenco', () => {
   const r = righeAllegati([{ nome: 'a.jpg', origine: 'immagine', byte: new Uint8Array(2048) }, { nome: 'v.mp4', origine: 'agenzia', byte: new Uint8Array(3 * 1048576) }]);
   assert.deepEqual(r, ['Allegati:', '- a.jpg (immagine del post, 2 KB)', '- v.mp4 (per i vostri canali, 3.0 MB)']);
 });
+
+test('lo stesso file caricato due volte va nel kit una volta sola', async () => {
+  const { togliDoppi } = await import('../js/kit-agenzia.js');
+  const v = new Uint8Array([1, 2, 3, 4]);
+  const r = togliDoppi([
+    { nome: 'post-99_video.mp4', byte: v },
+    { nome: 'a.jpg', byte: new Uint8Array([9, 9]) },
+    { nome: 'video-cantiere.mp4', byte: new Uint8Array([1, 2, 3, 4]) },
+    { nome: 'quasi.mp4', byte: new Uint8Array([1, 2, 3, 5]) },
+  ]);
+  assert.deepEqual(r.tenuti.map((x) => x.nome), ['post-99_video.mp4', 'a.jpg', 'quasi.mp4']);
+  assert.deepEqual(r.tolti, ['video-cantiere.mp4']);
+});

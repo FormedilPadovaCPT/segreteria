@@ -36,7 +36,7 @@
 
 import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiDrawer } from './core.js';
 import { scaricaEml } from './eml.js';
-import { elencoKit, percorsoKit, motivoRifiuto, mimeDaNome, pesoLeggibile, righeAllegati, KIT_AVVISO_TOTALE } from './kit-agenzia.js';
+import { elencoKit, percorsoKit, motivoRifiuto, mimeDaNome, pesoLeggibile, righeAllegati, togliDoppi, KIT_AVVISO_TOTALE } from './kit-agenzia.js';
 import { htmlGrafica, collegaGrafica } from './post-grafica.js';
 import { postInTelegramHtml, postInHtmlNotizia, postInTestoSemplice, postPerIncollaTelegram, lunghezzaVisibile, SEGNI_AMMESSI } from './post-formato.js';
 
@@ -915,6 +915,9 @@ export async function apriPratica(id) {
     }
     attendi(btn, false);
     if (mancati.length) return toast('Kit NON preparato: non sono riuscito a scaricare ' + mancati.join(', '), 'err');
+    const { tenuti, tolti } = togliDoppi(allegati);
+    allegati.length = 0; allegati.push(...tenuti);
+    if (tolti.length) toast(`Nel kit una volta sola: ${tolti.join(', ')} era uguale a un altro file.`, 'ok');
     const totale = allegati.reduce((n, a) => n + a.byte.length, 0);
     if (totale > KIT_AVVISO_TOTALE && !confirm(`Gli allegati pesano ${pesoLeggibile(totale)}: molte caselle rifiutano le mail oltre i 20-25 MB. Preparo lo stesso il kit?`)) return;
     const corpo = [
