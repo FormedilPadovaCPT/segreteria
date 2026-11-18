@@ -27,7 +27,7 @@ import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer, chiudiD
 import { APP_URL } from './config.js';
 import { risolviCartella, caricaByte, leggiByte, idDaLink } from './drive.js';
 import { scaricaEml, allargaDestinatari, FIRMA_SEGRETERIA } from './eml.js';
-import { componiEml } from './firma.js';
+import { preparaBozzaProtocollata, scaricaByteEml } from './bozza-protocollata.js';
 import { chiHaRisposto, copiaRisposta } from './consulenze-destinatari.js';
 import { RUBRICA_INTERNA } from './lookups.js';
 import { caricaPassi, passoHtml } from './passo-tecnico.js';
@@ -608,17 +608,14 @@ Procedo?`)) return;
         p.protocollo_out_id = prot.id;
       }
 
-      /* nell'oggetto come nelle mail del protocollo: «Prot. 2600», e dal 1° ottobre «Prot_26-27_0001» */
-      const numero = prot.esercizio ? codiceProtocollo(prot) : `Prot. ${prot.numero}`;
-      const bozza = {
-        to: dest.to, cc,
-        oggetto: `Riscontro alla Vostra richiesta di consulenza ${numero}${rl ? ` - alla c.a. ${rl}` : ''}`,
-        corpo: `Protocollo ${prot.esercizio ? codiceProtocollo(prot) : `N° ${prot.numero} in uscita`} del ${dataIt(prot.data_prot)} — Segreteria Area Sicurezza e Salute
-
-Spett.le ${(p.ragione_sociale || '').toUpperCase()},
-${rl ? `alla c.a. ${rl},` : ''}
-
-con riferimento al Vostro quesito${p.timestamp_modulo ? ` del ${dataIt(p.timestamp_modulo.slice(0, 10))}` : ''}:
+      /* La bozza la prepara la funzione di «Invia protocollato» (18/11/2026):
+         cartiglio col QR, firma, oggetto nella forma di sempre, testo completo
+         nelle note del protocollo. Prima la mail si componeva qui e il
+         protocollo usciva come una riga di testo (consulenza m10). */
+      const bozza = await preparaBozzaProtocollata({
+        protocollo: prot, to: p.email || '', cc,
+        saluto: `Spett.le ${(p.ragione_sociale || '').toUpperCase()},${rl ? `\nalla c.a. ${rl},` : ''}`,
+        messaggio: `con riferimento al Vostro quesito${p.timestamp_modulo ? ` del ${dataIt(p.timestamp_modulo.slice(0, 10))}` : ''}:
 
 ${quesito}
 
@@ -627,35 +624,38 @@ Vi rispondiamo quanto segue:
 ${risposta}
 
 Restiamo a disposizione per ulteriori chiarimenti.
-Distinti saluti.
-
-${FIRMA_SEGRETERIA}`,
-      };
+Distinti saluti.`,
+        oggettoMail: 'Riscontro alla Vostra richiesta di consulenza',
+      });
 
       /* la mail protocollata va anche nel vault: il protocollo è una mappa e deve
          poter dire dov'è finito il documento. Se il deposito non riesce la bozza
-         si scarica lo stesso, e lo si dice. */
-      let depositata = '';
+         si scarica lo stesso, e lo si dice. Rifacendo la bozza di un protocollo
+         che ne aveva già una depositata, la riga principale passa al file nuovo. */
+      let depositata = bozza.avvisi.length ? ` ⚠️ ${bozza.avvisi.join('; ')}.` : '';
       try {
-        const byte = new TextEncoder().encode(componiEml({ ...bozza, unsent: true }));
+        const byte = bozza.byte;
         const cart = await risolviCartella(PERCORSO_VAULT);
         if (!cart.id) throw new Error('cartella delle consulenze non trovata su Drive');
         const nomeFile = `${oggiIso().replace(/-/g, '_')}_COMU_${slug(p.ragione_sociale) || 'impresa'}_riscontro-consulenza-${n}.eml`;
         const su = await caricaByte(prot, nomeFile, byte, 'message/rfc822', cart.id);
-        const a = await sb.from('s_prot_allegati').insert({
-          protocollo_id: prot.id, nome: su.file_name || nomeFile, mime: 'message/rfc822',
-          dimensione: byte.length, principale: true, created_by: state.email,
-          drive_file_id: su.drive_file_id, drive_url: su.drive_url,
-        });
+        const riga = { nome: su.file_name || nomeFile, mime: 'message/rfc822', dimensione: byte.length,
+          drive_file_id: su.drive_file_id, drive_url: su.drive_url };
+        const prima = await sb.from('s_prot_allegati').select('id').eq('protocollo_id', prot.id)
+          .eq('principale', true).eq('mime', 'message/rfc822').limit(1);
+        if (prima.error) throw new Error(prima.error.message);
+        const a = prima.data?.length
+          ? await sb.from('s_prot_allegati').update(riga).eq('id', prima.data[0].id)
+          : await sb.from('s_prot_allegati').insert({ ...riga, protocollo_id: prot.id, principale: true, created_by: state.email });
         if (a.error) throw new Error(a.error.message);
-        const u = await sb.from('s_protocollo').update({ drive_file_id: su.drive_file_id, drive_url: su.drive_url,
-          mail_destinatari: [p.email, cc.length ? 'cc ' + cc.join(', ') : ''].filter(Boolean).join('; ') }).eq('id', prot.id);
+        const u = await sb.from('s_protocollo').update({ drive_file_id: su.drive_file_id, drive_url: su.drive_url }).eq('id', prot.id);
         if (u.error) throw new Error(u.error.message);
+        if (prima.data?.length) depositata += ' La mail depositata prima resta su Drive accanto alla nuova: va tolta a mano.';
       } catch (e) {
-        depositata = ` ⚠️ La mail NON è stata depositata nel vault (${e.message}): aggiungila a mano al protocollo.`;
+        depositata += ` ⚠️ La mail NON è stata depositata nel vault (${e.message}): aggiungila a mano al protocollo.`;
       }
 
-      scaricaEml({ ...bozza, nomeFile: `risposta-consulenza-${n}_${siglaProtocollo(prot)}.eml` });
+      scaricaByteEml(bozza.byte, `risposta-consulenza-${n}_${siglaProtocollo(prot)}.eml`);
       const chiudi = await sb.from('s_consulenze').update({
         quesito: quesito || null, risposta, risposta_da: autore,
         trasmessa_il: new Date().toISOString(), stato: 'chiusa',

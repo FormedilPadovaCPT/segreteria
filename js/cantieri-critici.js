@@ -706,9 +706,6 @@ async function segnalaOrgani(d, eventi, dopo) {
     if (!confirm(`Protocollo in uscita la segnalazione per il cantiere di ${k.caso.cantiere_breve} e preparo la bozza per ${dest.a.join(', ')}. Procedo?`)) return false;
 
     const scelti = [...document.querySelectorAll('.sg-f:checked')].map((x) => ({ id: x.value, nome: x.dataset.nome }));
-    const { leggiByte } = await import('./drive.js');
-    const allegati = [];
-    for (const f of scelti) allegati.push({ nome: f.nome, byte: await leggiByte(f.id) });
 
     const oggetto = oggettoSegnalazione(k.caso);
     const { data: nuovo, error: errProt } = await sb.rpc('s_crea_protocollo', { p: {
@@ -730,14 +727,17 @@ async function segnalaOrgani(d, eventi, dopo) {
     if (error) throw new Error('Segnalazione protocollata ma cronologia non aggiornata: ' + error.message);
 
     const interni = $('#sg-int').checked ? [k.c.direttore_email || 'direzione@formedilpadova.it', k.c.coordinatore_email] : [];
-    const { scaricaEml } = await import('./eml.js');
-    scaricaEml({
-      to: dest.a.join(', '), cc: [...dest.cc, ...interni].filter(Boolean),
-      oggetto: `${oggetto} Prot. ${siglaProtocollo(nuovo)}${dest.allaCa ? ` - alla c.a. ${dest.allaCa}` : ''}`,
-      corpo: `Protocollo N° ${siglaProtocollo(nuovo)} del ${dataIt(nuovo.data_prot)} — Segreteria Area Sicurezza e Salute\n\n${testo}`,
-      allegati, nomeFile: `segnalazione-organi-caso-${d.id}.eml`,
+    /* la bozza la prepara la funzione di «Invia protocollato» (18/11/2026):
+       cartiglio col QR in testa e testo completo nelle note del protocollo;
+       i verbali li prende lei da Drive. Prima il protocollo usciva come una
+       riga di testo, come nella risposta alla consulenza m10. */
+    const { preparaBozzaProtocollata, scaricaByteEml } = await import('./bozza-protocollata.js');
+    const bozza = await preparaBozzaProtocollata({
+      protocollo: nuovo, to: dest.a, cc: [...dest.cc, ...interni].filter(Boolean),
+      testo, oggettoMail: oggetto, driveFileIds: scelti.map((f) => f.id), nomiAllegati: scelti.map((f) => f.nome),
     });
-    toast(`Segnalazione protocollata (${codiceProtocollo(nuovo)}). Bozza scaricata con ${allegati.length} allegati: rileggila e mandala da Outlook. Quando arriva un riscontro, aggiungilo in cronologia; poi chiudi il caso con l'esito «segnalata».`, 'ok');
+    scaricaByteEml(bozza.byte, `segnalazione-organi-caso-${d.id}_${siglaProtocollo(nuovo)}.eml`);
+    toast(`Segnalazione protocollata (${codiceProtocollo(nuovo)}). Bozza scaricata con ${scelti.length} allegati: rileggila e mandala da Outlook. Quando arriva un riscontro, aggiungilo in cronologia; poi chiudi il caso con l'esito «segnalata».${bozza.avvisi.length ? ' ⚠️ ' + bozza.avvisi.join('; ') + '.' : ''}`, bozza.avvisi.length ? 'err' : 'ok');
   });
 
   const verbaliScelti = () => k.verbali.filter((v) => [...document.querySelectorAll('.sg-v:checked')].some((x) => x.value === v.visita_id));
