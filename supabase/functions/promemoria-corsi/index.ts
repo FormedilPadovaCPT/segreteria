@@ -232,10 +232,14 @@ serve(async (req) => {
     }
 
     const corpoReq = await req.json().catch(() => ({}))
-    /* (18/11/2026) la conferma di un'iscrizione: la chiama l'app segreteria
-       subito dopo «Conferma le iscrizioni»; il giro quotidiano non la fa */
+    /* (18/11/2026) la conferma di un'iscrizione. La chiama il DATABASE (trigger
+       su s_iscrizioni, con la parola d'ordine del giro) quando una richiesta
+       diventa «confermata», e la segreteria con «✉ Rimanda la conferma». Non
+       la chiama più l'app da sola: una pagina rimasta aperta da prima di una
+       pubblicazione girava col codice vecchio e la mail non partiva (prova del
+       18/11, iscrizione n° 9). */
     const confId = Number(corpoReq?.conferma_iscrizione)
-    if (!delGiro && Number.isInteger(confId) && confId > 0) {
+    if (Number.isInteger(confId) && confId > 0) {
       return json({ chi, ...(await confermaIscrizione(sb, confId)) })
     }
     prova = !delGiro && corpoReq?.prova === true
@@ -246,6 +250,20 @@ serve(async (req) => {
     }
 
     const oggi = oggiRoma()
+
+    /* ── (18/11/2026) le conferme rimaste indietro: il giro del mattino rimanda
+       quelle che non sono partite (rete, Gmail, una chiamata persa). Chi non ha
+       un indirizzo resta com'è: va avvisato a mano. ── */
+    const conferme: Riga[] = []
+    if (delGiro) {
+      const { data: pend, error: ePend } = await sb.from('s_corsi_iscritti')
+        .select('iscrizione_id, conferma_mail_esito').not('iscrizione_id', 'is', null).is('conferma_mail_il', null)
+      if (ePend) conferme.push({ errore: 'conferme non lette: ' + ePend.message })
+      const ids = [...new Set((pend || []).filter((x: Riga) => x.conferma_mail_esito !== 'senza indirizzo').map((x: Riga) => Number(x.iscrizione_id)))]
+      for (const id of ids) {
+        try { conferme.push(await confermaIscrizione(sb, id)) } catch (e) { conferme.push({ iscrizione_id: id, errore: (e as Error).message }) }
+      }
+    }
 
     /* ── quali lezioni ── */
     let qC = sb.from('s_corsi').select('id, titolo, stato, promemoria_giorni, sede, modalita, pres_codice, pres_chiuso_il').eq('stato', 'aperto')
@@ -284,7 +302,7 @@ serve(async (req) => {
     }
 
     const esito = {
-      ok: true, chi, prova, oggi, lezioni: [] as Riga[],
+      ok: true, chi, prova, oggi, lezioni: [] as Riga[], conferme,
       inviate: 0, non_inviate: 0, senza_indirizzo: 0, gia_avvisati: 0,
     }
 

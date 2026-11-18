@@ -38,13 +38,16 @@ function quandoChiude(iso) {
 
 /* ── i dati: link, situazione, richieste in coda ── */
 export async function datiIscr(c) {
-  const [{ data: link }, { data: coda }, { data: sala }] = await Promise.all([
+  const [{ data: link }, { data: coda }, { data: sala }, { data: posta }] = await Promise.all([
     c.iscr_codice ? sb.rpc('iscr_link', { p_corso_id: c.id }) : Promise.resolve({ data: null }),
     sb.from('s_iscrizioni').select('*').eq('corso_id', c.id).order('id', { ascending: false }),
     /* il QR della registrazione in sala: stesso codice dell'iscrizione (18/11/2026) */
     c.iscr_codice ? sb.rpc('sala_link', { p_corso_id: c.id }) : Promise.resolve({ data: null }),
+    /* (18/11/2026) l'esito della mail di conferma, per riga di richiesta */
+    sb.from('s_corsi_iscritti').select('iscrizione_id, nominativo, conferma_mail_il, conferma_mail_esito, conferma_mail_prenotata_il')
+      .eq('corso_id', c.id).not('iscrizione_id', 'is', null),
   ]);
-  return { link: link || null, coda: coda || [], sala: sala || null };
+  return { link: link || null, coda: coda || [], sala: sala || null, posta: posta || [] };
 }
 
 /* ── la sezione nella scheda del corso ── */
@@ -87,7 +90,7 @@ export function sezioneIscr(c, iz) {
       ? `<span class="dt-cella dt-ok" style="padding:1px 6px">${r.presenze_scritte_il ? '✓ presenza scritta' : `✓ ${r.iscritti_creati} iscritt${r.iscritti_creati === 1 ? 'o' : 'i'} · presenza da scrivere`}</span>${
         r.presenze_scritte_il ? '' : ` <button class="btn btn-sm" data-iz-sala="${r.id}">🚪 Scrivi la presenza</button>`}`
       : r.stato === 'confermata'
-      ? `<span class="dt-cella dt-ok" style="padding:1px 6px">✓ ${r.iscritti_creati} iscritt${r.iscritti_creati === 1 ? 'o' : 'i'}</span>${
+      ? `<span class="dt-cella dt-ok" style="padding:1px 6px">✓ ${r.iscritti_creati} iscritt${r.iscritti_creati === 1 ? 'o' : 'i'}</span>${statoPosta(iz.posta, r)}${
         r.iscritti_creati ? ` <button class="btn btn-sm" data-iz-rimanda="${r.id}">✉ Rimanda la conferma</button>` : ''}`
       : r.stato === 'respinta' ? '<span class="dt-cella dt-scaduto" style="padding:1px 6px">respinta</span>'
       : `<button class="btn btn-sm" data-iz-apri-ist="${r.id}">Guarda e conferma</button>`;
@@ -140,6 +143,23 @@ export function sezioneIscr(c, iz) {
   ${nuove.length ? `<p class="hint" style="margin-top:6px">⚠️ Le richieste in attesa <strong>occupano il posto</strong>
     nel conteggio dei liberi: confermale o respingile, altrimenti l'evento sembra pieno.</p>` : ''}`
   : '<p class="hint">Nessuna iscrizione arrivata.</p>'}`;
+}
+
+/* l'esito della mail di conferma sulla riga (18/11/2026): letto dagli iscritti,
+   non dedotto. «In partenza» oltre i dieci minuti vuol dire che qualcosa si è
+   fermato: la riga lo dice e «Rimanda» lo risolve. */
+export function statoPosta(posta, r) {
+  const suoi = (posta || []).filter((p) => p.iscrizione_id === r.id);
+  if (!suoi.length) return '';
+  const ora = (t) => new Date(t).toLocaleTimeString('it-IT', { timeZone: 'Europe/Rome', hour: '2-digit', minute: '2-digit' });
+  const partite = suoi.filter((p) => p.conferma_mail_il);
+  const male = suoi.filter((p) => !p.conferma_mail_il && p.conferma_mail_esito);
+  const attesa = suoi.filter((p) => !p.conferma_mail_il && !p.conferma_mail_esito);
+  const parti = [];
+  if (partite.length) parti.push(`<span class="dt-cella dt-ok" style="padding:1px 6px">✉ conferma partita ${ora(partite[0].conferma_mail_il)}${partite.length > 1 ? ` (${partite.length})` : ''}</span>`);
+  if (male.length) parti.push(`<span class="dt-cella dt-scaduto" style="padding:1px 6px" title="${esc(male.map((p) => `${p.nominativo}: ${p.conferma_mail_esito}`).join(' · '))}">✉ ${male.length === 1 ? esc(male[0].conferma_mail_esito) : `${male.length} non partite`}</span>`);
+  if (attesa.length) parti.push('<span class="hint">✉ conferma in partenza</span>');
+  return ' ' + parti.join(' ');
 }
 
 /* ── i bottoni ── */
@@ -453,10 +473,12 @@ async function formIstruttoria(c, r, ricarica) {
     if (error) return toast(error.message, 'err');
     toast(`Iscritti ${data.iscritti}${data.anagrafiche_nuove ? `, ${data.anagrafiche_nuove} anagrafiche nuove` : ''}${
       data.rapporti_registrati ? `, ${data.rapporti_registrati} rapporti registrati` : ''}.`, 'ok');
-    /* registrazione in sala: con l'iscritto confermato si scrivono le firme;
-       tutti gli altri ricevono la mail di conferma col codice (18/11/2026) */
+    /* registrazione in sala: con l'iscritto confermato si scrivono le firme.
+       Agli altri la mail di conferma col codice la manda il DATABASE appena la
+       richiesta è confermata (trigger): non dipende da questa pagina, che
+       poteva essere rimasta aperta col codice vecchio (prova del 18/11/2026). */
     if (r.in_sala) await scriviPresenzaSala(r.id);
-    else await mandaConferma(r.id);
+    else toast('La mail «Iscrizione confermata» col codice parte da sola fra pochi secondi: l\'esito compare sulla riga.', 'ok');
     await pubblica(c, true);
     ricarica();
   });

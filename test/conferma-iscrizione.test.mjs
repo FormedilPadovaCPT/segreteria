@@ -35,9 +35,20 @@ test('la copia nella funzione del server è identica al file della webapp', () =
   assert.equal(a.replace(/\r\n/g, '\n'), b.replace(/\r\n/g, '\n'));
 });
 
-test('l’app manda la conferma solo fuori dalla sala, e legge l’esito', () => {
+test('la conferma la manda il database, non la pagina; «Rimanda» resta a mano e legge l’esito', () => {
   const js = readFileSync(new URL('../js/corsi-iscrizioni.js', import.meta.url), 'utf8');
-  assert.match(js, /if \(r\.in_sala\) await scriviPresenzaSala\(r\.id\);\s+else await mandaConferma\(r\.id\);/);
+  assert.doesNotMatch(js, /else await mandaConferma\(r\.id\)/, 'la pagina non deve più mandarla da sola');
   assert.match(js, /functions\.invoke\('promemoria-corsi', \{ body: \{ conferma_iscrizione: id \} \}\)/);
   assert.match(js, /la mail di conferma NON è partita/);
+});
+
+test('sulla riga si legge com’è andata la mail di conferma', async () => {
+  globalThis.window ??= {};
+  const { statoPosta } = await import('../js/corsi-iscrizioni.js').catch(() => ({}));
+  if (!statoPosta) return; // il modulo importa core.js del browser: la funzione si prova solo se si carica
+  const r = { id: 9 };
+  assert.equal(statoPosta([], r), '');
+  assert.match(statoPosta([{ iscrizione_id: 9, nominativo: 'A', conferma_mail_il: '2026-11-18T12:30:00Z' }], r), /conferma partita/);
+  assert.match(statoPosta([{ iscrizione_id: 9, nominativo: 'A', conferma_mail_esito: 'senza indirizzo' }], r), /senza indirizzo/);
+  assert.match(statoPosta([{ iscrizione_id: 9, nominativo: 'A' }], r), /in partenza/);
 });
