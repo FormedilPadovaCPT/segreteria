@@ -153,7 +153,8 @@ export function firmaPresenza(partecipanti, giornata, { aPersona = false } = {})
   const passi = passiFirma(giornata, { aPersona });
   const nota = [
     aPersona ? 'Tenga questa mail sul telefono: il codice le servirà due volte.' : 'Vi preghiamo di girare a ciascuno il SUO codice: serve due volte, all\'arrivo e all\'uscita.',
-    'Chi non ha lo smartphone firma sul registro di carta.',
+    /* (18/11/2026, dall'utente) il registro di carta resta al banco, ma nella mail non si nomina:
+       chi lo legge arriva contando sulla carta invece che col codice */
   ];
   const barra = '='.repeat(44);
 

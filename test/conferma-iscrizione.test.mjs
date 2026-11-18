@@ -17,6 +17,7 @@ test('a una persona: il suo codice in grande, data, sede, e niente scritto a man
   assert.match(t.corpo, /riceverà un promemoria con lo stesso codice/);
   assert.ok(t.firmaHtml.includes('K7PQR'), 'il riquadro arancione col codice');
   assert.doesNotMatch(t.corpo, /gratuit/i, 'mai «gratuito» a stima');
+  assert.doesNotMatch(t.corpo + t.firmaHtml, /carta|smartphone/i, 'il registro di carta non si nomina nella mail (18/11/2026)');
 });
 
 test('a un referente: un elenco coi codici di ciascuno, e il promemoria solo se c’è', () => {
