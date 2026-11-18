@@ -102,7 +102,10 @@ export function sezionePres(c, p, iscritti, giornate) {
       ${f.note ? `<br><span class="hint">${esc(f.note)}</span>` : ''}</td>
     <td style="white-space:nowrap">${f.iscritto_id && f.stato === 'ricevuta'
       ? `<a href="#" data-pq-conf="${f.id}">✓ conferma</a> · <a href="#" data-pq-resp="${f.id}">✗ respingi</a>`
-      : f.stato !== 'ricevuta' ? `<a href="#" data-pq-riap="${f.id}" title="torna «ricevuta», e la presenza scritta si toglie">↩</a>` : ''}</td>
+      : f.stato !== 'ricevuta' ? `<a href="#" data-pq-riap="${f.id}" title="torna «ricevuta», e la presenza scritta si toglie">↩</a>` : ''}${
+      f.iscritto_id && f.tipo && f.stato !== 'respinta'
+      ? ` · <a href="#" data-pq-rifirma="${f.id}" data-pq-chi="${esc(f.nominativo || '')}" data-pq-cosa="${esc(f.tipo)}"
+          title="Respinge questa firma e la sblocca: la persona può rifirmare dal telefono fra qualche secondo">↺ fai rifirmare</a>` : ''}</td>
   </tr>`;
 
   const blocchi = [...perG.entries()].sort((a, b) => {
@@ -240,6 +243,18 @@ export function collegaPres(c, p, iscritti, giornate, ricarica) {
     const nota = prompt('Perché la respingi? (una parola basta: resta scritta sulla firma)');
     if (nota === null) return;
     cambia(a.dataset.pqResp, 'respinta', nota);
+  }));
+  /* (18/11/2026, dall'utente) chi ha già firmato non può rifirmare: il telefono
+     dice «hai già firmato, rivolgiti al tutor». Il tutor la sblocca da qui:
+     la firma si respinge e il corso si ripubblica da solo sul portale */
+  body.querySelectorAll('[data-pq-rifirma]').forEach((a) => a.addEventListener('click', async (e) => {
+    e.preventDefault();
+    const chi = a.dataset.pqChi || 'questa persona';
+    if (!confirm(`Sblocco l'${a.dataset.pqCosa} di ${chi}? Questa firma viene respinta e la persona può firmare di nuovo dal telefono fra qualche secondo.`)) return;
+    const { error } = await sb.rpc('pres_conferma', { p_id: Number(a.dataset.pqRifirma), p_stato: 'respinta', p_nota: 'sbloccata per rifirmare' });
+    if (error) return toast(error.message, 'err');
+    toast(`Sbloccata: ${chi} può rifirmare l'${a.dataset.pqCosa} fra qualche secondo.`, 'ok');
+    ricarica();
   }));
   body.querySelectorAll('[data-pq-riap]').forEach((a) => a.addEventListener('click', (e) => { e.preventDefault(); cambia(a.dataset.pqRiap, 'ricevuta', null); }));
 
