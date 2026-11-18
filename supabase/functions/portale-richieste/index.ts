@@ -460,6 +460,13 @@ async function agganciaIscrizione(sb: SB, d: Dati): Promise<Dati> {
     per_conto: perConto,
     riferimento_esito: r.aperto === true ? 'agganciato' : 'agganciato, iscrizioni chiuse o al completo',
   }
+  /* (18/11/2026) chi si registra in sala arriva per definizione a iscrizioni
+     chiuse: la registrazione vale lo stesso, e la mail non deve allarmare */
+  let pers0: Dati | null = null
+  try { const pp = typeof d.persone === 'string' ? JSON.parse(d.persone) : d.persone; pers0 = Array.isArray(pp) ? pp[0] as Dati : null } catch { pers0 = null }
+  if (pers0 && (pers0.in_sala === 'entrata' || pers0.in_sala === 'uscita')) {
+    out.riferimento_esito = `agganciato: registrazione in sala (${pers0.in_sala}), vale anche a iscrizioni chiuse`
+  }
   if (perConto === 'impresa') {
     const piva = pivaNorm(d.piva) || pivaNorm(d.partita_iva) || pivaNorm(d.cf_impresa)
     const e = await esitoCeiv(sb, piva)

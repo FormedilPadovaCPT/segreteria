@@ -232,6 +232,8 @@ const ETICHETTE_CAMPI: Record<string, string> = {
 }
 function etichettaCampo(key: string, prefisso: string, tipo: string): string {
   if (tipo === 'seg' && key === 'notifica') return 'Nome e cognome'
+  /* (18/11/2026) «Collegamento alla visita» vale solo per il questionario sul sopralluogo */
+  if (key === 'riferimento_esito' && tipo !== 'qst') return tipo === 'isc' ? 'Collegamento all\'evento' : 'Collegamento'
   const k = prefisso && key.indexOf(prefisso) === 0 ? key.substring(prefisso.length) : key
   if (ETICHETTE_CAMPI[k]) return ETICHETTE_CAMPI[k]
   const t = k.replace(/_/g, ' ').replace(/\bcf\b/g, 'CF').replace(/\bpiva\b/g, 'P.IVA')
