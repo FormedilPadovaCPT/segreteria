@@ -373,7 +373,8 @@ export async function render() {
   let docMancanti = 0, docMancantiTec = new Set();
   if (!nonLetti.has('doc')) {
     try {
-      const { statoRequisito, fuoriGriglia } = await import('./documenti-tecnici.js');
+      const { statoRequisito, fuoriGriglia, leggiVerifiche } = await import('./documenti-tecnici.js');
+      await leggiVerifiche();   // UNI 11751-2: senza le verifiche il conto è sbagliato, e l'errore va fra i «non letto»
       const visti = new Set();
       for (const t of (tecAttivi || []).filter((x) => !fuoriGriglia(x))) {
         const nome = `${t.tecnico_cognome || ''} ${t.tecnico_nome || ''}`.trim();

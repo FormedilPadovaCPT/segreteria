@@ -33,6 +33,25 @@ function giorniA(iso) {
    ok | scade | scaduto | senzadata | mancante | na
    Esportata (26/09/2026) perché il cruscotto conti con la stessa
    regola di questa pagina, invece di una sua.                    */
+/* (18/11/2026) le verifiche di asseverazione (app asseverazione, gruppo di
+   verifica) entrano nel conto del requisito UNI 11751-2: qualifica (giorni da
+   osservatore) e mantenimento (verifiche e g/u nel triennio). Le legge chi
+   apre la pagina o il cruscotto con impostaVerifiche(); qui diventano righe
+   { tipo:'verifica' } accanto ai documenti. */
+let verificheAss = [];
+export function impostaVerifiche(lista) {
+  verificheAss = (lista || []).filter((v) => v && v.data).map((v) => ({
+    tipo: 'verifica', tecnico_id: v.tecnico_id, data_inizio: v.data, gu: v.gu, giornate: v.giornate,
+    ruolo: v.ruolo, rgv: v.rgv, pratica: v.pratica, tipo_pratica: v.tipo,
+  }));
+}
+export async function leggiVerifiche() {
+  const { data, error } = await sb.rpc('asseverazione_verifiche');
+  if (error) throw new Error('verifiche di asseverazione non lette: ' + error.message);
+  impostaVerifiche(data);
+  return data || [];
+}
+
 export function statoRequisito(tec, req, docs) {
   if (req.per_chi === 'asseveratori' && !tec.asseveratore) {
     return { classe: 'na', testo: '—' };
@@ -40,6 +59,9 @@ export function statoRequisito(tec, req, docs) {
   const suoi = docs.filter((d) => d.requisito_id === req.id &&
     (tec.tecnico_id ? d.tecnico_id === tec.tecnico_id : d.cf === tec.cf));
   if (!suoi.length) return { classe: 'mancante', testo: 'mancante' };
+  if ((req.verifiche_soglia || req.affiancamento_giorni_soglia) && tec.tecnico_id) {
+    suoi.push(...verificheAss.filter((v) => v.tecnico_id === tec.tecnico_id));
+  }
 
   /* requisiti con attestato di base + aggiornamenti a ore (17/11/2026):
      si sommano le ore del periodo, non conta l'ultima riga. Le righe senza
@@ -78,7 +100,11 @@ async function carica() {
   tecnici = tc.data || [];
   invii = iv.error ? null : (iv.data || []);
   erroreInvii = iv.error ? iv.error.message : '';
+  /* le verifiche di asseverazione per il requisito UNI 11751-2: se non si
+     leggono, si dice (il conto senza verifiche sarebbe sbagliato) */
+  try { await leggiVerifiche(); erroreVerifiche = ''; } catch (e) { impostaVerifiche([]); erroreVerifiche = e.message; }
 }
+let erroreVerifiche = '';
 
 /* ── attestati caricati dai tecnici (17/11/2026) ──────────────
    Ogni tecnico carica i suoi dal gestionale (pagina «📄 Documenti»):
@@ -126,6 +152,7 @@ function apriInvio(id) {
       <option value="attestato">Attestato di base</option>
       <option value="aggiornamento">Aggiornamento (ore di corso, seminario, convegno)</option>
       <option value="docenza">Docenza (ore tenute)</option>
+      <option value="riconoscimento">Riconoscimento della qualifica</option>
     </select></div>
     <div class="field"><label>Titolo del corso</label><input id="dti-desc" value="${esc(i.descrizione)}"></div>
     <div class="field"><label>Data del documento</label><input type="date" id="dti-data" value="${esc(i.data_inizio)}"></div>
@@ -221,6 +248,7 @@ export async function render() {
 
   host.innerHTML = `
     <div id="la-host"></div>
+    ${erroreVerifiche ? `<p class="hint" style="color:#c0392b;margin:0 0 12px">Il conteggio dei tecnici verificatori (UNI 11751-2) non è affidabile: ${esc(erroreVerifiche)}</p>` : ''}
     ${pannelloInvii()}
     ${pannelloCrediti(righe)}
     <div class="dt-barra">
@@ -315,8 +343,20 @@ function trovaRiga(chiave) {
   return righeGriglia().find((t) => (t.tecnico_id || t.cf) === chiave);
 }
 
-const TIPI = { attestato: 'Attestato di base', aggiornamento: 'Aggiornamento (ore di corso, seminario, convegno)', docenza: 'Docenza (ore tenute)' };
+const TIPI = { attestato: 'Attestato di base', aggiornamento: 'Aggiornamento (ore di corso, seminario, convegno)', docenza: 'Docenza (ore tenute)', riconoscimento: 'Riconoscimento della qualifica' };
 const oreTesto = (x) => (x == null || x === '' ? '?' : String(Number(x)).replace('.', ','));
+
+/* (18/11/2026) le verifiche di asseverazione del tecnico, dall'app asseverazione */
+function elencoVerifiche(t, req) {
+  if (!(req.verifiche_soglia || req.affiancamento_giorni_soglia) || !t.tecnico_id) return '';
+  const v = verificheAss.filter((x) => x.tecnico_id === t.tecnico_id).sort((a, b) => b.data_inizio.localeCompare(a.data_inizio));
+  const oggi = oggiIso();
+  const righe = v.map((x) => `<tr><td>${esc(dataIt(x.data_inizio))}${x.data_inizio > oggi ? ' <span class="hint">(in programma)</span>' : ''}</td><td>${esc(x.pratica || '')}</td><td>${esc(x.tipo_pratica || '')}</td><td>${esc(x.ruolo || '')}${x.rgv ? ' (RGV)' : ''}</td><td>${oreTesto(x.giornate)}</td><td>${oreTesto(x.gu)}</td></tr>`).join('');
+  return `<details style="margin:0 0 12px" ${v.length ? 'open' : ''}><summary><strong>Verifiche di asseverazione</strong> (dall'app asseverazione): ${v.length}</summary>
+    <p class="hint" style="margin:6px 0">Qualifica: ${req.affiancamento_giorni_soglia || '—'} giorni da osservatore (anche prima dell'attestato), oppure una riga «Riconoscimento della qualifica». Mantenimento: nel triennio ${req.verifiche_soglia || '—'} verifiche per ${req.verifiche_gu_soglia || '—'} g/u in tutto, mantenimenti e osservatore compresi. «Giornate» sono quelle del tecnico, «g/u» quelli della pratica.</p>
+    ${v.length ? `<div class="table-wrap"><table class="tbl"><thead><tr><th>Data</th><th>Pratica</th><th>Tipo</th><th>Ruolo</th><th>Giornate</th><th>g/u</th></tr></thead><tbody>${righe}</tbody></table></div>` : '<p class="empty">Nessuna verifica nel gruppo di verifica.</p>'}
+  </details>`;
+}
 
 /* ── drawer di cella: i documenti di un requisito ─────────── */
 function apriCella(chiaveTec, reqId) {
@@ -357,6 +397,7 @@ function apriCella(chiaveTec, reqId) {
   apriDrawer(`${t.nome} — ${req.descrizione}`, '', `
     ${req.note ? `<p class="hint" style="margin:0 0 12px">${esc(req.note)}</p>` : ''}
     ${situazione}
+    ${elencoVerifiche(t, req)}
     ${righe}
     <hr style="margin:16px 0;border:0;border-top:1px solid var(--bordo)">
     <h4 style="margin:0 0 10px">Registra un documento</h4>
@@ -386,13 +427,14 @@ function disegnaForm(t, req, doc) {
   const haBase = documenti.some((x) => x.requisito_id === req.id && x.tipo === 'attestato' &&
     (t.tecnico_id ? x.tecnico_id === t.tecnico_id : x.cf === t.cf));
   const tipoIniziale = d.tipo || (aOre ? (haBase ? 'aggiornamento' : 'attestato') : '');
-  const tipiAmmessi = ['attestato', 'aggiornamento', ...(req.docenza_alternativa ? ['docenza'] : [])];
+  const tipiAmmessi = ['attestato', 'aggiornamento', ...(req.docenza_alternativa ? ['docenza'] : []), ...(req.affiancamento_giorni_soglia || d.tipo === 'riconoscimento' ? ['riconoscimento'] : [])];
   const bloccoOre = aOre ? `
     <div class="field"><label>Che cosa registri</label>
       <select id="dtf-tipo">
         <option value="attestato">Attestato di base</option>
         <option value="aggiornamento">Aggiornamento (ore di corso, seminario, convegno)</option>
         <option value="docenza">Docenza (ore tenute)</option>
+        <option value="riconoscimento">Riconoscimento della qualifica</option>
       </select></div>
     <p class="hint" id="dtf-tipo-hint" style="margin:6px 0 0"></p>
     <div id="dtf-ore-box" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px">
@@ -423,14 +465,16 @@ function disegnaForm(t, req, doc) {
     if (!aOre) return;
     const tipo = $('#dtf-tipo').value;
     const aggiorn = tipo === 'aggiornamento' || tipo === 'docenza';
-    $('#dtf-fine-box').style.display = aggiorn || tipo === 'attestato' ? 'none' : '';
+    $('#dtf-fine-box').style.display = aggiorn || tipo === 'attestato' || tipo === 'riconoscimento' ? 'none' : '';
     $('#dtf-ore-box').style.display = aggiorn ? '' : 'none';
     $('#dtf-inizio-et').textContent = aggiorn ? 'Data del corso (fine corso)' : 'Data dell\'attestato';
     $('#dtf-tipo-hint').textContent = tipo === 'attestato'
       ? (req.periodo_mobile
         ? `Data di fine del corso abilitante. Per ${Math.round(req.durata_mesi / 12)} anni non servono ore; poi a ogni data servono ${req.ore_soglia} ore negli ultimi ${Math.round(req.durata_mesi / 12)} anni. La scadenza la calcola l'app.`
         : `Da qui partono i periodi di ${Math.round(req.durata_mesi / 12)} anni. La scadenza la calcola l'app dalle ore degli aggiornamenti: non serve la fine validità.`)
-      : tipo === 'docenza'
+      : tipo === 'riconoscimento'
+        ? `Qualifica già riconosciuta (per esempio affiancamenti ritenuti validi da FORMEDIL Italia): scrivi nella nota la fonte. Con questa riga i ${req.affiancamento_giorni_soglia || ''} giorni di affiancamento non si contano più.`
+        : tipo === 'docenza'
         ? `Ore di docenza tenute: valgono in alternativa agli aggiornamenti (${req.ore_soglia} ore nel periodo).`
         : `Un corso, un seminario o un convegno. Servono ${req.ore_soglia} ore nel periodo${req.ore_soglia_corsi ? `, di cui almeno ${req.ore_soglia_corsi} in corsi di aggiornamento` : ''}: si sommano più registrazioni.`;
   };
@@ -438,6 +482,8 @@ function disegnaForm(t, req, doc) {
     /* la docenza solo dove la norma la ammette; il valore di partenza lo dà la riga */
     const optDoc = $('#dtf-tipo').querySelector('option[value="docenza"]');
     if (!tipiAmmessi.includes('docenza')) optDoc.remove();
+    const optRic = $('#dtf-tipo').querySelector('option[value="riconoscimento"]');
+    if (!tipiAmmessi.includes('riconoscimento')) optRic.remove();
     $('#dtf-tipo').value = tipoIniziale;
   }
   $('#dtf-tipo')?.addEventListener('change', adattaTipo);

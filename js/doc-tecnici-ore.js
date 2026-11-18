@@ -133,6 +133,33 @@ export function statoConOre(req, suoi, oggi, origine = []) {
 
   if (req.periodo_mobile) return statoMobile(req, base, agg.filter((r) => r.data <= oggi), oggi, { S, Sc, D, preavviso });
 
+  /* (18/11/2026) tecnico verificatore UNI 11751-2, punto 6.2: nel triennio
+     anche almeno `verifiche_soglia` verifiche di asseverazione (3), che insieme
+     durino almeno `verifiche_gu_soglia` giorni/uomo (6). Scelte dell'utente del
+     18/11/2026: i 6 g/u sono il totale delle verifiche, contano anche i
+     mantenimenti e l'osservatore (affiancamento). Le verifiche arrivano come
+     righe { tipo:'verifica', data_inizio, gu } lette dall'app asseverazione. */
+  const Vs = num(req.verifiche_soglia), Gs = num(req.verifiche_gu_soglia);
+  const verifiche = suoi.filter((d) => d.tipo === 'verifica' && ISO.test(d.data_inizio || '') && d.data_inizio <= oggi);
+
+  /* qualifica (UNI 11751-2, punto 6.1, criterio 2): oltre all'attestato
+     servono `affiancamento_giorni_soglia` giorni di verifica in affiancamento
+     (10), anche fatti prima dell'attestato. Si contano le giornate da
+     osservatore del gruppo di verifica; una riga «riconoscimento» registra
+     la qualifica già riconosciuta (De Marco: affiancamenti precedenti ritenuti
+     validi da FORMEDIL Italia, mail del 29/07/2026). Finché manca, il
+     tecnico non è operativo e il mantenimento non si conta. */
+  const Af = num(req.affiancamento_giorni_soglia);
+  if (Af && !suoi.some((d) => d.tipo === 'riconoscimento')) {
+    const giorni = Math.round(verifiche.filter((v) => v.ruolo === 'osservatore').reduce((s, v) => s + num(v.giornate), 0) * 100) / 100;
+    if (giorni < Af) {
+      return {
+        classe: 'senzadata', doc: base, affiancamento: giorni, affiancamento_soglia: Af, soglia: S, soglia_corsi: Sc,
+        testo: `affiancamento ${String(giorni).replace('.', ',')} giorni su ${Af}: non ancora operativo`,
+      };
+    }
+  }
+
   for (let n = 0; n < 60; n++) {
     const inizio = aggiungiMesiIso(base.data_inizio, D * n);
     const fine = aggiungiMesiIso(base.data_inizio, D * (n + 1));
@@ -141,8 +168,12 @@ export function statoConOre(req, suoi, oggi, origine = []) {
     for (const r of nel) {
       if (r.tipo === 'docenza') docenza += r.rest; else { ore += r.rest; corsi += Math.min(r.corsi, r.rest); }
     }
+    const vNel = verifiche.filter((v) => v.data_inizio >= inizio && v.data_inizio < fine);
+    const nVer = vNel.length;
+    const gu = Math.round(vNel.reduce((s, v) => s + num(v.gu), 0) * 100) / 100;
+    const verOk = !Vs || (nVer >= Vs && gu >= Gs);
     const docOk = !!req.docenza_alternativa && docenza >= S;
-    let ok = (ore >= S && corsi >= Sc) || docOk;
+    let ok = ((ore >= S && corsi >= Sc) || docOk) && verOk;
     const chiuso = fine < oggi;
     let recuperato = false;
 
@@ -180,6 +211,8 @@ export function statoConOre(req, suoi, oggi, origine = []) {
     const dati = {
       doc: base, periodo: { inizio, fine }, ore, corsi, docenza, recuperato,
       soglia: S, soglia_corsi: Sc, manca: Math.max(0, S - ore), docenza_alternativa: !!req.docenza_alternativa,
+      ...(Vs ? { verifiche: nVer, verifiche_gu: gu, verifiche_soglia: Vs, verifiche_gu_soglia: Gs,
+        manca_verifiche: Math.max(0, Vs - nVer), manca_gu: Math.max(0, Math.round((Gs - gu) * 100) / 100) } : {}),
     };
 
     if (chiuso) {
@@ -273,5 +306,6 @@ export function dettaglioOre(s, fmt = (x) => x) {
   const parti = [`periodo dal ${fmt(s.periodo.inizio)} al ${fmt(s.periodo.fine)}: ${nOre(s.ore)} ore su ${nOre(s.soglia)}`];
   if (s.soglia_corsi) parti.push(`di cui in corsi di aggiornamento ${nOre(s.corsi)} su ${nOre(s.soglia_corsi)}`);
   if (s.docenza_alternativa) parti.push(`docenza ${nOre(s.docenza)} ore su ${nOre(s.soglia)} (in alternativa)`);
+  if (s.verifiche_soglia) parti.push(`verifiche di asseverazione ${s.verifiche} su ${s.verifiche_soglia}, ${nOre(s.verifiche_gu)} g/u su ${nOre(s.verifiche_gu_soglia)}`);
   return parti.join('; ');
 }

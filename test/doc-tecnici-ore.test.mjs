@@ -229,3 +229,62 @@ test('scadenze: conta l\'ultima riga, non la più lunga', () => {
   assert.equal(s.doc.data_inizio, '2024-02-08');
   assert.equal(s.classe, 'scaduto');
 });
+
+// Tecnico verificatore UNI 11751-2, punto 6.2 (18/11/2026): nel triennio 16 ore
+// su MOG, SGSL, audit e almeno 3 verifiche di asseverazione che insieme facciano 6 g/u.
+const TV = { ore_soglia: 16, durata_mesi: 36, preavviso_giorni: 180, verifiche_soglia: 3, verifiche_gu_soglia: 6 };
+const ver = (d, gu) => ({ tipo: 'verifica', data_inizio: d, gu });
+
+test('verificatore: ore e verifiche insieme, i 6 g/u sono il totale', () => {
+  const righe = [att('2026-04-23'), agg('2026-06-10', 16), ver('2026-11-10', 3.5), ver('2027-03-01', 1), ver('2027-09-01', 1.5)];
+  const s = statoConOre(TV, righe, '2027-10-01');
+  assert.equal(s.classe, 'ok');
+  assert.equal(s.verifiche, 3);
+  assert.equal(s.verifiche_gu, 6);
+  assert.match(dettaglioOre(s, (x) => x), /verifiche di asseverazione 3 su 3, 6 g\/u su 6/);
+});
+
+test('verificatore: le ore da sole non bastano, e il triennio chiuso senza verifiche è scaduto', () => {
+  const righe = [att('2023-04-23'), agg('2024-01-10', 16), ver('2024-05-01', 4)];
+  const s = statoConOre(TV, righe, '2026-11-18');
+  assert.equal(s.classe, 'scaduto');
+  assert.equal(s.scadenza, '2026-04-23');
+  assert.equal(s.manca_verifiche, 2);
+});
+
+test('verificatore: dentro il preavviso con le verifiche mancanti è da programmare', () => {
+  const righe = [att('2024-01-15'), agg('2025-01-10', 16), ver('2025-05-01', 4), ver('2026-05-01', 3)];
+  const s = statoConOre(TV, righe, '2026-11-18');
+  assert.equal(s.classe, 'scade');
+  assert.equal(s.scadenza, '2027-01-15');
+  assert.equal(s.manca_verifiche, 1);
+  assert.equal(s.manca_gu, 0);
+});
+
+test('verificatore: una verifica futura (piano) non conta ancora', () => {
+  const s = statoConOre(TV, [att('2026-04-23'), ver('2026-12-15', 3)], '2026-11-18');
+  assert.equal(s.verifiche, 0);
+});
+
+// Qualifica del verificatore (UNI 11751-2, 6.1, criterio 2): 10 giorni di affiancamento.
+const TVQ = { ...TV, affiancamento_giorni_soglia: 10 };
+const oss = (d, giornate, gu = 3.5) => ({ tipo: 'verifica', data_inizio: d, gu, ruolo: 'osservatore', giornate });
+
+test('verificatore: senza 10 giorni di affiancamento non è operativo', () => {
+  const s = statoConOre(TVQ, [att('2026-04-23'), oss('2026-11-10', 3.5), oss('2026-11-09', 4.5)], '2026-11-18');
+  assert.equal(s.classe, 'senzadata');
+  assert.equal(s.affiancamento, 8);
+  assert.match(s.testo, /affiancamento 8 giorni su 10: non ancora operativo/);
+});
+
+test('verificatore: gli affiancamenti fatti prima dell\'attestato contano', () => {
+  const s = statoConOre(TVQ, [att('2026-04-23'), oss('2025-10-10', 6), oss('2025-11-24', 4)], '2026-11-18');
+  assert.notEqual(s.classe, 'senzadata');
+});
+
+test('verificatore: con la qualifica riconosciuta si passa al mantenimento', () => {
+  const s = statoConOre(TVQ, [att('2026-04-23'), { tipo: 'riconoscimento', data_inizio: '2026-07-29' }], '2026-11-18');
+  assert.equal(s.classe, 'ok');
+  assert.equal(s.scadenza, '2029-04-23');
+  assert.equal(s.verifiche, 0);
+});
