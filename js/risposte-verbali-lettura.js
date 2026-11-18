@@ -53,7 +53,8 @@ export function indirizzo(da) {
 }
 
 export function nomeMittente(da) {
-  const s = decodificaOggetto(String(da || '')).replace(/<[^>]*>/g, '').replace(/"/g, '').trim();
+  /* (18/11/2026, avvisi CodeQL della segreteria) tolto l'indirizzo fra < >, non resta nessun < o > */
+  const s = decodificaOggetto(String(da || '')).replace(/<[^>]*>/g, '').replace(/[<>"]/g, '').trim();
   return s && !s.includes('@') ? s : indirizzo(da);
 }
 
@@ -94,12 +95,15 @@ export function classifica(headers) {
 }
 
 /* il testo di una mail che ha solo la versione HTML */
+/* (18/11/2026, avvisi CodeQL della segreteria) i tag si tolgono finché ce n'è («<scr<script>ipt>»
+   lascerebbe «<script>» con un solo passaggio) e i < > rimasti si tolgono; i &lt; &gt; scritti nel
+   testo della mail tornano < > solo dopo, come testo */
+const finoAStabile = (s, re, sost) => { let prima; do { prima = s; s = s.replace(re, sost); } while (s !== prima); return s; };
 export function testoDaHtml(html) {
-  return String(html || '')
-    .replace(/<(head|style|script)[^>]*>[\s\S]*?<\/\1>/gi, '')
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/(p|div|tr|li|h[1-6]|blockquote|table)>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
+  let s = finoAStabile(String(html || ''), /<(head|style|script)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, '');
+  s = s.replace(/<br\s*\/?>/gi, '\n').replace(/<\/(p|div|tr|li|h[1-6]|blockquote|table)>/gi, '\n');
+  s = finoAStabile(s, /<[^>]*>/g, '').replace(/[<>]/g, '');
+  return s
     .replace(/&nbsp;/gi, ' ')
     .replace(/&lt;/gi, '<').replace(/&gt;/gi, '>').replace(/&quot;/gi, '"').replace(/&#39;|&apos;/gi, '\'')
     .replace(/&#(\d+);/g, (_t, n) => String.fromCodePoint(Number(n)))

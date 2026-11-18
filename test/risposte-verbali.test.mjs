@@ -60,6 +60,14 @@ test('indirizzo e nome del mittente', () => {
 test('testo da HTML', () => {
   assert.equal(testoDaHtml('<html><head><style>p{}</style></head><p>Buongiorno,</p><p>ok&nbsp;fatto &amp; verificato<br>Saluti</p>'),
     'Buongiorno,\nok fatto & verificato\nSaluti');
+  /* (18/11/2026, avvisi CodeQL) tag annidati per sfuggire a un solo passaggio: non resta nessun tag */
+  const furbo = testoDaHtml('<scr<script>ipt>alert(1)</scr</script>ipt><p>Testo</p><<b>i>x');
+  assert.ok(!/[<>]/.test(furbo), 'nessun < o > rimasto: ' + furbo);
+  assert.ok(furbo.includes('Testo'));
+  /* i &lt; scritti nel testo restano testo */
+  assert.equal(testoDaHtml('<p>5 &lt; 7</p>'), '5 < 7');
+  assert.equal(nomeMittente('"Mario <b>Rossi</b>" <mario@esempio.it>'), 'Mario Rossi');
+  assert.ok(!/[<>]/.test(nomeMittente('Mario <<x>b> <m@e.it>')));
 });
 
 test('allegati: via i loghi delle firme, restano documenti e foto incollate', () => {

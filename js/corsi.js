@@ -186,7 +186,7 @@ function formCorso(c, prefill = {}) {
       v.tipologia_id && !tipOpz.some((x) => x.id === v.tipologia_id) ? `<option value="${v.tipologia_id}" selected>${esc(tipCorrente?.titolo || `tipologia ${v.tipologia_id}`)} (com'è scritto)</option>` : ''}</select>`;
   apriDrawer(c ? `Corso n° ${c.id} — dati` : 'Nuovo corso', '', `
     <div class="field"><label>Tipologia di corso (catalogo)</label>${tipHtml}
-      <p class="hint" id="fc-tip-nota" style="margin:2px 0 0">${c?.id ? esc(etichettaTipologia(c).replace(/<[^>]+>/g, '')) : 'Scegliendola, i campi qui sotto si propongono dal catalogo e il corso congela la scheda formativa vigente.'}</p></div>
+      <p class="hint" id="fc-tip-nota" style="margin:2px 0 0">${c?.id ? esc(etichettaTipologia(c).replace(/<[^>]*>/g, '').replace(/[<>]/g, '')) : 'Scegliendola, i campi qui sotto si propongono dal catalogo e il corso congela la scheda formativa vigente.'}</p></div>
     <div class="field"><label>Titolo *</label><input id="fc-titolo" value="${esc(v.titolo || '')}"></div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
       <div class="field"><label>Tipo</label>${sel('tipo', v.tipo || 'corso', TIPI)}</div>
