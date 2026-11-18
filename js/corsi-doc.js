@@ -786,11 +786,15 @@ async function foglioSala(k, corso, link) {
   T(pg, cut(F.b, 10.5, corso.titolo || '', X1 - X0 - 104), X0, H - 49, 10.5, F.b, C.grigio);
   linea(pg, X0, H - 62, X1, H - 62, C.linea, 0.8);
 
-  let y = H - 190;
-  T(pg, 'NON TI SEI ISCRITTO?', X0 + Wc / 2, y, 9, F.b, C.arancio, { sp: 2, al: 'c' });
-  y -= 42;
-  T(pg, 'Registrati qui', X0 + Wc / 2, y, 30, F.b, C.grigio, { al: 'c' });
-  y -= 28;
+  /* (18/11/2026, dall'utente) la domanda è il titolo, e si legge da lontano */
+  let y = H - 160;
+  const domanda = 'Non ti sei iscritto?';
+  let corpo = 44;
+  while (corpo > 30 && F.b.widthOfTextAtSize(domanda, corpo) > Wc) corpo -= 2;
+  T(pg, domanda, X0 + Wc / 2, y, corpo, F.b, C.arancio, { al: 'c' });
+  y -= 40;
+  T(pg, 'Registrati qui', X0 + Wc / 2, y, 24, F.b, C.grigio, { al: 'c' });
+  y -= 30;
   righe('Inquadra il codice col telefono e scrivi nome, cognome, codice fiscale, ente e ruolo. '
       + 'Quando vai via inquadralo di nuovo e premi «Sto andando via».', F.r, 12.5, 380)
     .forEach((r, i) => T(pg, r, X0 + Wc / 2, y - i * 17, 12.5, F.r, C.tenue, { al: 'c' }));
