@@ -54,6 +54,24 @@ function giorniTra(aIso, daIso) {
 }
 const num = (x) => (Number.isFinite(Number(x)) ? Number(x) : 0);
 
+/* ── che cosa copre ogni polizza (18/11/2026, chiesto dall'utente) ──
+   Le tre polizze del contratto (art. 11 del contratto unico: «una polizza
+   per la responsabilità civile professionale, una polizza per la
+   responsabilità civile verso terzi e una polizza contro gli infortuni»)
+   si confondono facilmente: lo si è visto coi documenti di Caon (una RC
+   verso terzi che esclude la professionale) e di Balladore. Una frase per
+   requisito, in parole semplici, mostrata al tecnico sotto il nome e in
+   segreteria al passaggio del mouse. Chiave = codice di s_doc_requisito. */
+const SPIEGAZIONI = {
+  contratto: 'Il contratto di collaborazione con Formedil Padova: dice che cosa fai, come vieni pagato e quali polizze devi avere.',
+  polizza_rc_prof: 'Ti copre se un tuo errore nel lavoro causa un danno economico a qualcuno: per esempio un\'indicazione sbagliata in un verbale o in una consulenza che fa spendere soldi a un\'impresa. È la responsabilità civile professionale.',
+  polizza_rc_terzi: 'Ti copre se, mentre lavori, causi senza volerlo un danno a una persona, a un animale o a una cosa: per esempio urti e rompi un\'attrezzatura in cantiere o fai male a qualcuno. Di solito non copre gli errori professionali: per quelli serve la RC professionale.',
+  polizza_infortuni: 'Copre te: se ti fai male mentre lavori, ti paga un indennizzo, per esempio per un\'invalidità. Le due RC invece coprono i danni che fai agli altri. Formedil Padova non risponde dei danni che subisci, come dice il contratto.',
+};
+export function spiegaRequisito(req) {
+  return (req && SPIEGAZIONI[req.codice]) || '';
+}
+
 /* ── requisiti a scadenza (contratto, polizze, UNI 11751…) ─────
    (18/11/2026) La regola di sempre della pagina «Documenti tecnici»,
    spostata qui perché anche il gestionale la mostri al tecnico con lo

@@ -16,7 +16,7 @@
    ============================================================ */
 
 import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, mostraVista, apriDrawer, chiudiDrawer } from './core.js';
-import { statoConOre, dettaglioOre, requisitoAOre, statoScadenza, testoScadenza } from './doc-tecnici-ore.js';
+import { statoConOre, dettaglioOre, requisitoAOre, statoScadenza, testoScadenza, spiegaRequisito } from './doc-tecnici-ore.js';
 
 let requisiti = [];   // catalogo
 let documenti = [];   // tutte le righe s_doc_tecnico
@@ -233,7 +233,7 @@ export async function render() {
 
   const righe = righeGriglia();
   const testata = requisiti.map((r) =>
-    `<th class="dt-th" title="${esc(r.descrizione)}${r.fonte ? ' — ' + esc(r.fonte) : ''}${r.note ? ' — ' + esc(r.note) : ''}">${esc(r.breve || r.descrizione)}</th>`).join('');
+    `<th class="dt-th" title="${esc(r.descrizione)}${spiegaRequisito(r) ? ': ' + esc(spiegaRequisito(r)) : ''}${r.fonte ? ' — ' + esc(r.fonte) : ''}${r.note ? ' — ' + esc(r.note) : ''}">${esc(r.breve || r.descrizione)}</th>`).join('');
 
   const corpo = righe.map((t) => {
     const celle = requisiti.map((r) => {

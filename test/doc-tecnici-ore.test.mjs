@@ -329,3 +329,18 @@ test('verificatore: con la qualifica riconosciuta si passa al mantenimento', () 
   assert.equal(s.scadenza, '2029-04-23');
   assert.equal(s.verifiche, 0);
 });
+
+// (18/11/2026) che cosa copre ogni polizza: una frase per requisito, diversa per ciascuno
+import { spiegaRequisito } from '../js/doc-tecnici-ore.js';
+test('ogni polizza del contratto ha la sua spiegazione, e non si confondono', () => {
+  const prof = spiegaRequisito({ codice: 'polizza_rc_prof' });
+  const terzi = spiegaRequisito({ codice: 'polizza_rc_terzi' });
+  const inf = spiegaRequisito({ codice: 'polizza_infortuni' });
+  for (const s of [prof, terzi, inf, spiegaRequisito({ codice: 'contratto' })]) assert.ok(s.length > 40);
+  assert.equal(new Set([prof, terzi, inf]).size, 3);
+  assert.match(prof, /errore/);
+  assert.match(terzi, /persona, a un animale o a una cosa/);
+  assert.match(inf, /Copre te/);
+  assert.equal(spiegaRequisito({ codice: 'agg_coordinatore' }), '');
+  assert.equal(spiegaRequisito(null), '');
+});
