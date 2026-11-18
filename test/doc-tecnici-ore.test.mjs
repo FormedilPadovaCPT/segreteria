@@ -201,3 +201,31 @@ test('formatore: si può recuperare anche con la docenza', () => {
   assert.equal(r.classe, 'ok');
   assert.equal(r.scadenza, '2028-01-17');
 });
+
+// Requisiti a scadenza (18/11/2026): la regola di sempre, ora condivisa col gestionale.
+import { statoScadenza, testoScadenza } from '../js/doc-tecnici-ore.js';
+const CONTRATTO = { rinnovo: 'tacito', durata_mesi: 12, preavviso_giorni: 60 };
+const POLIZZA = { rinnovo: 'scadenza', durata_mesi: 12, preavviso_giorni: 60 };
+
+test('scadenze: il contratto a rinnovo tacito corre da solo finché nessuno disdice', () => {
+  const s = statoScadenza(CONTRATTO, [{ data_inizio: '2025-04-17' }], '2026-11-18');
+  assert.equal(s.classe, 'ok');
+  assert.equal(s.scadenza, '2027-04-17');
+  assert.equal(testoScadenza(s, (x) => x), '2027-04-17 ⟳');
+  const d = statoScadenza(CONTRATTO, [{ data_inizio: '2025-04-17', disdetto_il: '2026-01-10' }], '2026-11-18');
+  assert.equal(d.classe, 'scaduto', 'disdetto: non si rinnova più');
+});
+
+test('scadenze: la polizza va in scadenza dentro il preavviso e poi scade', () => {
+  assert.equal(statoScadenza(POLIZZA, [{ data_inizio: '2026-01-05', data_fine: '2027-01-05' }], '2026-11-18').classe, 'scade');
+  assert.equal(statoScadenza(POLIZZA, [{ data_inizio: '2025-01-05', data_fine: '2026-01-05' }], '2026-11-18').classe, 'scaduto');
+  assert.equal(statoScadenza(POLIZZA, [{ data_inizio: '2026-09-30', data_fine: '2027-09-30' }], '2026-11-18').classe, 'ok');
+  assert.equal(statoScadenza(POLIZZA, [{ descrizione: 'senza date' }], '2026-11-18').classe, 'senzadata');
+  assert.equal(statoScadenza(POLIZZA, [], '2026-11-18').classe, 'mancante');
+});
+
+test('scadenze: conta l\'ultima riga, non la più lunga', () => {
+  const s = statoScadenza(POLIZZA, [{ data_inizio: '2014-02-08', data_fine: '2017-02-08' }, { data_inizio: '2024-02-08', data_fine: '2025-02-08' }], '2026-11-18');
+  assert.equal(s.doc.data_inizio, '2024-02-08');
+  assert.equal(s.classe, 'scaduto');
+});

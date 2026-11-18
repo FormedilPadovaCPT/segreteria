@@ -54,6 +54,46 @@ function giorniTra(aIso, daIso) {
 }
 const num = (x) => (Number.isFinite(Number(x)) ? Number(x) : 0);
 
+/* ── requisiti a scadenza (contratto, polizze, UNI 11751…) ─────
+   (18/11/2026) La regola di sempre della pagina «Documenti tecnici»,
+   spostata qui perché anche il gestionale la mostri al tecnico con lo
+   stesso esito. Conta l'ultima riga (per inizio, poi per fine):
+   - senza_scadenza → in regola; una_tantum → in regola dalla data;
+   - tacito: senza data di fine la fine è inizio + durata, e finché
+     nessuno disdice il rinnovo corre da solo (non va mai «in scadenza»);
+   - altrimenti scaduto, in scadenza dentro il preavviso, in regola.
+   Ritorna { classe, doc, scadenza?, tacito?, una_tantum?, senza_scadenza? }. */
+export function statoScadenza(req, suoi, oggi) {
+  if (!suoi || !suoi.length) return { classe: 'mancante' };
+  const doc = [...suoi].sort((a, b) =>
+    (b.data_inizio || b.data_fine || '').localeCompare(a.data_inizio || a.data_fine || ''))[0];
+  if (doc.senza_scadenza) return { classe: 'ok', doc, senza_scadenza: true };
+  if (req.rinnovo === 'una_tantum') return { classe: 'ok', doc, una_tantum: true };
+  let fine = doc.data_fine;
+  const D = num(req.durata_mesi);
+  if (!fine && req.rinnovo === 'tacito' && doc.data_inizio && D) fine = aggiungiMesiIso(doc.data_inizio, D);
+  if (!fine) return { classe: 'senzadata', doc };
+  let tacito = false;
+  if (req.rinnovo === 'tacito' && !doc.disdetto_il && D) {
+    let giri = 0;
+    while (giorniTra(fine, oggi) < 0 && giri++ < 600) fine = aggiungiMesiIso(fine, D);
+    tacito = true;
+  }
+  const g = giorniTra(fine, oggi);
+  if (g < 0) return { classe: 'scaduto', doc, scadenza: fine };
+  if (!tacito && g <= (num(req.preavviso_giorni) || 60)) return { classe: 'scade', doc, scadenza: fine };
+  return { classe: 'ok', doc, scadenza: fine, tacito };
+}
+/* il testo breve della casella, come lo scriveva la pagina della segreteria */
+export function testoScadenza(s, fmt = (x) => x) {
+  if (!s) return '';
+  if (s.classe === 'mancante') return 'mancante';
+  if (s.senza_scadenza) return 'senza scadenza';
+  if (s.una_tantum) return s.doc && s.doc.data_inizio ? fmt(s.doc.data_inizio) : 'presente';
+  if (s.classe === 'senzadata') return 'senza data';
+  return fmt(s.scadenza) + (s.tacito ? ' ⟳' : '');
+}
+
 /* il requisito e' «a ore» se il catalogo gli da' una soglia e un periodo */
 export function requisitoAOre(req) {
   return num(req && req.ore_soglia) > 0 && num(req && req.durata_mesi) > 0;

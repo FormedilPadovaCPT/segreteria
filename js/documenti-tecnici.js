@@ -16,7 +16,7 @@
    ============================================================ */
 
 import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, mostraVista, apriDrawer, chiudiDrawer } from './core.js';
-import { statoConOre, dettaglioOre, requisitoAOre } from './doc-tecnici-ore.js';
+import { statoConOre, dettaglioOre, requisitoAOre, statoScadenza, testoScadenza } from './doc-tecnici-ore.js';
 
 let requisiti = [];   // catalogo
 let documenti = [];   // tutte le righe s_doc_tecnico
@@ -24,11 +24,6 @@ let tecnici = [];     // anagrafica tecnici
 let mostraStorici = false;
 
 /* ── date ─────────────────────────────────────────────────── */
-function aggiungiMesi(iso, mesi) {
-  const d = new Date(iso + 'T00:00:00');
-  d.setMonth(d.getMonth() + mesi);
-  return d.toISOString().slice(0, 10);
-}
 function giorniA(iso) {
   return Math.round((new Date(iso) - new Date(oggiIso())) / 86400000);
 }
@@ -58,35 +53,11 @@ export function statoRequisito(tec, req, docs) {
     return { ...conOre, testo: conOre.testo || dataIt(conOre.scadenza), dettaglio: dettaglioOre(conOre, dataIt) };
   }
 
-  /* il documento corrente e' l'ultimo per inizio (poi per fine) */
-  const doc = [...suoi].sort((a, b) =>
-    (b.data_inizio || b.data_fine || '').localeCompare(a.data_inizio || a.data_fine || ''))[0];
-
-  if (doc.senza_scadenza) return { classe: 'ok', testo: 'senza scadenza', doc };
-  if (req.rinnovo === 'una_tantum') {
-    return { classe: 'ok', testo: doc.data_inizio ? dataIt(doc.data_inizio) : 'presente', doc };
-  }
-
-  /* scadenza effettiva */
-  let fine = doc.data_fine;
-  if (!fine && req.rinnovo === 'tacito' && doc.data_inizio && req.durata_mesi) {
-    fine = aggiungiMesi(doc.data_inizio, req.durata_mesi);
-  }
-  if (!fine) return { classe: 'senzadata', testo: 'senza data', doc };
-
-  /* il tacito corre da solo finche' nessuno disdice */
-  let tacito = false;
-  if (req.rinnovo === 'tacito' && !doc.disdetto_il && req.durata_mesi) {
-    while (giorniA(fine) < 0) fine = aggiungiMesi(fine, req.durata_mesi);
-    tacito = true;
-  }
-
-  const g = giorniA(fine);
-  if (g < 0) return { classe: 'scaduto', testo: dataIt(fine), doc, scadenza: fine };
-  if (!tacito && g <= (req.preavviso_giorni || 60)) {
-    return { classe: 'scade', testo: dataIt(fine), doc, scadenza: fine };
-  }
-  return { classe: 'ok', testo: dataIt(fine) + (tacito ? ' ⟳' : ''), doc, scadenza: fine };
+  /* la regola di sempre (ultima riga, data di fine, rinnovo tacito) sta in
+     doc-tecnici-ore.js dal 18/11/2026: il gestionale la usa uguale per
+     mostrare al tecnico contratto e polizze */
+  const s = statoScadenza(req, suoi, oggiIso());
+  return { ...s, testo: testoScadenza(s, dataIt) };
 }
 const statoCella = (tec, req) => statoRequisito(tec, req, documenti);
 
