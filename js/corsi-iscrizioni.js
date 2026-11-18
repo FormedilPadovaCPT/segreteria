@@ -18,8 +18,9 @@
    Conferma la segreteria, e l'anagrafica nuova nasce solo se lo chiede lei.
    ============================================================================ */
 
-import { sb, state, $, esc, dataIt, toast, attendi, apriDrawer } from './core.js';
+import { sb, state, $, esc, dataIt, oggiIso, toast, attendi, apriDrawer } from './core.js';
 import { scaricaEml } from './eml.js';
+import { scaricaPdf, pdfFoglioSala } from './corsi-doc.js';
 
 const SEMAFORO = {
   verde: ['🟢', 'persona nuova'],
@@ -37,11 +38,13 @@ function quandoChiude(iso) {
 
 /* ── i dati: link, situazione, richieste in coda ── */
 export async function datiIscr(c) {
-  const [{ data: link }, { data: coda }] = await Promise.all([
+  const [{ data: link }, { data: coda }, { data: sala }] = await Promise.all([
     c.iscr_codice ? sb.rpc('iscr_link', { p_corso_id: c.id }) : Promise.resolve({ data: null }),
     sb.from('s_iscrizioni').select('*').eq('corso_id', c.id).order('id', { ascending: false }),
+    /* il QR della registrazione in sala: stesso codice dell'iscrizione (18/11/2026) */
+    c.iscr_codice ? sb.rpc('sala_link', { p_corso_id: c.id }) : Promise.resolve({ data: null }),
   ]);
-  return { link: link || null, coda: coda || [] };
+  return { link: link || null, coda: coda || [], sala: sala || null };
 }
 
 /* ── la sezione nella scheda del corso ── */
@@ -77,13 +80,19 @@ export function sezioneIscr(c, iz) {
     const ceiv = r.esito_ceiv === 'iscritta' ? '<span class="dt-cella dt-ok" style="padding:1px 6px">CEIV</span>'
       : r.esito_ceiv === 'non_iscritta' ? '<span class="dt-cella dt-scaduto" style="padding:1px 6px">non CEIV</span>'
       : r.esito_ceiv ? '<span class="hint">CEIV da verificare</span>' : '';
-    const stato = r.stato === 'confermata'
+    /* registrazione in sala (18/11/2026): entrata o uscita, all'ora in cui è arrivata */
+    const ora = (t) => (t ? new Date(t).toLocaleTimeString('it-IT', { timeZone: 'Europe/Rome', hour: '2-digit', minute: '2-digit' }) : '');
+    const sala = r.in_sala ? `<br><span class="dt-cella" style="padding:1px 6px;background:#fdece3">🚪 in sala · ${esc(r.in_sala)} ${ora(r.in_sala_il)}</span>` : '';
+    const stato = r.in_sala && r.stato === 'confermata'
+      ? `<span class="dt-cella dt-ok" style="padding:1px 6px">${r.presenze_scritte_il ? '✓ presenza scritta' : `✓ ${r.iscritti_creati} iscritt${r.iscritti_creati === 1 ? 'o' : 'i'} · presenza da scrivere`}</span>${
+        r.presenze_scritte_il ? '' : ` <button class="btn btn-sm" data-iz-sala="${r.id}">🚪 Scrivi la presenza</button>`}`
+      : r.stato === 'confermata'
       ? `<span class="dt-cella dt-ok" style="padding:1px 6px">✓ ${r.iscritti_creati} iscritt${r.iscritti_creati === 1 ? 'o' : 'i'}</span>`
       : r.stato === 'respinta' ? '<span class="dt-cella dt-scaduto" style="padding:1px 6px">respinta</span>'
       : `<button class="btn btn-sm" data-iz-apri-ist="${r.id}">Guarda e conferma</button>`;
     return `<tr>
       <td>${dataIt((r.timestamp_modulo || r.creato_il || '').slice(0, 10))}</td>
-      <td>${chi}<br>${ceiv}</td>
+      <td>${chi}<br>${ceiv}${sala}</td>
       <td style="text-align:center">${quante}</td>
       <td>${esc(r.email || '')}</td>
       <td>${stato}</td></tr>`;
@@ -114,6 +123,7 @@ export function sezioneIscr(c, iz) {
     <button class="btn btn-sm" id="iz-vetrina-cambia">${l.pubblico ? '🙈 Togli dalla vetrina' : '👁 Metti in vetrina'}</button>
     <button class="btn btn-sm" id="iz-ripubblica">↻ Aggiorna sul portale</button>
     <button class="btn btn-sm" id="iz-mano">➕ Registra un'iscrizione arrivata a mano</button>
+    <button class="btn btn-sm" id="iz-sala-foglio" ${iz.sala ? '' : 'disabled'}>🚪 Foglio QR «Non ti sei iscritto?»</button>
     ${scaduto ? '' : '<button class="btn btn-sm" id="iz-chiudi">🔒 Chiudi le iscrizioni</button>'}
   </div>
 
@@ -122,6 +132,10 @@ export function sezioneIscr(c, iz) {
     <thead><tr><th>Arrivata</th><th>Chi ha compilato</th><th>Persone</th><th>E-mail</th><th></th></tr></thead>
     <tbody>${[...nuove, ...chiuse].map(riga).join('')}</tbody>
   </table>
+  ${iz.coda.some((r) => r.in_sala) ? `<p class="hint" style="margin-top:6px">🚪 Le righe <strong>in sala</strong> sono di chi si è
+    registrato dal QR all'ingresso. Si guardano e si confermano come le altre: confermando, l'app scrive anche le firme di
+    entrata e di uscita, all'ora in cui la persona si è registrata. Chi era già iscritto non si iscrive due volte: per lui
+    c'è «Scrivi solo la presenza».</p>` : ''}
   ${nuove.length ? `<p class="hint" style="margin-top:6px">⚠️ Le richieste in attesa <strong>occupano il posto</strong>
     nel conteggio dei liberi: confermale o respingile, altrimenti l'evento sembra pieno.</p>` : ''}`
   : '<p class="hint">Nessuna iscrizione arrivata.</p>'}`;
@@ -179,6 +193,26 @@ export function collegaIscr(c, iz, ricarica) {
   });
 
   b('#iz-mano', () => formAMano(c, ricarica));
+
+  /* il foglio da esporre all'ingresso, accanto a quello delle firme (18/11/2026) */
+  b('#iz-sala-foglio', async (ev) => {
+    const btn = ev.currentTarget;
+    if (!iz.sala) return toast('Prima vanno aperte le iscrizioni: il QR della sala usa lo stesso codice.', 'err');
+    attendi(btn, true);
+    try {
+      const byte = await pdfFoglioSala(c, iz.sala);
+      scaricaPdf(byte, `${oggiIso().replace(/-/g, '_')}_MOD_Formedil-Padova_registrazione-in-sala-QR_corso-${c.id}.pdf`);
+    } catch (e) { toast(e.message, 'err'); }
+    attendi(btn, false);
+  });
+
+  document.querySelectorAll('[data-iz-sala]').forEach((n) => n.addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
+    attendi(btn, true);
+    const ok = await scriviPresenzaSala(Number(n.dataset.izSala));
+    attendi(btn, false);
+    if (ok) ricarica();
+  }));
 
   document.querySelectorAll('[data-iz-apri-ist]').forEach((n) => n.addEventListener('click', () => {
     const r = iz.coda.find((x) => String(x.id) === n.dataset.izApriIst);
@@ -243,6 +277,21 @@ async function pubblica(c, silenziosa) {
     return false;
   }
   if (!silenziosa) toast('Aggiornate sul portale.', 'ok');
+  return true;
+}
+
+/* ── la presenza di chi si è registrato in sala (18/11/2026) ──────────────
+   sala_presenze trova l'iscritto per codice fiscale e scrive le firme di
+   entrata e di uscita (fonte «sala», confermate da chi preme), all'ora in cui
+   la persona si è registrata. Si legge sempre l'esito: un errore non è
+   «fatto». */
+async function scriviPresenzaSala(id) {
+  const { data, error } = await sb.rpc('sala_presenze', { p_iscrizione_id: id });
+  if (error) { toast('Presenza non scritta: ' + error.message, 'err'); return false; }
+  const n = data?.firme_scritte ?? 0;
+  toast(`${data?.nominativo || 'La persona'}: ${n ? `${n} firm${n === 1 ? 'a scritta' : 'e scritte'} sul registro` : 'nessuna firma nuova'}${
+    data?.gia_presenti ? `, ${data.gia_presenti} già presenti` : ''}${
+    data?.senza_giornata ? `, ${data.senza_giornata} senza giornata in quel giorno` : ''}.`, n || data?.gia_presenti ? 'ok' : 'err');
   return true;
 }
 
@@ -333,11 +382,16 @@ async function formIstruttoria(c, r, ricarica) {
     <p class="hint" style="margin:0 0 10px">⚠️ Ogni partecipante ha <strong>la sua impresa</strong>:
       quella di chi compila serve solo a rispondere.</p>
     ${r.note ? `<p class="hint"><strong>Note di chi ha compilato:</strong> ${esc(r.note)}</p>` : ''}
+    ${r.in_sala ? `<p class="hint" style="background:#fdece3;padding:6px 8px;border-radius:6px">🚪 <strong>Registrazione in sala</strong>
+      (${esc(r.in_sala)} alle ${new Date(r.in_sala_il).toLocaleTimeString('it-IT', { timeZone: 'Europe/Rome', hour: '2-digit', minute: '2-digit' })}).
+      Confermando, l'app iscrive la persona e scrive anche le sue firme di entrata e di uscita.
+      ${(ist.persone || []).some((p) => p.semaforo === 'rosso') ? '<br>È <strong>già iscritta</strong> a questo evento: non va iscritta di nuovo, basta «Scrivi solo la presenza».' : ''}</p>` : ''}
     <h4 style="margin:14px 0 6px">Chi partecipa</h4>
     ${(ist.persone || []).map(scheda).join('')}
     <div class="field"><label>Nota d'ufficio</label><textarea id="iz-nota" rows="2"></textarea></div>
     <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
       <button class="btn btn-primary" id="iz-conferma">✓ Conferma le iscrizioni</button>
+      ${r.in_sala && (ist.persone || []).some((p) => p.semaforo === 'rosso') ? '<button class="btn" id="iz-sala-solo">🚪 Scrivi solo la presenza</button>' : ''}
       <button class="btn" id="iz-respingi">✕ Respingi</button>
     </div>`);
 
@@ -368,8 +422,18 @@ async function formIstruttoria(c, r, ricarica) {
     if (error) return toast(error.message, 'err');
     toast(`Iscritti ${data.iscritti}${data.anagrafiche_nuove ? `, ${data.anagrafiche_nuove} anagrafiche nuove` : ''}${
       data.rapporti_registrati ? `, ${data.rapporti_registrati} rapporti registrati` : ''}.`, 'ok');
+    /* registrazione in sala: con l'iscritto confermato si scrivono le firme */
+    if (r.in_sala) await scriviPresenzaSala(r.id);
     await pubblica(c, true);
     ricarica();
+  });
+
+  $('#iz-sala-solo')?.addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
+    attendi(btn, true);
+    const ok = await scriviPresenzaSala(r.id);
+    attendi(btn, false);
+    if (ok) ricarica();
   });
 
   $('#iz-respingi').addEventListener('click', async (ev) => {

@@ -169,6 +169,8 @@ window.AIUTO_TESTI = {
   'iz-copia': 'Copia negli appunti il link del modulo di iscrizione.',
   'iz-ripubblica': 'Rimanda al portale i dati aggiornati dell\'evento.',
   'iz-mano': 'Registra un\'iscrizione arrivata per mail o a voce, come se venisse dal modulo.',
+  'iz-sala-foglio': 'Stampa il foglio col QR per chi arriva senza iscrizione: si registra dal telefono, la presenza la confermi tu dopo.',
+  'iz-sala-solo': 'La persona era già iscritta: scrive solo le sue firme di entrata e uscita, senza iscriverla due volte.',
   'iz-chiudi': 'Chiude le iscrizioni: il modulo sul portale non accetta più risposte.',
   'iz-conferma': 'Conferma le iscrizioni selezionate e prepara le mail di conferma.',
   'qz-apri': 'Apre il questionario di gradimento dell\'evento, con il QR da proiettare o stampare.',

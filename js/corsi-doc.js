@@ -770,6 +770,58 @@ export async function pdfFoglioPresenze(corso, pres) {
   return salva(k.doc);
 }
 
+/* ── 2-sexies. IL FOGLIO DELLA REGISTRAZIONE IN SALA (18/11/2026) ───────────
+   Da esporre all'ingresso di un convegno, accanto a quello delle firme: chi
+   non si è iscritto inquadra questo e si registra (pagina ?sala= del
+   portale). La presenza la conferma la segreteria dopo l'evento. */
+async function foglioSala(k, corso, link) {
+  const { F, C } = k;
+  const H = A4[1], X0 = 70, X1 = 545, Wc = X1 - X0;
+  const pg = k.pagina();
+  const qrcode = await qrGen();
+
+  const lh = altLogo(k, 88);
+  logoIn(k, pg, X1 - 88, H - 30 - lh, 88);
+  T(pg, `REGISTRAZIONE IN SALA · EVENTO ${corso.id}`, X0, H - 34, 7, F.r, C.arancio, { sp: 1.4 });
+  T(pg, cut(F.b, 10.5, corso.titolo || '', X1 - X0 - 104), X0, H - 49, 10.5, F.b, C.grigio);
+  linea(pg, X0, H - 62, X1, H - 62, C.linea, 0.8);
+
+  let y = H - 190;
+  T(pg, 'NON TI SEI ISCRITTO?', X0 + Wc / 2, y, 9, F.b, C.arancio, { sp: 2, al: 'c' });
+  y -= 42;
+  T(pg, 'Registrati qui', X0 + Wc / 2, y, 30, F.b, C.grigio, { al: 'c' });
+  y -= 28;
+  righe('Inquadra il codice col telefono e scrivi nome, cognome, codice fiscale, ente e ruolo. '
+      + 'Quando vai via inquadralo di nuovo e premi «Sto andando via».', F.r, 12.5, 380)
+    .forEach((r, i) => T(pg, r, X0 + Wc / 2, y - i * 17, 12.5, F.r, C.tenue, { al: 'c' }));
+  y -= 62;
+
+  const lato = 165, qx = X0 + (Wc - lato) / 2;
+  pg.drawRectangle({ x: qx - 16, y: y - lato - 16, width: lato + 32, height: lato + 32,
+    borderColor: C.linea, borderWidth: 1 });
+  disegnaQr(pg, qrcode, link || '', qx, y - lato, lato, C.nero);
+  y -= lato + 40;
+
+  T(pg, 'oppure ' + (link || '').replace(/^https?:\/\//, '').split('?')[0], X0 + Wc / 2, y, 10, F.r, C.tenue, { al: 'c' });
+  y -= 30;
+
+  const righeInfo = [
+    'Se ti sei già iscritto non serve: usa il QR delle firme col tuo codice personale.',
+    'La presenza la conferma la segreteria dopo l\'evento. Chi non ha il telefono si registra al banco.',
+  ];
+  righeInfo.forEach((r, i) => righe(r, i ? F.i : F.b, 9.5, Wc - 40)
+    .forEach((rr, j) => T(pg, rr, X0 + Wc / 2, y - i * 26 - j * 12, 9.5, i ? F.i : F.b, i ? C.tenue : C.grigio, { al: 'c' })));
+
+  enteBlocco(k, pg, X0, 72, Wc);
+  T(pg, 'foglio della registrazione in sala · non numerato', X1, 44, 7, F.i, C.tenue, { al: 'r' });
+}
+
+export async function pdfFoglioSala(corso, link) {
+  const k = await apriCiclo();
+  await foglioSala(k, corso, link);
+  return salva(k.doc);
+}
+
 /* ── 2-bis. IL FOGLIO DEL QUESTIONARIO ──────────────────────────────────────
    Una pagina sola, in coda al registro: il QR grande, e sotto l'indirizzo
    scritto col codice corto per chi non inquadra (o per quando il codice si
