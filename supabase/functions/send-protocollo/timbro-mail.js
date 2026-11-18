@@ -6,14 +6,9 @@
    (js/timbro-disegno.js): cornice arancione, banda arancione in alto
    col nome dell'ente, numero e data in grande con il QR a destra, e
    sotto la griglia a filo sottile — oggetto | ufficio, mittente o
-   destinatario | mezzo, referente. Chiesto dall'utente il
+   destinatario | mezzo, cartella | referente. Chiesto dall'utente il
    09/09/2026: «il formato che mettiamo anche nel cartaceo, quello
    completo con la banda arancione in alto».
-   (18/11/2026, deciso dall'utente) La casella «cartella» del cartaceo
-   nella mail NON c'è: è il percorso della cartella nel vault
-   (2_AREE/Team_Tecnici/…), che a chi riceve la mail non serve. Era
-   uscito nelle mail dei Prot_26-27_0155, 0158, 0160, 0162 e 0164.
-   L'ultima riga porta il solo referente, a tutta larghezza.
 
    Scritto in HTML da posta (tabelle, stili inline, niente CSS
    esterno) perché deve reggere in Outlook. Il QR arriva come
@@ -107,10 +102,7 @@ ${qrSrc ? `<img src="${esc(qrSrc)}" width="56" height="56" alt="QR del protocoll
 </tr>
 ${riga(p.oggetto, p.ufficio || 'Segreteria Area Sicurezza e Salute')}
 ${riga(p.impresa_nome || p.persona, p.mezzo)}
-${p.referente ? `
-<tr>
-<td colspan="2" width="348" style="${testoCella}${filo}">${esc(p.referente)}</td>
-</tr>` : ''}
+${riga(p.cartella, p.referente)}
 </table>`;
 }
 
