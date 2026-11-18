@@ -220,8 +220,15 @@ export function dettaglioOre(s, fmt = (x) => x) {
   const nOre = (x) => String(x).replace('.', ',');
   if (s.mobile) {
     if (s.decaduto) return `nessun aggiornamento registrato per dieci anni: titolo decaduto il ${fmt(s.scadenza)}, va rifatto il corso abilitante (se il tecnico ha attestati di quegli anni, registrarli cambia il conto)`;
-    const grazia = s.grazia_fino >= s.periodo.fine ? `; primi cinque anni dall'abilitazione fino al ${fmt(s.grazia_fino)}` : '';
-    return `ultimi cinque anni (dal ${fmt(s.periodo.inizio)}): ${nOre(s.ore)} ore su ${nOre(s.soglia)}${grazia}`;
+    /* (18/11/2026) i corsi prima dell'abilitazione non contano: nei primi
+       cinque anni si dice che le ore non servono ancora, e la finestra
+       non comincia prima del corso abilitante */
+    const B = s.doc && s.doc.data_inizio;
+    if (s.grazia_fino >= s.periodo.fine) {
+      return `primi cinque anni dall'abilitazione${B ? ` (${fmt(B)})` : ''}: le ore non servono fino al ${fmt(s.grazia_fino)}; registrate finora ${nOre(s.ore)} ore su ${nOre(s.soglia)}`;
+    }
+    const dal = B && B > s.periodo.inizio ? B : s.periodo.inizio;
+    return `ultimi cinque anni (dal ${fmt(dal)}): ${nOre(s.ore)} ore su ${nOre(s.soglia)}`;
   }
   const parti = [`periodo dal ${fmt(s.periodo.inizio)} al ${fmt(s.periodo.fine)}: ${nOre(s.ore)} ore su ${nOre(s.soglia)}`];
   if (s.soglia_corsi) parti.push(`di cui in corsi di aggiornamento ${nOre(s.corsi)} su ${nOre(s.soglia_corsi)}`);

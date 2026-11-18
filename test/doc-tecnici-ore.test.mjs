@@ -150,6 +150,19 @@ test('coordinatore: la frase dice gli ultimi cinque anni', () => {
   assert.match(dettaglioOre(s, (x) => x), /ultimi cinque anni \(dal 2021-11-17\): 24 ore su 40/);
 });
 
+test('coordinatore: nei primi cinque anni la frase dice che le ore non servono e conta dall\'abilitazione', () => {
+  // caso Caon del 18/11/2026: corso 120 ore il 21/12/2024, prima corsi che non contano
+  const s = statoConOre(COORD, [att('2024-12-21'), agg('2022-01-21', 4), agg('2025-04-17', 4)], '2026-11-18');
+  const f = dettaglioOre(s, (x) => x);
+  assert.match(f, /primi cinque anni dall'abilitazione \(2024-12-21\): le ore non servono fino al 2029-12-21; registrate finora 4 ore su 40/);
+  assert.doesNotMatch(f, /dal 2021/);
+});
+
+test('coordinatore: finiti i primi cinque anni la frase torna agli ultimi cinque anni', () => {
+  const s = statoConOre(COORD, [att('2020-06-01'), agg('2025-06-01', 40)], '2026-11-18');
+  assert.match(dettaglioOre(s, (x) => x), /^ultimi cinque anni \(dal 2021-11-18\): 40 ore su 40$/);
+});
+
 test('la frase per l\'etichetta dice periodo, ore e soglie', () => {
   const s = statoConOre(FORMATORI, [att('2024-03-01'), agg('2025-02-01', 10, 8)], '2026-11-17');
   const t = dettaglioOre(s, (x) => x);
