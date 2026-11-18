@@ -31,7 +31,8 @@ import { serieVerificabile } from './attestati-verifica.js';
 import { datiQuest, sezioneQuest, collegaQuest, cellaSpunta } from './corsi-quest.js';
 import { datiTest, sezioneTest, collegaTest } from './corsi-test.js';
 import { datiIscr, sezioneIscr, collegaIscr } from './corsi-iscrizioni.js';
-import { datiPres, sezionePres, collegaPres } from './corsi-presenze-qr.js';
+import { datiPres, sezionePres, collegaPres, oraRoma } from './corsi-presenze-qr.js';
+import { numeriScheda, htmlScheda, collegaScheda, eraAperta, ricordaScheda } from './corsi-scheda.js';
 import { datiFascicolo, sezioneFascicoloDrive, collegaFascicoloDrive } from './corsi-fascicolo.js';
 /* le regole che decidono un compenso stanno a parte, per essere provabili */
 import { forfait, calcolaCorrispettivo, proponiTariffa, variazioneNote } from './corsi-compensi.js';
@@ -398,7 +399,7 @@ async function apriIscrizioniPerConferenza(corsoId) {
 
 /* ══════════ dettaglio corso ══════════ */
 
-export async function apriCorso(id) {
+export async function apriCorso(id, scheda) {
   const c = corsi.find((x) => x.id === id);
   if (!c) return;
   const [{ data: giornate }, { data: interventi }, { data: iscritti }, { data: incarichi }] = await Promise.all([
@@ -538,7 +539,12 @@ export async function apriCorso(id) {
     <td style="white-space:nowrap"><a href="#" data-mod-inc="${k.id}">modifica</a> · <a href="#" data-lett-inc="${k.id}">${(() => { const f = firmeInc.get(`docenza:${k.id}`); return f?.stato === 'firmata' ? '📨 mail con la lettera firmata' : f?.stato === 'in_attesa' ? '📄 rigenera la lettera' : k.protocollo_out_id ? '📄 lettera al Presidente' : '📄 lettera da firmare'; })()}</a> · <a href="#" data-del-inc="${k.id}">elimina</a></td>
   </tr>`;
 
-  apriDrawer(`${TIPI[c.tipo] || 'Corso'} n° ${c.id} — ${c.titolo}`, '', `
+  /* (18/11/2026) la scheda a linguette: ogni parte è la stessa di prima, solo divisa */
+  const apertura = !eraAperta(c.id, $('#drawer').classList.contains('hidden'));
+  if (scheda) ricordaScheda(scheda);
+  const numeri = numeriScheda({ c, iscritti, firme: presQr.firme, coda: iscr.coda, prove: test.prove });
+  const parti = {
+    riepilogo: `
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
       <span class="dt-cella dt-ok" style="padding:2px 8px">${esc(STATI[c.stato] || c.stato)}</span>
       ${c.riconosciuto_regione ? '<span class="dt-cella dt-ok" style="padding:2px 8px">🔵 riconosciuto Regione</span>' : ''}
@@ -569,7 +575,8 @@ export async function apriCorso(id) {
     <button class="btn btn-ghost btn-sm" id="co-addg" style="margin-top:6px">+ Giornata</button>
 
     ${sezioneProm(c, giornate || [], iscritti || [], prom)}
-
+`,
+    docenti: `
     <hr style="margin:12px 0;border:0;border-top:1px solid var(--bordo)">
     <h4 style="margin:0 0 6px">🎙 Programma e docenti</h4>
     <div class="table-wrap"><table class="tbl">
@@ -594,7 +601,8 @@ export async function apriCorso(id) {
       <strong>Dove finisce il compenso:</strong> per un <strong>tecnico dell'ente</strong> entra da sé nel riepilogo attività da fatturare
       del suo mese (scheda «Incarichi e fatture tecnici»); per un <strong>esterno</strong> si registra qui la fattura che manda,
       e da lì entra nel <strong>mandato all'Amministrazione</strong> come tutte le altre.</p>
-
+`,
+    iscritti: `
     <hr style="margin:12px 0;border:0;border-top:1px solid var(--bordo)">
     <h4 style="margin:0 0 6px">👥 Iscritti</h4>
     <div class="table-wrap"><table class="tbl">
@@ -624,15 +632,18 @@ export async function apriCorso(id) {
         <span class="hint">Controlla anagrafica e impresa (un'impresa scritta a mano va agganciata dalla scheda dell'iscritto), poi</span>
         <button class="btn btn-ghost btn-sm" id="co-verifica-aula" style="margin-left:6px" title="Segna verificati gli allievi aggiunti in aula: l'avviso sparisce">✔ Verificati</button></div>` : '';
     })()}
-
+`,
+    iscrizioni: `
     ${sezioneIscr(c, iscr)}
-
-    ${sezioneQuest(c, quest, iscritti)}
-
-    ${sezioneTest(c, test, iscritti)}
-
+`,
+    firme: `
     ${sezionePres(c, presQr, iscritti, giornate || [])}
-
+`,
+    quest: `
+    ${sezioneQuest(c, quest, iscritti)}
+    ${sezioneTest(c, test, iscritti)}
+`,
+    documenti: `
     ${sezioneMateriali(c)}
 
     ${c.tipologia_id ? `<hr style="margin:12px 0;border:0;border-top:1px solid var(--bordo)">
@@ -654,10 +665,15 @@ export async function apriCorso(id) {
       <code>2_AREE/Formazione/attestati_emessi/&lt;anno&gt;/</code> su Drive e il numero resta sulla riga dell'iscritto.
       ${c.riconosciuto_regione ? 'Corso riconosciuto: il logo Regione va sull\'attestato (img/logo-regione.png).' : 'Il logo Regione NON va su questo attestato (corso non riconosciuto).'}
       La lettera di incarico si genera dalla riga dell'incarico (protocollo OUT nel registro unico).</p>
-  `);
-  $('#drawer').classList.add('drawer-xl');   /* scheda larga: qui vivono tabelle vere */
+`,
+  };
+  apriDrawer(`${TIPI[c.tipo] || 'Corso'} n° ${c.id} — ${c.titolo}`, '', htmlScheda({ corsoId: c.id, apertura, numeri, parti }));
+  $('#drawer').classList.add('drawer-pieno');   /* a tutta pagina: qui vivono tabelle vere (proposta A, 18/11/2026) */
 
   /* ── eventi ── */
+  /* le linguette, la barra dei numeri e la rilettura delle firme ogni 30 secondi */
+  collegaScheda($('#drawer-body'), { sb, esc, oraRoma, corso: c, numeri, firme: presQr.firme,
+    ricarica: (scheda) => apriCorso(c.id, scheda) });
   collegaIscr(c, iscr, () => apriCorso(c.id));
   collegaQuest(c, quest, iscritti, () => apriCorso(c.id));
   collegaTest(c, test, iscritti, () => apriCorso(c.id));

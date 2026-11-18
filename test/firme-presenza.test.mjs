@@ -100,7 +100,7 @@ test('il registro: QR in copertina, foglio in coda, il codice NON accanto al nom
   assert.match(doc, /if \(pres && pres\.codice\) await foglioPresenze\(k, corso, pres\);/);
   assert.match(doc, /export async function pdfFoglioPresenze\(corso, pres\)/);
   assert.match(doc, /if \(pres && pres\.codice && pres\.link && yr - 84 > 136\)/, 'in copertina solo se c\'è spazio');
-  assert.match(corsi, /import \{ datiPres, sezionePres, collegaPres \} from '\.\/corsi-presenze-qr\.js';/);
+  assert.match(corsi, /import \{ datiPres, sezionePres, collegaPres(, oraRoma)? \} from '\.\/corsi-presenze-qr\.js';/);
   assert.match(corsi, /\$\{sezionePres\(c, presQr, iscritti, giornate \|\| \[\]\)\}/);
   assert.match(corsi, /collegaPres\(c, presQr, iscritti, giornate \|\| \[\], \(\) => apriCorso\(c\.id\)\);/);
   assert.match(corsi, /c\.pres_codice \? \{ codice: c\.pres_codice, link: presQr\.link\?\.link \|\| '' \} : null\);/);

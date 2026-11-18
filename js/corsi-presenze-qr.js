@@ -92,7 +92,7 @@ export function sezionePres(c, p, iscritti, giornate) {
     if (!f.iscritto_id) n.ignote++;
   }
   const badge = (f) => f.stato === 'confermata' ? 'dt-ok' : f.stato === 'respinta' ? 'dt-scaduto' : '';
-  const riga = (f) => `<tr${f.fuori_orario && f.stato === 'ricevuta' ? ' style="background:#fff6f2"' : ''}>
+  const riga = (f) => `<tr data-pq-riga="${f.id}"${f.fuori_orario && f.stato === 'ricevuta' ? ' style="background:#fff6f2"' : ''}>
     <td class="num">${oraRoma(f.ora_server)}${f.ora_dispositivo && Math.abs(new Date(f.ora_dispositivo) - new Date(f.ora_server)) > 5 * 60000
       ? `<br><span class="hint" title="l'ora del telefono: indicativa, vale quella di arrivo">tel. ${oraRoma(f.ora_dispositivo)}</span>` : ''}</td>
     <td><strong>${esc(f.nominativo || '—')}</strong>${!f.iscritto_id ? `<br><span class="dt-cella dt-scaduto" style="padding:1px 6px">${esc(f.riferimento_esito || 'non riconosciuta')}</span>` : ''}</td>

@@ -322,6 +322,43 @@ button.hm-zero:hover,button.hm-zero:focus-visible{border-color:var(--arancio);co
   display:flex;flex-direction:column;box-shadow:-4px 0 24px rgba(0,0,0,.16)}
 /* scheda larga: la usa il dettaglio corso, che ha giornate/docenti/iscritti in tabella */
 .drawer.drawer-xl{width:min(1080px,96%)}
+/* scheda a tutta pagina: il corso, con le sue linguette (proposta A, 18/11/2026; js/corsi-scheda.js) */
+.drawer.drawer-pieno{width:calc(100% - 32px)}
+@media (max-width:760px){.drawer.drawer-pieno{width:100%}}
+.cs-testa{position:sticky;top:-20px;z-index:5;margin:-20px -20px 12px;background:#fff;border-bottom:1px solid var(--bordo)}
+.cs-numeri{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));border-bottom:1px solid var(--bordo)}
+.cs-num{all:unset;box-sizing:border-box;cursor:pointer;display:flex;flex-direction:column;gap:2px;padding:9px 14px 8px;border-right:1px solid var(--bordo);min-width:0}
+.cs-num:last-child{border-right:0}
+.cs-num:hover{background:var(--grigio-chiaro)}
+.cs-num:focus-visible{outline:2px solid var(--arancio);outline-offset:-2px}
+.cs-et{font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--testo-soft)}
+.cs-v{display:flex;align-items:center;gap:8px;font-size:22px;line-height:1.05}
+.cs-v .num{font-size:22px}
+.cs-v small{font-size:13px;color:var(--testo-soft);margin-left:2px}
+.cs-sotto{font-size:11.5px;color:var(--testo-soft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cs-num.cs-acceso{background:var(--arancio-chiaro);box-shadow:inset 0 -3px 0 var(--arancio)}
+.cs-num.cs-acceso .cs-v{color:var(--arancio-scuro)}
+.cs-num.cs-bene .cs-v{color:var(--in)}
+.cs-linguette{display:flex;flex-wrap:wrap;align-items:center;padding:0 8px}
+.cs-ling{all:unset;box-sizing:border-box;cursor:pointer;display:inline-flex;align-items:center;gap:6px;padding:9px 12px 8px;font-weight:600;font-size:13.5px;color:var(--testo-soft);border-bottom:3px solid transparent}
+.cs-ling:hover{color:var(--testo)}
+.cs-ling.on{color:var(--testo);border-bottom-color:var(--arancio)}
+.cs-ling:focus-visible{outline:2px solid var(--arancio);outline-offset:-2px}
+.cs-cont{font:600 11px/1 "JetBrains Mono",Consolas,monospace;padding:3px 5px;background:var(--grigio-chiaro);color:var(--testo)}
+.cs-cont.cs-caldo{background:var(--arancio);color:#fff}
+.cs-riletto{margin-left:auto;font-size:11.5px;color:var(--testo-soft);padding:0 6px}
+.cs-riletto.cs-errore{color:var(--out);font-weight:600}
+.cs-pallino{width:9px;height:9px;border-radius:50%!important;background:var(--arancio);display:inline-block;flex:none;animation:cs-pulsa 1.6s ease-out infinite}
+.cs-pallino.cs-bianco{background:#fff}
+@keyframes cs-pulsa{0%{box-shadow:0 0 0 0 rgba(231,80,15,.55)}80%,100%{box-shadow:0 0 0 9px rgba(231,80,15,0)}}
+.cs-avviso{display:flex;align-items:center;gap:10px;padding:8px 16px;background:var(--arancio);color:#fff;font-weight:600;font-size:14px}
+.cs-avviso .btn{background:#fff;color:#c44209;border-color:#fff}
+.cs-avviso-x{margin-left:auto;background:none;border:0;color:#fff;font-size:16px;cursor:pointer;opacity:.85}
+.cs-pann>hr:first-child,.cs-pann>.sez-hr:first-child{display:none}
+.cs-pann>h4:first-of-type{margin-top:4px!important}
+tr.pq-nuova td{animation:cs-lampo 4s ease-out 1}
+@keyframes cs-lampo{0%,40%{background:var(--arancio-chiaro)}100%{background:transparent}}
+@media (prefers-reduced-motion:reduce){.cs-pallino,tr.pq-nuova td{animation:none}tr.pq-nuova td{background:var(--arancio-chiaro)}}
 .drawer-head{display:flex;align-items:flex-start;justify-content:space-between;padding:16px 20px;
   border-bottom:1px solid var(--bordo);background:var(--grigio-chiaro)}
 .drawer-head.dir-IN{background:var(--in-bg)}

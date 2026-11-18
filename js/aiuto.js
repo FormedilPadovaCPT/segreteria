@@ -147,6 +147,22 @@ window.AIUTO_TESTI = {
 
   /* ── corsi e formazione ── */
   'co-nuovo': 'Crea un corso nuovo: poi giornate, docenti, iscritti e presenze.',
+  /* la scheda del corso a linguette (18/11/2026) */
+  'cs-n-iscritti': 'Gli iscritti al corso, senza annullati e sostituiti. Porta alla linguetta «Iscritti».',
+  'cs-n-firme': 'Le firme dal QR arrivate e non ancora confermate né respinte. Si rileggono da sole ogni 30 secondi. Porta alle firme.',
+  'cs-n-conf': 'Le firme dal QR confermate dal docente o da te: solo queste scrivono le presenze.',
+  'cs-n-quest': 'Quanti hanno compilato il questionario di gradimento. Porta a «Questionario e test».',
+  'cs-n-test': 'Le prove del test finale consegnate, e quante sono superate. Porta a «Questionario e test».',
+  'cs-n-att': 'Gli attestati già emessi su quanti sono gli iscritti. Porta a «Documenti e attestati», dove si generano.',
+  'cs-l-riepilogo': 'Dati del corso, stato, giornate e promemoria delle lezioni.',
+  'cs-l-docenti': 'Programma con i docenti, incarichi di docenza, lettere da firmare e compensi.',
+  'cs-l-iscritti': 'Chi partecipa: esito, frequenza, test, questionario e attestato, con quello che manca per l\'attestato.',
+  'cs-l-iscrizioni': 'Il modulo d\'iscrizione del portale: link, vetrina, chiusura e iscrizioni arrivate da confermare.',
+  'cs-l-firme': 'Le firme di presenza dal QR. Il pallino arancione dice che ce ne sono da guardare: le confermi tu o il docente.',
+  'cs-l-quest': 'Il questionario di gradimento e il test di verifica finale.',
+  'cs-l-documenti': 'Materiali da condividere, fascicolo del corso, registro, Allegato 1 e attestati.',
+  'cs-avviso-vai': 'Rilegge la scheda e apre le firme: le nuove si colorano per qualche secondo. Non conferma niente.',
+  'cs-avviso-chiudi': 'Chiude l\'avviso. Le firme restano da guardare: il numero nella barra resta acceso.',
   'co-addg': 'Aggiunge una giornata al calendario del corso.',
   'co-addint': 'Aggiunge un intervento con il suo docente.',
   'co-geninc': 'Propone gli incarichi di docenza a partire dai docenti messi nel programma.',

@@ -25,7 +25,7 @@
   --mono:"JetBrains Mono",Consolas,monospace;
   --barra:46px;
 }
-:root[data-veste="scrivania"] *:not(.spinner):not(.dot):not(.dt-dot):not(.man-pallino):not(kbd){border-radius:0 !important}
+:root[data-veste="scrivania"] *:not(.spinner):not(.dot):not(.dt-dot):not(.man-pallino):not(.cs-pallino):not(kbd){border-radius:0 !important}
 
 :root[data-veste="scrivania"] body{font-family:Barlow,"Segoe UI",Arial,sans-serif;font-size:13px;background:#fff}
 :root[data-veste="scrivania"] .btn,
@@ -202,6 +202,10 @@
 :root[data-veste="scrivania"] .drawer-head.dir-OUT{box-shadow:inset 0 3px 0 var(--out)}
 :root[data-veste="scrivania"] .drawer-head h3{font:700 16px/1.25 Barlow,sans-serif}
 :root[data-veste="scrivania"] .drawer-body{padding:12px 14px}
+:root[data-veste="scrivania"] .cs-testa{margin:-12px -14px 10px;top:-12px}
+:root[data-veste="scrivania"] .cs-v .num{font-size:22px}
+:root[data-veste="scrivania"] .cs-sotto{font-size:11.5px}
+:root[data-veste="scrivania"] .cs-ling{font:600 14.5px/1 "Barlow Condensed",Barlow,"Segoe UI",Arial,sans-serif;letter-spacing:.3px}
 :root[data-veste="scrivania"] .dl{gap:0;border:1px solid #eef0f3;border-bottom:0;grid-template-columns:130px 1fr;font-size:12.5px}
 :root[data-veste="scrivania"] .dl dt{padding:4px 10px;background:#f9fafb;border-bottom:1px solid #eef0f3;color:#6b7280;font-weight:500}
 :root[data-veste="scrivania"] .dl dd{padding:4px 8px;border-bottom:1px solid #eef0f3}

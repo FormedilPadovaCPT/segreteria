@@ -245,3 +245,6 @@
 :root[data-veste="scrivania"][data-tema="scuro"] .pz-busta{background:var(--superficie);border-color:var(--filetto)}
 :root[data-veste="scrivania"][data-tema="scuro"] .sal-tot .sal-scad{color:var(--testo-soft)}
 
+/* scheda del corso a linguette (18/11/2026) */
+:root[data-veste="scrivania"][data-tema="scuro"] .cs-testa{background:var(--superficie)}
+:root[data-veste="scrivania"][data-tema="scuro"] .cs-num:hover,:root[data-veste="scrivania"][data-tema="scuro"] .cs-cont{background:var(--superficie-2)}
