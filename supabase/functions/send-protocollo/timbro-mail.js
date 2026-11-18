@@ -9,6 +9,9 @@
    destinatario | mezzo, cartella | referente. Chiesto dall'utente il
    09/09/2026: «il formato che mettiamo anche nel cartaceo, quello
    completo con la banda arancione in alto».
+   (18/11/2026) La casella «cartella» col percorso del vault
+   (2_AREE/Team_Tecnici/…) resta anche nella mail: confermato
+   dall'utente, non va tolta.
 
    Scritto in HTML da posta (tabelle, stili inline, niente CSS
    esterno) perché deve reggere in Outlook. Il QR arriva come
