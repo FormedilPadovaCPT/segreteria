@@ -43,6 +43,9 @@ import { datiMancantiAttestato, riassuntoMancanti } from './corsi-anagrafica.js'
 import { datiProm, sezioneProm, sezioneMateriali, collegaProm, GIORNI_PREDEFINITI } from './corsi-promemoria.js';
 import { chiediDatiAttestato, generaAttestati, ristampaAttestato, inviaAttestatoSingolo, inviaAttestati, revocaAttestato } from './corsi-attestati.js';
 
+/* (18/11/2026, avviso CodeQL) il testo senza tag: si toglie finché ce n'è, poi i < > rimasti */
+const senzaTag = (t) => { let s = String(t || ''), prima; do { prima = s; s = s.replace(/<[^>]*>/g, ''); } while (s !== prima); return s.replace(/[<>]/g, ''); };
+
 let corsi = [];
 let progetti = [];
 let conteggi = {};       // corso_id -> { iscritti, attestati }
@@ -186,7 +189,7 @@ function formCorso(c, prefill = {}) {
       v.tipologia_id && !tipOpz.some((x) => x.id === v.tipologia_id) ? `<option value="${v.tipologia_id}" selected>${esc(tipCorrente?.titolo || `tipologia ${v.tipologia_id}`)} (com'è scritto)</option>` : ''}</select>`;
   apriDrawer(c ? `Corso n° ${c.id} — dati` : 'Nuovo corso', '', `
     <div class="field"><label>Tipologia di corso (catalogo)</label>${tipHtml}
-      <p class="hint" id="fc-tip-nota" style="margin:2px 0 0">${c?.id ? esc(etichettaTipologia(c).replace(/<[^>]*>/g, '').replace(/[<>]/g, '')) : 'Scegliendola, i campi qui sotto si propongono dal catalogo e il corso congela la scheda formativa vigente.'}</p></div>
+      <p class="hint" id="fc-tip-nota" style="margin:2px 0 0">${c?.id ? esc(senzaTag(etichettaTipologia(c))) : 'Scegliendola, i campi qui sotto si propongono dal catalogo e il corso congela la scheda formativa vigente.'}</p></div>
     <div class="field"><label>Titolo *</label><input id="fc-titolo" value="${esc(v.titolo || '')}"></div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
       <div class="field"><label>Tipo</label>${sel('tipo', v.tipo || 'corso', TIPI)}</div>

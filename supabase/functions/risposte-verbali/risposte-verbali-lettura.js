@@ -23,6 +23,9 @@ import { decodificaOggetto, VERBALE_RE } from './mail-respinte-lettura.js';
    dei rimbalzi, questo inoltro) portano il numero del verbale nell'oggetto */
 export const INTERNI_RE = /@(?:[a-z0-9-]+\.)*(?:formedilpadova\.it|scuolaedilepadova\.(?:it|net))$/i;
 const RAPPORTI_RE = /^(?:mailer-daemon|postmaster)@/i;
+/* (18/11/2026) una sostituzione ripetuta finché il testo non cambia più: per togliere i tag
+   annidati («<scr<script>ipt>»), che un solo passaggio lascerebbe ricomposti */
+const finoAStabile = (s, re, sost) => { let prima; do { prima = s; s = s.replace(re, sost); } while (s !== prima); return s; };
 
 /* ── le risposte automatiche ──
    Fuori sede, conferme di lettura, ricevute della PEC: al tecnico non
@@ -54,7 +57,7 @@ export function indirizzo(da) {
 
 export function nomeMittente(da) {
   /* (18/11/2026, avvisi CodeQL della segreteria) tolto l'indirizzo fra < >, non resta nessun < o > */
-  const s = decodificaOggetto(String(da || '')).replace(/<[^>]*>/g, '').replace(/[<>"]/g, '').trim();
+  const s = finoAStabile(decodificaOggetto(String(da || '')), /<[^>]*>/g, '').replace(/[<>"]/g, '').trim();
   return s && !s.includes('@') ? s : indirizzo(da);
 }
 
@@ -98,7 +101,6 @@ export function classifica(headers) {
 /* (18/11/2026, avvisi CodeQL della segreteria) i tag si tolgono finché ce n'è («<scr<script>ipt>»
    lascerebbe «<script>» con un solo passaggio) e i < > rimasti si tolgono; i &lt; &gt; scritti nel
    testo della mail tornano < > solo dopo, come testo */
-const finoAStabile = (s, re, sost) => { let prima; do { prima = s; s = s.replace(re, sost); } while (s !== prima); return s; };
 export function testoDaHtml(html) {
   let s = finoAStabile(String(html || ''), /<(head|style|script)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, '');
   s = s.replace(/<br\s*\/?>/gi, '\n').replace(/<\/(p|div|tr|li|h[1-6]|blockquote|table)>/gi, '\n');
