@@ -69,7 +69,10 @@ begin
            'n', (select string_agg(left(p, 1) || '.', ' ')
                    from unnest(string_to_array(regexp_replace(coalesce(i.nominativo, ''), '\s+', ' ', 'g'), ' ')) p
                   where p <> ''),
-           's', (select jsonb_object_agg(k, il) from (
+           -- solo con questionari-ricevi che conosce 's' (v9 sul progetto Servizi):
+           -- prima di allora il portale rifiutava l'intera pubblicazione
+           's', case when (select valore from public.s_config where chiave = 'pres_sblocchi_portale') = 'si' then
+                (select jsonb_object_agg(k, il) from (
                    select to_char(g.data, 'YYYY-MM-DD') || '|' || coalesce(f.turno::text, '') || '|' || f.tipo as k,
                           max(f.confermata_il) as il
                      from public.s_corsi_firme_presenza f
@@ -77,7 +80,7 @@ begin
                     where f.iscritto_id = i.id and f.stato = 'respinta' and f.tipo is not null
                       and f.confermata_il is not null
                       and coalesce(f.confermata_da, '') not like 'automatico%'
-                    group by 1) sb)))), '[]'::jsonb)
+                    group by 1) sb) end))), '[]'::jsonb)
     into v_pers
     from public.s_corsi_iscritti i
    where i.corso_id = r.id and i.test_codice is not null
@@ -110,3 +113,8 @@ end $$;
 drop trigger if exists trg_s_corsi_firme_presenza_sblocco on public.s_corsi_firme_presenza;
 create trigger trg_s_corsi_firme_presenza_sblocco after update of stato on public.s_corsi_firme_presenza
   for each row execute function public.trg_firme_presenza_sblocco();
+
+-- interruttore: 'si' solo dopo il deploy di questionari-ricevi v9 sul progetto Servizi
+insert into public.s_config (chiave, valore, descrizione) values ('pres_sblocchi_portale', 'no',
+  'Firme dal QR: manda al portale gli sblocchi del tutor (persone[].s). ''si'' solo se questionari-ricevi li accetta (v9, 18/11/2026).')
+on conflict (chiave) do nothing;

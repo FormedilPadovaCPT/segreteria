@@ -192,7 +192,18 @@ function controllaPres(r: Record<string, unknown>): string | null {
   for (const p of r.persone as Record<string, unknown>[]) {
     /* a (14/10/2026): impronta di codice + anno di nascita, quando l'anno è
        ricavabile — mai l'anno in chiaro */
-    for (const k of Object.keys(p)) if (k !== 'h' && k !== 'n' && k !== 'a') return `campo non previsto in persone: ${k}`
+    for (const k of Object.keys(p)) if (k !== 'h' && k !== 'n' && k !== 'a' && k !== 's') return `campo non previsto in persone: ${k}`
+    /* s (18/11/2026): gli sblocchi del tutor, { "aaaa-mm-gg|turno|entrata|uscita": ora }:
+       una firma arrivata prima dello sblocco non blocca più la persona */
+    if (p.s != null) {
+      if (typeof p.s !== 'object' || Array.isArray(p.s)) return 'sblocchi non validi'
+      const sb = Object.entries(p.s as Record<string, unknown>)
+      if (sb.length > 60) return 'sblocchi: al massimo 60 per persona'
+      for (const [k, v] of sb) {
+        if (!/^\d{4}-\d{2}-\d{2}\|\d{0,2}\|(entrata|uscita)$/.test(k)) return `sblocco non valido: ${k.slice(0, 40)}`
+        if (!(typeof v === 'string' && v.length <= 40 && !Number.isNaN(Date.parse(v)))) return 'ora dello sblocco non valida'
+      }
+    }
     if (!(typeof p.h === 'string' && /^[0-9a-f]{64}$/.test(p.h))) return 'impronta del codice personale non valida'
     if (p.a != null && !(typeof p.a === 'string' && /^[0-9a-f]{64}$/.test(p.a))) return 'impronta dell\'anno non valida'
     if (!(typeof p.n === 'string' && /^([A-ZÀ-Ý]\.\s?){1,4}$/.test(p.n.trim() + ' '))) return `qui vanno le iniziali, non un nome: ${String(p.n).slice(0, 30)}`
