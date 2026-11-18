@@ -50,7 +50,7 @@ import { caricaLogo } from './firma-logo.js'
 // ⚠️ anche questo è una COPIA di js/corsi-promemoria-testo.js: le regole
 // (quali lezioni, a chi, con che testo) si provano con `node --test`.
 // @ts-ignore modulo JS senza tipi
-import { corsoRicorda, giornateDaRicordare, giorniFra, iscrittiDaAvvisare, indirizzoDi, raggruppaPerIndirizzo, testoPromemoria, firmeQrAperte } from './corsi-promemoria-testo.js'
+import { corsoRicorda, giornateDaRicordare, giorniFra, iscrittiDaAvvisare, indirizzoDi, raggruppaPerIndirizzo, testoPromemoria, firmeQrAperte, testoConfermaIscrizione } from './corsi-promemoria-testo.js'
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -79,6 +79,133 @@ type Giornata = { id: number; corso_id: number; data: string; dalle: string | nu
 type Iscritto = { id: number; corso_id: number; persona_id: string | null; impresa_id: string | null; nominativo: string; email_iscrizione: string | null; esito: string | null; test_codice: string | null }
 type Quaderno = { id: number; giornata_id: number; iscritto_id: number; data_lezione: string; prenotato_il: string; inviato_il: string | null; esito: string | null }
 
+/* ══ LA CONFERMA DELL'ISCRIZIONE (18/11/2026, deciso dall'utente) ══════════
+   Quando la segreteria preme «Conferma le iscrizioni», agli iscritti nati da
+   quella richiesta parte da sola la mail «Iscrizione confermata» col codice
+   per firmare (tredicesima eccezione: niente di scritto a mano, tutto dal
+   database). Mai prima della conferma, mai a chi si è registrato in sala, mai
+   per un evento già passato, mai due volte: ogni iscritto si PRENOTA prima di
+   spedire (conferma_mail_prenotata_il) e a invio riuscito prende
+   conferma_mail_il. Chi non ha un indirizzo resta segnato «senza indirizzo». */
+async function confermaIscrizione(sb: ReturnType<typeof createClient>, iscrizioneId: number) {
+  const out = { ok: true, iscrizione_id: iscrizioneId, inviate: 0, non_inviate: 0, senza_indirizzo: [] as string[],
+    gia_avvisati: 0, saltata: null as string | null, errori: [] as string[], codici: true }
+  const { data: r, error: eR } = await sb.from('s_iscrizioni').select('id, corso_id, stato, in_sala').eq('id', iscrizioneId).maybeSingle()
+  if (eR) throw new Error('Non sono riuscito a leggere la richiesta: ' + eR.message)
+  if (!r) throw new Error('Richiesta ' + iscrizioneId + ' non trovata')
+  if (r.in_sala) { out.saltata = 'registrazione in sala: la presenza la conferma la segreteria, niente mail'; return out }
+  if (r.stato !== 'confermata') { out.saltata = 'la richiesta non è confermata'; return out }
+
+  const [{ data: c, error: eC }, { data: gg, error: eG }] = await Promise.all([
+    sb.from('s_corsi').select('id, titolo, stato, promemoria_giorni, sede, modalita, pres_codice, pres_chiuso_il').eq('id', r.corso_id).maybeSingle(),
+    sb.from('s_corsi_giornate').select('id, corso_id, data, dalle, alle, dalle2, alle2, sede, aula').eq('corso_id', r.corso_id),
+  ])
+  if (eC || !c) throw new Error('Non sono riuscito a leggere il corso: ' + (eC?.message || 'non trovato'))
+  if (eG) throw new Error('Non sono riuscito a leggere le giornate: ' + eG.message)
+  const giornate = (gg || []) as Giornata[]
+  const oggi = oggiRoma()
+  if (!giornate.some((g) => g.data && giorniFra(oggi, g.data) >= 0)) { out.saltata = 'evento già passato: niente mail'; return out }
+
+  /* i codici: a chi non ce l'ha; se le firme dal QR sono aperte, si
+     ripubblicano subito, perché un codice che il portale non conosce farebbe
+     rifiutare la firma. Se la ripubblicazione non riesce la mail parte lo
+     stesso: il codice vale quando le firme si ripubblicano (lo fa anche il
+     promemoria del giorno prima), e l'errore resta scritto. */
+  const { error: eCod } = await sb.rpc('corso_codici_personali', { p_corso_id: c.id })
+  if (eCod) { out.codici = false; out.errori.push('codici personali non assegnati: ' + eCod.message) }
+  if (!eCod && firmeQrAperte(c)) {
+    try {
+      const { data: cfgQ } = await sb.from('s_config').select('valore').eq('chiave', 'questionari_token').maybeSingle()
+      if (!cfgQ?.valore) throw new Error('manca questionari_token in s_config')
+      const rq = await fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/questionari-pubblica`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')}`, 'X-Questionari-Token': cfgQ.valore },
+        body: JSON.stringify({ cosa: 'presenza', corso_id: c.id }),
+      })
+      const o = await rq.json().catch(() => ({}))
+      if (!rq.ok || o.status !== 'ok') throw new Error(o.esito || o.error || `HTTP ${rq.status}`)
+    } catch (e) {
+      out.errori.push('firme non ripubblicate sul portale: ' + (e as Error).message)
+    }
+  }
+
+  const { data: ii, error: eI } = await sb.from('s_corsi_iscritti')
+    .select('id, corso_id, persona_id, impresa_id, nominativo, email_iscrizione, esito, test_codice, conferma_mail_il, conferma_mail_prenotata_il, conferma_mail_esito')
+    .eq('iscrizione_id', iscrizioneId).order('nominativo')
+  if (eI) throw new Error('Non sono riuscito a leggere gli iscritti: ' + eI.message)
+  const iscritti = iscrittiDaAvvisare(ii || []) as (Iscritto & Riga)[]
+  const pIds = [...new Set(iscritti.map((i) => i.persona_id).filter(Boolean))] as string[]
+  const impIds = [...new Set(iscritti.map((i) => i.impresa_id).filter(Boolean))] as string[]
+  const [rp, ri] = await Promise.all([
+    pIds.length ? sb.from('persone').select('persona_id, email, email2').in('persona_id', pIds) : Promise.resolve({ data: [], error: null }),
+    impIds.length ? sb.from('imprese').select('impresa_id, email').in('impresa_id', impIds) : Promise.resolve({ data: [], error: null }),
+  ])
+  if (rp.error) throw new Error('Non sono riuscito a leggere le persone: ' + rp.error.message)
+  if (ri.error) throw new Error('Non sono riuscito a leggere le imprese: ' + ri.error.message)
+  const persDi = Object.fromEntries((rp.data || []).map((p: Riga) => [p.persona_id, p]))
+  const impDi = Object.fromEntries((ri.data || []).map((p: Riga) => [p.impresa_id, p]))
+
+  const scaduta = new Date(Date.now() - PRENOTAZIONE_MINUTI * 60_000).toISOString()
+  const daFare: { iscritto_id: number; nominativo: string; email: string | null; origine: string | null; codice: string | null }[] = []
+  for (const i of iscritti) {
+    if (i.conferma_mail_il) { out.gia_avvisati++; continue }
+    if (i.conferma_mail_prenotata_il && !i.conferma_mail_esito && String(i.conferma_mail_prenotata_il) > scaduta) continue
+    const ind = indirizzoDi(i, persDi[i.persona_id || ''] || null, impDi[i.impresa_id || ''] || null)
+    daFare.push({ iscritto_id: i.id, nominativo: i.nominativo, email: ind.email, origine: ind.origine, codice: out.codici ? (i.test_codice || null) : null })
+  }
+  const { gruppi, senza } = raggruppaPerIndirizzo(daFare)
+  for (const x of senza) {
+    out.senza_indirizzo.push(x.nominativo)
+    await sb.from('s_corsi_iscritti').update({ conferma_mail_esito: 'senza indirizzo' }).eq('id', x.iscritto_id)
+  }
+
+  const logo = await caricaLogo()
+  const sa = JSON.parse(Deno.env.get('GOOGLE_SERVICE_ACCOUNT_JSON') || '{}')
+  let token = ''
+  for (const gr of gruppi) {
+    /* la prenotazione: si prende solo chi non è partito e non è in partenza */
+    const ids = (gr.righe as typeof daFare).map((x) => x.iscritto_id)
+    const { data: prese, error: eP } = await sb.from('s_corsi_iscritti')
+      .update({ conferma_mail_prenotata_il: new Date().toISOString(), conferma_mail_esito: null, conferma_mail_a: gr.email })
+      .in('id', ids).is('conferma_mail_il', null)
+      .or(`conferma_mail_prenotata_il.is.null,conferma_mail_esito.not.is.null,conferma_mail_prenotata_il.lt.${scaduta}`)
+      .select('id')
+    if (eP) { out.errori.push(`${gr.email}: prenotazione non riuscita (${eP.message})`); continue }
+    const presi = new Set((prese || []).map((x: Riga) => Number(x.id)))
+    const righe = (gr.righe as typeof daFare).filter((x) => presi.has(x.iscritto_id))
+    if (!righe.length) continue
+    const idsPresi = righe.map((x) => x.iscritto_id)
+    try {
+      const t = testoConfermaIscrizione({ corso: c, giornate, partecipanti: righe, contatto: MITTENTE_UFFICIALE, promemoria: !!c.promemoria_giorni })
+      let html = paginaHtml(t.firmaHtml ? `${corpoInHtml(t.corpoPrima)}\n${t.firmaHtml}\n${corpoInHtml(t.corpoDopo)}` : corpoInHtml(t.corpo))
+      if (!logo.ok) html = html.replace(new RegExp(`<img[^>]*cid:${LOGO_FIRMA_CID.replace(/[.*+?^$()|[\]\\{}]/g, '\\$&')}[^>]*>`), '')
+      const mime = componiEml({
+        from: `${NOME_MITTENTE} <${SOGGETTO_ENTE}>`, replyTo: MITTENTE_UFFICIALE,
+        to: gr.email, oggetto: oggettoUfficio(t.oggetto), corpo: t.corpo, html, unsent: false,
+      })
+      if (!token) token = await getToken(sa, SCOPE_GMAIL)
+      const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+        method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ raw: toB64Url(mime) }),
+      })
+      const o = await res.json()
+      if (!res.ok || o.error) throw new Error(o.error?.message || `Gmail ha risposto ${res.status}`)
+      const { error: eS } = await sb.from('s_corsi_iscritti').update({
+        conferma_mail_il: new Date().toISOString(), conferma_mail_esito: logo.ok ? 'inviata' : `inviata (senza logo: ${logo.motivo})`,
+      }).in('id', idsPresi)
+      if (eS) out.errori.push(`${gr.email}: inviata, ma non sono riuscito a registrarlo (${eS.message})`)
+      out.inviate += idsPresi.length
+    } catch (e) {
+      const msg = (e as Error).message
+      await sb.from('s_corsi_iscritti').update({ conferma_mail_esito: `non inviata: ${msg}`.slice(0, 500) }).in('id', idsPresi)
+      out.non_inviate += idsPresi.length
+      out.errori.push(`${gr.email}: ${msg}`)
+    }
+  }
+  if (out.errori.length || out.non_inviate) out.ok = out.non_inviate === 0
+  return out
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
   const sb = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
@@ -105,6 +232,12 @@ serve(async (req) => {
     }
 
     const corpoReq = await req.json().catch(() => ({}))
+    /* (18/11/2026) la conferma di un'iscrizione: la chiama l'app segreteria
+       subito dopo «Conferma le iscrizioni»; il giro quotidiano non la fa */
+    const confId = Number(corpoReq?.conferma_iscrizione)
+    if (!delGiro && Number.isInteger(confId) && confId > 0) {
+      return json({ chi, ...(await confermaIscrizione(sb, confId)) })
+    }
     prova = !delGiro && corpoReq?.prova === true
     const soloCorso = !delGiro && Number.isInteger(Number(corpoReq?.corso_id)) && Number(corpoReq.corso_id) > 0 ? Number(corpoReq.corso_id) : null
     const soloGiornata = !delGiro && Number.isInteger(Number(corpoReq?.giornata_id)) && Number(corpoReq.giornata_id) > 0 ? Number(corpoReq.giornata_id) : null

@@ -250,6 +250,57 @@ export function testoPromemoria({ corso, giornata, giornate = [], partecipanti =
   return { oggetto, corpo, aPersona, firmaHtml: firma.html, corpoPrima: pulisci(prima), corpoDopo: pulisci(resto) };
 }
 
+/* ══════════ la conferma dell'iscrizione (18/11/2026) ══════════
+   Chiesta dall'utente: chi si iscrive deve avere una traccia certa di essere
+   iscritto, col codice per firmare. Parte QUANDO LA SEGRETERIA CONFERMA
+   (non prima: per un convegno la conferma è una scelta), da sola, ed è la
+   tredicesima eccezione alla regola «l'app prepara, la persona manda»: come il
+   promemoria, porta solo quello che sta nel database. Una mail per indirizzo,
+   col codice di ciascuno nel riquadro arancione. */
+
+/** Il testo della conferma.
+ *  corso, giornate (tutte), partecipanti ([{ nominativo, origine, codice }]),
+ *  contatto, promemoria (true se il corso manda il promemoria) → come testoPromemoria. */
+export function testoConfermaIscrizione({ corso, giornate = [], partecipanti = [], contatto = '', promemoria = false } = {}) {
+  const titolo = corso?.titolo ? `«${corso.titolo}»` : 'il corso';
+  const tutte = [...giornate].filter((g) => g.data).sort((a, b) => iso(a.data).localeCompare(iso(b.data)) || (a.id || 0) - (b.id || 0));
+  const aPersona = partecipanti.length === 1 && partecipanti[0].origine !== 'impresa';
+  const apertura = aPersona
+    ? [partecipanti[0].nominativo ? `Gentile ${partecipanti[0].nominativo},` : 'Buongiorno,', '',
+      `le confermiamo l’iscrizione a ${titolo}.`]
+    : ['Buongiorno,', '',
+      `vi confermiamo l’iscrizione a ${titolo} ${partecipanti.length === 1 ? 'del partecipante' : 'dei partecipanti'}:`,
+      partecipanti.map((p) => `- ${p.nominativo}`).join('\n')];
+
+  const righeQuando = tutte.map((g) => {
+    const o = orarioEsteso(g);
+    return `${dataEstesa(g.data)}${o ? `, ${o}` : ''}`;
+  });
+  const g0 = tutte[0] || {};
+  const dove = [g0.sede || corso?.sede, g0.aula].filter(Boolean).join(' - ');
+  const dettagli = [
+    righeQuando.length === 1 ? `**Quando:** ${righeQuando[0]}` : (righeQuando.length ? `**Quando:**\n${righeQuando.map((r) => `- ${r}`).join('\n')}` : ''),
+    dove ? `**Dove:** ${dove}` : '',
+    corso?.modalita === 'videoconferenza' ? '**Modalità:** videoconferenza' : '',
+  ].filter(Boolean);
+
+  const firma = firmaPresenza(partecipanti, g0, { aPersona });
+  const pulisci = (righe) => righe.filter((x, i, a) => !(x === '' && a[i - 1] === '')).join('\n').trim();
+  const prima = [...apertura, '', ...dettagli];
+  const resto = [
+    '',
+    promemoria ? `Prima ${tutte.length > 1 ? 'di ogni lezione' : 'dell’evento'} ${aPersona ? 'riceverà' : 'riceverete'} un promemoria con lo stesso codice.` : '',
+    '',
+    `Se ${aPersona ? 'non può partecipare, la preghiamo di avvisarci' : 'qualcuno non può partecipare, vi preghiamo di avvisarci'} rispondendo a questa mail${contatto ? ` o scrivendo a ${contatto}` : ''}.`,
+    '',
+    'Cordiali saluti.',
+  ];
+  const corpo = pulisci([...prima, ...firma.righe, ...resto]);
+  const oggetto = `Iscrizione confermata - ${corso?.titolo || `corso n° ${corso?.id}`}${tutte.length ? ` - ${dataEstesa(tutte[0].data)}` : ''}${
+    firma.conCodice ? (aPersona ? ' - il suo codice per la firma' : ' - i codici per la firma') : ''}`;
+  return { oggetto, corpo, aPersona, firmaHtml: firma.html, corpoPrima: pulisci(prima), corpoDopo: pulisci(resto) };
+}
+
 /* ══════════ i materiali del corso ══════════ */
 
 /** I materiali buoni: con un titolo e un link http(s). */

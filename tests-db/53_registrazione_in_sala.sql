@@ -58,5 +58,21 @@ begin
 
   raise notice 'OK registrazione in sala';
 end $$;
+/* (18/11/2026) la conferma ricorda da quale richiesta nasce l'iscritto e dice se era in sala:
+   è quello che usa promemoria-corsi per mandare la mail «Iscrizione confermata» */
+do $$
+declare v_corso bigint; d date := (now() at time zone 'Europe/Rome')::date; v_n bigint; r jsonb;
+begin
+  insert into public.s_corsi (titolo, tipo, stato, data_inizio, sede) values ('Prova conferma', 'convegno', 'aperto', d, 'Padova') returning id into v_corso;
+  insert into public.s_corsi_giornate (corso_id, data, dalle, alle) values (v_corso, d, '09:30', '12:00');
+  insert into public.s_iscrizioni (corso_id, fonte, stato, per_conto, referente, email, persone)
+  values (v_corso, 'portale', 'nuova', 'persona', 'NERI PIO', 'pio@example.com',
+          '[{"cognome":"NERI","nome":"PIO","cf":"NREPIO80A01H501Y"},{"cognome":"GIALLI","nome":"EVA","cf":"GLLEVA80A41H501Z"}]') returning id into v_n;
+  r := public.iscr_conferma(v_n, '[]'::jsonb, null, null);
+  assert jsonb_array_length(r -> 'iscritti_id') = 2, 'ritorna gli id: ' || r::text;
+  assert (r ->> 'in_sala')::boolean = false, 'non in sala';
+  assert (select count(*) from public.s_corsi_iscritti where iscrizione_id = v_n) = 2, 'iscrizione_id scritto';
+  raise notice 'OK conferma con iscrizione_id';
+end $$;
 
 rollback;

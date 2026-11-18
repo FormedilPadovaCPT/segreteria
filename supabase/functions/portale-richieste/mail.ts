@@ -43,6 +43,7 @@ export const TIPO_LABEL: Record<string, string> = {
   rlst: 'Affidamento RLST', rls: 'Comunicazione RLS', conf: 'Conferenza di Cantiere',
   vis: 'Visita in Cantiere', cons: 'Richiesta Consulenza', att: 'Attestazione DM 132/2024',
   not: 'Notifica Cantiere', seg: 'Segnalazione Cantiere', qst: 'Questionario Sopralluogo',
+  isc: 'Iscrizione a un evento',
 }
 
 const TITOLO_CONFERMA: Record<string, string> = {
@@ -55,6 +56,7 @@ const TITOLO_CONFERMA: Record<string, string> = {
   not: 'Notifica Cantiere ricevuta',
   seg: 'Segnalazione Cantiere ricevuta',
   qst: 'Questionario ricevuto',
+  isc: 'Richiesta di iscrizione ricevuta',
 }
 
 /* deep link dell'app segreteria per tipo: #<prefisso>-<id> apre la pratica */
@@ -526,7 +528,11 @@ export function destinatariGradimento(tecnici: { email?: unknown }[], coordinato
 }
 
 /* ── CONFERMA A CHI COMPILA ─────────────────────────────────────────────── */
-export function mailConferma(tipo: string, d: Dati, prog: number): { oggetto: string; html: string } {
+/* evento (18/11/2026): per l'iscrizione, titolo, giornate e sede LETTI DAL
+   DATABASE (non da quel che ha scritto chi compila): la ricevuta deve dire a
+   che cosa ci si è iscritti, senza diventare un testo scelto da chiunque */
+export type EventoRicevuta = { titolo: string; quando: string[]; sede: string | null }
+export function mailConferma(tipo: string, d: Dati, prog: number, evento: EventoRicevuta | null = null): { oggetto: string; html: string } {
   const label = TIPO_LABEL[tipo] || tipo
   const titolo = TITOLO_CONFERMA[tipo] || (label + ' ricevuta')
   const quando = mailDataOra()
@@ -541,7 +547,14 @@ export function mailConferma(tipo: string, d: Dati, prog: number): { oggetto: st
      Comunicazione RLS», non «la vostra richiesta Comunicazione RLS»
      (utente, 15/09/2026) */
   const cosa = tipo === 'rls' || tipo === 'not' ? '' : 'richiesta '
-  const corpo = tipo === 'seg' ? `
+  const corpo = tipo === 'isc' ? `
+      <p style="margin:0 0 12px">Gentile utente,</p>
+      <p style="margin:0 0 12px">abbiamo ricevuto il <strong>${escHtml(quando)}</strong> la vostra richiesta di iscrizione a:</p>
+      <p style="margin:0 0 12px;padding:12px 16px;border-left:4px solid ${MAIL.ARANCIO};background:#fdf3ee"><strong>${escHtml(evento?.titolo || 'evento di Formedil Padova')}</strong>${
+        (evento?.quando || []).map((q) => `<br>${escHtml(q)}`).join('')}${evento?.sede ? `<br>${escHtml(evento.sede)}` : ''}</p>
+      <p style="margin:0 0 12px">La segreteria controlla i dati e vi <strong>conferma il posto con un'altra e-mail</strong>, che porta anche il codice personale per firmare la presenza. Fino ad allora il posto non è ancora assegnato.</p>
+      <p style="margin:0">Per qualsiasi comunicazione citate il numero di ricevuta.</p>${nonVoi}`
+    : tipo === 'seg' ? `
       <p style="margin:0 0 12px">Gentile utente,</p>
       <p style="margin:0 0 12px">grazie per la collaborazione: abbiamo ricevuto la vostra Segnalazione Cantiere il <strong>${escHtml(quando)}</strong>.</p>
       <p style="margin:0">Il nostro ufficio prenderà in carico la pratica nel più breve tempo possibile. Il nome di chi segnala resta riservato e non viene comunicato all'impresa.</p>${nonVoi}`
@@ -567,12 +580,12 @@ export function mailConferma(tipo: string, d: Dati, prog: number): { oggetto: st
   <tr><td style="padding:26px 32px 0;font-family:${MAIL.FONT};font-size:14.5px;color:${MAIL.INK};line-height:1.7">
     ${corpo}
   </td></tr>
-  <tr><td style="padding:22px 32px 0">
+  ${tipo === 'isc' ? '' /* un corso o un convegno non è un servizio: la quota la dice il listino, non questa riga */ : `<tr><td style="padding:22px 32px 0">
     <table width="100%" cellpadding="0" cellspacing="0"><tr>
       <td style="background:#eaf3de;border-left:4px solid ${MAIL.VERDE};padding:13px 16px;font-family:${MAIL.FONT};font-size:13.5px;color:#3b6d11;line-height:1.6">
         I servizi di Formedil Padova sono <strong>completamente gratuiti</strong> per le imprese iscritte alla CEIV in regola con i versamenti.</td>
     </tr></table>
-  </td></tr>
+  </td></tr>`}
   <tr><td style="padding:26px 32px 0">
     <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid ${MAIL.RIGA}"><tr>
       <td style="padding:18px 20px;width:50%;border-right:1px solid ${MAIL.RIGA};vertical-align:top">
@@ -589,7 +602,7 @@ export function mailConferma(tipo: string, d: Dati, prog: number): { oggetto: st
   </td></tr>`
 
   /* «FORMEDIL Padova -AREA SICUREZZA E SALUTE-» davanti lo mette messaggioMime */
-  return { oggetto: `${label} – ricevuta n. ${prog}`, html: mailDocumento(righe) }
+  return { oggetto: tipo === 'isc' && evento?.titolo ? `Iscrizione: ${evento.titolo} – ricevuta n. ${prog}` : `${label} – ricevuta n. ${prog}`, html: mailDocumento(righe) }
 }
 
 /* ── messaggio MIME per l'API Gmail ─────────────────────────────────────── */

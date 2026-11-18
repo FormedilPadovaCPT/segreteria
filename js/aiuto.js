@@ -172,7 +172,7 @@ window.AIUTO_TESTI = {
   'iz-sala-foglio': 'Stampa il foglio col QR per chi arriva senza iscrizione: si registra dal telefono, la presenza la confermi tu dopo.',
   'iz-sala-solo': 'La persona era già iscritta: scrive solo le sue firme di entrata e uscita, senza iscriverla due volte.',
   'iz-chiudi': 'Chiude le iscrizioni: il modulo sul portale non accetta più risposte.',
-  'iz-conferma': 'Conferma le iscrizioni selezionate e prepara le mail di conferma.',
+  'iz-conferma': 'Conferma le iscrizioni selezionate: a ciascuno parte da sola la mail di conferma col suo codice per firmare.',
   'qz-apri': 'Apre il questionario di gradimento dell\'evento, con il QR da proiettare o stampare.',
   'co-anagrafiche': 'Scarica l\'Allegato 1 (cognome, nome e codice fiscale dei partecipanti, con dati del corso e firme di docente e responsabile) e la pagina dell\'analisi aula (azienda e mansione). Il registro non porta i codici fiscali.',
   'qz-apre': 'Da quando il questionario risponde (per esempio a fine incontro). Vuoto = da subito. Codice e QR nascono comunque adesso, e si stampano.',

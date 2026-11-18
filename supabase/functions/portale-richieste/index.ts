@@ -89,6 +89,7 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { getToken, SCOPE_DRIVE, SCOPE_GMAIL } from '../_shared/google.ts'
 import { destinatariGradimento, EMAIL_UFFICIO, mailConferma, mailInterna, mailTecnico, messaggioMime } from './mail.ts'
+import type { EventoRicevuta } from './mail.ts'
 import { cantiereDaModulo } from './cantiere-visita.js'
 
 const CORS = {
@@ -418,6 +419,32 @@ async function agganciaPropostaTest(sb: SB, d: Dati): Promise<Dati> {
    ⚠️ Chiuse o piene, l'iscrizione entra lo stesso (oltre_tetto = true) e la
    segreteria decide: perdere chi ha fatto in tempo per un secondo sarebbe il
    modo peggiore di sbagliare. */
+/* titolo, giornate e sede dell'evento di un'iscrizione, per la ricevuta.
+   Una lettura che non riesce non ferma la ricevuta: parte col solo titolo
+   generico, e la segreteria vede la richiesta nella coda */
+async function eventoDiIscrizione(sb: SB, iscrizioneId: number): Promise<EventoRicevuta | null> {
+  try {
+    const { data: r } = await sb.from('s_iscrizioni').select('corso_id').eq('id', iscrizioneId).maybeSingle()
+    if (!r?.corso_id) return null
+    const [{ data: c }, { data: gg }] = await Promise.all([
+      sb.from('s_corsi').select('titolo, sede').eq('id', r.corso_id).maybeSingle(),
+      sb.from('s_corsi_giornate').select('data, dalle, alle, dalle2, alle2, sede, aula').eq('corso_id', r.corso_id).order('data'),
+    ])
+    if (!c?.titolo) return null
+    const hm = (t: unknown) => (t ? String(t).slice(0, 5) : '')
+    const quando = (gg || []).map((g: Dati) => {
+      const giorno = new Intl.DateTimeFormat('it-IT', { timeZone: 'Europe/Rome', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+        .format(new Date(String(g.data) + 'T12:00:00Z'))
+      const ore = g.dalle ? ` · ${hm(g.dalle)}${g.alle ? '–' + hm(g.alle) : ''}${g.dalle2 ? ` e ${hm(g.dalle2)}${g.alle2 ? '–' + hm(g.alle2) : ''}` : ''}` : ''
+      return giorno + ore
+    })
+    const sedeG = (gg || []).map((g: Dati) => g.aula || g.sede).find(Boolean)
+    return { titolo: String(c.titolo), quando, sede: (c.sede as string) || (sedeG as string) || null }
+  } catch {
+    return null
+  }
+}
+
 async function agganciaIscrizione(sb: SB, d: Dati): Promise<Dati> {
   const rif = String(d.riferimento ?? '').trim()
   const { data, error } = await sb.rpc('iscr_verifica', { p_riferimento: rif.slice(0, 200) })
@@ -1350,7 +1377,20 @@ async function lavora(sb: SB, sa: Dati, d: Dati, tipo: string, m: Modulo, subId:
     }
   }
   if (emailCompilante && !emailValida) esito.mail_conferma_errore = 'indirizzo non valido: ' + emailCompilante
-  if (emailValida && !esito.mail_conferma_il) {
+  /* ISCRIZIONE (18/11/2026, dall'utente): la ricevuta dice a che cosa ci si è
+     iscritti; chi si registra in sala non riceve niente (lo dice la pagina, e
+     la presenza la conferma la segreteria dopo l'evento) */
+  let evento: EventoRicevuta | null = null
+  let salta = false
+  if (tipo === 'isc') {
+    try {
+      const pers = typeof d.persone === 'string' ? JSON.parse(d.persone as string) : d.persone
+      salta = Array.isArray(pers) && pers.length === 1 && ['entrata', 'uscita'].includes(String(pers[0]?.in_sala || ''))
+    } catch { /* persone illeggibili: la ricevuta parte lo stesso */ }
+    if (!salta) evento = await eventoDiIscrizione(sb, p.id)
+  }
+  if (salta) esito.mail_conferma_saltata = 'registrazione in sala'
+  if (emailValida && !esito.mail_conferma_il && !salta) {
     /* l'indirizzo lo scrive chiunque: senza un tetto il modulo diventerebbe un
        modo di mandare posta a nome dell'ente a chi si vuole (revisione di
        sicurezza 13/09/2026). Il conteggio comprende la richiesta di adesso. */
@@ -1361,7 +1401,7 @@ async function lavora(sb: SB, sa: Dati, d: Dati, tipo: string, m: Modulo, subId:
       email = email === 'ok' ? 'impresa-non-inviata' : 'nessuna-inviata'
     } else {
       try {
-        const mc = mailConferma(tipo, d, p.progressivo)
+        const mc = mailConferma(tipo, d, p.progressivo, evento)
         await inviaMail(sa, messaggioMime({ a: emailCompilante!, rispondiA: EMAIL_UFFICIO, oggetto: mc.oggetto, html: mc.html }))
         esito.mail_conferma_il = adesso()
         delete esito.mail_conferma_errore

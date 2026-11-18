@@ -87,7 +87,8 @@ export function sezioneIscr(c, iz) {
       ? `<span class="dt-cella dt-ok" style="padding:1px 6px">${r.presenze_scritte_il ? '✓ presenza scritta' : `✓ ${r.iscritti_creati} iscritt${r.iscritti_creati === 1 ? 'o' : 'i'} · presenza da scrivere`}</span>${
         r.presenze_scritte_il ? '' : ` <button class="btn btn-sm" data-iz-sala="${r.id}">🚪 Scrivi la presenza</button>`}`
       : r.stato === 'confermata'
-      ? `<span class="dt-cella dt-ok" style="padding:1px 6px">✓ ${r.iscritti_creati} iscritt${r.iscritti_creati === 1 ? 'o' : 'i'}</span>`
+      ? `<span class="dt-cella dt-ok" style="padding:1px 6px">✓ ${r.iscritti_creati} iscritt${r.iscritti_creati === 1 ? 'o' : 'i'}</span>${
+        r.iscritti_creati ? ` <button class="btn btn-sm" data-iz-rimanda="${r.id}">✉ Rimanda la conferma</button>` : ''}`
       : r.stato === 'respinta' ? '<span class="dt-cella dt-scaduto" style="padding:1px 6px">respinta</span>'
       : `<button class="btn btn-sm" data-iz-apri-ist="${r.id}">Guarda e conferma</button>`;
     return `<tr>
@@ -206,6 +207,13 @@ export function collegaIscr(c, iz, ricarica) {
     attendi(btn, false);
   });
 
+  document.querySelectorAll('[data-iz-rimanda]').forEach((n) => n.addEventListener('click', async (ev) => {
+    const btn = ev.currentTarget;
+    attendi(btn, true);
+    await mandaConferma(Number(n.dataset.izRimanda));
+    attendi(btn, false);
+  }));
+
   document.querySelectorAll('[data-iz-sala]').forEach((n) => n.addEventListener('click', async (ev) => {
     const btn = ev.currentTarget;
     attendi(btn, true);
@@ -292,6 +300,29 @@ async function scriviPresenzaSala(id) {
   toast(`${data?.nominativo || 'La persona'}: ${n ? `${n} firm${n === 1 ? 'a scritta' : 'e scritte'} sul registro` : 'nessuna firma nuova'}${
     data?.gia_presenti ? `, ${data.gia_presenti} già presenti` : ''}${
     data?.senza_giornata ? `, ${data.senza_giornata} senza giornata in quel giorno` : ''}.`, n || data?.gia_presenti ? 'ok' : 'err');
+  return true;
+}
+
+/* ── la mail «Iscrizione confermata» col codice per firmare (18/11/2026) ──
+   Decisa dall'utente: parte DA SOLA quando la segreteria conferma
+   (eccezione 13), una per indirizzo, col codice personale di ciascuno. La
+   spedisce promemoria-corsi; chi l'ha già avuta non la riceve di nuovo, e
+   chi si è registrato in sala non la riceve. Si legge sempre l'esito. */
+async function mandaConferma(id) {
+  const { data, error } = await sb.functions.invoke('promemoria-corsi', { body: { conferma_iscrizione: id } });
+  if (error || data?.error) {
+    toast('Iscrizione confermata, ma la mail di conferma NON è partita: ' + (data?.error || error?.message || 'errore sconosciuto')
+      + '. Riprova con «✉ Rimanda la conferma».', 'err');
+    return false;
+  }
+  if (data?.saltata) { toast('Mail di conferma non mandata: ' + data.saltata + '.', 'ok'); return true; }
+  const parti = [];
+  if (data.inviate) parti.push(`mail di conferma partita a ${data.inviate} iscritt${data.inviate === 1 ? 'o' : 'i'}`);
+  if (data.gia_avvisati) parti.push(`${data.gia_avvisati} l'avevano già avuta`);
+  if (data.senza_indirizzo?.length) parti.push(`senza indirizzo: ${data.senza_indirizzo.join(', ')} (va avvisato a mano)`);
+  if (data.non_inviate) parti.push(`${data.non_inviate} NON partite`);
+  if (data.errori?.length) parti.push(data.errori.join(' · '));
+  toast(parti.join('; ') || 'Nessuna mail da mandare.', data.non_inviate || data.senza_indirizzo?.length ? 'err' : 'ok');
   return true;
 }
 
@@ -422,8 +453,10 @@ async function formIstruttoria(c, r, ricarica) {
     if (error) return toast(error.message, 'err');
     toast(`Iscritti ${data.iscritti}${data.anagrafiche_nuove ? `, ${data.anagrafiche_nuove} anagrafiche nuove` : ''}${
       data.rapporti_registrati ? `, ${data.rapporti_registrati} rapporti registrati` : ''}.`, 'ok');
-    /* registrazione in sala: con l'iscritto confermato si scrivono le firme */
+    /* registrazione in sala: con l'iscritto confermato si scrivono le firme;
+       tutti gli altri ricevono la mail di conferma col codice (18/11/2026) */
     if (r.in_sala) await scriviPresenzaSala(r.id);
+    else await mandaConferma(r.id);
     await pubblica(c, true);
     ricarica();
   });
