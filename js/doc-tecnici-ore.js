@@ -237,11 +237,20 @@ export function statoConOre(req, suoi, oggi, origine = []) {
    passano `decadenza_mesi` (10 anni) senza nessun aggiornamento:
    allora il titolo decade e si rifà il corso abilitante (nuova base).
    La finestra di t e' [t-D, t]: la riga del giorno t-D conta ancora,
-   quindi la riga del giorno a vale fino al giorno a+D compreso.      */
+   quindi la riga del giorno a vale fino al giorno a+D compreso.
+   (18/11/2026) `req.aggiornamento_dal`: per chi ha l'attestato da prima
+   della norma l'obbligo di aggiornamento decorre da quella data, non dal
+   corso (coordinatore: 15/05/2008, Allegato XIV D.Lgs. 81/2008, «Per
+   coloro che hanno conseguito l'attestato prima dell'entrata in vigore
+   del presente decreto, l'obbligo di aggiornamento decorre dalla data di
+   entrata in vigore del medesimo decreto»). Da li' partono i primi D mesi
+   e i dieci anni; le ore si contano comunque dal corso.               */
 function statoMobile(req, base, righe, oggi, { S, D, preavviso }) {
-  const B = base.data_inizio;
+  const B0 = base.data_inizio;
+  const dal = ISO.test(req.aggiornamento_dal || '') ? req.aggiornamento_dal : '';
+  const B = dal > B0 ? dal : B0;
   const fineGrazia = aggiungiMesiIso(B, D);
-  const agg = righe.filter((r) => r.tipo === 'aggiornamento' && r.data >= B);
+  const agg = righe.filter((r) => r.tipo === 'aggiornamento' && r.data >= B0);
   const oreIn = (t) => agg.reduce((s, r) => s + (r.data >= aggiungiMesiIso(t, -D) && r.data <= t ? r.rest : 0), 0);
   const valido = (t) => t <= fineGrazia || oreIn(t) >= S;
   const dopo = (iso) => new Date(Date.parse(iso + 'T00:00:00Z') + 86400000).toISOString().slice(0, 10);
@@ -249,14 +258,14 @@ function statoMobile(req, base, righe, oggi, { S, D, preavviso }) {
   const finestra = { inizio: aggiungiMesiIso(oggi, -D), fine: oggi };
   const ore = oreIn(oggi);
   const dati = {
-    doc: base, periodo: finestra, mobile: true, grazia_fino: fineGrazia,
+    doc: base, periodo: finestra, mobile: true, grazia_fino: fineGrazia, decorrenza: B !== B0 ? B : null,
     ore, corsi: 0, docenza: 0, soglia: S, soglia_corsi: 0, manca: Math.max(0, S - ore), docenza_alternativa: false,
   };
 
   /* decadenza: dieci anni (o quanti ne dice il catalogo) senza aggiornamenti */
   const DEC = num(req.decadenza_mesi);
   if (DEC > 0) {
-    const tappe = [B, ...agg.map((r) => r.data)].sort();
+    const tappe = [B, ...agg.filter((r) => r.data > B).map((r) => r.data)].sort();
     for (let i = 0; i < tappe.length; i++) {
       const limite = aggiungiMesiIso(tappe[i], DEC);
       const prossima = tappe[i + 1] || null;
@@ -298,6 +307,7 @@ export function dettaglioOre(s, fmt = (x) => x) {
        non comincia prima del corso abilitante */
     const B = s.doc && s.doc.data_inizio;
     if (s.grazia_fino >= s.periodo.fine) {
+      if (s.decorrenza) return `attestato anteriore all'obbligo di aggiornamento, che decorre dal ${fmt(s.decorrenza)}: le ore non servono fino al ${fmt(s.grazia_fino)}; registrate finora ${nOre(s.ore)} ore su ${nOre(s.soglia)}`;
       return `primi cinque anni dall'abilitazione${B ? ` (${fmt(B)})` : ''}: le ore non servono fino al ${fmt(s.grazia_fino)}; registrate finora ${nOre(s.ore)} ore su ${nOre(s.soglia)}`;
     }
     const dal = B && B > s.periodo.inizio ? B : s.periodo.inizio;

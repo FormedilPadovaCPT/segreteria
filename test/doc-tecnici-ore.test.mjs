@@ -132,6 +132,47 @@ test('coordinatore: dieci anni senza aggiornamenti → titolo decaduto, si rifà
   assert.equal(n.scadenza, '2029-05-01');
 });
 
+// Attestato da prima del D.Lgs. 81/2008: l'obbligo di aggiornamento decorre
+// dal 15/05/2008 (Allegato XIV). Caso vero: Balladore, corso del 10/10/1997.
+const COORD08 = { ...COORD, aggiornamento_dal: '2008-05-15' };
+const BALLADORE = [agg('2008-02-12', 12), agg('2017-11-06', 6), agg('2019-12-12', 16), agg('2021-11-04', 40),
+  agg('2023-08-22', 1), agg('2024-05-10', 3), agg('2024-11-23', 20), agg('2025-01-23', 3), agg('2025-03-28', 4),
+  agg('2025-04-17', 4), agg('2025-05-20', 2), agg('2025-05-20', 2), agg('2025-05-20', 2)];
+
+test('coordinatore con attestato del 1997: i dieci anni non partono dal corso ma dal 15/05/2008', () => {
+  const corso = [{ data_inizio: '1997-10-10' }];
+  const prima = statoConOre(COORD, BALLADORE.map((r) => ({ ...r })), '2026-11-18', corso);
+  assert.equal(prima.decaduto, true); // senza la regola: decaduto dal 10/10/2007
+  const s = statoConOre(COORD08, BALLADORE.map((r) => ({ ...r })), '2026-11-18', corso);
+  assert.equal(s.decaduto, undefined);
+  assert.equal(s.classe, 'ok');
+  assert.equal(s.ore, 41);
+  assert.equal(s.scadenza, '2029-05-10');
+  assert.equal(s.grazia_fino, '2013-05-15');
+  assert.equal(s.decorrenza, '2008-05-15');
+  assert.equal(s.doc.data_inizio, '1997-10-10');
+});
+
+test('coordinatore con attestato anteriore e nessun aggiornamento dal 2008: decade il 15/05/2018', () => {
+  const s = statoConOre(COORD08, [att('2005-01-31'), agg('2026-03-01', 4)], '2026-11-18');
+  assert.equal(s.decaduto, true);
+  assert.equal(s.scadenza, '2018-05-15');
+});
+
+test('coordinatore con attestato successivo al 2008: la decorrenza non cambia niente', () => {
+  const a = statoConOre(COORD, [att('2015-01-01'), agg('2022-03-01', 24)], '2026-11-17');
+  const b = statoConOre(COORD08, [att('2015-01-01'), agg('2022-03-01', 24)], '2026-11-17');
+  assert.deepEqual({ ...b, decorrenza: undefined }, { ...a, decorrenza: undefined });
+  assert.equal(b.decorrenza, null);
+});
+
+test('coordinatore con attestato anteriore, nei primi cinque anni dalla decorrenza: la frase lo dice', () => {
+  const s = statoConOre(COORD08, [att('2001-06-01')], '2010-01-01');
+  assert.equal(s.classe, 'ok');
+  assert.equal(s.scadenza, '2013-05-15');
+  assert.match(dettaglioOre(s), /decorre dal 2008-05-15/);
+});
+
 test('coordinatore: il conteggio parte dal corso da 120 ore se manca l\'attestato proprio', () => {
   const s = statoConOre(COORD, [agg('2022-01-10', 40)], '2026-11-17', [{ data_inizio: '2021-02-01' }]);
   assert.equal(s.scadenza, '2027-01-10');
