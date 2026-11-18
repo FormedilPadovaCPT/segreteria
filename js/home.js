@@ -148,7 +148,7 @@ export async function render() {
      spingevano fuori il giro del lunedì, che risultava «nessun giro registrato» pur essendo riuscito. */
   /* (13/11/2026) terza suite: «backup», scritta ogni notte da backup-db.yml. Prima il backup notturno non
      lasciava traccia qui: se si fermava lo diceva solo un'email di GitHub. */
-  let testAuto = { database: null, browser: null, backup: null, schema: null }, testAutoErr = null;
+  let testAuto = { database: null, browser: null, backup: null, schema: null, portale: null }, testAutoErr = null;
   const pTestAuto = (async () => { try {
     const letture = await Promise.all(Object.keys(testAuto).map(suite => sb.from('s_test_automatici')
       .select('id, eseguita_il, suite, esito, passati, falliti, elenco_falliti, run_url')
@@ -896,6 +896,8 @@ export async function render() {
         const SUITE = [
           { k: 'database', nome: 'Test del database', limite: 9, unita: 'file', dove: '«Test database»' },
           { k: 'browser',  nome: 'Prove nel browser del gestionale', limite: 4, unita: 'prove', dove: '«Prove nel browser (Playwright)»' },
+          // (18/11/2026) portale: ogni modulo del portale servizi si apre, si compila e la richiesta parte; ogni mattina feriale
+          { k: 'portale',  nome: 'Moduli del portale servizi: ogni «Invia» parte', limite: 4, unita: 'prove', dove: '«Prove dei moduli del portale»', repo: 'servizi' },
           // backup: ogni notte, quindi oltre 2 giorni il giro si è fermato; «passati» qui sono i MB del file su Drive
           { k: 'backup',   nome: 'Backup notturno del database', limite: 2, unita: 'MB su Drive', dove: '«Backup DB (giornaliero)»' },
           // schema: ogni notte lo schema (senza dati) va in _SISTEMA/schema_db, dove il git del vault ne mostra i cambi
@@ -913,7 +915,7 @@ export async function render() {
         const corpo = testAutoErr
           ? `<p class="hint" style="color:#a01f00">⚠ Non sono riuscito a leggere i verdetti dei test: ${esc(testAutoErr)}. Non si può dire che i test siano verdi.</p>`
           : righe.map(x => !x.r
-              ? `<div class="hm-riga"><span>🔴</span><span>${x.nome}: <strong>nessun giro registrato</strong>. Su GitHub, repo gestionale-visite, tab Actions, ${x.dove}, Run workflow.</span><span></span></div>`
+              ? `<div class="hm-riga"><span>🔴</span><span>${x.nome}: <strong>nessun giro registrato</strong>. Su GitHub, repo ${x.repo || 'gestionale-visite'}, tab Actions, ${x.dove}, Run workflow.</span><span></span></div>`
               : `<div class="hm-riga"><span>${x.ok ? '🟢' : '🔴'}</span>
                    <span>${x.nome}: <strong>${esc(x.r.esito)}</strong>${x.r.passati != null ? ` · ${x.r.passati} ${x.unita}${x.k === 'backup' || x.k === 'schema' ? '' : ' passati'}` : ''}${x.r.falliti ? ` · <strong>${x.r.falliti} falliti</strong>` : ''}
                      ${(x.r.elenco_falliti || []).length ? `<span class="hint" style="display:block;white-space:normal">${x.r.elenco_falliti.map(esc).join(' · ')}</span>` : ''}
