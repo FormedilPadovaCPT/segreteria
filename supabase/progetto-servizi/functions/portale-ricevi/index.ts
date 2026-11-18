@@ -265,11 +265,22 @@ async function ricevi(sb: SB, req: Request, d: Dati, dimensione: number): Promis
     const payload = soloTesti(d)
     if (!payload) return rifiuto('troppi dati nei campi del modulo')
     const ip = await impronta(imp.ip_sale || '', indirizzoIp(req))
-    const { data: ammesso, error: errQuota } = await sb.rpc('cassetta_quota', {
-      p_ip: ip, p_max_ora: Number(imp.quota_ora) || 60, p_max_ora_ip: Number(imp.quota_ora_ip) || 15,
-    })
-    if (errQuota) throw new Error('tetto orario non verificato: ' + errQuota.message)
-    if (ammesso !== true) return intoppo('troppe richieste nell\'ultima ora: riprova più tardi', 429)
+    /* (18/11/2026, dall'utente) le firme di un corso con la spunta «niente
+       limite di invii» non contano nel tetto: a un convegno tante persone
+       firmano insieme dalla stessa rete. Vale solo se codice e firma del QR
+       sono giusti e le firme sono aperte (pres_senza_limite). */
+    let libera = false
+    if (tipo === 'prs') {
+      const { data: sl, error: errSl } = await sb.rpc('pres_senza_limite', { p_riferimento: String(d.riferimento ?? '').slice(0, 200) })
+      libera = !errSl && sl === true
+    }
+    if (!libera) {
+      const { data: ammesso, error: errQuota } = await sb.rpc('cassetta_quota', {
+        p_ip: ip, p_max_ora: Number(imp.quota_ora) || 60, p_max_ora_ip: Number(imp.quota_ora_ip) || 15,
+      })
+      if (errQuota) throw new Error('tetto orario non verificato: ' + errQuota.message)
+      if (ammesso !== true) return intoppo('troppe richieste nell\'ultima ora: riprova più tardi', 429)
+    }
     const { error: errIns } = await sb.from('cassetta').insert({ submission_id: subId, tipo, ip_hash: ip, payload, dimensione })
     if (errIns && errIns.code !== '23505') throw new Error('richiesta non salvata: ' + errIns.message)
   }

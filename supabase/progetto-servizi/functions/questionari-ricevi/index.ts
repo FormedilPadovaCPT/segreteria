@@ -46,7 +46,8 @@ const CAMPI_TEST = new Set(['codice', 'firma_hash', 'titolo', 'quando', 'sede', 
 const CAMPI_DOM_TEST = new Set(['id', 'ordine', 'testo', 'tipo', 'opzioni', 'punti'])
 /* le firme di presenza (13/10/2026): giornate con gli orari, persone come
    impronta + iniziali — la stessa forma del test, senza domande */
-const CAMPI_PRES = new Set(['codice', 'firma_hash', 'titolo', 'quando', 'sede', 'chiuso_il', 'giornate', 'persone'])
+/* senza_limite (18/11/2026): la spunta del corso che toglie il limite di invii alle sue firme */
+const CAMPI_PRES = new Set(['codice', 'firma_hash', 'titolo', 'quando', 'sede', 'chiuso_il', 'giornate', 'persone', 'senza_limite'])
 const CAMPI_ISCR = new Set(['codice', 'firma_hash', 'titolo', 'genere', 'descrizione',
   'progetto', 'progetto_desc', 'ente', 'sede', 'modalita', 'ore', 'dal', 'al',
   'giornate', 'chiuso_il', 'in_elenco', 'aperte', 'liberi'])
@@ -178,6 +179,7 @@ function controllaPres(r: Record<string, unknown>): string | null {
   if (r.quando != null && !(typeof r.quando === 'string' && DATA.test(r.quando))) return 'quando non è una data'
   if (!testoO(r.sede, 200)) return 'sede non valida'
   if (r.chiuso_il != null && !(typeof r.chiuso_il === 'string' && ISTANTE.test(r.chiuso_il))) return 'chiuso_il non è un istante'
+  if (r.senza_limite != null && typeof r.senza_limite !== 'boolean') return 'senza_limite non booleano'
   if (!Array.isArray(r.giornate) || r.giornate.length < 1 || r.giornate.length > 60) return 'giornate: da 1 a 60'
   for (const g of r.giornate as Record<string, unknown>[]) {
     if (typeof g !== 'object' || g === null) return 'giornata non è un oggetto'

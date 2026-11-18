@@ -150,6 +150,8 @@ serve(async (req) => {
           chiuso_il: p.chiuso_il,
           giornate: q.giornate ?? [],
           persone: q.persone ?? [],
+          /* (18/11/2026) la spunta «niente limite di invii» del corso */
+          senza_limite: q.senza_limite === true,
         })
       } else if (iscr) {
         /* ⚠️ L'evento aperto alle iscrizioni non condivide la forma degli altri

@@ -148,6 +148,11 @@ export function sezionePres(c, p, iscritti, giornate) {
       <button class="btn btn-ghost btn-sm" id="pq-biglietti">🎟 Biglietti dei codici</button>
       <button class="btn btn-ghost btn-sm" id="pq-link" ${link.link ? '' : 'disabled'}>🔗 Copia il link</button>
     </div>
+    <label class="hint" style="display:flex;gap:6px;align-items:flex-start;margin:0 0 8px;cursor:pointer">
+      <input type="checkbox" id="pq-senza-limite" ${c.pres_senza_limite ? 'checked' : ''} style="margin-top:2px">
+      <span><strong>Niente limite di invii dalla stessa rete</strong> — il portale accetta al massimo 80 moduli
+        all'ora dallo stesso indirizzo internet: per un evento con tante persone sul Wi-Fi della sede, spunta qui e le
+        firme di questo corso non contano nel limite.</span></label>
     ${firme.length ? blocchi : '<p class="hint">Nessuna firma arrivata finora.</p>'}`;
 }
 
@@ -191,6 +196,19 @@ export function collegaPres(c, p, iscritti, giornate, ricarica) {
       scaricaPdf(byte, `${oggiIso().replace(/-/g, '_')}_MOD_Formedil-Padova_firme-presenza-QR_corso-${c.id}.pdf`);
     } catch (e) { toast(e.message, 'err'); }
     attendi(btn, false);
+  });
+
+  /* (18/11/2026, dall'utente) il limite di invii del portale si toglie corso per corso */
+  body.querySelector('#pq-senza-limite')?.addEventListener('change', async (ev) => {
+    const box = ev.currentTarget;
+    const si = box.checked;
+    box.disabled = true;
+    const { error } = await sb.from('s_corsi').update({ pres_senza_limite: si, updated_at: new Date().toISOString() }).eq('id', c.id);
+    if (error) { box.checked = !si; box.disabled = false; return toast(error.message, 'err'); }
+    c.pres_senza_limite = si;
+    await pubblicaPres(c, true);
+    box.disabled = false;
+    toast(si ? 'Limite di invii tolto per le firme di questo corso.' : 'Limite di invii rimesso per le firme di questo corso.', 'ok');
   });
 
   body.querySelector('#pq-pubblica')?.addEventListener('click', async (ev) => {

@@ -195,6 +195,7 @@ window.AIUTO_TESTI = {
   'pq-codici': 'Mostra i codici personali: non si mandano per mail insieme al nome.',
   'pq-biglietti': 'Scarica i biglietti dei codici personali, dieci per pagina: si ritagliano e se ne dà uno in mano a ciascuno. Alla firma si chiede anche l’anno di nascita.',
   'pq-link': 'Copia il link del QR, per proiettarlo o incollarlo.',
+  'pq-senza-limite': 'Toglie il limite di 80 invii all’ora dalla stessa rete per le firme di questo corso: serve quando tante persone firmano insieme dal Wi-Fi della sede. Il corso si ripubblica da solo.',
   'td-invita': 'Chiede a un docente di preparare le domande del test del suo modulo.',
   'tc-salva': 'Convalida il test: il risultato entra nella scheda dell\'iscritto.',
   'pg-nuovo': 'Crea un progetto finanziato a cui collegare corsi e spese.',

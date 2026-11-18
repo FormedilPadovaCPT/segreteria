@@ -45,7 +45,10 @@ test('il corso si pubblica sul portale con cosa:presenza, e prima si assegnano i
 });
 
 test('il portale accetta solo campi previsti: niente nomi, niente CF', () => {
-  assert.match(ricevi, /const CAMPI_PRES = new Set\(\['codice', 'firma_hash', 'titolo', 'quando', 'sede', 'chiuso_il', 'giornate', 'persone'\]\)/);
+  /* senza_limite (18/11/2026): la spunta del corso; nelle persone solo h, n, a e gli sblocchi s */
+  assert.match(ricevi, /const CAMPI_PRES = new Set\(\['codice', 'firma_hash', 'titolo', 'quando', 'sede', 'chiuso_il', 'giornate', 'persone', 'senza_limite'\]\)/);
+  assert.match(ricevi, /k !== 'h' && k !== 'n' && k !== 'a' && k !== 's'\) return `campo non previsto in persone/);
+  assert.match(ricevi, /typeof r\.senza_limite !== 'boolean'/);
   assert.match(ricevi, /function controllaPres\(/);
   assert.match(ricevi, /\/\^P\[0-9\]\{1,8\}-\[A-Z0-9\]\{4\}\$\//, 'il codice delle firme ha la sua forma P<corso>-XXXX');
   assert.match(ricevi, /azione === 'pubblica_pres' \|\| azione === 'ritira_pres'/);
