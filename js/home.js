@@ -915,7 +915,9 @@ export async function render() {
         const corpo = testAutoErr
           ? `<p class="hint" style="color:#a01f00">⚠ Non sono riuscito a leggere i verdetti dei test: ${esc(testAutoErr)}. Non si può dire che i test siano verdi.</p>`
           : righe.map(x => !x.r
-              ? `<div class="hm-riga"><span>🔴</span><span>${x.nome}: <strong>nessun giro registrato</strong>. Su GitHub, repo ${x.repo || 'gestionale-visite'}, tab Actions, ${x.dove}, Run workflow.</span><span></span></div>`
+              // (18/11/2026) «nessuna riga» ha due cause: il giro non è partito, o è partito
+              // senza il secret SUPABASE_DB_URL e non ha potuto scrivere (caso del repo servizi)
+              ? `<div class="hm-riga"><span>🔴</span><span>${x.nome}: <strong>nessun verdetto registrato</strong>. Su GitHub, repo ${x.repo || 'gestionale-visite'}, tab Actions, ${x.dove}: se i giri ci sono, al repo manca il secret SUPABASE_DB_URL (Settings, Secrets and variables, Actions) e il verdetto non arriva qui; se non ci sono, Run workflow.</span><span></span></div>`
               : `<div class="hm-riga"><span>${x.ok ? '🟢' : '🔴'}</span>
                    <span>${x.nome}: <strong>${esc(x.r.esito)}</strong>${x.r.passati != null ? ` · ${x.r.passati} ${x.unita}${x.k === 'backup' || x.k === 'schema' ? '' : ' passati'}` : ''}${x.r.falliti ? ` · <strong>${x.r.falliti} falliti</strong>` : ''}
                      ${(x.r.elenco_falliti || []).length ? `<span class="hint" style="display:block;white-space:normal">${x.r.elenco_falliti.map(esc).join(' · ')}</span>` : ''}
