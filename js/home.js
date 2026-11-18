@@ -148,7 +148,10 @@ export async function render() {
      spingevano fuori il giro del lunedì, che risultava «nessun giro registrato» pur essendo riuscito. */
   /* (13/11/2026) terza suite: «backup», scritta ogni notte da backup-db.yml. Prima il backup notturno non
      lasciava traccia qui: se si fermava lo diceva solo un'email di GitHub. */
-  let testAuto = { database: null, browser: null, backup: null, schema: null, portale: null }, testAutoErr = null;
+  /* (18/11/2026) e gli avvisi aperti di «Code scanning» (CodeQL) di ogni repo, scritti dal workflow
+     avvisi-codeql.yml di ciascuno: prima li vedeva solo chi apriva la pagina Security di GitHub. */
+  let testAuto = { database: null, browser: null, backup: null, schema: null, portale: null,
+    codeql_gestionale: null, codeql_segreteria: null, codeql_servizi: null }, testAutoErr = null;
   const pTestAuto = (async () => { try {
     const letture = await Promise.all(Object.keys(testAuto).map(suite => sb.from('s_test_automatici')
       .select('id, eseguita_il, suite, esito, passati, falliti, elenco_falliti, run_url')
@@ -902,6 +905,10 @@ export async function render() {
           { k: 'backup',   nome: 'Backup notturno del database', limite: 2, unita: 'MB su Drive', dove: '«Backup DB (giornaliero)»' },
           // schema: ogni notte lo schema (senza dati) va in _SISTEMA/schema_db, dove il git del vault ne mostra i cambi
           { k: 'schema',   nome: 'Schema del database salvato', limite: 2, unita: 'KB in _SISTEMA/schema_db', dove: '«Schema del database (notturno)»' },
+          // (18/11/2026) avvisi di sicurezza di CodeQL: verde = nessun avviso aperto; ogni mattina feriale
+          { k: 'codeql_gestionale', nome: 'Avvisi di sicurezza del gestionale (CodeQL)', limite: 4, avvisi: true, dove: '«Avvisi di sicurezza (CodeQL)»' },
+          { k: 'codeql_segreteria', nome: 'Avvisi di sicurezza della segreteria (CodeQL)', limite: 4, avvisi: true, dove: '«Avvisi di sicurezza (CodeQL)»', repo: 'segreteria' },
+          { k: 'codeql_servizi',    nome: 'Avvisi di sicurezza del portale servizi (CodeQL)', limite: 4, avvisi: true, dove: '«Avvisi di sicurezza (CodeQL)»', repo: 'servizi' },
         ];
         const righe = SUITE.map(s => {
           const r = testAuto[s.k];
@@ -919,12 +926,14 @@ export async function render() {
               // senza il secret SUPABASE_DB_URL e non ha potuto scrivere (caso del repo servizi)
               ? `<div class="hm-riga"><span>🔴</span><span>${x.nome}: <strong>nessun verdetto registrato</strong>. Su GitHub, repo ${x.repo || 'gestionale-visite'}, tab Actions, ${x.dove}: se i giri ci sono, al repo manca il secret SUPABASE_DB_URL (Settings, Secrets and variables, Actions) e il verdetto non arriva qui; se non ci sono, Run workflow.</span><span></span></div>`
               : `<div class="hm-riga"><span>${x.ok ? '🟢' : '🔴'}</span>
-                   <span>${x.nome}: <strong>${esc(x.r.esito)}</strong>${x.r.passati != null ? ` · ${x.r.passati} ${x.unita}${x.k === 'backup' || x.k === 'schema' ? '' : ' passati'}` : ''}${x.r.falliti ? ` · <strong>${x.r.falliti} falliti</strong>` : ''}
+                   <span>${x.nome}: ${x.avvisi
+                     ? (x.r.esito === 'errore' ? '<strong>non letti</strong> (GitHub non ha risposto)' : x.r.falliti ? `<strong>${x.r.falliti} avvis${x.r.falliti === 1 ? 'o aperto' : 'i aperti'}</strong>` : '<strong>nessun avviso aperto</strong>')
+                     : `<strong>${esc(x.r.esito)}</strong>${x.r.passati != null ? ` · ${x.r.passati} ${x.unita}${x.k === 'backup' || x.k === 'schema' ? '' : ' passati'}` : ''}${x.r.falliti ? ` · <strong>${x.r.falliti} falliti</strong>` : ''}`}
                      ${(x.r.elenco_falliti || []).length ? `<span class="hint" style="display:block;white-space:normal">${x.r.elenco_falliti.map(esc).join(' · ')}</span>` : ''}
                      ${x.vecchio ? `<span class="hint" style="display:block;white-space:normal;color:#a01f00">Più vecchio di ${x.limite} giorni: il giro non è partito o non ha scritto.</span>` : ''}
-                     ${!x.ok && x.r.run_url ? `<a class="hint" href="${esc(x.r.run_url)}" target="_blank" rel="noopener">dettaglio del giro su GitHub</a>` : ''}</span>
+                     ${!x.ok && x.r.run_url ? `<a class="hint" href="${esc(x.r.run_url)}" target="_blank" rel="noopener">${x.avvisi ? 'gli avvisi su GitHub' : 'dettaglio del giro su GitHub'}</a>` : ''}</span>
                    <span class="hint">${dataIt(String(x.r.eseguita_il).slice(0, 10))} · ${x.giorni} giorni fa</span></div>`).join('')
-            + (ok ? '' : '<div class="hm-riga"><span>⚠</span><span>Un test rosso vuol dire che una regola delle app non vale più, o che il test va aggiornato: non è un lavoro della segreteria sistemarlo, è un segnale da girare a chi segue le app.</span><span></span></div>');
+            + (ok ? '' : '<div class="hm-riga"><span>⚠</span><span>Un test rosso vuol dire che una regola delle app non vale più, o che il test va aggiornato; un avviso di sicurezza aperto è un punto del codice da correggere. Non è un lavoro della segreteria sistemarli: è un segnale da girare a chi segue le app.</span><span></span></div>');
         const db = righe[0], br = righe[1];
         return card('🧪 Test automatici delle app', ok ? 0 : '!', corpo, '',
           { k: 'test', segno: '✓', nonLetto: !!testAutoErr,

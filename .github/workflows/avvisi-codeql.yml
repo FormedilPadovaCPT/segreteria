@@ -1,0 +1,69 @@
+name: Avvisi di sicurezza (CodeQL)
+
+# (18/11/2026, chiesto dall'utente) Gli avvisi aperti di «Code scanning» di questo
+# repo vanno nel cruscotto della segreteria (tessera «Test automatici delle app»):
+# prima li vedeva solo chi apriva la pagina Security di GitHub, e restavano aperti.
+# Legge gli avvisi col GITHUB_TOKEN (permesso security-events: read, nessuna
+# password nuova) e scrive una riga in s_test_automatici, suite «codeql_segreteria»:
+# riuscita = nessun avviso aperto, fallita = ce ne sono (elencati), errore = GitHub
+# non ha risposto. Il collegamento al database e' il secret SUPABASE_DB_URL del repo: utente verdetti_segreteria, che puo' scrivere
+# solo la riga codeql_segreteria.
+
+on:
+  schedule:
+    - cron: '20 5 * * 1-5'     # feriali, 07:20 ora legale / 06:20 ora solare
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/avvisi-codeql.yml']
+
+permissions:
+  contents: read
+  security-events: read
+
+jobs:
+  avvisi:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Leggi gli avvisi aperti
+        id: leggi
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          codice=$(curl -sS -o avvisi.json -w '%{http_code}' \
+            -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/${{ github.repository }}/code-scanning/alerts?state=open&per_page=100") || codice=000
+          echo "Risposta di GitHub: $codice"
+          if [ "$codice" != 200 ]; then
+            echo "::error::GitHub non ha dato gli avvisi (HTTP $codice)"; head -c 400 avvisi.json || true
+            echo "esito=errore" >> "$GITHUB_OUTPUT"; echo "n=0" >> "$GITHUB_OUTPUT"; echo "elenco=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          node -e '
+            const a = require("./avvisi.json");
+            const liv = { critical: "critica", high: "alta", medium: "media", low: "bassa", error: "alta", warning: "media", note: "bassa" };
+            const r = a.map((x) => {
+              const l = x.most_recent_instance?.location || {};
+              const g = x.rule?.security_severity_level || x.rule?.severity || "";
+              return `#${x.number} ${liv[g] || g} · ${x.rule?.description || x.rule?.id} · ${l.path || "?"}:${l.start_line || "?"}`;
+            });
+            const fs = require("fs");
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `esito=${a.length ? "fallita" : "riuscita"}\nn=${a.length}\nelenco=${r.join("|").replace(/\n/g, " ")}\n`);
+            console.log(a.length + " avvisi aperti"); r.forEach((x) => console.log(x));
+          '
+      - name: Registra nel cruscotto
+        env:
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          ESITO: ${{ steps.leggi.outputs.esito || 'errore' }}
+          N: ${{ steps.leggi.outputs.n || '0' }}
+          ELENCO: ${{ steps.leggi.outputs.elenco }}
+          PAGINA: ${{ github.server_url }}/${{ github.repository }}/security/code-scanning
+        run: |
+          [ -n "${DB_URL:-}" ] || { echo "::warning::SUPABASE_DB_URL assente: avvisi non registrati nel cruscotto della segreteria"; exit 0; }
+          command -v psql >/dev/null || sudo apt-get install -y -qq postgresql-client >/dev/null
+          psql "$DB_URL" -q -v ON_ERROR_STOP=1 -v esito="$ESITO" -v n="$N" -v elenco="$ELENCO" -v pagina="$PAGINA" <<'SQL'
+          insert into public.s_test_automatici (suite, esito, passati, falliti, elenco_falliti, run_url)
+          values ('codeql_segreteria', :'esito', null, :'n'::int, nullif(string_to_array(:'elenco', '|'), '{}'), :'pagina');
+          SQL
+          echo "Registrato: $ESITO, $N avvisi aperti"
