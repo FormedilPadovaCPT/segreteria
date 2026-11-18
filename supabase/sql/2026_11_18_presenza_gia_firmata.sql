@@ -118,3 +118,32 @@ create trigger trg_s_corsi_firme_presenza_sblocco after update of stato on publi
 insert into public.s_config (chiave, valore, descrizione) values ('pres_sblocchi_portale', 'no',
   'Firme dal QR: manda al portale gli sblocchi del tutor (persone[].s). ''si'' solo se questionari-ricevi li accetta (v9, 18/11/2026).')
 on conflict (chiave) do nothing;
+
+-- acceso il 18/11/2026 alle 14:50, dopo il deploy di questionari-ricevi v9 (fatto dall'utente)
+update public.s_config set valore = 'si', updated_at = now() where chiave = 'pres_sblocchi_portale';
+
+-- (18/11/2026) cancellando un corso con firme confermate la cascata falliva: il
+-- ricalcolo della presenza provava a riscrivere su una giornata già cancellata.
+create or replace function public.trg_firme_presenza_applica()
+returns trigger language plpgsql security definer set search_path to 'public' as $function$
+begin
+  if tg_op = 'INSERT' then
+    if new.stato = 'confermata' then perform public.pres_ricalcola(new.iscritto_id, new.giornata_id, new.tipo, new.turno); end if;
+  elsif tg_op = 'UPDATE' then
+    if new.stato = 'confermata' or old.stato = 'confermata' then
+      perform public.pres_ricalcola(new.iscritto_id, new.giornata_id, new.tipo, new.turno);
+      if old.iscritto_id is distinct from new.iscritto_id or old.giornata_id is distinct from new.giornata_id
+         or old.tipo is distinct from new.tipo or old.turno is distinct from new.turno then
+        perform public.pres_ricalcola(old.iscritto_id, old.giornata_id, old.tipo, old.turno);
+      end if;
+    end if;
+  elsif tg_op = 'DELETE' then
+    if old.stato = 'confermata'
+       and exists (select 1 from public.s_corsi_giornate where id = old.giornata_id)
+       and exists (select 1 from public.s_corsi_iscritti where id = old.iscritto_id) then
+      perform public.pres_ricalcola(old.iscritto_id, old.giornata_id, old.tipo, old.turno);
+    end if;
+    return old;
+  end if;
+  return new;
+end $function$;
