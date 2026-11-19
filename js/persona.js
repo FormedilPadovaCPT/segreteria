@@ -41,7 +41,7 @@ const GRUPPI = [
   ['Contatti e codici', [
     ['email', 'Email', 'email'], ['email2', 'Email 2', 'email'], ['email3', 'Email 3', 'email'],
     ['telefono', 'Telefono'], ['telefono2', 'Cellulare'],
-    ['qualifica', 'Qualifica'], ['cod_socrate', 'Codice Socrate'],
+    ['qualifica', 'Qualifica'], ['cod_socrate', 'Codice Socrate'], ['cod_ceiv', 'Codice persona CEIV'],
     ['cassa_previdenza', 'Cassa di previdenza'],
   ]],
 ];
@@ -138,7 +138,7 @@ async function scheda(host) {
   let nomiImprese = {};
   if (!nuova) {
     const { data } = await sb.from('persone_imprese')
-      .select('impresa_id, qualifica, mansione, tipo_rapporto, data_assunzione, data_cessazione, note')
+      .select('impresa_id, qualifica, qualifica_ceiv, mansione, tipo_rapporto, data_assunzione, data_cessazione, note')
       .eq('persona_id', p.persona_id)
       .order('data_assunzione', { ascending: false, nullsFirst: false });
     rapporti = data || [];
@@ -244,7 +244,7 @@ async function scheda(host) {
       <div class="table-wrap"><table class="tbl">
         <thead><tr>
           <th style="width:100px">Assunzione</th><th style="width:100px">Cessazione</th>
-          <th>Impresa</th><th style="width:150px">Qualifica</th>
+          <th>Impresa</th><th style="width:150px">Qualifica</th><th style="width:170px">Qualifica CEIV</th>
           <th style="width:150px">Mansione</th><th>Note</th>
         </tr></thead>
         <tbody>${rapporti.map((r) => `
@@ -254,6 +254,7 @@ async function scheda(host) {
             <td>${r.data_cessazione ? dataIt(r.data_cessazione) : '<span class="pill pill-prima">in forza</span>'}</td>
             <td><strong>${esc(nomiImprese[r.impresa_id] || r.impresa_id || '—')}</strong></td>
             <td>${esc(String(r.qualifica ?? ''))}</td>
+            <td>${esc(r.qualifica_ceiv || '')}</td>
             <td>${esc(r.mansione || '')}</td>
             <td style="font-size:12px">${esc(r.note || '')}</td>
           </tr>`).join('')}
