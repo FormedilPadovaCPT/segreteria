@@ -147,6 +147,7 @@ export function statoConOre(req, suoi, oggi, origine = []) {
     .map((d) => ({
       data: d.data_inizio, tipo: d.tipo, rest: num(d.ore),
       corsi: d.tipo === 'aggiornamento' ? Math.min(num(d.ore_di_corso), num(d.ore)) : 0,
+      dv: d.tipo === 'aggiornamento' && !!d.area_da_validare,
     }));
 
   if (req.periodo_mobile) return statoMobile(req, base, agg.filter((r) => r.data <= oggi), oggi, { S, Sc, D, preavviso });
@@ -182,9 +183,9 @@ export function statoConOre(req, suoi, oggi, origine = []) {
     const inizio = aggiungiMesiIso(base.data_inizio, D * n);
     const fine = aggiungiMesiIso(base.data_inizio, D * (n + 1));
     const nel = agg.filter((r) => r.data >= inizio && r.data < fine);
-    let ore = 0; let corsi = 0; let docenza = 0;
+    let ore = 0; let corsi = 0; let docenza = 0; let daValidare = 0;
     for (const r of nel) {
-      if (r.tipo === 'docenza') docenza += r.rest; else { ore += r.rest; corsi += Math.min(r.corsi, r.rest); }
+      if (r.tipo === 'docenza') docenza += r.rest; else { ore += r.rest; corsi += Math.min(r.corsi, r.rest); if (r.dv) daValidare += r.rest; }
     }
     const vNel = verifiche.filter((v) => v.data_inizio >= inizio && v.data_inizio < fine);
     const nVer = vNel.length;
@@ -197,8 +198,12 @@ export function statoConOre(req, suoi, oggi, origine = []) {
 
     if (!ok && chiuso && req.recupero_ore) {
       /* «sospeso finche' non recupera» (formatore: scelta dell'utente del
-         17/11/2026, la norma non lo dice): le ore fatte DOPO la fine
-         completano quelle mancanti di questo periodo; quello che avanza
+         17/11/2026, la norma non lo dice; confermata da FORMEDIL Italia,
+         ing. Sonno, Prot_26-27_0165 del 19/11/2026, come interpretazione:
+         non si riqualifica, non fa docenze finché non recupera, le ore
+         recuperate vanno al triennio scaduto e non si contano di nuovo nel
+         successivo, che tiene le scadenze originarie): le ore fatte DOPO la
+         fine completano quelle mancanti di questo periodo; quello che avanza
          conta per il periodo dopo. Si consuma solo se basta davvero. */
       const dopo = agg.filter((r) => r.data >= fine && r.rest > 0);
       const dispAgg = dopo.filter((r) => r.tipo === 'aggiornamento').reduce((s, r) => s + r.rest, 0);
@@ -228,6 +233,10 @@ export function statoConOre(req, suoi, oggi, origine = []) {
 
     const dati = {
       doc: base, periodo: { inizio, fine }, ore, corsi, docenza, recuperato,
+      /* (19/11/2026) ore contate ma da validare per area tematica: corsi da
+         coordinatore riconosciuti al formatore solo per le ore pertinenti
+         (FORMEDIL Italia, Prot_26-27_0165, punto 2) */
+      ore_da_validare: daValidare,
       soglia: S, soglia_corsi: Sc, manca: Math.max(0, S - ore), docenza_alternativa: !!req.docenza_alternativa,
       ...(Vs ? { verifiche: nVer, verifiche_gu: gu, verifiche_soglia: Vs, verifiche_gu_soglia: Gs,
         manca_verifiche: Math.max(0, Vs - nVer), manca_gu: Math.max(0, Math.round((Gs - gu) * 100) / 100) } : {}),
@@ -334,6 +343,7 @@ export function dettaglioOre(s, fmt = (x) => x) {
   const parti = [`periodo dal ${fmt(s.periodo.inizio)} al ${fmt(s.periodo.fine)}: ${nOre(s.ore)} ore su ${nOre(s.soglia)}`];
   if (s.soglia_corsi) parti.push(`di cui in corsi di aggiornamento ${nOre(s.corsi)} su ${nOre(s.soglia_corsi)}`);
   if (s.docenza_alternativa) parti.push(`docenza ${nOre(s.docenza)} ore su ${nOre(s.soglia)} (in alternativa)`);
+  if (s.ore_da_validare > 0) parti.push(`${nOre(s.ore_da_validare)} ore da validare per area tematica`);
   if (s.verifiche_soglia) parti.push(`verifiche di asseverazione ${s.verifiche} su ${s.verifiche_soglia}, ${nOre(s.verifiche_gu)} g/u su ${nOre(s.verifiche_gu_soglia)}`);
   return parti.join('; ');
 }

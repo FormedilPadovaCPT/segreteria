@@ -344,3 +344,26 @@ test('ogni polizza del contratto ha la sua spiegazione, e non si confondono', ()
   assert.equal(spiegaRequisito({ codice: 'agg_coordinatore' }), '');
   assert.equal(spiegaRequisito(null), '');
 });
+
+// (19/11/2026) FORMEDIL Italia, Prot_26-27_0165: le ore dei corsi da coordinatore valgono
+// per il formatore solo se pertinenti all'area tematica. Le righe segnate restano contate,
+// ma il conteggio dice quante sono da validare.
+test('formatore: le ore da validare per area tematica contano, e il dettaglio le dice', () => {
+  const righe = [att('2023-12-03'), { ...agg('2024-05-06', 3, 3), area_da_validare: true }, agg('2025-04-17', 4, 4)];
+  const s = statoConOre(FORMATORI, righe, '2026-11-19');
+  assert.equal(s.ore, 7);
+  assert.equal(s.ore_da_validare, 3);
+  assert.match(dettaglioOre(s), /3 ore da validare per area tematica/);
+});
+test('formatore: senza righe segnate il dettaglio non parla di validazione', () => {
+  const s = statoConOre(FORMATORI, [att('2023-12-03'), agg('2025-04-17', 4, 4)], '2026-11-19');
+  assert.equal(s.ore_da_validare, 0);
+  assert.doesNotMatch(dettaglioOre(s), /da validare/);
+});
+test('formatore: il recupero tardivo non conta due volte le ore (Prot_26-27_0165)', () => {
+  // triennio 2016-2019 senza ore, 24 ore nel 2020: vanno al triennio scaduto,
+  // il successivo (2019-2022) resta vuoto e scade il 17/01/2022
+  const s = statoConOre(FORMATORI, [att('2016-01-17'), agg('2020-03-01', 24, 8)], '2026-11-19');
+  assert.equal(s.classe, 'scaduto');
+  assert.equal(s.scadenza, '2022-01-17');
+});

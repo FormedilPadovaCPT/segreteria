@@ -238,7 +238,10 @@ export async function render() {
   const corpo = righe.map((t) => {
     const celle = requisiti.map((r) => {
       const s = statoCella(t, r);
-      return `<td class="dt-cella dt-${s.classe}" data-tec="${esc(t.tecnico_id || t.cf || '')}" data-req="${r.id}">${esc(s.testo)}</td>`;
+      /* (19/11/2026) ore del formatore contate ma da validare per area tematica */
+      const dv = s.ore_da_validare > 0
+        ? ` <span title="${esc(oreTesto(s.ore_da_validare))} ore del periodo vengono da corsi da validare per area tematica (FORMEDIL Italia, Prot_26-27_0165)">⚠</span>` : '';
+      return `<td class="dt-cella dt-${s.classe}" data-tec="${esc(t.tecnico_id || t.cf || '')}" data-req="${r.id}">${esc(s.testo)}${dv}</td>`;
     }).join('');
     return `<tr class="${t.storico ? 'dt-riga-storico' : ''}">
       <td class="dt-nome" data-tecnico="${esc(t.tecnico_id || t.cf || '')}">
@@ -377,6 +380,7 @@ function apriCella(chiaveTec, reqId) {
           : `${d.data_inizio ? dataIt(d.data_inizio) : '?'} → ${d.senza_scadenza ? 'senza scadenza' : d.data_fine ? dataIt(d.data_fine) : 'senza data'}`}</span>
       </div>
       ${d.tipo ? `<div class="dt-doc-riga">${esc(TIPI[d.tipo] || d.tipo)}${d.tipo === 'aggiornamento' && d.ore_di_corso != null ? ` · di cui in corsi di aggiornamento ${oreTesto(d.ore_di_corso)} ore` : ''}</div>` : ''}
+      ${d.area_da_validare ? `<div class="dt-doc-riga"><strong>⚠ Da validare per area tematica</strong>: le ore contano, ma vanno confermate (o ridotte alle sole ore pertinenti) dopo aver controllato programma e soggetto che l'ha organizzato. Con «Modifica» si toglie il segno.</div>` : ''}
       ${d.protocollo_txt ? `<div class="dt-doc-riga">Prot. ${esc(d.protocollo_txt)}</div>` : ''}
       ${d.disdetto_il ? `<div class="dt-doc-riga">Disdetto il ${dataIt(d.disdetto_il)}</div>` : ''}
       ${d.drive_url ? `<div class="dt-doc-riga"><a href="${esc(d.drive_url)}" target="_blank" rel="noopener">Apri su Drive</a></div>` : ''}
@@ -440,7 +444,9 @@ function disegnaForm(t, req, doc) {
     <div id="dtf-ore-box" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px">
       <div class="field"><label>Ore</label><input type="number" id="dtf-ore" min="0" step="0.5" value="${d.ore ?? ''}"></div>
       ${req.ore_soglia_corsi ? `<div class="field"><label>di cui in corsi di aggiornamento</label><input type="number" id="dtf-ore-corso" min="0" step="0.5" value="${d.ore_di_corso ?? ''}"></div>` : '<div></div>'}
-    </div>` : '';
+    </div>
+    ${req.verifica_area ? `<label class="dt-storici" id="dtf-area-box" style="margin-top:8px"><input type="checkbox" id="dtf-area" ${d.area_da_validare ? 'checked' : ''}> da validare per area tematica (programma e soggetto dell'art. 32 c. 4 non ancora controllati)</label>
+    <p class="hint" id="dtf-area-hint" style="margin:4px 0 0">Per FORMEDIL Italia (Prot_26-27_0165) un corso da coordinatore vale per il formatore solo se è nella sua area tematica e lo organizza un soggetto dell'art. 32 c. 4: si contano solo le ore pertinenti. Togli il segno quando l'hai controllato, correggendo le ore se serve.</p>` : ''}` : '';
   $('#dt-form').innerHTML = `
     ${bloccoOre}
     <div class="field" style="margin-top:8px"><label>Descrizione</label>
@@ -467,6 +473,10 @@ function disegnaForm(t, req, doc) {
     const aggiorn = tipo === 'aggiornamento' || tipo === 'docenza';
     $('#dtf-fine-box').style.display = aggiorn || tipo === 'attestato' || tipo === 'riconoscimento' ? 'none' : '';
     $('#dtf-ore-box').style.display = aggiorn ? '' : 'none';
+    if ($('#dtf-area-box')) {
+      $('#dtf-area-box').style.display = tipo === 'aggiornamento' ? '' : 'none';
+      $('#dtf-area-hint').style.display = tipo === 'aggiornamento' ? '' : 'none';
+    }
     $('#dtf-inizio-et').textContent = aggiorn ? 'Data del corso (fine corso)' : 'Data dell\'attestato';
     $('#dtf-tipo-hint').textContent = tipo === 'attestato'
       ? (req.periodo_mobile
@@ -508,6 +518,7 @@ function disegnaForm(t, req, doc) {
         ore: conOre ? Number($('#dtf-ore').value) : null,
         ore_di_corso: tipo === 'aggiornamento' && $('#dtf-ore-corso') && $('#dtf-ore-corso').value !== ''
           ? Number($('#dtf-ore-corso').value) : null,
+        ...($('#dtf-area') ? { area_da_validare: tipo === 'aggiornamento' && $('#dtf-area').checked } : {}),
       } : {}),
       protocollo_txt: $('#dtf-prot').value.trim() || null,
       disdetto_il: $('#dtf-disdetta')?.value || null,
