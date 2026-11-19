@@ -124,7 +124,20 @@ export function requisitoAOre(req) {
    corsi, docenza, soglia, soglia_corsi, manca, testo? }.
    `origine` = righe del requisito da cui parte il conteggio, se
    manca l'attestato proprio (es. il corso da 120 ore).            */
+/* (19/11/2026, decisione dell'utente) «valido da confermare»: per i tecnici
+   che lavorano come coordinatori e si sono sempre aggiornati il conto dava
+   «scaduto» o «titolo decaduto» solo perché in archivio mancano gli attestati
+   più vecchi. Una riga di tipo «da_confermare» sul requisito cambia come si
+   mostra quell'esito: il titolo vale, da confermare con gli attestati mancanti
+   (il tecnico li carica dal riquadro 🎓 o li manda all'ufficio). Il conto delle
+   ore non cambia; senza esito «scaduto» la riga non ha effetto. */
 export function statoConOre(req, suoi, oggi, origine = []) {
+  const s = statoConOreCalcolato(req, suoi, oggi, origine);
+  if (!s || s.classe !== 'scaduto' || !suoi.some((d) => d.tipo === 'da_confermare')) return s;
+  return { ...s, classe: 'senzadata', da_confermare: true, scaduto_il: s.scadenza, scadenza: null, testo: 'valido da confermare' };
+}
+
+function statoConOreCalcolato(req, suoi, oggi, origine = []) {
   if (!requisitoAOre(req)) return null;
   if (!suoi.some((d) => d.tipo)) return null;
 
@@ -325,6 +338,9 @@ function statoMobile(req, base, righe, oggi, { S, D, preavviso }) {
 /* Frase per l'etichetta e per l'avviso. `fmt` formatta la data
    (dataIt nell'app); nei test basta una funzione qualunque.        */
 export function dettaglioOre(s, fmt = (x) => x) {
+  if (s && s.da_confermare) {
+    return `valido da confermare: in archivio mancano attestati di aggiornamento (con quelli registrati il conto darebbe ${s.decaduto ? 'titolo decaduto' : 'scaduto'} dal ${fmt(s.scaduto_il)}); si caricano dal riquadro 🎓 Crediti formativi o si mandano all'ufficio, che li carica`;
+  }
   if (!s || !s.periodo) return '';
   const nOre = (x) => String(x).replace('.', ',');
   if (s.mobile) {

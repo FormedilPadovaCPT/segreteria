@@ -153,6 +153,7 @@ function apriInvio(id) {
       <option value="aggiornamento">Aggiornamento (ore di corso, seminario, convegno)</option>
       <option value="docenza">Docenza (ore tenute)</option>
       <option value="riconoscimento">Riconoscimento della qualifica</option>
+      <option value="da_confermare">Valido da confermare (attestati storici mancanti)</option>
     </select></div>
     <div class="field"><label>Titolo del corso</label><input id="dti-desc" value="${esc(i.descrizione)}"></div>
     <div class="field"><label>Data del documento</label><input type="date" id="dti-data" value="${esc(i.data_inizio)}"></div>
@@ -346,7 +347,7 @@ function trovaRiga(chiave) {
   return righeGriglia().find((t) => (t.tecnico_id || t.cf) === chiave);
 }
 
-const TIPI = { attestato: 'Attestato di base', aggiornamento: 'Aggiornamento (ore di corso, seminario, convegno)', docenza: 'Docenza (ore tenute)', riconoscimento: 'Riconoscimento della qualifica' };
+const TIPI = { attestato: 'Attestato di base', aggiornamento: 'Aggiornamento (ore di corso, seminario, convegno)', docenza: 'Docenza (ore tenute)', riconoscimento: 'Riconoscimento della qualifica', da_confermare: 'Valido da confermare (attestati storici mancanti)' };
 const oreTesto = (x) => (x == null || x === '' ? '?' : String(Number(x)).replace('.', ','));
 
 /* (18/11/2026) le verifiche di asseverazione del tecnico, dall'app asseverazione */
@@ -431,7 +432,7 @@ function disegnaForm(t, req, doc) {
   const haBase = documenti.some((x) => x.requisito_id === req.id && x.tipo === 'attestato' &&
     (t.tecnico_id ? x.tecnico_id === t.tecnico_id : x.cf === t.cf));
   const tipoIniziale = d.tipo || (aOre ? (haBase ? 'aggiornamento' : 'attestato') : '');
-  const tipiAmmessi = ['attestato', 'aggiornamento', ...(req.docenza_alternativa ? ['docenza'] : []), ...(req.affiancamento_giorni_soglia || d.tipo === 'riconoscimento' ? ['riconoscimento'] : [])];
+  const tipiAmmessi = ['attestato', 'aggiornamento', ...(req.docenza_alternativa ? ['docenza'] : []), ...(req.affiancamento_giorni_soglia || d.tipo === 'riconoscimento' ? ['riconoscimento'] : []), ...(req.periodo_mobile || d.tipo === 'da_confermare' ? ['da_confermare'] : [])];
   const bloccoOre = aOre ? `
     <div class="field"><label>Che cosa registri</label>
       <select id="dtf-tipo">
@@ -439,6 +440,7 @@ function disegnaForm(t, req, doc) {
         <option value="aggiornamento">Aggiornamento (ore di corso, seminario, convegno)</option>
         <option value="docenza">Docenza (ore tenute)</option>
         <option value="riconoscimento">Riconoscimento della qualifica</option>
+        <option value="da_confermare">Valido da confermare (attestati storici mancanti)</option>
       </select></div>
     <p class="hint" id="dtf-tipo-hint" style="margin:6px 0 0"></p>
     <div id="dtf-ore-box" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px">
@@ -471,17 +473,19 @@ function disegnaForm(t, req, doc) {
     if (!aOre) return;
     const tipo = $('#dtf-tipo').value;
     const aggiorn = tipo === 'aggiornamento' || tipo === 'docenza';
-    $('#dtf-fine-box').style.display = aggiorn || tipo === 'attestato' || tipo === 'riconoscimento' ? 'none' : '';
+    $('#dtf-fine-box').style.display = aggiorn || tipo === 'attestato' || tipo === 'riconoscimento' || tipo === 'da_confermare' ? 'none' : '';
     $('#dtf-ore-box').style.display = aggiorn ? '' : 'none';
     if ($('#dtf-area-box')) {
       $('#dtf-area-box').style.display = tipo === 'aggiornamento' ? '' : 'none';
       $('#dtf-area-hint').style.display = tipo === 'aggiornamento' ? '' : 'none';
     }
-    $('#dtf-inizio-et').textContent = aggiorn ? 'Data del corso (fine corso)' : 'Data dell\'attestato';
+    $('#dtf-inizio-et').textContent = aggiorn ? 'Data del corso (fine corso)' : tipo === 'da_confermare' ? 'Data della decisione' : 'Data dell\'attestato';
     $('#dtf-tipo-hint').textContent = tipo === 'attestato'
       ? (req.periodo_mobile
         ? `Data di fine del corso abilitante. Per ${Math.round(req.durata_mesi / 12)} anni non servono ore; poi a ogni data servono ${req.ore_soglia} ore negli ultimi ${Math.round(req.durata_mesi / 12)} anni. La scadenza la calcola l'app.`
         : `Da qui partono i periodi di ${Math.round(req.durata_mesi / 12)} anni. La scadenza la calcola l'app dalle ore degli aggiornamenti: non serve la fine validità.`)
+      : tipo === 'da_confermare'
+        ? 'Per chi lavora come coordinatore e si è sempre aggiornato, ma in archivio mancano gli attestati più vecchi: se il conto dà «scaduto» o «titolo decaduto», l’app mostra invece «valido da confermare». Le ore non cambiano. Data = oggi; nella nota scrivi chi l’ha deciso. Quando arrivano gli attestati, registrali ed elimina questa riga.'
       : tipo === 'riconoscimento'
         ? `Qualifica già riconosciuta (per esempio affiancamenti ritenuti validi da FORMEDIL Italia): scrivi nella nota la fonte. Con questa riga i ${req.affiancamento_giorni_soglia || ''} giorni di affiancamento non si contano più.`
         : tipo === 'docenza'
@@ -494,6 +498,8 @@ function disegnaForm(t, req, doc) {
     if (!tipiAmmessi.includes('docenza')) optDoc.remove();
     const optRic = $('#dtf-tipo').querySelector('option[value="riconoscimento"]');
     if (!tipiAmmessi.includes('riconoscimento')) optRic.remove();
+    const optConf = $('#dtf-tipo').querySelector('option[value="da_confermare"]');
+    if (!tipiAmmessi.includes('da_confermare')) optConf.remove();
     $('#dtf-tipo').value = tipoIniziale;
   }
   $('#dtf-tipo')?.addEventListener('change', adattaTipo);

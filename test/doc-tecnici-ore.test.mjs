@@ -367,3 +367,24 @@ test('formatore: il recupero tardivo non conta due volte le ore (Prot_26-27_0165
   assert.equal(s.classe, 'scaduto');
   assert.equal(s.scadenza, '2022-01-17');
 });
+
+// (19/11/2026) coordinatore «valido da confermare»: con la riga da_confermare un esito
+// «scaduto/decaduto» si mostra come valido da confermare; senza, il conto resta com'era.
+test('coordinatore: senza aggiornamenti 2008-2018 decade, ma con la riga «da confermare» è valido da confermare', () => {
+  const base = [agg('2023-03-29', 2), agg('2024-11-29', 6)];
+  const orig = [{ data_inizio: '2005-01-31' }];
+  const C = { ...COORD, aggiornamento_dal: '2008-05-15' };
+  const s = statoConOre(C, base, '2026-11-19', orig);
+  assert.equal(s.classe, 'scaduto');
+  const c = statoConOre(C, [...base, { tipo: 'da_confermare', data_inizio: '2026-11-19' }], '2026-11-19', orig);
+  assert.equal(c.classe, 'senzadata');
+  assert.equal(c.da_confermare, true);
+  assert.equal(c.scaduto_il, s.scadenza);
+  assert.equal(c.testo, 'valido da confermare');
+  assert.match(dettaglioOre(c), /valido da confermare/);
+});
+test('la riga «da confermare» non tocca un requisito in regola', () => {
+  const r = [agg('2024-01-10', 20), agg('2025-01-10', 20), { tipo: 'da_confermare', data_inizio: '2026-11-19' }];
+  const s = statoConOre(COORD, r, '2026-11-19', [{ data_inizio: '2015-01-31' }]);
+  assert.notEqual(s.da_confermare, true);
+});
